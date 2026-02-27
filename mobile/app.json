@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Cannon",
+    "slug": "cannon-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0D0D0D"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cannon.mobile"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0D0D0D"
+      },
+      "package": "com.cannon.mobile"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Cannon to access your camera for face scans."
+        }
+      ],
+      "expo-video",
+      "expo-audio",
+      "expo-font"
+    ],
+    "scheme": "cannon",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ]
+  }
+}
