@@ -85,9 +85,9 @@ export default function AdminSupportScreen() {
                 onPress={handleSend}
                 disabled={sending}
             >
-                {sending ? <ActivityIndicator color="#FFF" /> : (
+                {sending ? <ActivityIndicator color={colors.buttonText} /> : (
                     <>
-                        <Ionicons name="send" size={20} color="#FFF" />
+                        <Ionicons name="send" size={20} color={colors.buttonText} />
                         <Text style={styles.sendBtnText}>{isBroadcast ? 'Broadcast to All' : 'Send to User'}</Text>
                     </>
                 )}
@@ -99,18 +99,18 @@ export default function AdminSupportScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     content: { padding: spacing.lg },
-    title: { ...typography.h1, color: '#FFFFFF' },
+    title: { ...typography.h1, color: colors.textPrimary },
     subtitle: { ...typography.body, color: colors.textMuted, marginBottom: spacing.xl },
     typeSelector: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: 4, marginBottom: spacing.xl },
     typeBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
-    activeType: { backgroundColor: colors.primary },
+    activeType: { backgroundColor: colors.accent },
     typeText: { color: colors.textMuted, fontWeight: '600' },
-    activeTypeText: { color: '#FFFFFF' },
+    activeTypeText: { color: colors.buttonText },
     inputGroup: { marginBottom: spacing.lg },
-    label: { color: '#FFFFFF', marginBottom: 8, fontWeight: '600' },
-    input: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, color: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+    label: { color: colors.textPrimary, marginBottom: 8, fontWeight: '600' },
+    input: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, color: colors.textPrimary, borderWidth: 1, borderColor: colors.border },
     textArea: { height: 120, textAlignVertical: 'top' },
     sendBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, height: 54, borderRadius: borderRadius.md, gap: 10, marginTop: spacing.md },
-    sendBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' },
+    sendBtnText: { color: colors.buttonText, fontSize: 16, fontWeight: 'bold' },
     disabledBtn: { opacity: 0.5 },
 });

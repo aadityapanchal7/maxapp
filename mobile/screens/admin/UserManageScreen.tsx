@@ -33,8 +33,8 @@ export default function UserManageScreen({ navigation }: any) {
             <View style={styles.userInfo}>
                 <Text style={styles.userEmail}>{item.email}</Text>
                 <View style={styles.tagRow}>
-                    {item.is_admin && <View style={[styles.tag, { backgroundColor: colors.primary }]}><Text style={styles.tagText}>ADMIN</Text></View>}
-                    {item.is_paid && <View style={[styles.tag, { backgroundColor: '#FFD700' }]}><Text style={[styles.tagText, { color: '#000' }]}>PAID</Text></View>}
+                    {item.is_admin && <View style={[styles.tag, { backgroundColor: colors.accent }]}><Text style={styles.tagText}>ADMIN</Text></View>}
+                    {item.is_paid && <View style={[styles.tag, { backgroundColor: colors.accent }]}><Text style={styles.tagText}>PAID</Text></View>}
                     <Text style={styles.dateText}>Joined {new Date(item.created_at).toLocaleDateString()}</Text>
                 </View>
             </View>
@@ -61,7 +61,7 @@ export default function UserManageScreen({ navigation }: any) {
             </View>
 
             {loading ? (
-                <View style={styles.center}><ActivityIndicator color={colors.primaryLight} /></View>
+                <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
             ) : (
                 <FlatList
                     data={users}
@@ -78,16 +78,16 @@ export default function UserManageScreen({ navigation }: any) {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: { padding: spacing.md, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)' },
-    title: { ...typography.h2, color: '#FFFFFF', marginBottom: spacing.md },
+    title: { ...typography.h2, color: colors.textPrimary, marginBottom: spacing.md },
     searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: borderRadius.md, paddingHorizontal: spacing.sm, height: 40 },
-    input: { flex: 1, color: '#FFFFFF', marginLeft: spacing.sm },
+    input: { flex: 1, color: colors.textPrimary, marginLeft: spacing.sm },
     list: { padding: spacing.md },
     userCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
     userInfo: { flex: 1 },
-    userEmail: { ...typography.body, fontWeight: '600', color: '#FFFFFF' },
+    userEmail: { ...typography.body, fontWeight: '600', color: colors.textPrimary },
     tagRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 },
     tag: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-    tagText: { fontSize: 10, fontWeight: 'bold', color: '#FFF' },
+    tagText: { fontSize: 10, fontWeight: 'bold', color: colors.buttonText },
     dateText: { fontSize: 11, color: colors.textMuted },
     actionBtn: { padding: 8 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },

@@ -1,10 +1,5 @@
-/**
- * Home Screen - Main dashboard
- */
-
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Linking } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -17,278 +12,129 @@ export default function HomeScreen() {
     const [progress, setProgress] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
-    useFocusEffect(
-        React.useCallback(() => {
-            loadData();
-        }, [])
-    );
+    useFocusEffect(React.useCallback(() => { loadData(); }, []));
 
     const loadData = async () => {
-        try {
-            const progressRes = await api.getCourseProgress();
-            setProgress(progressRes.progress || []);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
+        try { const progressRes = await api.getCourseProgress(); setProgress(progressRes.progress || []); }
+        catch (error) { console.error(error); }
+        finally { setLoading(false); }
     };
 
-    const openTikTok = (link: string) => {
-        Linking.openURL(link);
-    };
+    const userName = user?.email?.split('@')[0] || 'Champion';
 
     return (
-        <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.container}>
+        <View style={styles.container}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-
-                {/* Header Section - Separated from content */}
                 <View style={styles.headerSection}>
                     <View style={styles.headerContent}>
                         <View>
-                            <Text style={styles.greeting}>Welcome back</Text>
-                            <Text style={styles.userName}>{user?.email?.split('@')[0] || 'Champion'}</Text>
+                            <Text style={styles.greeting}>Welcome back,</Text>
+                            <Text style={styles.userName}>{userName}</Text>
                         </View>
-                        <TouchableOpacity
-                            style={styles.profileButton}
-                            onPress={() => navigation.navigate('Profile')}
-                            activeOpacity={0.8}
-                        >
+                        <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.8}>
                             <View style={styles.profileIconContainer}>
-                                <Ionicons name="person" size={28} color={colors.primary} />
+                                <Text style={styles.profileInitial}>{userName.charAt(0).toUpperCase()}</Text>
                             </View>
                         </TouchableOpacity>
                     </View>
                 </View>
 
-                {/* Main Card - Courses Only */}
-                <View style={[styles.mainCard, { marginTop: spacing.md }]}>
+                <View style={styles.section}>
                     <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>My Courses</Text>
-                        <Text style={styles.sectionSubtitle}>
-                            {progress.length} courses in progress
-                        </Text>
+                        <Text style={styles.sectionBadge}>{progress.length}</Text>
                     </View>
 
-                    {/* Course Progress Items */}
                     {progress.map((p, i) => (
-                        <TouchableOpacity
-                            key={i}
-                            style={styles.courseItem}
-                            onPress={() => navigation.navigate('CourseDetail', { courseId: p.course_id })}
-                            activeOpacity={0.8}
-                        >
-                            <View style={styles.courseIconBox}>
-                                <Ionicons
-                                    name={i % 2 === 0 ? "book" : "water"}
-                                    size={20}
-                                    color={colors.primaryLight}
-                                />
-                            </View>
-                            <View style={styles.courseContent}>
-                                <View style={styles.courseTextRow}>
-                                    <Text style={styles.courseTitle} numberOfLines={1}>
-                                        {p.course_title || 'Course'}
-                                    </Text>
-                                    <Text style={styles.coursePercent}>{Math.round(p.progress_percentage)}%</Text>
+                        <TouchableOpacity key={i} style={styles.courseCard} onPress={() => navigation.navigate('CourseDetail', { courseId: p.course_id })} activeOpacity={0.8}>
+                            <View style={styles.courseRow}>
+                                <View style={styles.courseIconBox}>
+                                    <Ionicons name={i % 2 === 0 ? "book-outline" : "water-outline"} size={18} color={colors.accent} />
                                 </View>
-                                <View style={styles.progressBarSmall}>
-                                    <View style={[styles.progressFillSmall, { width: `${p.progress_percentage}%` }]} />
+                                <View style={styles.courseContent}>
+                                    <Text style={styles.courseTitle} numberOfLines={1}>{p.course_title || 'Course'}</Text>
+                                    <View style={styles.progressRow}>
+                                        <View style={styles.progressBar}>
+                                            <View style={[styles.progressFill, { width: `${p.progress_percentage}%` }]} />
+                                        </View>
+                                        <Text style={styles.coursePercent}>{Math.round(p.progress_percentage)}%</Text>
+                                    </View>
                                 </View>
-                                <View style={styles.continueRow}>
-                                    <Text style={styles.continueText}>Continue</Text>
-                                    <Ionicons name="arrow-forward" size={14} color="rgba(255,255,255,0.6)" />
-                                </View>
+                                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                             </View>
                         </TouchableOpacity>
                     ))}
 
-                    {/* Empty state for courses if none */}
                     {progress.length === 0 && (
-                        <TouchableOpacity
-                            style={styles.courseItem}
-                            onPress={() => navigation.navigate('CourseList')}
-                            activeOpacity={0.8}
-                        >
-                            <View style={styles.courseIconBox}>
-                                <Ionicons name="book" size={20} color={colors.primaryLight} />
-                            </View>
-                            <View style={styles.courseContent}>
-                                <Text style={styles.courseTitle}>No courses started</Text>
-                                <Text style={styles.sectionSubtitle}>Tap to browse courses</Text>
+                        <TouchableOpacity style={styles.emptyCard} onPress={() => navigation.navigate('CourseList')} activeOpacity={0.8}>
+                            <Ionicons name="book-outline" size={32} color={colors.accent} />
+                            <Text style={styles.emptyTitle}>No courses yet</Text>
+                            <Text style={styles.emptyDesc}>Start your first course to begin your journey</Text>
+                            <View style={styles.emptyButton}>
+                                <Text style={styles.emptyButtonText}>Browse Courses</Text>
                             </View>
                         </TouchableOpacity>
                     )}
-
-                    {/* Start another course button */}
-                    <TouchableOpacity
-                        style={styles.addCourseButton}
-                        onPress={() => navigation.navigate('CourseList')}
-                        activeOpacity={0.7}
-                    >
-                        <Ionicons name="add" size={18} color="rgba(255,255,255,0.7)" />
-                        <Text style={styles.addCourseText}>Start another course</Text>
-                    </TouchableOpacity>
                 </View>
-
             </ScrollView>
-        </LinearGradient>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingBottom: spacing.xl,
-    },
-
-    // Header Section
-    headerSection: {
-        paddingHorizontal: spacing.lg,
-        paddingTop: 56,
-        paddingBottom: spacing.lg,
-    },
-    headerContent: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    greeting: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.6)',
-        marginBottom: 4,
-        fontFamily: 'Matter-Regular',
-    },
-    userName: {
-        fontSize: 26,
-        fontWeight: '600',
-        color: '#FFFFFF',
-        fontFamily: 'Matter-Medium',
-    },
-    profileButton: {
-        padding: 4,
-    },
+    container: { flex: 1, backgroundColor: colors.background },
+    scrollContent: { paddingBottom: spacing.xxl },
+    headerSection: { paddingHorizontal: spacing.lg, paddingTop: 56, paddingBottom: spacing.md },
+    headerContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    greeting: { fontSize: 13, color: colors.textMuted, marginBottom: 2, letterSpacing: 0.3 },
+    userName: { fontSize: 24, fontWeight: '700', color: colors.textPrimary, letterSpacing: -0.3 },
+    profileButton: { padding: 2 },
     profileIconContainer: {
-        width: 52,
-        height: 52,
-        borderRadius: 26,
-        backgroundColor: '#FFFFFF',
-        alignItems: 'center',
-        justifyContent: 'center',
-        ...shadows.md,
+        width: 44, height: 44, borderRadius: 22,
+        backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center',
     },
-
-    // Main Card
-    mainCard: {
-        marginHorizontal: spacing.lg,
-        marginBottom: spacing.lg,
-        backgroundColor: 'rgba(255,255,255,0.08)',
-        borderRadius: borderRadius.xl,
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.12)',
-        overflow: 'hidden',
+    profileInitial: { fontSize: 18, fontWeight: '700', color: colors.buttonText },
+    section: { paddingHorizontal: spacing.lg, marginTop: spacing.sm },
+    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+    sectionTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
+    sectionBadge: {
+        fontSize: 11, fontWeight: '700', color: colors.accent,
+        backgroundColor: colors.accentMuted,
+        paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
     },
-
-    sectionHeader: {
+    courseCard: {
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.md,
         padding: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.08)',
+        marginBottom: spacing.sm,
+        ...shadows.sm,
     },
-
-    sectionTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#FFFFFF',
-        fontFamily: 'Matter-Medium',
-    },
-    sectionSubtitle: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.5)',
-        marginTop: 2,
-        fontFamily: 'Matter-Regular',
-    },
-
-    // Course Items
-    courseItem: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        padding: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.08)',
-        gap: spacing.sm,
-    },
+    courseRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     courseIconBox: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        backgroundColor: 'rgba(139, 92, 246, 0.15)',
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: 38, height: 38, borderRadius: borderRadius.sm,
+        backgroundColor: colors.accentMuted,
+        alignItems: 'center', justifyContent: 'center',
     },
-    courseContent: {
-        flex: 1,
-    },
-    courseTextRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    courseTitle: {
-        fontSize: 15,
-        fontWeight: '500',
-        color: '#FFFFFF',
-        flex: 1,
-        marginRight: spacing.sm,
-        fontFamily: 'Matter-Medium',
-    },
-    coursePercent: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.7)',
-        fontFamily: 'Matter-Medium',
-    },
-    progressBarSmall: {
-        height: 4,
-        backgroundColor: 'rgba(255,255,255,0.15)',
-        borderRadius: 2,
-        marginBottom: 8,
-        overflow: 'hidden',
-    },
-    progressFillSmall: {
-        height: '100%',
-        backgroundColor: colors.primaryLight,
-        borderRadius: 2,
-    },
-    continueRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-    },
-    continueText: {
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.6)',
-        fontFamily: 'Matter-Regular',
-    },
-
-    // Add Course Button
-    addCourseButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: spacing.md,
-        margin: spacing.md,
-        borderWidth: 1.5,
-        borderColor: 'rgba(255,255,255,0.2)',
+    courseContent: { flex: 1 },
+    courseTitle: { fontSize: 14, fontWeight: '600', color: colors.textPrimary, marginBottom: 6 },
+    progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    progressBar: { flex: 1, height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: colors.accent, borderRadius: 2 },
+    coursePercent: { fontSize: 12, fontWeight: '600', color: colors.textMuted, width: 32, textAlign: 'right' },
+    emptyCard: {
+        backgroundColor: colors.card,
         borderRadius: borderRadius.lg,
-        borderStyle: 'dashed',
-        gap: spacing.xs,
+        padding: spacing.xl,
+        alignItems: 'center',
+        ...shadows.sm,
     },
-    addCourseText: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.7)',
-        fontFamily: 'Matter-Medium',
+    emptyTitle: { fontSize: 16, fontWeight: '600', color: colors.textPrimary, marginTop: spacing.md },
+    emptyDesc: { fontSize: 13, color: colors.textMuted, textAlign: 'center', marginTop: spacing.xs, marginBottom: spacing.md },
+    emptyButton: {
+        backgroundColor: colors.accentMuted,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm,
+        borderRadius: borderRadius.sm,
     },
+    emptyButtonText: { fontSize: 13, fontWeight: '600', color: colors.accent },
 });

@@ -1,13 +1,8 @@
-/**
- * Login Screen
- */
-
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
 export default function LoginScreen() {
     const navigation = useNavigation<any>();
@@ -21,7 +16,6 @@ export default function LoginScreen() {
             Alert.alert('Error', 'Please fill in all fields');
             return;
         }
-
         setLoading(true);
         try {
             await login(email, password);
@@ -33,106 +27,118 @@ export default function LoginScreen() {
     };
 
     return (
-        <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.container}>
+        <View style={styles.container}>
             <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
                 <View style={styles.content}>
-                    <Text style={styles.logo}>CANNON</Text>
-                    <Text style={styles.subtitle}>Your Lookmaxxing Journey Starts Here</Text>
+                    <View style={styles.header}>
+                        <Text style={styles.logo}>CANNON</Text>
+                        <View style={styles.accentLine} />
+                        <Text style={styles.subtitle}>Your Lookmaxxing Journey Starts Here</Text>
+                    </View>
 
                     <View style={styles.form}>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Email"
-                            placeholderTextColor="rgba(255,255,255,0.5)"
-                            value={email}
-                            onChangeText={setEmail}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                        />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Password"
-                            placeholderTextColor="rgba(255,255,255,0.5)"
-                            value={password}
-                            onChangeText={setPassword}
-                            secureTextEntry
-                        />
+                        <View style={styles.inputContainer}>
+                            <Text style={styles.label}>Email</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="you@example.com"
+                                placeholderTextColor={colors.textMuted}
+                                value={email}
+                                onChangeText={setEmail}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                            />
+                        </View>
+                        <View style={styles.inputContainer}>
+                            <Text style={styles.label}>Password</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Enter your password"
+                                placeholderTextColor={colors.textMuted}
+                                value={password}
+                                onChangeText={setPassword}
+                                secureTextEntry
+                            />
+                        </View>
 
-                        <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-                            <Text style={styles.buttonText}>{loading ? 'Logging in...' : 'Login'}</Text>
+                        <TouchableOpacity
+                            style={[styles.button, loading && styles.buttonDisabled]}
+                            onPress={handleLogin}
+                            disabled={loading}
+                            activeOpacity={0.85}
+                        >
+                            <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
                         </TouchableOpacity>
                     </View>
 
-                    <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
+                    <TouchableOpacity onPress={() => navigation.navigate('Signup')} activeOpacity={0.7}>
                         <Text style={styles.linkText}>
-                            Don't have an account? <Text style={styles.linkHighlight}>Sign Up</Text>
+                            New here?  <Text style={styles.linkHighlight}>Create an account</Text>
                         </Text>
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
-        </LinearGradient>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    keyboardView: {
-        flex: 1,
-    },
-    content: {
-        flex: 1,
-        justifyContent: 'center',
-        paddingHorizontal: spacing.lg,
-    },
+    container: { flex: 1, backgroundColor: colors.background },
+    keyboardView: { flex: 1 },
+    content: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.xl },
+    header: { alignItems: 'center', marginBottom: spacing.xxl },
     logo: {
-        fontSize: 48,
-        fontFamily: 'Matter-Medium',
-        fontWeight: '500',
-        color: '#FFFFFF',
-        textAlign: 'center',
-        letterSpacing: 8,
+        fontSize: 42,
+        fontWeight: '700',
+        color: colors.textPrimary,
+        letterSpacing: 10,
+    },
+    accentLine: {
+        width: 36,
+        height: 3,
+        backgroundColor: colors.accent,
+        borderRadius: 2,
+        marginTop: spacing.md,
+        marginBottom: spacing.md,
     },
     subtitle: {
         ...typography.bodySmall,
         textAlign: 'center',
-        marginTop: spacing.sm,
-        marginBottom: spacing.xxl,
-        color: 'rgba(255,255,255,0.7)',
+        letterSpacing: 0.5,
     },
-    form: {
-        gap: spacing.md,
+    form: { gap: spacing.md },
+    inputContainer: { gap: spacing.xs },
+    label: {
+        ...typography.caption,
+        textTransform: 'uppercase',
+        letterSpacing: 1.2,
+        marginLeft: spacing.xs,
+        color: colors.textSecondary,
     },
     input: {
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: colors.surface,
         borderRadius: borderRadius.md,
-        padding: spacing.md,
-        color: '#FFFFFF',
-        fontSize: 16,
+        paddingVertical: 14,
+        paddingHorizontal: spacing.md,
+        color: colors.textPrimary,
+        fontSize: 15,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: colors.border,
     },
     button: {
-        backgroundColor: '#FFFFFF',
+        backgroundColor: colors.primary,
         borderRadius: borderRadius.md,
-        padding: spacing.md,
+        paddingVertical: 16,
         alignItems: 'center',
         marginTop: spacing.sm,
+        ...shadows.md,
     },
-    buttonText: {
-        ...typography.button,
-        color: '#000000',
-    },
+    buttonDisabled: { opacity: 0.6 },
+    buttonText: { ...typography.button },
     linkText: {
         ...typography.bodySmall,
         textAlign: 'center',
         marginTop: spacing.xl,
-        color: 'rgba(255,255,255,0.7)',
     },
-    linkHighlight: {
-        color: '#FFFFFF',
-        fontWeight: '600',
-    },
+    linkHighlight: { color: colors.accent, fontWeight: '600' },
 });
-

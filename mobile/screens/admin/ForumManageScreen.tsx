@@ -51,7 +51,7 @@ export default function ForumManageScreen() {
                 <Text style={styles.desc} numberOfLines={1}>{item.description}</Text>
                 {item.is_admin_only && (
                     <View style={styles.adminBadge}>
-                        <Ionicons name="shield-checkmark" size={12} color={colors.primaryLight} />
+                        <Ionicons name="shield-checkmark" size={12} color={colors.accent} />
                         <Text style={styles.adminText}>Admin Only</Text>
                     </View>
                 )}
@@ -69,13 +69,13 @@ export default function ForumManageScreen() {
             <View style={styles.header}>
                 <Text style={styles.title}>Manage Forums</Text>
                 <TouchableOpacity style={styles.createBtn}>
-                    <Ionicons name="add" size={20} color="#FFF" />
+                    <Ionicons name="add" size={20} color={colors.buttonText} />
                     <Text style={styles.createBtnText}>New Channel</Text>
                 </TouchableOpacity>
             </View>
 
             {loading ? (
-                <View style={styles.center}><ActivityIndicator color={colors.primaryLight} /></View>
+                <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
             ) : (
                 <FlatList
                     data={channels}
@@ -91,16 +91,16 @@ export default function ForumManageScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: { padding: spacing.md, backgroundColor: colors.surface, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    title: { ...typography.h2, color: '#FFFFFF' },
+    title: { ...typography.h2, color: colors.textPrimary },
     createBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, paddingHorizontal: 12, paddingVertical: 6, borderRadius: borderRadius.md },
-    createBtnText: { color: '#FFF', fontWeight: '600', marginLeft: 4 },
+    createBtnText: { color: colors.buttonText, fontWeight: '600', marginLeft: 4 },
     list: { padding: spacing.md },
     card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.sm },
     info: { flex: 1 },
-    name: { ...typography.body, fontWeight: 'bold', color: '#FFFFFF' },
+    name: { ...typography.body, fontWeight: 'bold', color: colors.textPrimary },
     desc: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
     adminBadge: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 4 },
-    adminText: { fontSize: 10, color: colors.primaryLight, fontWeight: 'bold' },
+    adminText: { fontSize: 10, color: colors.accent, fontWeight: 'bold' },
     actions: { flexDirection: 'row', gap: 8 },
     btn: { padding: 8 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },

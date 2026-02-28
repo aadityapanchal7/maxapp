@@ -3,13 +3,9 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
-import * as SecureStore from 'expo-secure-store';
+import { getItemAsync, setItemAsync, deleteItemAsync } from './storage';
 
-// Use your computer's IP address for physical devices or emulators
-// For Android Emulator: http://10.0.2.2:8000/api
-// For iOS Simulator: http://localhost:8000/api  
-// For physical devices (Expo Go): Use your computer's local IP
-const API_BASE_URL = 'https://dalila-monocled-tatyana.ngrok-free.dev/api/';
+const API_BASE_URL = 'http://localhost:8000/api/';
 
 class ApiService {
     private client: AxiosInstance;
@@ -57,11 +53,11 @@ class ApiService {
 
     private async getToken(): Promise<string | null> {
         if (this.accessToken) return this.accessToken;
-        return await SecureStore.getItemAsync('access_token');
+        return await getItemAsync('access_token');
     }
 
     private async refreshToken(): Promise<void> {
-        const refreshToken = await SecureStore.getItemAsync('refresh_token');
+        const refreshToken = await getItemAsync('refresh_token');
         if (!refreshToken) throw new Error('No refresh token');
 
         const response = await axios.post(`${API_BASE_URL}auth/refresh`, { refresh_token: refreshToken });
@@ -70,14 +66,14 @@ class ApiService {
 
     async setTokens(accessToken: string, refreshToken: string): Promise<void> {
         this.accessToken = accessToken;
-        await SecureStore.setItemAsync('access_token', accessToken);
-        await SecureStore.setItemAsync('refresh_token', refreshToken);
+        await setItemAsync('access_token', accessToken);
+        await setItemAsync('refresh_token', refreshToken);
     }
 
     async clearTokens(): Promise<void> {
         this.accessToken = null;
-        await SecureStore.deleteItemAsync('access_token');
-        await SecureStore.deleteItemAsync('refresh_token');
+        await deleteItemAsync('access_token');
+        await deleteItemAsync('refresh_token');
     }
 
     // Auth
@@ -134,6 +130,15 @@ class ApiService {
             name: 'scan.mp4',
         });
 
+        const response = await this.client.post('scans/upload-video', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        return response.data;
+    }
+
+    async uploadScanVideoBlob(blob: Blob) {
+        const formData = new FormData();
+        formData.append('video', blob, 'scan.webm');
         const response = await this.client.post('scans/upload-video', formData, {
             headers: { 'Content-Type': 'multipart/form-data' },
         });

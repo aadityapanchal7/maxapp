@@ -3,7 +3,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import * as SecureStore from 'expo-secure-store';
+import { getItemAsync } from '../services/storage';
 import api from '../services/api';
 
 interface User {
@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const checkAuth = async () => {
         try {
-            const token = await SecureStore.getItemAsync('access_token');
+            const token = await getItemAsync('access_token');
             if (token) {
                 const userData = await api.getMe();
                 setUser(userData);

@@ -43,7 +43,7 @@ export default function LeaderboardManageScreen() {
             </View>
 
             {loading ? (
-                <View style={styles.center}><ActivityIndicator color={colors.primaryLight} /></View>
+                <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
             ) : (
                 <FlatList
                     data={rankings}
@@ -59,12 +59,12 @@ export default function LeaderboardManageScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: { padding: spacing.md, backgroundColor: colors.surface },
-    title: { ...typography.h2, color: '#FFFFFF' },
+    title: { ...typography.h2, color: colors.textPrimary },
     list: { padding: spacing.md },
     card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.sm },
-    rank: { ...typography.h2, color: colors.primaryLight, width: 40 },
+    rank: { ...typography.h2, color: colors.accent, width: 40 },
     info: { flex: 1 },
-    email: { ...typography.body, fontWeight: 'bold', color: '#FFFFFF' },
+    email: { ...typography.body, fontWeight: 'bold', color: colors.textPrimary },
     score: { fontSize: 12, color: colors.textMuted },
     stats: { alignItems: 'flex-end' },
     statText: { fontSize: 10, color: colors.textSecondary },

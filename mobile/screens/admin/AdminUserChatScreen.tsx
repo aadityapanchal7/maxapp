@@ -76,7 +76,7 @@ export default function AdminUserChatScreen({ route, navigation }: any) {
             >
                 <View style={styles.header}>
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-                        <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+                        <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
                     </TouchableOpacity>
                     <View style={styles.headerInfo}>
                         <Text style={styles.title} numberOfLines={1}>{userEmail}</Text>
@@ -86,7 +86,7 @@ export default function AdminUserChatScreen({ route, navigation }: any) {
 
                 {initialLoading ? (
                     <View style={styles.center}>
-                        <ActivityIndicator color={colors.primaryLight} />
+                        <ActivityIndicator color={colors.accent} />
                     </View>
                 ) : messages.length === 0 ? (
                     <View style={styles.center}>
@@ -122,9 +122,9 @@ export default function AdminUserChatScreen({ route, navigation }: any) {
                         disabled={!input.trim() || loading}
                     >
                         {loading ? (
-                            <ActivityIndicator size="small" color="#000000" />
+                            <ActivityIndicator size="small" color={colors.buttonText} />
                         ) : (
-                            <Ionicons name="send" size={22} color="#000000" />
+                            <Ionicons name="send" size={22} color={colors.buttonText} />
                         )}
                     </TouchableOpacity>
                 </View>
@@ -147,8 +147,8 @@ const styles = StyleSheet.create({
     },
     backBtn: { padding: 8, marginRight: 8 },
     headerInfo: { flex: 1 },
-    title: { ...typography.h2, color: '#FFFFFF', fontSize: 18 },
-    subtitle: { ...typography.caption, color: colors.primaryLight, fontWeight: '600' },
+    title: { ...typography.h2, color: colors.textPrimary, fontSize: 18 },
+    subtitle: { ...typography.caption, color: colors.accent, fontWeight: '600' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
     emptyText: { ...typography.body, color: colors.textMuted, marginTop: spacing.md },
     emptySubtext: { ...typography.caption, color: colors.textMuted, marginTop: 4, textAlign: 'center' },
@@ -161,14 +161,14 @@ const styles = StyleSheet.create({
     },
     userBubble: {
         alignSelf: 'flex-start',
-        backgroundColor: 'rgba(255,255,255,0.12)',
+        backgroundColor: colors.accentMuted,
     },
     adminBubble: {
         alignSelf: 'flex-end',
-        backgroundColor: '#FFFFFF',
+        backgroundColor: colors.surface,
     },
-    messageText: { ...typography.body, color: '#FFFFFF' },
-    adminMessageText: { color: '#000000' },
+    messageText: { ...typography.body, color: colors.textPrimary },
+    adminMessageText: { color: colors.textPrimary },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'flex-end',
@@ -178,19 +178,19 @@ const styles = StyleSheet.create({
     },
     input: {
         flex: 1,
-        backgroundColor: 'rgba(255,255,255,0.1)',
+        backgroundColor: colors.accentMuted,
         borderRadius: borderRadius.md,
         padding: spacing.md,
-        color: '#FFFFFF',
+        color: colors.textPrimary,
         maxHeight: 100,
         borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.2)',
+        borderColor: colors.border,
     },
     sendButton: {
         width: 48,
         height: 48,
         borderRadius: 24,
-        backgroundColor: '#FFFFFF',
+        backgroundColor: colors.accent,
         justifyContent: 'center',
         alignItems: 'center',
         marginLeft: spacing.sm,

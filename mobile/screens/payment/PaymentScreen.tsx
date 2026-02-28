@@ -1,17 +1,12 @@
-/**
- * Payment Screen - Stripe Checkout
- */
-
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
 const FEATURES = [
     'Full facial analysis with 50+ metrics',
@@ -34,31 +29,22 @@ export default function PaymentScreen() {
         try {
             const returnUrl = Linking.createURL('/payment-success');
             const cancelUrl = Linking.createURL('/payment-cancel');
-
             const { checkout_url } = await api.createCheckoutSession(returnUrl, cancelUrl);
-
             const result = await WebBrowser.openBrowserAsync(checkout_url);
-
-            if (result.type === 'cancel') {
-                await refreshUser();
-            }
-        } catch (error) {
-            Alert.alert('Error', 'Could not start checkout');
-        } finally {
-            setLoading(false);
-        }
+            if (result.type === 'cancel') await refreshUser();
+        } catch (e) { Alert.alert('Error', 'Could not start checkout'); }
+        finally { setLoading(false); }
     };
 
     return (
-        <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.container}>
+        <View style={styles.container}>
             <ScrollView contentContainerStyle={styles.content}>
-                {/* Back button */}
                 <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-                    <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+                    <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
                 </TouchableOpacity>
 
                 <View style={styles.header}>
-                    <Ionicons name="diamond" size={48} color="#FFFFFF" />
+                    <Ionicons name="diamond" size={48} color={colors.accent} />
                     <Text style={styles.title}>Cannon Premium</Text>
                     <Text style={styles.subtitle}>Unlock your full potential</Text>
                 </View>
@@ -66,7 +52,7 @@ export default function PaymentScreen() {
                 <View style={styles.features}>
                     {FEATURES.map((feature, i) => (
                         <View key={i} style={styles.featureItem}>
-                            <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+                            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
                             <Text style={styles.featureText}>{feature}</Text>
                         </View>
                     ))}
@@ -83,48 +69,34 @@ export default function PaymentScreen() {
 
                 <Text style={styles.disclaimer}>Cancel anytime. No commitment.</Text>
 
-                {/* Dev Test Button */}
-                <TouchableOpacity
-                    style={styles.devButton}
-                    onPress={async () => {
-                        try {
-                            setLoading(true);
-                            await api.testActivateSubscription();
-                            await refreshUser();
-                            Alert.alert('Success', 'Subscription activated!');
-                        } catch (error: any) {
-                            Alert.alert('Error', error.response?.data?.detail || 'Failed to activate');
-                        } finally {
-                            setLoading(false);
-                        }
-                    }}
-                    disabled={loading}
-                >
+                <TouchableOpacity style={styles.devButton} onPress={async () => {
+                    try { setLoading(true); await api.testActivateSubscription(); await refreshUser(); Alert.alert('Success', 'Subscription activated!'); }
+                    catch (error: any) { Alert.alert('Error', error.response?.data?.detail || 'Failed to activate'); }
+                    finally { setLoading(false); }
+                }} disabled={loading}>
                     <Text style={styles.devButtonText}>DEV: Skip Payment</Text>
                 </TouchableOpacity>
             </ScrollView>
-        </LinearGradient>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1 },
+    container: { flex: 1, backgroundColor: colors.background },
     content: { padding: spacing.lg, paddingTop: 60, paddingBottom: 40 },
     backButton: { position: 'absolute', top: 50, left: spacing.lg, zIndex: 10, padding: spacing.sm },
     header: { alignItems: 'center', marginBottom: spacing.xl, marginTop: spacing.xl },
-    title: { ...typography.h1, marginTop: spacing.md, color: '#FFFFFF' },
-    subtitle: { ...typography.bodySmall, color: 'rgba(255,255,255,0.7)' },
-    features: { backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: borderRadius.lg, padding: spacing.lg, gap: spacing.md, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' },
+    title: { ...typography.h1, marginTop: spacing.md },
+    subtitle: { ...typography.bodySmall },
+    features: { backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.lg, gap: spacing.md, ...shadows.sm },
     featureItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    featureText: { ...typography.body, color: '#FFFFFF' },
+    featureText: { ...typography.body },
     priceCard: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginTop: spacing.xl },
-    price: { fontSize: 48, fontFamily: 'Matter-Medium', fontWeight: '500', color: '#FFFFFF' },
-    priceLabel: { ...typography.h3, color: 'rgba(255,255,255,0.6)' },
-    button: { backgroundColor: '#FFFFFF', borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.xl },
-    buttonText: { ...typography.button, color: '#000000' },
-    disclaimer: { ...typography.caption, textAlign: 'center', marginTop: spacing.md, color: 'rgba(255,255,255,0.6)' },
-    devButton: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: borderRadius.md, padding: spacing.sm, alignItems: 'center', marginTop: spacing.lg },
-    devButtonText: { ...typography.bodySmall, color: '#FFFFFF', fontWeight: '700' },
+    price: { fontSize: 48, fontFamily: 'Matter-Medium', fontWeight: '500', color: colors.accent },
+    priceLabel: { ...typography.h3, color: colors.textMuted },
+    button: { backgroundColor: colors.accent, borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.xl },
+    buttonText: { ...typography.button },
+    disclaimer: { ...typography.caption, textAlign: 'center', marginTop: spacing.md },
+    devButton: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.sm, alignItems: 'center', marginTop: spacing.lg, borderWidth: 1, borderColor: colors.border },
+    devButtonText: { ...typography.bodySmall, fontWeight: '700' },
 });
-
-

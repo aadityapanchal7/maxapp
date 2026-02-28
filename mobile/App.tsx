@@ -1,7 +1,3 @@
-/**
- * Cannon App - Main Entry Point
- */
-
 import React from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -21,7 +17,7 @@ export default function App() {
     if (!fontsLoaded) {
         return (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
-                <ActivityIndicator size="large" color={colors.primary} />
+                <ActivityIndicator size="large" color={colors.accent} />
             </View>
         );
     }
@@ -30,7 +26,7 @@ export default function App() {
         <GestureHandlerRootView style={{ flex: 1 }}>
             <AuthProvider>
                 <NavigationContainer>
-                    <StatusBar style="light" />
+                    <StatusBar style="dark" />
                     <RootNavigator />
                 </NavigationContainer>
             </AuthProvider>
