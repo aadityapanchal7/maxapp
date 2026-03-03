@@ -235,6 +235,8 @@ export default function FaceScanScreen() {
 function NativeCameraWrapper({ cameraApiRef, onReady }: any) {
     const [hasPermission, setHasPermission] = useState<boolean | null>(null);
     const localRef = useRef<any>(null);
+    const onReadyCalledRef = useRef(false);
+
     useEffect(() => {
         (async () => {
             const { Camera } = require('expo-camera');
@@ -242,15 +244,31 @@ function NativeCameraWrapper({ cameraApiRef, onReady }: any) {
             const { status: audioStatus } = await Camera.requestMicrophonePermissionsAsync();
             const granted = status === 'granted' && audioStatus === 'granted';
             setHasPermission(granted);
-            if (granted) { cameraApiRef.current = localRef.current; onReady(); }
+            if (granted) {
+                // Set up a stable proxy that always calls through to localRef at invocation time,
+                // so we never capture a null ref at setup time.
+                cameraApiRef.current = {
+                    recordAsync: (opts: any) => localRef.current?.recordAsync(opts),
+                    stopRecording: () => localRef.current?.stopRecording(),
+                };
+                // Don't call onReady yet — wait for onCameraReady from CameraView
+            }
         })();
     }, []);
+
+    const handleCameraReady = useCallback(() => {
+        if (!onReadyCalledRef.current) {
+            onReadyCalledRef.current = true;
+            onReady();
+        }
+    }, [onReady]);
+
     if (hasPermission === null) return <View style={styles.cameraContainer}><Text style={styles.centerText}>Requesting permissions...</Text></View>;
     if (hasPermission === false) return <View style={styles.cameraContainer}><Text style={styles.centerText}>Camera and Audio permissions required</Text></View>;
     const { CameraView } = require('expo-camera');
     return (
         <View style={styles.cameraContainer}>
-            <CameraView ref={localRef} style={styles.camera} facing="front" mode="video">
+            <CameraView ref={localRef} style={styles.camera} facing="front" mode="video" onCameraReady={handleCameraReady}>
                 <View style={styles.overlayAbsolute}><View style={styles.faceGuide} /></View>
             </CameraView>
         </View>
