@@ -5,7 +5,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { getItemAsync, setItemAsync, deleteItemAsync } from './storage';
 
-const API_BASE_URL = 'https://cannonapp.onrender.com/api/';
+const API_BASE_URL = 'http://localhost:8000/api/';
 
 class ApiService {
     private client: AxiosInstance;
