@@ -23,7 +23,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0D0D0D"
       },
-      "package": "com.cannon.mobile"
+      "package": "com.cannon.mobile",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -33,7 +38,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Cannon to access your camera for face scans."
+          "cameraPermission": "Allow Cannon to access your camera for face scans.",
+          "microphonePermission": "Allow Cannon to access your microphone for face scan video recording."
         }
       ],
       "expo-video",
@@ -45,6 +51,11 @@
       "ios",
       "android",
       "web"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "e88cbff0-beda-47c1-a763-5a81698030bd"
+      }
+    }
   }
 }
