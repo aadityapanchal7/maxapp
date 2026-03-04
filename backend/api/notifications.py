@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from middleware import get_current_user
-from middleware.auth_middleware import require_admin
+from middleware.auth_middleware import get_current_admin_user
 from services.twilio_service import twilio_service
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
@@ -25,7 +25,7 @@ class TestMessageRequest(BaseModel):
 @router.post("/send")
 async def send_whatsapp_message(
     request: SendMessageRequest,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(get_current_admin_user)
 ):
     """Admin: send a custom WhatsApp message to any number"""
     success = await twilio_service.send_whatsapp(request.phone, request.message)

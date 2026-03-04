@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     gemini_model: str = Field(default="gemini-2.5-flash")
     
     # External Facial Analysis API (cannon_facial_analysis service)
-    facial_analysis_api_url: str = Field(default="http://localhost:8001/api")
+    facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
     
     # Stripe
     stripe_secret_key: str = Field(default="")
