@@ -1,41 +1,43 @@
 /**
- * Refined Warm Minimalist Theme
+ * Sleek modern SaaS design system
+ * Clean, shadowed, typographic
  */
 
 export const colors = {
-    background: '#FAFAF7',
-    surface: '#F3F2EE',
-    surfaceLight: '#EFEEE9',
-    card: '#F6F5F1',
+    background: '#f8f8fa',
+    surface: '#f0f0f3',
+    surfaceLight: '#eaeaed',
+    card: '#ffffff',
 
-    primary: '#1A1A1A',
-    primaryLight: '#2E2E2E',
-    primaryDark: '#0D0D0D',
+    foreground: '#111113',
+    primary: '#111113',
+    primaryLight: '#2a2a2e',
+    primaryDark: '#000000',
 
-    accent: '#B8986E',
-    accentLight: '#D4BC96',
-    accentMuted: 'rgba(184, 152, 110, 0.12)',
+    accent: '#111113',
+    accentLight: '#2a2a2e',
+    accentMuted: 'rgba(17, 17, 19, 0.05)',
 
-    textPrimary: '#1A1A1A',
-    textSecondary: '#6E6A63',
-    textMuted: '#9E9A93',
+    textPrimary: '#111113',
+    textSecondary: '#71717a',
+    textMuted: '#a1a1aa',
 
-    success: '#4CAF72',
-    warning: '#D4952B',
-    error: '#D45050',
-    info: '#5B8FD4',
+    success: '#22c55e',
+    warning: '#f59e0b',
+    error: '#ef4444',
+    info: '#3b82f6',
 
-    border: '#E6E3DD',
-    borderLight: '#EDEBE6',
-    divider: '#E6E3DD',
+    border: '#e4e4e7',
+    borderLight: '#f0f0f3',
+    divider: '#e4e4e7',
 
-    gradientStart: '#FAFAF7',
-    gradientEnd: '#F3F2EE',
+    gradientStart: '#f8f8fa',
+    gradientEnd: '#f0f0f3',
 
-    buttonText: '#FAFAF7',
+    buttonText: '#fafafa',
 
-    overlay: 'rgba(15, 15, 12, 0.35)',
-    blur: 'rgba(250, 250, 247, 0.92)',
+    overlay: 'rgba(0, 0, 0, 0.45)',
+    blur: 'rgba(255, 255, 255, 0.82)',
 };
 
 export const spacing = {
@@ -45,87 +47,103 @@ export const spacing = {
     lg: 24,
     xl: 32,
     xxl: 48,
+    xxxl: 64,
 };
 
 export const borderRadius = {
     sm: 10,
     md: 14,
     lg: 18,
-    xl: 26,
+    xl: 22,
+    '2xl': 28,
     full: 9999,
 };
 
 export const typography = {
     h1: {
-        fontSize: 30,
-        fontFamily: 'Matter-Medium',
-        fontWeight: '600' as const,
+        fontSize: 32,
+        fontWeight: '700' as const,
         color: colors.textPrimary,
-        letterSpacing: -0.5,
+        letterSpacing: -0.8,
     },
     h2: {
         fontSize: 22,
-        fontFamily: 'Matter-Medium',
         fontWeight: '600' as const,
         color: colors.textPrimary,
-        letterSpacing: -0.3,
+        letterSpacing: -0.4,
     },
     h3: {
-        fontSize: 18,
-        fontFamily: 'Matter-Medium',
-        fontWeight: '500' as const,
+        fontSize: 17,
+        fontWeight: '600' as const,
         color: colors.textPrimary,
+        letterSpacing: -0.2,
     },
     body: {
         fontSize: 15,
-        fontFamily: 'Matter-Regular',
         fontWeight: '400' as const,
         color: colors.textPrimary,
         lineHeight: 22,
     },
     bodySmall: {
         fontSize: 13,
-        fontFamily: 'Matter-Regular',
         fontWeight: '400' as const,
         color: colors.textSecondary,
-        lineHeight: 19,
+        lineHeight: 18,
     },
     caption: {
         fontSize: 11,
-        fontFamily: 'Matter-Regular',
-        fontWeight: '400' as const,
+        fontWeight: '500' as const,
         color: colors.textMuted,
+    },
+    label: {
+        fontSize: 11,
+        fontWeight: '600' as const,
+        color: colors.textMuted,
+        letterSpacing: 0.8,
+        textTransform: 'uppercase' as const,
     },
     button: {
         fontSize: 15,
-        fontFamily: 'Matter-Medium',
         fontWeight: '600' as const,
         color: colors.buttonText,
-        letterSpacing: 0.3,
+        letterSpacing: -0.1,
+    },
+    hero: {
+        fontSize: 48,
+        fontWeight: '400' as const,
+        color: colors.textPrimary,
+        letterSpacing: -2,
     },
 };
 
 export const shadows = {
     sm: {
-        shadowColor: '#1A1A0F',
+        shadowColor: '#18181b',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.04,
+        shadowOpacity: 0.06,
         shadowRadius: 4,
-        elevation: 1,
+        elevation: 2,
     },
     md: {
-        shadowColor: '#1A1A0F',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.06,
-        shadowRadius: 10,
-        elevation: 3,
+        shadowColor: '#18181b',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 16,
+        elevation: 4,
     },
     lg: {
-        shadowColor: '#1A1A0F',
-        shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.08,
-        shadowRadius: 20,
-        elevation: 5,
+        shadowColor: '#18181b',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 32,
+        elevation: 8,
+    },
+    xl: {
+        shadowColor: '#18181b',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.16,
+        shadowRadius: 48,
+        elevation: 12,
     },
 };
 

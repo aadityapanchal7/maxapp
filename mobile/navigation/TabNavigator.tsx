@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing } from '../theme/dark';
+import { colors, spacing, borderRadius, shadows } from '../theme/dark';
 import { useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -40,11 +40,11 @@ export default function TabNavigator() {
                 tabBarStyle: [
                     styles.tabBar,
                     {
-                        height: 56 + insets.bottom,
+                        height: 52 + insets.bottom,
                         paddingBottom: insets.bottom,
                     }
                 ],
-                tabBarActiveTintColor: colors.primary,
+                tabBarActiveTintColor: colors.foreground,
                 tabBarInactiveTintColor: colors.textMuted,
                 tabBarLabelStyle: styles.tabLabel,
             }}
@@ -53,15 +53,15 @@ export default function TabNavigator() {
                 name="Home"
                 component={HomeScreen}
                 options={{
-                    tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
+                    tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={22} color={color} />,
                 }}
             />
             <Tab.Screen
                 name="Chat"
                 component={CannonChatScreen}
                 options={{
-                    tabBarLabel: 'Cannon',
-                    tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-outline" size={size} color={color} />,
+                    tabBarLabel: 'Max',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-outline" size={22} color={color} />,
                 }}
             />
             <Tab.Screen
@@ -77,7 +77,7 @@ export default function TabNavigator() {
                     tabBarLabel: () => null,
                     tabBarIcon: () => (
                         <View style={styles.scanIcon}>
-                            <Ionicons name="add" size={24} color={colors.buttonText} />
+                            <Ionicons name="add" size={22} color={colors.buttonText} />
                         </View>
                     ),
                 }}
@@ -86,14 +86,14 @@ export default function TabNavigator() {
                 name="Forums"
                 component={ForumsStack}
                 options={{
-                    tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+                    tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={22} color={color} />,
                 }}
             />
             <Tab.Screen
                 name="Rank"
                 component={LeaderboardScreen}
                 options={{
-                    tabBarIcon: ({ color, size }) => <Ionicons name="trophy-outline" size={size} color={color} />,
+                    tabBarIcon: ({ color, size }) => <Ionicons name="trophy-outline" size={22} color={color} />,
                 }}
             />
         </Tab.Navigator>
@@ -102,11 +102,12 @@ export default function TabNavigator() {
 
 const styles = StyleSheet.create({
     tabBar: {
-        backgroundColor: colors.background,
-        borderTopColor: colors.borderLight,
-        borderTopWidth: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.88)',
+        borderTopWidth: 0,
         paddingTop: spacing.xs,
-    },
+        ...shadows.lg,
+        ...(Platform.OS === 'web' ? { backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' } : {}),
+    } as any,
     tabLabel: {
         fontSize: 10,
         fontWeight: '500',
@@ -116,8 +117,9 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: colors.accent,
+        backgroundColor: colors.foreground,
         justifyContent: 'center',
         alignItems: 'center',
+        ...shadows.md,
     },
 });

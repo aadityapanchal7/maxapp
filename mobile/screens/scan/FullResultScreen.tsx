@@ -24,7 +24,7 @@ export default function FullResultScreen() {
     } else { recommendations = a.improvements || a.recommendations || []; }
 
     const safeToFixed = (val: any, digits: number = 1): string => { const num = parseFloat(val); return isNaN(num) ? '0.0' : num.toFixed(digits); };
-    const getScoreColor = (score: number) => { const s = parseFloat(String(score)) || 0; if (s >= 7) return colors.accent; if (s >= 5) return colors.warning; return colors.error; };
+    const getScoreColor = (score: number) => { const s = parseFloat(String(score)) || 0; if (s >= 7) return colors.foreground; if (s >= 5) return colors.warning; return colors.error; };
     const getPriorityColor = (priority: string) => { if (priority === 'high') return colors.error; if (priority === 'medium') return colors.warning; return colors.success; };
 
     const getMetricValue = (key: string): number => {
@@ -77,26 +77,25 @@ export default function FullResultScreen() {
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Ionicons name="arrow-back" size={24} color={colors.textPrimary} /></TouchableOpacity>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Ionicons name="arrow-back" size={22} color={colors.foreground} /></TouchableOpacity>
                 <Text style={styles.title}>Scan Results</Text>
                 <View style={{ width: 40 }} />
             </View>
 
             <View style={styles.scoreCard}>
-                <Text style={styles.scoreLabel}>Your Overall Score</Text>
+                <Text style={styles.scoreLabel}>YOUR OVERALL SCORE</Text>
                 <Text style={[styles.score, { color: getScoreColor(overallScore) }]}>{safeToFixed(overallScore)}</Text>
                 <Text style={styles.scoreMax}>/10</Text>
-                <Text style={[styles.rank, { color: colors.accent }]}>HTN Rating</Text>
             </View>
 
-            <Text style={styles.sectionTitle}>Detailed Analysis</Text>
+            <Text style={styles.sectionLabel}>DETAILED ANALYSIS</Text>
             <View style={styles.metricsCard}>
                 {metricItems.map((item) => {
                     const value = getMetricValue(item.key);
                     return (
                         <View key={item.key} style={styles.metricItem}>
                             <View style={styles.metricLeft}>
-                                <Ionicons name={item.icon as any} size={20} color={colors.textSecondary} />
+                                <Ionicons name={item.icon as any} size={18} color={colors.textSecondary} />
                                 <Text style={styles.metricLabel}>{item.label}</Text>
                             </View>
                             <View style={styles.metricRight}>
@@ -110,7 +109,7 @@ export default function FullResultScreen() {
                 })}
             </View>
 
-            <Text style={styles.sectionTitle}>Improvement Recommendations</Text>
+            <Text style={styles.sectionLabel}>RECOMMENDATIONS</Text>
             <View style={styles.recommendationsCard}>
                 {recommendations.length > 0 ? recommendations.map((rec, index) => (
                     <View key={index} style={styles.recItem}>
@@ -124,20 +123,18 @@ export default function FullResultScreen() {
                     </View>
                 )) : (
                     <View style={styles.recItem}>
-                        <Ionicons name="checkmark-circle" size={24} color={colors.success} />
+                        <Ionicons name="checkmark-circle" size={20} color={colors.success} />
                         <Text style={styles.noRecs}>Great job! Keep maintaining your routine.</Text>
                     </View>
                 )}
             </View>
 
             <View style={styles.actions}>
-                <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Main')}>
-                    <Ionicons name="school" size={20} color={colors.buttonText} />
-                    <Text style={styles.buttonText}>View Courses</Text>
+                <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
+                    <Text style={styles.primaryButtonText}>View Courses</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate('FaceScan')}>
-                    <Ionicons name="scan" size={20} color={colors.primary} />
-                    <Text style={[styles.buttonText, { color: colors.primary }]}>New Scan</Text>
+                <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate('FaceScan')} activeOpacity={0.7}>
+                    <Text style={styles.secondaryButtonText}>New Scan</Text>
                 </TouchableOpacity>
             </View>
         </ScrollView>
@@ -147,33 +144,45 @@ export default function FullResultScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     content: { paddingBottom: spacing.xxl },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 60, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 64, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
     backButton: { width: 40, height: 40, justifyContent: 'center' },
     title: { ...typography.h2 },
-    scoreCard: { margin: spacing.lg, backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.xl, alignItems: 'center', ...shadows.sm },
-    scoreLabel: { ...typography.bodySmall },
-    score: { fontSize: 80, fontWeight: '800', lineHeight: 90 },
-    scoreMax: { ...typography.h3, color: colors.textMuted },
-    rank: { ...typography.caption, marginTop: spacing.sm },
-    sectionTitle: { ...typography.h3, marginHorizontal: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.md },
-    metricsCard: { marginHorizontal: spacing.lg, backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.lg, ...shadows.sm },
-    metricItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
+    scoreCard: {
+        margin: spacing.lg, backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'], padding: spacing.xl,
+        alignItems: 'center', ...shadows.lg,
+    },
+    scoreLabel: { ...typography.label, marginBottom: spacing.sm },
+    score: { fontSize: 72, fontWeight: '700', lineHeight: 82 },
+    scoreMax: { fontSize: 18, fontWeight: '500', color: colors.textMuted },
+    sectionLabel: { ...typography.label, marginHorizontal: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.md },
+    metricsCard: {
+        marginHorizontal: spacing.lg, backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'], padding: spacing.lg,
+        ...shadows.md,
+    },
+    metricItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
     metricLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
-    metricLabel: { ...typography.bodySmall },
+    metricLabel: { fontSize: 13, color: colors.textSecondary },
     metricRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 },
-    metricBar: { flex: 1, height: 8, backgroundColor: colors.border, borderRadius: 4 },
-    metricFill: { height: '100%', borderRadius: 4 },
-    metricValue: { ...typography.body, fontWeight: '700', width: 35, textAlign: 'right' },
-    recommendationsCard: { marginHorizontal: spacing.lg, backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.lg, gap: spacing.md, ...shadows.sm },
+    metricBar: { flex: 1, height: 4, backgroundColor: colors.borderLight, borderRadius: 2 },
+    metricFill: { height: '100%', borderRadius: 2 },
+    metricValue: { fontSize: 14, fontWeight: '700', width: 35, textAlign: 'right' },
+    recommendationsCard: {
+        marginHorizontal: spacing.lg, backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'], padding: spacing.lg, gap: spacing.md,
+        ...shadows.md,
+    },
     recItem: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
     priorityBadge: { paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: borderRadius.sm },
-    priorityText: { fontSize: 10, fontWeight: '700', color: colors.buttonText },
+    priorityText: { fontSize: 9, fontWeight: '700', color: colors.buttonText },
     recContent: { flex: 1 },
-    recArea: { ...typography.body, fontWeight: '600' },
-    recSuggestion: { ...typography.bodySmall, marginTop: 2 },
-    noRecs: { ...typography.body, marginLeft: spacing.sm },
-    actions: { marginHorizontal: spacing.lg, marginTop: spacing.xl, gap: spacing.md },
-    primaryButton: { flexDirection: 'row', backgroundColor: colors.accent, borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
-    secondaryButton: { flexDirection: 'row', backgroundColor: colors.background, borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderWidth: 1, borderColor: colors.primary },
-    buttonText: { ...typography.button },
+    recArea: { fontSize: 14, fontWeight: '600', color: colors.foreground },
+    recSuggestion: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
+    noRecs: { fontSize: 14, color: colors.foreground, marginLeft: spacing.sm },
+    actions: { marginHorizontal: spacing.lg, marginTop: spacing.xl, gap: spacing.sm },
+    primaryButton: { backgroundColor: colors.foreground, borderRadius: borderRadius.full, padding: spacing.md, alignItems: 'center', ...shadows.md },
+    primaryButtonText: { ...typography.button },
+    secondaryButton: { backgroundColor: colors.card, borderRadius: borderRadius.full, padding: spacing.md, alignItems: 'center', ...shadows.sm },
+    secondaryButtonText: { fontSize: 15, fontWeight: '600', color: colors.foreground },
 });

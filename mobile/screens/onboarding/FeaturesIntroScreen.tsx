@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -14,9 +14,17 @@ const FEATURES = [
 export default function FeaturesIntroScreen() {
     const navigation = useNavigation<any>();
     const [currentIndex, setCurrentIndex] = useState(0);
+    const fadeAnim = useRef(new Animated.Value(1)).current;
+
+    const animateTransition = (next: number) => {
+        Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start(() => {
+            setCurrentIndex(next);
+            Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+        });
+    };
 
     const handleNext = () => {
-        if (currentIndex < FEATURES.length - 1) setCurrentIndex(currentIndex + 1);
+        if (currentIndex < FEATURES.length - 1) animateTransition(currentIndex + 1);
         else navigation.navigate('FaceScan');
     };
 
@@ -24,19 +32,17 @@ export default function FeaturesIntroScreen() {
 
     return (
         <View style={styles.container}>
-            <View style={styles.topSection}>
+            <View style={styles.top}>
                 <Text style={styles.stepLabel}>STEP 2 OF 2</Text>
             </View>
 
-            <View style={styles.content}>
-                <View style={styles.iconContainer}>
-                    <View style={styles.iconRing}>
-                        <Ionicons name={feature.icon as any} size={48} color={colors.accent} />
-                    </View>
+            <Animated.View style={[styles.content, { opacity: fadeAnim }]}>
+                <View style={styles.iconRing}>
+                    <Ionicons name={feature.icon as any} size={36} color={colors.foreground} />
                 </View>
                 <Text style={styles.title}>{feature.title}</Text>
                 <Text style={styles.desc}>{feature.desc}</Text>
-            </View>
+            </Animated.View>
 
             <View style={styles.bottom}>
                 <View style={styles.dots}>
@@ -44,10 +50,8 @@ export default function FeaturesIntroScreen() {
                         <View key={i} style={[styles.dot, i === currentIndex && styles.dotActive]} />
                     ))}
                 </View>
-
-                <TouchableOpacity style={styles.button} onPress={handleNext} activeOpacity={0.85}>
+                <TouchableOpacity style={styles.button} onPress={handleNext} activeOpacity={0.7}>
                     <Text style={styles.buttonText}>{currentIndex < FEATURES.length - 1 ? 'Next' : 'Start Face Scan'}</Text>
-                    <Ionicons name="arrow-forward" size={18} color={colors.buttonText} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -56,30 +60,27 @@ export default function FeaturesIntroScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background, padding: spacing.lg, justifyContent: 'space-between' },
-    topSection: { paddingTop: 60 },
-    stepLabel: { ...typography.caption, letterSpacing: 2, textTransform: 'uppercase', color: colors.accent, fontWeight: '600' },
-    content: { alignItems: 'center', paddingHorizontal: spacing.md },
-    iconContainer: { marginBottom: spacing.xl },
+    top: { paddingTop: 80 },
+    stepLabel: { ...typography.label, color: colors.textMuted },
+    content: { alignItems: 'center', paddingHorizontal: spacing.lg },
     iconRing: {
-        width: 120, height: 120, borderRadius: 60,
-        backgroundColor: colors.accentMuted,
-        borderWidth: 1.5, borderColor: colors.accent,
+        width: 96, height: 96, borderRadius: 48,
+        backgroundColor: colors.card,
         justifyContent: 'center', alignItems: 'center',
+        marginBottom: spacing.xl,
+        ...shadows.md,
     },
     title: { ...typography.h1, textAlign: 'center', marginBottom: spacing.md },
-    desc: { ...typography.body, color: colors.textSecondary, textAlign: 'center', lineHeight: 24, paddingHorizontal: spacing.md },
+    desc: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 24, maxWidth: 320 },
     bottom: { gap: spacing.xl, paddingBottom: spacing.lg },
     dots: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
-    dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.border },
-    dotActive: { backgroundColor: colors.accent, width: 28, borderRadius: 4 },
+    dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.borderLight },
+    dotActive: { backgroundColor: colors.foreground, width: 24 },
     button: {
-        flexDirection: 'row',
-        backgroundColor: colors.primary,
-        borderRadius: borderRadius.md,
+        backgroundColor: colors.foreground,
+        borderRadius: borderRadius.full,
         paddingVertical: 16,
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: spacing.sm,
         ...shadows.md,
     },
     buttonText: { ...typography.button },

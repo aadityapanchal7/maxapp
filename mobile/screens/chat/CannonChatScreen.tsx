@@ -60,8 +60,8 @@ export default function CannonChatScreen() {
         <View style={styles.container}>
             <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
                 <View style={styles.header}>
-                    <Text style={styles.title}>Cannon</Text>
-                    <Text style={styles.subtitle}>Your Lookmaxxing Coach</Text>
+                    <Text style={styles.title}>Max</Text>
+                    <Text style={styles.subtitle}>Your lookmaxxing coach</Text>
                 </View>
 
                 <FlatList ref={flatListRef} data={messages} renderItem={renderMessage} keyExtractor={(_, i) => i.toString()} contentContainerStyle={styles.messageList} onContentSizeChange={() => flatListRef.current?.scrollToEnd()} showsVerticalScrollIndicator={false} />
@@ -71,18 +71,18 @@ export default function CannonChatScreen() {
                         <View style={styles.imagePreviewContainer}>
                             <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
                             <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
-                                <Ionicons name="close-circle" size={24} color={colors.error} />
+                                <Ionicons name="close-circle" size={22} color={colors.error} />
                             </TouchableOpacity>
                             {uploading && <View style={styles.uploadOverlay}><ActivityIndicator color={colors.buttonText} /></View>}
                         </View>
                     )}
                     <View style={styles.inputContainer}>
                         <TouchableOpacity style={styles.attachButton} onPress={handlePickImage} disabled={loading || uploading}>
-                            <Ionicons name="add" size={24} color={colors.textMuted} />
+                            <Ionicons name="add" size={22} color={colors.textMuted} />
                         </TouchableOpacity>
-                        <TextInput style={styles.input} placeholder="Ask Cannon anything..." placeholderTextColor={colors.textMuted} value={input} onChangeText={setInput} multiline editable={!loading && !uploading} />
+                        <TextInput style={styles.input} placeholder="Ask Max anything..." placeholderTextColor={colors.textMuted} value={input} onChangeText={setInput} multiline editable={!loading && !uploading} />
                         <TouchableOpacity style={[styles.sendButton, (!input.trim() && !selectedImage) && styles.disabledButton]} onPress={sendMessage} disabled={(!input.trim() && !selectedImage) || loading || uploading}>
-                            {loading || uploading ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={20} color={colors.buttonText} />}
+                            {loading || uploading ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={18} color={colors.buttonText} />}
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -94,24 +94,24 @@ export default function CannonChatScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     keyboardView: { flex: 1 },
-    header: { paddingTop: 60, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+    header: { paddingTop: 64, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
     title: { ...typography.h2 },
-    subtitle: { ...typography.caption },
+    subtitle: { ...typography.caption, marginTop: 2 },
     messageList: { padding: spacing.lg },
     messageBubble: { maxWidth: '80%', padding: spacing.md, borderRadius: borderRadius.lg, marginBottom: spacing.sm },
-    userBubble: { alignSelf: 'flex-end', backgroundColor: colors.accent },
-    assistantBubble: { alignSelf: 'flex-start', backgroundColor: colors.surface },
+    userBubble: { alignSelf: 'flex-end', backgroundColor: colors.foreground, ...shadows.sm },
+    assistantBubble: { alignSelf: 'flex-start', backgroundColor: colors.card, ...shadows.sm },
     messageText: { ...typography.body },
     userMessageText: { color: colors.buttonText },
     attachmentImage: { width: 220, height: 160, borderRadius: borderRadius.md, marginTop: spacing.sm },
-    outerInputContainer: { padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
+    outerInputContainer: { padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderLight },
     imagePreviewContainer: { position: 'relative', marginBottom: spacing.sm, marginLeft: spacing.md },
-    imagePreview: { width: 80, height: 80, borderRadius: borderRadius.md },
-    removeImageBtn: { position: 'absolute', top: -10, right: -10, backgroundColor: colors.background, borderRadius: 12 },
+    imagePreview: { width: 72, height: 72, borderRadius: borderRadius.md },
+    removeImageBtn: { position: 'absolute', top: -8, right: -8, backgroundColor: colors.background, borderRadius: 12 },
     uploadOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', borderRadius: borderRadius.md },
     inputContainer: { flexDirection: 'row', alignItems: 'flex-end' },
     attachButton: { padding: spacing.sm, marginBottom: 4 },
-    input: { flex: 1, backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, color: colors.textPrimary, maxHeight: 100, borderWidth: 1, borderColor: colors.border },
-    sendButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.accent, justifyContent: 'center', alignItems: 'center', marginLeft: spacing.sm },
-    disabledButton: { opacity: 0.4 },
+    input: { flex: 1, backgroundColor: colors.card, borderRadius: borderRadius.lg, padding: spacing.md, color: colors.textPrimary, maxHeight: 100, ...shadows.sm },
+    sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center', marginLeft: spacing.sm, ...shadows.sm },
+    disabledButton: { opacity: 0.3 },
 });

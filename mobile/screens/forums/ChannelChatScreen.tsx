@@ -86,7 +86,7 @@ export default function ChannelChatScreen() {
                 )}
                 <View style={[styles.messageHeaderRow, isCurrentUser && styles.userMessageHeaderRow]}>
                     {!isCurrentUser && showFullHeader && <View style={styles.avatarMini}><Text style={styles.avatarInitial}>{item.user_email[0].toUpperCase()}</Text></View>}
-                    {!isCurrentUser && !showFullHeader && <View style={{ width: 44 }} />}
+                    {!isCurrentUser && !showFullHeader && <View style={{ width: 40 }} />}
                     <View style={[styles.messageContentArea, isCurrentUser ? styles.userContentArea : styles.otherContentArea]}>
                         <View style={[styles.bubble, isCurrentUser ? styles.userBubble : styles.otherBubble, item.is_admin && styles.adminHighlight]}>
                             {showFullHeader && !isCurrentUser && (
@@ -103,8 +103,8 @@ export default function ChannelChatScreen() {
                     </View>
                 </View>
                 <View style={[styles.messageActions, isCurrentUser ? styles.userMessageActions : styles.otherMessageActions]}>
-                    <TouchableOpacity onPress={() => setReplyingTo(item)} style={styles.actionBtn}><Ionicons name="arrow-undo" size={16} color={colors.textMuted} /></TouchableOpacity>
-                    {!isCurrentUser && <TouchableOpacity onPress={() => handleToggleReaction(item.id, '\uD83D\uDD25')} style={styles.actionBtn}><Ionicons name="flash" size={16} color={colors.textMuted} /></TouchableOpacity>}
+                    <TouchableOpacity onPress={() => setReplyingTo(item)} style={styles.actionBtn}><Ionicons name="arrow-undo" size={14} color={colors.textMuted} /></TouchableOpacity>
+                    {!isCurrentUser && <TouchableOpacity onPress={() => handleToggleReaction(item.id, '\uD83D\uDD25')} style={styles.actionBtn}><Ionicons name="flash" size={14} color={colors.textMuted} /></TouchableOpacity>}
                 </View>
             </View>
         );
@@ -127,7 +127,7 @@ export default function ChannelChatScreen() {
         );
     };
 
-    if (loading && messages.length === 0) return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color={colors.primary} /></View>;
+    if (loading && messages.length === 0) return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color={colors.foreground} /></View>;
 
     const placeholderText = replyingTo ? `Replying to ${replyingTo.user_email}` : isAdminOnly && !isAdmin ? "Only admins can start announcements" : `Message #${channelName}`;
 
@@ -135,11 +135,11 @@ export default function ChannelChatScreen() {
         <View style={styles.container}>
             <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
                 <View style={[styles.header, { paddingTop: insets.top + spacing.sm, paddingBottom: spacing.sm }]}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Ionicons name="chevron-back" size={24} color={colors.textPrimary} /></TouchableOpacity>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Ionicons name="chevron-back" size={22} color={colors.foreground} /></TouchableOpacity>
                     {!isSearching ? (
                         <>
                             <View style={styles.headerLeft}><Text style={styles.channelPrefix}>#</Text><Text style={styles.channelName}>{channelName}</Text></View>
-                            <TouchableOpacity onPress={() => setIsSearching(true)} style={styles.headerAction}><Ionicons name="search" size={24} color={colors.textMuted} /></TouchableOpacity>
+                            <TouchableOpacity onPress={() => setIsSearching(true)} style={styles.headerAction}><Ionicons name="search" size={20} color={colors.textMuted} /></TouchableOpacity>
                         </>
                     ) : (
                         <View style={styles.searchBar}>
@@ -150,21 +150,21 @@ export default function ChannelChatScreen() {
                 </View>
 
                 <FlatList ref={flatListRef} data={messages} renderItem={renderMessage} keyExtractor={(item) => item.id} contentContainerStyle={[styles.messagesList, { paddingBottom: insets.bottom + 20 }]} onContentSizeChange={() => { if (!isSearching) flatListRef.current?.scrollToEnd({ animated: false }); }} showsVerticalScrollIndicator={false}
-                    ListEmptyComponent={<View style={styles.emptyState}>{isSearching ? <Text style={styles.welcomeSubtitle}>No messages found for "{searchQuery}"</Text> : <><Text style={styles.welcomeTitle}>Welcome to #{channelName}!</Text><Text style={styles.welcomeSubtitle}>This is the start of the #{channelName} channel.</Text></>}</View>} />
+                    ListEmptyComponent={<View style={styles.emptyState}>{isSearching ? <Text style={styles.welcomeSubtitle}>No messages found for "{searchQuery}"</Text> : <><Text style={styles.welcomeTitle}>Welcome to #{channelName}</Text><Text style={styles.welcomeSubtitle}>This is the start of the channel.</Text></>}</View>} />
 
                 {isAdminOnly && !isAdmin && !replyingTo && !isSearching && (
-                    <View style={styles.restrictedInfo}><Ionicons name="information-circle" size={20} color={colors.textMuted} /><Text style={styles.restrictedInfoText}>Only admins can post announcements. You can reply to them to comment.</Text></View>
+                    <View style={styles.restrictedInfo}><Ionicons name="information-circle" size={18} color={colors.textMuted} /><Text style={styles.restrictedInfoText}>Only admins can post announcements. Reply to comment.</Text></View>
                 )}
 
                 {!isSearching && (isAdmin || !isAdminOnly || replyingTo) && (
                     <View style={[styles.inputWrapper, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
-                        {replyingTo && <View style={styles.replyPreview}><Text style={styles.replyPreviewText} numberOfLines={1}>Replying to <Text style={{ fontWeight: 'bold' }}>{replyingTo.user_email}</Text></Text><TouchableOpacity onPress={() => setReplyingTo(null)}><Ionicons name="close-circle" size={20} color={colors.textMuted} /></TouchableOpacity></View>}
-                        {selectedImage && <View style={styles.imagePreviewContainer}><Image source={{ uri: selectedImage }} style={styles.imagePreview} /><TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}><Ionicons name="close-circle" size={24} color={colors.error} /></TouchableOpacity>{uploading && <View style={styles.uploadOverlay}><ActivityIndicator color={colors.buttonText} /></View>}</View>}
+                        {replyingTo && <View style={styles.replyPreview}><Text style={styles.replyPreviewText} numberOfLines={1}>Replying to <Text style={{ fontWeight: '600' }}>{replyingTo.user_email}</Text></Text><TouchableOpacity onPress={() => setReplyingTo(null)}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></TouchableOpacity></View>}
+                        {selectedImage && <View style={styles.imagePreviewContainer}><Image source={{ uri: selectedImage }} style={styles.imagePreview} /><TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}><Ionicons name="close-circle" size={22} color={colors.error} /></TouchableOpacity>{uploading && <View style={styles.uploadOverlay}><ActivityIndicator color={colors.buttonText} /></View>}</View>}
                         <View style={styles.inputContainer}>
-                            <TouchableOpacity style={styles.attachBtn} onPress={handlePickImage} disabled={uploading}><Ionicons name="add-circle" size={28} color={colors.textMuted} /></TouchableOpacity>
+                            <TouchableOpacity style={styles.attachBtn} onPress={handlePickImage} disabled={uploading}><Ionicons name="add-circle" size={24} color={colors.textMuted} /></TouchableOpacity>
                             <TextInput style={styles.input} placeholder={placeholderText} placeholderTextColor={colors.textMuted} value={messageText} onChangeText={setMessageText} multiline editable={(canPostTopLevel || !!replyingTo) && !uploading} />
                             <TouchableOpacity style={[styles.sendBtn, (messageText.trim() || selectedImage) && (canPostTopLevel || !!replyingTo) && styles.sendBtnActive, (!messageText.trim() && !selectedImage || (!canPostTopLevel && !replyingTo)) && styles.disabledBtn]} onPress={handleSendMessage} disabled={(!messageText.trim() && !selectedImage) || sending || uploading || (!canPostTopLevel && !replyingTo)}>
-                                {uploading || sending ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={20} color={(messageText.trim() || selectedImage) && (canPostTopLevel || !!replyingTo) ? colors.buttonText : colors.textMuted} />}
+                                {uploading || sending ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={18} color={(messageText.trim() || selectedImage) && (canPostTopLevel || !!replyingTo) ? colors.buttonText : colors.textMuted} />}
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -178,74 +178,74 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     center: { justifyContent: 'center', alignItems: 'center' },
     keyboardView: { flex: 1 },
-    header: { backgroundColor: colors.background, flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
-    backButton: { marginRight: spacing.md },
+    header: { backgroundColor: colors.background, flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
+    backButton: { marginRight: spacing.sm },
     headerLeft: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-    channelPrefix: { color: colors.textMuted, fontSize: 24, fontWeight: '300', marginRight: 4 },
+    channelPrefix: { color: colors.textMuted, fontSize: 20, fontWeight: '300', marginRight: 4 },
     channelName: { ...typography.h3 },
     headerAction: { padding: spacing.xs },
     searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center' },
-    searchInput: { flex: 1, color: colors.textPrimary, fontSize: 16, backgroundColor: colors.surface, borderRadius: borderRadius.sm, paddingHorizontal: spacing.sm, height: 40, marginRight: spacing.sm },
-    cancelText: { color: colors.primary, fontWeight: '600' },
+    searchInput: { flex: 1, color: colors.textPrimary, fontSize: 14, backgroundColor: colors.card, borderRadius: borderRadius.sm, paddingHorizontal: spacing.sm, height: 36, marginRight: spacing.sm, ...shadows.sm },
+    cancelText: { color: colors.foreground, fontWeight: '600', fontSize: 14 },
     messagesList: { paddingHorizontal: spacing.md, paddingTop: spacing.md },
     messageWrapper: { marginBottom: spacing.md, width: '100%' },
     userMessageWrapper: { alignItems: 'flex-end' },
     otherMessageWrapper: { alignItems: 'flex-start' },
     compactMessage: { marginBottom: spacing.xs },
     bubble: { padding: spacing.sm, borderRadius: borderRadius.lg, maxWidth: '85%' },
-    userBubble: { backgroundColor: colors.primary, borderTopRightRadius: 2 },
-    otherBubble: { backgroundColor: colors.surface, borderTopLeftRadius: 2 },
-    adminHighlight: { borderWidth: 1.5, borderColor: colors.warning, backgroundColor: 'rgba(245, 158, 11, 0.08)' },
+    userBubble: { backgroundColor: colors.foreground, borderTopRightRadius: 2, ...shadows.sm },
+    otherBubble: { backgroundColor: colors.card, borderTopLeftRadius: 2, ...shadows.sm },
+    adminHighlight: { borderWidth: 1, borderColor: colors.warning, backgroundColor: 'rgba(255, 159, 10, 0.06)' },
     replyContext: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
     userReplyContext: { alignSelf: 'flex-end', marginRight: 4 },
-    otherReplyContext: { alignSelf: 'flex-start', marginLeft: 52 },
+    otherReplyContext: { alignSelf: 'flex-start', marginLeft: 48 },
     replyLine: { width: 15, height: 10, borderLeftWidth: 2, borderTopWidth: 2, borderColor: colors.border, borderTopLeftRadius: 4, marginRight: 8, marginTop: 4 },
     replyContextText: { color: colors.textSecondary, fontSize: 12 },
-    replyContextUser: { fontWeight: '700', color: colors.textPrimary },
+    replyContextUser: { fontWeight: '600', color: colors.foreground },
     messageHeaderRow: { flexDirection: 'row', width: '100%' },
     userMessageHeaderRow: { flexDirection: 'row-reverse' },
-    avatarMini: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center', marginRight: spacing.sm },
-    avatarInitial: { color: colors.buttonText, fontWeight: 'bold', fontSize: 14 },
+    avatarMini: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center', marginRight: spacing.sm },
+    avatarInitial: { color: colors.buttonText, fontWeight: '600', fontSize: 13 },
     messageContentArea: { flexShrink: 1 },
     userContentArea: { alignItems: 'flex-end' },
     otherContentArea: { flex: 1 },
     nameRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-    userName: { color: colors.primary, fontWeight: 'bold', fontSize: 13 },
+    userName: { color: colors.foreground, fontWeight: '600', fontSize: 12 },
     adminName: { color: colors.warning },
-    adminTag: { backgroundColor: colors.primary, paddingHorizontal: 4, borderRadius: 4, marginLeft: 8 },
-    adminTagText: { color: colors.buttonText, fontSize: 10, fontWeight: 'bold' },
+    adminTag: { backgroundColor: colors.foreground, paddingHorizontal: 4, borderRadius: 4, marginLeft: 6 },
+    adminTagText: { color: colors.buttonText, fontSize: 9, fontWeight: '700' },
     timestamp: { color: colors.textMuted, fontSize: 10, marginTop: 4 },
     userTimestamp: { alignSelf: 'flex-end', marginRight: 4 },
     otherTimestamp: { alignSelf: 'flex-start', marginLeft: 4 },
-    messageText: { color: colors.textPrimary, fontSize: 15, lineHeight: 22 },
+    messageText: { color: colors.foreground, fontSize: 14, lineHeight: 20 },
     userMessageText: { color: colors.buttonText },
-    attachmentImage: { width: '100%', aspectRatio: 1.33, borderRadius: borderRadius.md, marginTop: spacing.xs, backgroundColor: colors.surfaceLight, maxWidth: 280 },
+    attachmentImage: { width: '100%', aspectRatio: 1.33, borderRadius: borderRadius.md, marginTop: spacing.xs, backgroundColor: colors.surface, maxWidth: 260 },
     messageActions: { flexDirection: 'row', gap: spacing.sm, marginTop: 4 },
     userMessageActions: { alignSelf: 'flex-end' },
-    otherMessageActions: { paddingLeft: 52 },
+    otherMessageActions: { paddingLeft: 48 },
     actionBtn: { padding: 4 },
     reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 6, gap: 4 },
-    reactionBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: colors.border },
-    reactionBadgeActive: { backgroundColor: colors.accentMuted, borderColor: colors.accent },
-    reactionEmoji: { fontSize: 14 },
-    reactionCount: { fontSize: 12, color: colors.textSecondary, marginLeft: 4 },
-    reactionCountActive: { color: colors.accent, fontWeight: 'bold' },
+    reactionBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1, borderColor: colors.borderLight },
+    reactionBadgeActive: { backgroundColor: colors.accentMuted, borderColor: colors.foreground },
+    reactionEmoji: { fontSize: 13 },
+    reactionCount: { fontSize: 11, color: colors.textSecondary, marginLeft: 4 },
+    reactionCountActive: { color: colors.foreground, fontWeight: '600' },
     emptyState: { padding: spacing.xxl, alignItems: 'center' },
     welcomeTitle: { ...typography.h2, textAlign: 'center', marginBottom: spacing.sm },
-    welcomeSubtitle: { ...typography.bodySmall, color: colors.textMuted, textAlign: 'center' },
+    welcomeSubtitle: { fontSize: 13, color: colors.textMuted, textAlign: 'center' },
     inputWrapper: { paddingHorizontal: spacing.md, paddingTop: spacing.xs, backgroundColor: colors.background },
-    replyPreview: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, padding: spacing.sm, borderTopLeftRadius: borderRadius.md, borderTopRightRadius: borderRadius.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+    replyPreview: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, padding: spacing.sm, borderTopLeftRadius: borderRadius.md, borderTopRightRadius: borderRadius.md, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
     replyPreviewText: { color: colors.textSecondary, fontSize: 12 },
     imagePreviewContainer: { position: 'relative', marginBottom: spacing.sm, alignSelf: 'flex-start' },
-    imagePreview: { width: 100, height: 100, borderRadius: borderRadius.md },
-    removeImageBtn: { position: 'absolute', top: -10, right: -10, backgroundColor: colors.background, borderRadius: 12 },
+    imagePreview: { width: 80, height: 80, borderRadius: borderRadius.md },
+    removeImageBtn: { position: 'absolute', top: -8, right: -8, backgroundColor: colors.background, borderRadius: 12 },
     uploadOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', borderRadius: borderRadius.md },
-    inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: borderRadius.xl, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.border },
+    inputContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: borderRadius.xl, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, ...shadows.sm },
     attachBtn: { padding: 4 },
-    input: { flex: 1, color: colors.textPrimary, paddingHorizontal: spacing.sm, fontSize: 16, maxHeight: 120, minHeight: 40 },
+    input: { flex: 1, color: colors.textPrimary, paddingHorizontal: spacing.sm, fontSize: 14, maxHeight: 100, minHeight: 36 },
     sendBtn: { padding: 8, borderRadius: borderRadius.md },
-    sendBtnActive: { backgroundColor: colors.accent },
+    sendBtnActive: { backgroundColor: colors.foreground },
     disabledBtn: { opacity: 0.3 },
-    restrictedInfo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: spacing.md, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.border, gap: 8 },
+    restrictedInfo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: spacing.md, backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.borderLight, gap: 8 },
     restrictedInfoText: { color: colors.textMuted, fontSize: 12, fontWeight: '500' },
 });

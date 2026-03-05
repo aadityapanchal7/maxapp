@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -28,6 +28,16 @@ export default function OnboardingScreen() {
     const [experience, setExperience] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const fadeAnim = useRef(new Animated.Value(0)).current;
+    const slideAnim = useRef(new Animated.Value(20)).current;
+
+    useEffect(() => {
+        Animated.parallel([
+            Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+            Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
+        ]).start();
+    }, []);
+
     const toggleGoal = (id: string) => {
         setSelectedGoals((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
     };
@@ -40,138 +50,108 @@ export default function OnboardingScreen() {
             await api.saveOnboarding({ goals: selectedGoals, experience_level: experience });
             await refreshUser();
             navigation.navigate('FeaturesIntro');
-        } catch (error) {
-            Alert.alert('Error', 'Could not save onboarding data');
-        } finally {
-            setLoading(false);
-        }
+        } catch (error) { Alert.alert('Error', 'Could not save onboarding data'); }
+        finally { setLoading(false); }
     };
 
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            <View style={styles.header}>
-                <Text style={styles.stepLabel}>STEP 1 OF 2</Text>
-                <Text style={styles.title}>What are your goals?</Text>
-                <Text style={styles.subtitle}>Select all that apply</Text>
-            </View>
+            <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
+                <View style={styles.header}>
+                    <Text style={styles.stepLabel}>STEP 1 OF 2</Text>
+                    <Text style={styles.title}>What are your goals?</Text>
+                    <Text style={styles.subtitle}>Select all that apply</Text>
+                </View>
 
-            <View style={styles.goalsGrid}>
-                {GOALS.map((goal) => {
-                    const selected = selectedGoals.includes(goal.id);
-                    return (
-                        <TouchableOpacity
-                            key={goal.id}
-                            style={[styles.goalCard, selected && styles.goalCardSelected]}
-                            onPress={() => toggleGoal(goal.id)}
-                            activeOpacity={0.8}
-                        >
-                            <View style={[styles.goalIcon, selected && styles.goalIconSelected]}>
-                                <Ionicons name={goal.icon as any} size={22} color={selected ? colors.accent : colors.textMuted} />
-                            </View>
-                            <Text style={[styles.goalLabel, selected && styles.goalLabelSelected]}>{goal.label}</Text>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
+                <View style={styles.goalsGrid}>
+                    {GOALS.map((goal) => {
+                        const selected = selectedGoals.includes(goal.id);
+                        return (
+                            <TouchableOpacity key={goal.id} style={[styles.goalCard, selected && styles.goalCardSelected]} onPress={() => toggleGoal(goal.id)} activeOpacity={0.7}>
+                                <Ionicons name={goal.icon as any} size={20} color={selected ? colors.foreground : colors.textMuted} />
+                                <Text style={[styles.goalLabel, selected && styles.goalLabelSelected]}>{goal.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
 
-            <View style={styles.sectionDivider} />
+                <View style={styles.divider} />
 
-            <Text style={styles.sectionTitle}>Experience Level</Text>
+                <Text style={styles.sectionLabel}>EXPERIENCE LEVEL</Text>
 
-            <View style={styles.experienceList}>
-                {EXPERIENCE.map((exp) => {
-                    const selected = experience === exp.id;
-                    return (
-                        <TouchableOpacity
-                            key={exp.id}
-                            style={[styles.expCard, selected && styles.expCardSelected]}
-                            onPress={() => setExperience(exp.id)}
-                            activeOpacity={0.8}
-                        >
-                            <View style={styles.expRow}>
-                                <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
-                                    {selected && <View style={styles.radioInner} />}
+                <View style={styles.experienceList}>
+                    {EXPERIENCE.map((exp) => {
+                        const selected = experience === exp.id;
+                        return (
+                            <TouchableOpacity key={exp.id} style={[styles.expCard, selected && styles.expCardSelected]} onPress={() => setExperience(exp.id)} activeOpacity={0.7}>
+                                <View style={styles.expRow}>
+                                    <View style={[styles.radio, selected && styles.radioSelected]}>
+                                        {selected && <View style={styles.radioInner} />}
+                                    </View>
+                                    <View>
+                                        <Text style={[styles.expLabel, selected && styles.expLabelSelected]}>{exp.label}</Text>
+                                        <Text style={styles.expDesc}>{exp.desc}</Text>
+                                    </View>
                                 </View>
-                                <View>
-                                    <Text style={[styles.expLabel, selected && styles.expLabelSelected]}>{exp.label}</Text>
-                                    <Text style={styles.expDesc}>{exp.desc}</Text>
-                                </View>
-                            </View>
-                        </TouchableOpacity>
-                    );
-                })}
-            </View>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
 
-            <TouchableOpacity
-                style={[styles.button, loading && { opacity: 0.6 }]}
-                onPress={handleContinue}
-                disabled={loading}
-                activeOpacity={0.85}
-            >
-                <Text style={styles.buttonText}>{loading ? 'Saving...' : 'Continue'}</Text>
-                <Ionicons name="arrow-forward" size={18} color={colors.buttonText} />
-            </TouchableOpacity>
+                <TouchableOpacity style={[styles.button, loading && { opacity: 0.5 }]} onPress={handleContinue} disabled={loading} activeOpacity={0.7}>
+                    <Text style={styles.buttonText}>{loading ? 'Saving...' : 'Continue'}</Text>
+                </TouchableOpacity>
+            </Animated.View>
         </ScrollView>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    content: { padding: spacing.lg, paddingTop: 60, paddingBottom: spacing.xxl },
+    content: { padding: spacing.lg, paddingTop: 80, paddingBottom: spacing.xxl },
     header: { marginBottom: spacing.xl },
-    stepLabel: { ...typography.caption, letterSpacing: 2, textTransform: 'uppercase', color: colors.accent, marginBottom: spacing.sm, fontWeight: '600' },
+    stepLabel: { ...typography.label, color: colors.textMuted, marginBottom: spacing.sm },
     title: { ...typography.h1, marginBottom: spacing.xs },
     subtitle: { ...typography.bodySmall },
     goalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     goalCard: {
         width: '31%',
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius.md,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
         paddingVertical: spacing.md,
         alignItems: 'center',
-        borderWidth: 1.5,
-        borderColor: colors.border,
+        ...shadows.sm,
+        gap: spacing.xs,
     },
-    goalCardSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
-    goalIcon: {
-        width: 44, height: 44, borderRadius: 22,
-        backgroundColor: colors.background,
-        alignItems: 'center', justifyContent: 'center',
-        marginBottom: spacing.xs,
-    },
-    goalIconSelected: { backgroundColor: 'rgba(184, 152, 110, 0.15)' },
-    goalLabel: { ...typography.caption, fontWeight: '500', color: colors.textSecondary },
-    goalLabelSelected: { color: colors.accent, fontWeight: '600' },
-    sectionDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.xl },
-    sectionTitle: { ...typography.h2, marginBottom: spacing.md },
+    goalCardSelected: { backgroundColor: colors.accentMuted, ...shadows.md },
+    goalLabel: { ...typography.caption, color: colors.textSecondary },
+    goalLabelSelected: { color: colors.foreground, fontWeight: '600' },
+    divider: { height: 1, backgroundColor: colors.borderLight, marginVertical: spacing.xl },
+    sectionLabel: { ...typography.label, marginBottom: spacing.md },
     experienceList: { gap: spacing.sm, marginBottom: spacing.xl },
     expCard: {
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius.md,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
         padding: spacing.md,
-        borderWidth: 1.5,
-        borderColor: colors.border,
+        ...shadows.sm,
     },
-    expCardSelected: { borderColor: colors.accent, backgroundColor: colors.accentMuted },
+    expCardSelected: { backgroundColor: colors.accentMuted, ...shadows.md },
     expRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    radioOuter: {
+    radio: {
         width: 20, height: 20, borderRadius: 10,
         borderWidth: 2, borderColor: colors.border,
         alignItems: 'center', justifyContent: 'center',
     },
-    radioOuterSelected: { borderColor: colors.accent },
-    radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
+    radioSelected: { borderColor: colors.foreground },
+    radioInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.foreground },
     expLabel: { ...typography.body, fontWeight: '600' },
-    expLabelSelected: { color: colors.textPrimary },
+    expLabelSelected: { color: colors.foreground },
     expDesc: { ...typography.caption, marginTop: 2 },
     button: {
-        flexDirection: 'row',
-        backgroundColor: colors.primary,
-        borderRadius: borderRadius.md,
+        backgroundColor: colors.foreground,
+        borderRadius: borderRadius.full,
         paddingVertical: 16,
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: spacing.sm,
         ...shadows.md,
     },
     buttonText: { ...typography.button },

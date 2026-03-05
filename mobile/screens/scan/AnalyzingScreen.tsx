@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography, shadows } from '../../theme/dark';
+import { colors, spacing, typography } from '../../theme/dark';
 
 interface Props {
     currentStep: number;
@@ -52,9 +52,9 @@ export default function AnalyzingScreen({ currentStep = 0, onComplete }: Props) 
                     return (
                         <View key={index} style={styles.stepRow}>
                             {isCompleted ? (
-                                <Ionicons name="checkmark" size={16} color={colors.textPrimary} />
+                                <Ionicons name="checkmark" size={16} color={colors.foreground} />
                             ) : isActive ? (
-                                <Ionicons name="sync" size={16} color={colors.accent} />
+                                <Ionicons name="sync" size={16} color={colors.foreground} />
                             ) : (
                                 <View style={styles.emptyIcon} />
                             )}
@@ -87,20 +87,20 @@ export default function AnalyzingScreen({ currentStep = 0, onComplete }: Props) 
 
 const styles = StyleSheet.create({
     container: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg, backgroundColor: colors.background },
-    gridBox: { width: 280, height: 280, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: 8, padding: 20, marginBottom: spacing.xl },
+    gridBox: { width: 260, height: 260, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: 8, padding: 20, marginBottom: spacing.xl },
     gridInner: { flex: 1, justifyContent: 'space-between' },
     gridRow: { flexDirection: 'row', justifyContent: 'space-between' },
     gridCell: { width: 4, height: 4, backgroundColor: colors.border, borderRadius: 2 },
     stepsContainer: { alignItems: 'flex-start', marginBottom: spacing.xl },
     stepRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md, gap: spacing.sm },
     emptyIcon: { width: 16, height: 16 },
-    stepText: { fontFamily: 'Matter-Regular', fontSize: 16, color: colors.textMuted },
-    stepTextCompleted: { color: colors.textPrimary },
-    stepTextActive: { color: colors.accent },
+    stepText: { fontSize: 15, color: colors.textMuted },
+    stepTextCompleted: { color: colors.foreground },
+    stepTextActive: { color: colors.foreground, fontWeight: '600' },
     stepTextPending: { color: colors.textMuted },
     dotsContainer: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xxl },
-    dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.accent },
+    dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.foreground },
     footer: { position: 'absolute', bottom: 60, paddingHorizontal: spacing.lg },
-    footerText: { fontFamily: 'Matter-Regular', fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 22 },
-    footerHighlight: { fontFamily: 'Matter-Medium', color: colors.accent },
+    footerText: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
+    footerHighlight: { fontWeight: '600', color: colors.foreground },
 });

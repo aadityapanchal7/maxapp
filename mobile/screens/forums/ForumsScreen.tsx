@@ -36,34 +36,33 @@ export default function ForumsScreen() {
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Forums</Text>
                 <View style={styles.searchContainer}>
-                    <Ionicons name="search" size={18} color={colors.textMuted} style={styles.searchIcon} />
+                    <Ionicons name="search" size={16} color={colors.textMuted} style={styles.searchIcon} />
                     <TextInput style={styles.searchInput} placeholder="Search channels..." placeholderTextColor={colors.textMuted} value={searchQuery} onChangeText={setSearchQuery} />
-                    {searchQuery !== '' && <TouchableOpacity onPress={() => setSearchQuery('')}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></TouchableOpacity>}
+                    {searchQuery !== '' && <TouchableOpacity onPress={() => setSearchQuery('')}><Ionicons name="close-circle" size={16} color={colors.textMuted} /></TouchableOpacity>}
                 </View>
             </View>
 
             {loading && forums.length === 0 ? (
-                <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>
+                <View style={styles.center}><ActivityIndicator color={colors.foreground} /></View>
             ) : (
                 <ScrollView style={styles.list} showsVerticalScrollIndicator={false}>
                     {categorizedForums.map((category) => category.channels.length > 0 && (
                         <View key={category.title} style={styles.section}>
                             <Text style={styles.sectionTitle}>{category.title}</Text>
                             {category.channels.map(channel => (
-                                <TouchableOpacity key={channel.id} style={[styles.card, activeChannelId === channel.id && styles.activeCard]} onPress={() => handleChannelPress(channel)}>
+                                <TouchableOpacity key={channel.id} style={[styles.card, activeChannelId === channel.id && styles.activeCard]} onPress={() => handleChannelPress(channel)} activeOpacity={0.7}>
                                     <View style={styles.iconContainer}><Text style={styles.hash}>#</Text></View>
                                     <View style={styles.info}>
                                         <Text style={styles.channelName}>{channel.name}</Text>
                                         <Text style={styles.channelDesc} numberOfLines={1}>{channel.description}</Text>
                                     </View>
-                                    <Ionicons name="chevron-forward" size={20} color={activeChannelId === channel.id ? colors.accent : colors.textMuted} />
+                                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                                 </TouchableOpacity>
                             ))}
                         </View>
                     ))}
                     {forums.length === 0 && (
                         <View style={styles.empty}>
-                            <Ionicons name="search-outline" size={48} color={colors.textMuted} />
                             <Text style={styles.emptyText}>No channels found</Text>
                         </View>
                     )}
@@ -76,22 +75,33 @@ export default function ForumsScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { padding: spacing.md },
-    headerTitle: { ...typography.h1, marginBottom: spacing.sm },
-    searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: borderRadius.md, paddingHorizontal: spacing.sm, height: 44, borderWidth: 1, borderColor: colors.border },
+    header: { padding: spacing.lg, paddingBottom: spacing.md },
+    headerTitle: { ...typography.h2, marginBottom: spacing.md },
+    searchContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: borderRadius.md, paddingHorizontal: spacing.sm, height: 42, ...shadows.sm },
     searchIcon: { marginRight: spacing.xs },
-    searchInput: { flex: 1, color: colors.textPrimary, fontSize: 16 },
+    searchInput: { flex: 1, color: colors.textPrimary, fontSize: 14 },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    list: { flex: 1, paddingHorizontal: spacing.md },
+    list: { flex: 1, paddingHorizontal: spacing.lg },
     section: { marginBottom: spacing.lg },
-    sectionTitle: { ...typography.caption, color: colors.textMuted, fontWeight: 'bold', marginBottom: spacing.sm, letterSpacing: 1 },
-    card: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.md, marginBottom: spacing.sm, ...shadows.sm },
-    activeCard: { borderWidth: 1, borderColor: colors.accent },
-    iconContainer: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', marginRight: spacing.md, borderWidth: 1, borderColor: colors.border },
-    hash: { color: colors.textPrimary, fontSize: 18, fontWeight: 'bold' },
+    sectionTitle: { ...typography.label, marginBottom: spacing.sm },
+    card: {
+        flexDirection: 'row', alignItems: 'center',
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
+        padding: spacing.md,
+        marginBottom: spacing.sm,
+        ...shadows.sm,
+    },
+    activeCard: { ...shadows.md },
+    iconContainer: {
+        width: 36, height: 36, borderRadius: 18,
+        backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center',
+        marginRight: spacing.md,
+    },
+    hash: { color: colors.textSecondary, fontSize: 16, fontWeight: '600' },
     info: { flex: 1 },
-    channelName: { ...typography.body, fontWeight: '600' },
+    channelName: { fontSize: 14, fontWeight: '600', color: colors.foreground },
     channelDesc: { ...typography.caption, marginTop: 2 },
     empty: { alignItems: 'center', marginTop: 100 },
-    emptyText: { ...typography.body, color: colors.textMuted, marginTop: spacing.md },
+    emptyText: { fontSize: 14, color: colors.textMuted },
 });

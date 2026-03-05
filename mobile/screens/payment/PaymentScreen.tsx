@@ -15,7 +15,7 @@ const FEATURES = [
     'Join TikTok Live events',
     'Track your progress over time',
     'Climb the leaderboard',
-    'Chat with Cannon AI',
+    'Chat with Max AI',
     'Community forums access',
 ];
 
@@ -39,20 +39,19 @@ export default function PaymentScreen() {
     return (
         <View style={styles.container}>
             <ScrollView contentContainerStyle={styles.content}>
-                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-                    <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+                    <Ionicons name="arrow-back" size={22} color={colors.foreground} />
                 </TouchableOpacity>
 
                 <View style={styles.header}>
-                    <Ionicons name="diamond" size={48} color={colors.accent} />
-                    <Text style={styles.title}>Cannon Premium</Text>
+                    <Text style={styles.title}>max premium</Text>
                     <Text style={styles.subtitle}>Unlock your full potential</Text>
                 </View>
 
                 <View style={styles.features}>
                     {FEATURES.map((feature, i) => (
                         <View key={i} style={styles.featureItem}>
-                            <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                            <Ionicons name="checkmark" size={16} color={colors.foreground} />
                             <Text style={styles.featureText}>{feature}</Text>
                         </View>
                     ))}
@@ -63,7 +62,7 @@ export default function PaymentScreen() {
                     <Text style={styles.priceLabel}>/month</Text>
                 </View>
 
-                <TouchableOpacity style={styles.button} onPress={handleSubscribe} disabled={loading}>
+                <TouchableOpacity style={styles.button} onPress={handleSubscribe} disabled={loading} activeOpacity={0.7}>
                     <Text style={styles.buttonText}>{loading ? 'Loading...' : 'Subscribe Now'}</Text>
                 </TouchableOpacity>
 
@@ -83,20 +82,24 @@ export default function PaymentScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    content: { padding: spacing.lg, paddingTop: 60, paddingBottom: 40 },
-    backButton: { position: 'absolute', top: 50, left: spacing.lg, zIndex: 10, padding: spacing.sm },
+    content: { padding: spacing.lg, paddingTop: 64, paddingBottom: 40 },
+    backButton: { position: 'absolute', top: 54, left: spacing.lg, zIndex: 10, padding: spacing.sm },
     header: { alignItems: 'center', marginBottom: spacing.xl, marginTop: spacing.xl },
-    title: { ...typography.h1, marginTop: spacing.md },
-    subtitle: { ...typography.bodySmall },
-    features: { backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.lg, gap: spacing.md, ...shadows.sm },
+    title: { fontSize: 32, fontWeight: '400', color: colors.foreground, letterSpacing: -1, marginBottom: spacing.xs },
+    subtitle: { fontSize: 14, color: colors.textSecondary },
+    features: {
+        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
+        padding: spacing.lg, gap: spacing.md,
+        ...shadows.md,
+    },
     featureItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    featureText: { ...typography.body },
+    featureText: { fontSize: 14, color: colors.foreground },
     priceCard: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginTop: spacing.xl },
-    price: { fontSize: 48, fontFamily: 'Matter-Medium', fontWeight: '500', color: colors.accent },
-    priceLabel: { ...typography.h3, color: colors.textMuted },
-    button: { backgroundColor: colors.accent, borderRadius: borderRadius.md, padding: spacing.md, alignItems: 'center', marginTop: spacing.xl },
+    price: { fontSize: 44, fontWeight: '700', color: colors.foreground },
+    priceLabel: { fontSize: 18, fontWeight: '400', color: colors.textMuted },
+    button: { backgroundColor: colors.foreground, borderRadius: borderRadius.full, padding: spacing.md, alignItems: 'center', marginTop: spacing.xl, ...shadows.md },
     buttonText: { ...typography.button },
-    disclaimer: { ...typography.caption, textAlign: 'center', marginTop: spacing.md },
-    devButton: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.sm, alignItems: 'center', marginTop: spacing.lg, borderWidth: 1, borderColor: colors.border },
-    devButtonText: { ...typography.bodySmall, fontWeight: '700' },
+    disclaimer: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: spacing.md },
+    devButton: { backgroundColor: colors.surface, borderRadius: borderRadius.full, padding: spacing.sm, alignItems: 'center', marginTop: spacing.lg, borderWidth: 1, borderColor: colors.border },
+    devButtonText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
 });

@@ -1,56 +1,42 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
 export default function AdminDashboard() {
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        loadStats();
-    }, []);
+    useEffect(() => { loadStats(); }, []);
 
     const loadStats = async () => {
-        try {
-            const data = await api.getAdminStats();
-            setStats(data);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
+        try { const data = await api.getAdminStats(); setStats(data); }
+        catch (error) { console.error(error); }
+        finally { setLoading(false); }
     };
 
-    if (loading) {
-        return (
-            <View style={styles.center}>
-                <ActivityIndicator color={colors.accent} />
-            </View>
-        );
-    }
+    if (loading) return <View style={styles.center}><ActivityIndicator color={colors.foreground} /></View>;
 
     const cards = [
-        { title: 'Total Users', value: stats?.total_users || 0, icon: 'people', color: colors.success },
-        { title: 'Paid Users', value: stats?.paid_users || 0, icon: 'card', color: colors.accent },
-        { title: 'Channels', value: stats?.total_channels || 0, icon: 'chatbubbles', color: colors.accent },
-        { title: 'Messages', value: stats?.total_messages || 0, icon: 'mail', color: colors.info },
+        { title: 'Total Users', value: stats?.total_users || 0, icon: 'people' },
+        { title: 'Paid Users', value: stats?.paid_users || 0, icon: 'card' },
+        { title: 'Channels', value: stats?.total_channels || 0, icon: 'chatbubbles' },
+        { title: 'Messages', value: stats?.total_messages || 0, icon: 'mail' },
     ];
 
     return (
         <ScrollView style={styles.container}>
-            <LinearGradient colors={[colors.gradientStart, colors.gradientEnd]} style={styles.header}>
+            <View style={styles.header}>
                 <Text style={styles.title}>Admin Dashboard</Text>
-                <Text style={styles.subtitle}>Platform Overview</Text>
-            </LinearGradient>
+                <Text style={styles.subtitle}>Platform overview</Text>
+            </View>
 
             <View style={styles.grid}>
                 {cards.map((card, idx) => (
                     <View key={idx} style={styles.card}>
-                        <View style={[styles.iconContainer, { backgroundColor: (card.color === colors.accent ? colors.accentMuted : card.color + '20') }]}>
-                            <Ionicons name={card.icon as any} size={24} color={card.color} />
+                        <View style={styles.iconContainer}>
+                            <Ionicons name={card.icon as any} size={22} color={colors.foreground} />
                         </View>
                         <Text style={styles.cardValue}>{card.value}</Text>
                         <Text style={styles.cardTitle}>{card.title}</Text>
@@ -63,22 +49,21 @@ export default function AdminDashboard() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { padding: spacing.xl, paddingBottom: spacing.xxl },
-    title: { ...typography.h1, color: colors.textPrimary },
-    subtitle: { ...typography.body, color: colors.textSecondary },
-    grid: { flexDirection: 'row', flexWrap: 'wrap', padding: spacing.md, marginTop: -spacing.xl },
+    header: { padding: spacing.lg, paddingTop: spacing.xxl },
+    title: { ...typography.h1 },
+    subtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 2 },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', padding: spacing.md },
     card: {
         width: '45%',
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius.lg,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'],
         padding: spacing.lg,
         margin: '2.5%',
-        borderWidth: 1,
-        borderColor: 'rgba(255,255,255,0.05)',
         alignItems: 'center',
+        ...shadows.md,
     },
-    iconContainer: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.md },
-    cardValue: { ...typography.h2, color: colors.textPrimary },
-    cardTitle: { ...typography.caption, color: colors.textMuted, marginTop: 4 },
+    iconContainer: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.md },
+    cardValue: { fontSize: 24, fontWeight: '700', color: colors.foreground },
+    cardTitle: { fontSize: 11, color: colors.textMuted, marginTop: 4, fontWeight: '500' },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
 });

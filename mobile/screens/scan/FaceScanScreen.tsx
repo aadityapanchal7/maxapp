@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import AnalyzingScreen from './AnalyzingScreen';
 
 const VIDEO_DURATION = 15;
@@ -221,7 +221,7 @@ export default function FaceScanScreen() {
                     </TouchableOpacity>
                 ) : (
                     <TouchableOpacity style={styles.stopButton} onPress={handleStopRecording}>
-                        <Ionicons name="stop" size={32} color="#FF3B30" />
+                        <Ionicons name="stop" size={28} color={colors.error} />
                     </TouchableOpacity>
                 )}
             </View>
@@ -245,13 +245,10 @@ function NativeCameraWrapper({ cameraApiRef, onReady }: any) {
             const granted = status === 'granted' && audioStatus === 'granted';
             setHasPermission(granted);
             if (granted) {
-                // Set up a stable proxy that always calls through to localRef at invocation time,
-                // so we never capture a null ref at setup time.
                 cameraApiRef.current = {
                     recordAsync: (opts: any) => localRef.current?.recordAsync(opts),
                     stopRecording: () => localRef.current?.stopRecording(),
                 };
-                // Don't call onReady yet — wait for onCameraReady from CameraView
             }
         })();
     }, []);
@@ -277,23 +274,23 @@ function NativeCameraWrapper({ cameraApiRef, onReady }: any) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { paddingTop: 60, paddingHorizontal: spacing.lg, alignItems: 'center', height: 180 },
+    header: { paddingTop: 64, paddingHorizontal: spacing.lg, alignItems: 'center', height: 180 },
     title: { ...typography.h2 },
-    instruction: { ...typography.bodySmall, marginTop: spacing.xs, textAlign: 'center' },
+    instruction: { fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' },
     timerContainer: { marginTop: spacing.md, width: '100%', alignItems: 'center' },
-    timerBar: { height: 4, backgroundColor: colors.primary, position: 'absolute', bottom: -10, left: 0, borderRadius: 2 },
-    timerText: { ...typography.bodySmall, color: colors.textPrimary, fontWeight: 'bold' },
-    cameraContainer: { flex: 1, margin: spacing.lg, borderRadius: borderRadius.lg, overflow: 'hidden', borderWidth: 1, borderColor: colors.border, backgroundColor: '#000', position: 'relative' },
+    timerBar: { height: 3, backgroundColor: colors.foreground, position: 'absolute', bottom: -10, left: 0, borderRadius: 2 },
+    timerText: { fontSize: 13, color: colors.foreground, fontWeight: '600' },
+    cameraContainer: { flex: 1, margin: spacing.lg, borderRadius: borderRadius['2xl'], overflow: 'hidden', backgroundColor: '#000', position: 'relative', ...shadows.lg },
     camera: { flex: 1 },
     overlayAbsolute: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
-    faceGuide: { width: 250, height: 320, borderRadius: 125, borderWidth: 2, borderColor: 'rgba(255,255,255,0.5)', borderStyle: 'dashed' },
+    faceGuide: { width: 250, height: 320, borderRadius: 125, borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)', borderStyle: 'dashed' },
     controls: { paddingBottom: spacing.xl, alignItems: 'center', minHeight: 100, justifyContent: 'center' },
-    recordButton: { width: 80, height: 80, borderRadius: 40, borderWidth: 4, borderColor: colors.accent, justifyContent: 'center', alignItems: 'center' },
-    recordButtonInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#FF3B30' },
-    stopButton: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.border },
-    hint: { ...typography.bodySmall, textAlign: 'center', marginBottom: spacing.xl },
-    centerText: { ...typography.body, textAlign: 'center', color: colors.buttonText, padding: 20 },
+    recordButton: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center', ...shadows.md },
+    recordButtonInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.error, ...shadows.sm },
+    stopButton: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center', ...shadows.md },
+    hint: { fontSize: 13, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl },
+    centerText: { fontSize: 14, textAlign: 'center', color: colors.buttonText, padding: 20 },
     cameraErrorContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 10, backgroundColor: 'rgba(0,0,0,0.7)' },
-    cameraErrorText: { ...typography.body, textAlign: 'center', color: colors.buttonText, padding: 8 },
-    loadingText: { ...typography.body, color: colors.textMuted },
+    cameraErrorText: { fontSize: 14, textAlign: 'center', color: colors.buttonText, padding: 8 },
+    loadingText: { fontSize: 14, color: colors.textMuted },
 });

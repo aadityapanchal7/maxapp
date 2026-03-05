@@ -39,7 +39,7 @@ export default function BlurredResultScreen() {
     if (loading) {
         return (
             <View style={[styles.container, styles.centerContent]}>
-                <ActivityIndicator size="large" color={colors.primary} />
+                <ActivityIndicator size="large" color={colors.foreground} />
                 <Text style={styles.loadingText}>Loading results...</Text>
             </View>
         );
@@ -51,18 +51,18 @@ export default function BlurredResultScreen() {
                 <View style={styles.header}>
                     {navigation.canGoBack() ? (
                         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                            <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
+                            <Ionicons name="arrow-back" size={22} color={colors.foreground} />
                         </TouchableOpacity>
                     ) : <View style={styles.backButton} />}
-                    <Text style={styles.title}>Scan Complete!</Text>
+                    <Text style={styles.title}>Scan Complete</Text>
                     <View style={{ width: 40 }} />
                 </View>
 
                 <View style={styles.scoreCard}>
-                    <Text style={styles.scoreLabel}>Your Score</Text>
+                    <Text style={styles.scoreLabel}>YOUR SCORE</Text>
                     {isProcessing ? (
                         <>
-                            <ActivityIndicator size="large" color={colors.primary} style={{ marginVertical: spacing.lg }} />
+                            <ActivityIndicator size="large" color={colors.foreground} style={{ marginVertical: spacing.lg }} />
                             <Text style={styles.processingText}>Analyzing your photos...</Text>
                         </>
                     ) : (
@@ -76,26 +76,21 @@ export default function BlurredResultScreen() {
                 <View style={styles.lockedSection}>
                     {['Detailed Metrics', 'Improvement Suggestions', 'Course Recommendations', 'Progress Tracking'].map((item, i) => (
                         <View key={i} style={styles.lockedItem}>
-                            <Ionicons name="lock-closed" size={20} color={colors.textMuted} />
+                            <Ionicons name="lock-closed" size={18} color={colors.textMuted} />
                             <Text style={styles.lockedText}>{item}</Text>
                         </View>
                     ))}
                 </View>
 
                 <View style={styles.unlockCard}>
-                    <Ionicons name="star" size={32} color={colors.accent} />
                     <Text style={styles.unlockTitle}>Unlock Full Results</Text>
                     <Text style={styles.unlockDesc}>Get access to detailed analysis, personalized courses, live events, and progress tracking</Text>
-                    <TouchableOpacity style={styles.unlockButton} onPress={() => navigation.navigate('Payment')}>
+                    <TouchableOpacity style={styles.unlockButton} onPress={() => navigation.navigate('Payment')} activeOpacity={0.7}>
                         <Text style={styles.unlockButtonText}>Subscribe Now</Text>
                     </TouchableOpacity>
                     <Text style={styles.price}>$9.99/month</Text>
                 </View>
 
-                <TouchableOpacity style={styles.skipButton} onPress={() => navigation.navigate('Payment')}>
-                    <Text style={styles.skipText}>Continue to see pricing options</Text>
-                    <Ionicons name="arrow-forward" size={16} color={colors.textMuted} />
-                </TouchableOpacity>
             </ScrollView>
         </View>
     );
@@ -104,25 +99,35 @@ export default function BlurredResultScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     centerContent: { justifyContent: 'center', alignItems: 'center' },
-    content: { padding: spacing.lg, paddingTop: 60 },
+    content: { padding: spacing.lg, paddingTop: 64 },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
     backButton: { width: 40, height: 40, justifyContent: 'center' },
-    title: { ...typography.h1, textAlign: 'center' },
-    loadingText: { ...typography.body, marginTop: spacing.md, color: colors.textSecondary },
-    processingText: { ...typography.bodySmall },
-    scoreCard: { backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.xl, alignItems: 'center', marginBottom: spacing.xl, ...shadows.sm },
-    scoreLabel: { ...typography.bodySmall },
-    score: { fontSize: 80, fontFamily: 'Matter-Medium', fontWeight: '500', color: colors.textPrimary, lineHeight: 90 },
-    scoreMax: { ...typography.h3, color: colors.textMuted },
-    lockedSection: { backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.lg, gap: spacing.md, marginBottom: spacing.xl, ...shadows.sm },
-    lockedItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, opacity: 0.5 },
-    lockedText: { ...typography.body, color: colors.textSecondary },
-    unlockCard: { backgroundColor: colors.surface, borderRadius: borderRadius.lg, padding: spacing.xl, alignItems: 'center', borderWidth: 1, borderColor: colors.border, ...shadows.md },
-    unlockTitle: { ...typography.h2, marginTop: spacing.md },
-    unlockDesc: { ...typography.bodySmall, textAlign: 'center', marginTop: spacing.sm },
-    unlockButton: { backgroundColor: colors.accent, borderRadius: borderRadius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.xl, marginTop: spacing.lg },
+    title: { ...typography.h2, textAlign: 'center' },
+    loadingText: { fontSize: 14, marginTop: spacing.md, color: colors.textSecondary },
+    processingText: { fontSize: 13, color: colors.textSecondary },
+    scoreCard: {
+        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
+        padding: spacing.xl, alignItems: 'center', marginBottom: spacing.xl,
+        ...shadows.md,
+    },
+    scoreLabel: { ...typography.label, marginBottom: spacing.sm },
+    score: { fontSize: 72, fontWeight: '700', color: colors.foreground, lineHeight: 82 },
+    scoreMax: { fontSize: 18, fontWeight: '500', color: colors.textMuted },
+    lockedSection: {
+        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
+        padding: spacing.lg, gap: spacing.md, marginBottom: spacing.xl,
+        ...shadows.sm,
+    },
+    lockedItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, opacity: 0.4 },
+    lockedText: { fontSize: 14, color: colors.textSecondary },
+    unlockCard: {
+        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
+        padding: spacing.xl, alignItems: 'center',
+        ...shadows.lg,
+    },
+    unlockTitle: { ...typography.h2, marginBottom: spacing.sm },
+    unlockDesc: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg, lineHeight: 19 },
+    unlockButton: { backgroundColor: colors.foreground, borderRadius: borderRadius.full, paddingVertical: spacing.md, paddingHorizontal: spacing.xxl, ...shadows.md },
     unlockButtonText: { ...typography.button },
-    price: { ...typography.caption, marginTop: spacing.sm },
-    skipButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, paddingVertical: spacing.lg },
-    skipText: { ...typography.bodySmall },
+    price: { fontSize: 12, color: colors.textMuted, marginTop: spacing.sm },
 });

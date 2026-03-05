@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Cannon",
+    "name": "Max",
     "slug": "cannon-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -38,8 +38,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Cannon to access your camera for face scans.",
-          "microphonePermission": "Allow Cannon to access your microphone for face scan video recording."
+          "cameraPermission": "Allow Max to access your camera for face scans.",
+          "microphonePermission": "Allow Max to access your microphone for face scan video recording."
         }
       ],
       "expo-video",
