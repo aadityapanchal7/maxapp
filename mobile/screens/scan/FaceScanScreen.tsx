@@ -6,6 +6,7 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import AnalyzingScreen from './AnalyzingScreen';
+import FaceGuide3D from '../../components/FaceGuide3D';
 
 const VIDEO_DURATION = 15;
 
@@ -84,16 +85,13 @@ function WebCameraView({ onReady }: { onReady: (api: any) => void }) {
     }, []);
 
     return (
-        <View style={styles.cameraContainer} ref={containerCallbackRef as any}>
+        <View style={styles.camera} ref={containerCallbackRef as any}>
             {cameraError && (
                 <View style={styles.cameraErrorContainer}>
                     <Text style={styles.cameraErrorText}>Camera error: {cameraError}</Text>
                     <Text style={styles.cameraErrorText}>Please allow camera access and reload.</Text>
                 </View>
             )}
-            <View style={styles.overlayAbsolute}>
-                <View style={styles.faceGuide} />
-            </View>
         </View>
     );
 }
@@ -210,7 +208,17 @@ export default function FaceScanScreen() {
                 )}
             </View>
 
-            {Platform.OS === 'web' ? <WebCameraView onReady={handleCameraReady} /> : <NativeCameraWrapper cameraApiRef={cameraApiRef} onReady={() => setCameraReady(true)} />}
+            <View style={styles.cameraContainer}>
+                {Platform.OS === 'web' ? (
+                    <WebCameraView onReady={handleCameraReady} />
+                ) : (
+                    <NativeCameraWrapper cameraApiRef={cameraApiRef} onReady={() => setCameraReady(true)} />
+                )}
+
+                <View style={styles.overlayAbsolute} pointerEvents="none">
+                    <FaceGuide3D timer={timer} active={isRecording} />
+                </View>
+            </View>
 
             <View style={styles.controls}>
                 {!cameraReady ? (
@@ -260,15 +268,11 @@ function NativeCameraWrapper({ cameraApiRef, onReady }: any) {
         }
     }, [onReady]);
 
-    if (hasPermission === null) return <View style={styles.cameraContainer}><Text style={styles.centerText}>Requesting permissions...</Text></View>;
-    if (hasPermission === false) return <View style={styles.cameraContainer}><Text style={styles.centerText}>Camera and Audio permissions required</Text></View>;
+    if (hasPermission === null) return <View style={styles.camera}><Text style={styles.centerText}>Requesting permissions...</Text></View>;
+    if (hasPermission === false) return <View style={styles.camera}><Text style={styles.centerText}>Camera and Audio permissions required</Text></View>;
     const { CameraView } = require('expo-camera');
     return (
-        <View style={styles.cameraContainer}>
-            <CameraView ref={localRef} style={styles.camera} facing="front" mode="video" onCameraReady={handleCameraReady}>
-                <View style={styles.overlayAbsolute}><View style={styles.faceGuide} /></View>
-            </CameraView>
-        </View>
+        <CameraView ref={localRef} style={styles.camera} facing="front" mode="video" onCameraReady={handleCameraReady} />
     );
 }
 
@@ -281,9 +285,8 @@ const styles = StyleSheet.create({
     timerBar: { height: 3, backgroundColor: colors.foreground, position: 'absolute', bottom: -10, left: 0, borderRadius: 2 },
     timerText: { fontSize: 13, color: colors.foreground, fontWeight: '600' },
     cameraContainer: { flex: 1, margin: spacing.lg, borderRadius: borderRadius['2xl'], overflow: 'hidden', backgroundColor: '#000', position: 'relative', ...shadows.lg },
-    camera: { flex: 1 },
-    overlayAbsolute: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center' },
-    faceGuide: { width: 250, height: 320, borderRadius: 125, borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)', borderStyle: 'dashed' },
+    camera: { flex: 1, zIndex: 0, elevation: 0 },
+    overlayAbsolute: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 10, elevation: 10 },
     controls: { paddingBottom: spacing.xl, alignItems: 'center', minHeight: 100, justifyContent: 'center' },
     recordButton: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center', ...shadows.md },
     recordButtonInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.error, ...shadows.sm },

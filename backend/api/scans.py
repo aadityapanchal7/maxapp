@@ -6,8 +6,15 @@ from middleware import get_current_user
 from middleware.auth_middleware import require_paid_user
 from services.storage_service import storage_service
 from services.facial_analysis_client import facial_analysis_client
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/scans", tags=["Face Scans"])
+
+
+class RealtimeScanRequest(BaseModel):
+    image: str
+    include_visuals: bool = True
+    timestamp: float | None = None
 
 
 @router.post("/upload-video")
@@ -122,6 +129,28 @@ async def upload_scan_video(
             {"$set": {"processing_status": "failed", "error_message": str(e)}}
         )
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
+
+
+@router.post("/realtime")
+async def analyze_realtime_scan(
+    payload: RealtimeScanRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Lightweight proxy to the cannon_facial_analysis /scan/analyze-realtime endpoint.
+
+    Used by the mobile/web face scan UI to fetch a live MediaPipe mesh overlay and
+    basic head-pose / quality feedback while recording.
+    """
+    try:
+        result = await facial_analysis_client.analyze_realtime(
+            image_data_url=payload.image,
+            include_visuals=payload.include_visuals,
+            timestamp=payload.timestamp,
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Realtime analysis failed: {e}")
 
 
 @router.post("/{scan_id}/analyze")

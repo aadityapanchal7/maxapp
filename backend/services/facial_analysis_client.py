@@ -19,9 +19,10 @@ class FacialAnalysisClient:
     """
     HTTP client for the cannon_facial_analysis service.
 
-    Supports two call modes:
-      1. upload_video(video_bytes)  → POST /scan/upload-video  (multipart)
-      2. analyze_frames(frames)    → POST /scan/analyze        (JSON base64)
+    Supports multiple call modes:
+      1. upload_video(video_bytes)   → POST /scan/upload-video   (multipart)
+      2. analyze_frames(frames)     → POST /scan/analyze         (JSON base64)
+      3. analyze_realtime(image)    → POST /scan/analyze-realtime (JSON base64)
     """
 
     def __init__(self):
@@ -82,6 +83,51 @@ class FacialAnalysisClient:
             except Exception as e:
                 print(f"[FacialAnalysisClient] Error calling analysis service: {e}")
                 return self._create_error_analysis(str(e))
+
+    async def analyze_realtime(self, image_data_url: str, include_visuals: bool = True,
+                               timestamp: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Proxy to /scan/analyze-realtime for live overlay + guidance.
+
+        image_data_url should be a full data URL string, e.g. "data:image/jpeg;base64,...."
+        This matches what the cannon_facial_analysis frontend sends today.
+        """
+        url = f"{self.base_url}/scan/analyze-realtime"
+        payload = {
+            "image": image_data_url,
+            "include_visuals": include_visuals,
+            "timestamp": timestamp or time.time(),
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            try:
+                response = await client.post(url, json=payload)
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as e:
+                detail = e.response.text if e.response else str(e)
+                print(f"[FacialAnalysisClient] HTTP error (realtime): {detail}")
+                # Shape this like the realtime API response so callers can handle gracefully
+                return {
+                    "success": False,
+                    "detected_angle": "unknown",
+                    "angle_confidence": 0.0,
+                    "quality_score": 0.0,
+                    "feedback": {"message": "Realtime analysis HTTP error", "error": detail},
+                    "landmarks_detected": False,
+                    "processed_image": None,
+                }
+            except Exception as e:
+                print(f"[FacialAnalysisClient] Error calling realtime analysis service: {e}")
+                return {
+                    "success": False,
+                    "detected_angle": "unknown",
+                    "angle_confidence": 0.0,
+                    "quality_score": 0.0,
+                    "feedback": {"message": "Realtime analysis failed", "error": str(e)},
+                    "landmarks_detected": False,
+                    "processed_image": None,
+                }
 
     async def health_check(self) -> bool:
         """Returns True if the cannon_facial_analysis service is reachable."""
