@@ -4,12 +4,15 @@ Channels API - Discord-like chat channels
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
 from datetime import datetime
-from bson import ObjectId
-from db import get_database
-from middleware import get_current_user
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from db import get_db, get_rds_db
 from middleware.auth_middleware import require_paid_user, get_current_admin_user
 from models.forum import ChannelCreate, MessageCreate
 from services.storage_service import storage_service
+from models.rds_models import Forum, ChannelMessage
+from models.sqlalchemy_models import User
 
 router = APIRouter(prefix="/forums", tags=["Channels"])
 
@@ -33,127 +36,181 @@ async def upload_chat_file(
 
 
 @router.get("")
-# ... (list_channels code)
-async def list_channels(q: str = None, current_user: dict = Depends(require_paid_user)):
-    """List all channels with optional search"""
-    db = get_database()
-    
-    query = {}
+async def list_channels(
+    q: str = None,
+    current_user: dict = Depends(require_paid_user),
+    rds_db: AsyncSession = Depends(get_rds_db),
+):
+    query = select(Forum)
     if q:
-        query["$or"] = [
-            {"name": {"$regex": q, "$options": "i"}},
-            {"description": {"$regex": q, "$options": "i"}},
-            {"slug": {"$regex": q, "$options": "i"}}
-        ]
-        
-    cursor = db.forums.find(query).sort("order", 1)
-    channels = []
-    async for ch in cursor:
-        message_count = await db.channel_messages.count_documents({"channel_id": str(ch["_id"])})
-        channels.append({
-            "id": str(ch["_id"]),
-            "name": ch["name"],
-            "slug": ch["slug"],
-            "description": ch["description"],
-            "is_admin_only": ch.get("is_admin_only", False),
+        query = query.where(
+            (Forum.name.ilike(f"%{q}%")) |
+            (Forum.description.ilike(f"%{q}%")) |
+            (Forum.slug.ilike(f"%{q}%"))
+        )
+    query = query.order_by(Forum.order)
+    result = await rds_db.execute(query)
+    channels = result.scalars().all()
+
+    forums = []
+    for ch in channels:
+        count_result = await rds_db.execute(
+            select(func.count(ChannelMessage.id)).where(ChannelMessage.channel_id == ch.id)
+        )
+        message_count = count_result.scalar() or 0
+        forums.append({
+            "id": str(ch.id),
+            "name": ch.name,
+            "slug": ch.slug,
+            "description": ch.description,
+            "icon": ch.icon,
+            "is_admin_only": ch.is_admin_only,
             "message_count": message_count
         })
-    return {"forums": channels}
+    return {"forums": forums}
 
 
 @router.get("/{channel_id}/messages")
-async def get_messages(channel_id: str, limit: int = 50, before: str = None, query: str = None, current_user: dict = Depends(require_paid_user)):
+async def get_messages(
+    channel_id: str,
+    limit: int = 50,
+    before: str = None,
+    query: str = None,
+    current_user: dict = Depends(require_paid_user),
+    rds_db: AsyncSession = Depends(get_rds_db),
+    db: AsyncSession = Depends(get_db),
+):
     """Get messages in a channel with optional filtering"""
-    db = get_database()
-    
-    channel = await db.forums.find_one({"_id": ObjectId(channel_id)})
+    try:
+        channel_uuid = UUID(channel_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid channel ID format")
+
+    channel_result = await rds_db.execute(select(Forum).where(Forum.id == channel_uuid))
+    channel = channel_result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
-    
-    mq = {"channel_id": channel_id}
+
+    msg_query = select(ChannelMessage).where(ChannelMessage.channel_id == channel_uuid)
+
     if before:
-        mq["_id"] = {"$lt": ObjectId(before)}
+        try:
+            before_uuid = UUID(before)
+            before_msg = await rds_db.get(ChannelMessage, before_uuid)
+            if before_msg:
+                msg_query = msg_query.where(ChannelMessage.created_at < before_msg.created_at)
+        except ValueError:
+            pass
+
     if query:
-        mq["content"] = {"$regex": query, "$options": "i"}
-    
-    cursor = db.channel_messages.find(mq).sort("created_at", 1).limit(limit)
-    
-    messages = []
-    async for msg in cursor:
-        user = await db.users.find_one({"_id": ObjectId(msg["user_id"])})
-        messages.append({
-            "id": str(msg["_id"]),
+        msg_query = msg_query.where(ChannelMessage.content.ilike(f"%{query}%"))
+
+    msg_query = msg_query.order_by(ChannelMessage.created_at.asc()).limit(limit)
+    msg_result = await rds_db.execute(msg_query)
+    messages = msg_result.scalars().all()
+
+    user_ids = list({m.user_id for m in messages})
+    users_map = {}
+    if user_ids:
+        users_result = await db.execute(select(User).where(User.id.in_(user_ids)))
+        users_map = {u.id: u for u in users_result.scalars().all()}
+
+    payload = []
+    for msg in messages:
+        user = users_map.get(msg.user_id)
+        payload.append({
+            "id": str(msg.id),
             "channel_id": channel_id,
-            "user_id": msg["user_id"],
-            "user_email": user["email"].split("@")[0] if user else "Unknown",
-            "content": msg["content"],
-            "attachment_url": msg.get("attachment_url"),
-            "attachment_type": msg.get("attachment_type"),
-            "created_at": msg["created_at"],
-            "is_admin": user.get("is_admin", False) if user else False,
-            "parent_id": msg.get("parent_id"),
-            "reactions": msg.get("reactions", {})
+            "user_id": str(msg.user_id),
+            "user_email": user.email.split("@")[0] if user else "Unknown",
+            "content": msg.content,
+            "attachment_url": msg.attachment_url,
+            "attachment_type": msg.attachment_type,
+            "created_at": msg.created_at,
+            "is_admin": user.is_admin if user else False,
+            "parent_id": str(msg.parent_id) if msg.parent_id else None,
+            "reactions": msg.reactions or {}
         })
-    
-    return {"messages": messages, "channel_name": channel["name"], "is_admin_only": channel.get("is_admin_only", False)}
+
+    return {"messages": payload, "channel_name": channel.name, "is_admin_only": channel.is_admin_only}
 
 
 @router.post("/{channel_id}/messages")
-async def send_message(channel_id: str, data: MessageCreate, current_user: dict = Depends(require_paid_user)):
+async def send_message(
+    channel_id: str,
+    data: MessageCreate,
+    current_user: dict = Depends(require_paid_user),
+    rds_db: AsyncSession = Depends(get_rds_db),
+    db: AsyncSession = Depends(get_db),
+):
     """Send a message to a channel"""
-    db = get_database()
-    
-    channel = await db.forums.find_one({"_id": ObjectId(channel_id)})
+    try:
+        channel_uuid = UUID(channel_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid channel ID format")
+
+    channel_result = await rds_db.execute(select(Forum).where(Forum.id == channel_uuid))
+    channel = channel_result.scalar_one_or_none()
     if not channel:
         raise HTTPException(status_code=404, detail="Channel not found")
     
     # Check admin-only permission for TOP-LEVEL messages only
-    if channel.get("is_admin_only") and not current_user.get("is_admin") and not data.parent_id:
+    if channel.is_admin_only and not current_user.get("is_admin") and not data.parent_id:
         raise HTTPException(status_code=403, detail="Only admins can post announcements. You can still comment on them!")
     
-    # Create message
-    message = {
-        "channel_id": channel_id,
-        "user_id": current_user["id"],
-        "content": data.content,
-        "attachment_url": data.attachment_url,
-        "attachment_type": data.attachment_type,
-        "parent_id": data.parent_id,
-        "reactions": {},
-        "created_at": datetime.utcnow()
-    }
-    result = await db.channel_messages.insert_one(message)
-    
-    user = await db.users.find_one({"_id": ObjectId(current_user["id"])})
+    message = ChannelMessage(
+        channel_id=channel_uuid,
+        user_id=UUID(current_user["id"]),
+        content=data.content,
+        attachment_url=data.attachment_url,
+        attachment_type=data.attachment_type,
+        parent_id=UUID(data.parent_id) if data.parent_id else None,
+        reactions={},
+        created_at=datetime.utcnow()
+    )
+    rds_db.add(message)
+    await rds_db.commit()
+    await rds_db.refresh(message)
+
+    user = await db.get(User, UUID(current_user["id"]))
     
     return {
         "message": {
-            "id": str(result.inserted_id),
+            "id": str(message.id),
             "channel_id": channel_id,
             "user_id": current_user["id"],
-            "user_email": user["email"].split("@")[0] if user else "Unknown",
+            "user_email": user.email.split("@")[0] if user else "Unknown",
             "content": data.content,
             "attachment_url": data.attachment_url,
             "attachment_type": data.attachment_type,
             "parent_id": data.parent_id,
             "reactions": {},
-            "created_at": message["created_at"],
+            "created_at": message.created_at,
             "is_admin": current_user.get("is_admin", False)
         }
     }
 
 
 @router.post("/{channel_id}/messages/{message_id}/reactions")
-async def toggle_reaction(channel_id: str, message_id: str, emoji: str, current_user: dict = Depends(require_paid_user)):
+async def toggle_reaction(
+    channel_id: str,
+    message_id: str,
+    emoji: str,
+    current_user: dict = Depends(require_paid_user),
+    rds_db: AsyncSession = Depends(get_rds_db),
+):
     """Add or remove an emoji reaction to a message"""
-    db = get_database()
     user_id = current_user["id"]
-    
-    message = await db.channel_messages.find_one({"_id": ObjectId(message_id)})
+    try:
+        message_uuid = UUID(message_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid message ID format")
+
+    message = await rds_db.get(ChannelMessage, message_uuid)
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    
-    reactions = message.get("reactions", {})
+
+    reactions = message.reactions or {}
     if emoji not in reactions:
         reactions[emoji] = []
     
@@ -163,21 +220,31 @@ async def toggle_reaction(channel_id: str, message_id: str, emoji: str, current_
             del reactions[emoji]
     else:
         reactions[emoji].append(user_id)
-    
-    await db.channel_messages.update_one(
-        {"_id": ObjectId(message_id)},
-        {"$set": {"reactions": reactions}}
-    )
+
+    message.reactions = reactions
+    await rds_db.commit()
     
     return {"reactions": reactions}
 
 
 @router.post("")
-async def create_channel(data: ChannelCreate, admin: dict = Depends(get_current_admin_user)):
+async def create_channel(
+    data: ChannelCreate,
+    admin: dict = Depends(get_current_admin_user),
+    rds_db: AsyncSession = Depends(get_rds_db),
+):
     """Create channel (admin only)"""
-    db = get_database()
-    channel = data.model_dump()
-    channel["created_at"] = datetime.utcnow()
-    result = await db.forums.insert_one(channel)
-    return {"channel_id": str(result.inserted_id)}
+    channel = Forum(
+        name=data.name,
+        slug=data.slug,
+        description=data.description,
+        icon=data.icon,
+        order=data.order or 0,
+        is_admin_only=data.is_admin_only,
+        created_at=datetime.utcnow()
+    )
+    rds_db.add(channel)
+    await rds_db.commit()
+    await rds_db.refresh(channel)
+    return {"channel_id": str(channel.id)}
 

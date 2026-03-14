@@ -6,18 +6,21 @@ import base64
 import logging
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
 from datetime import datetime
-from bson import ObjectId
 from typing import List, Optional
 from pydantic import BaseModel
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
-from db import get_database
+from db import get_db
 from middleware import get_current_user
 from services.storage_service import storage_service
 from models.user import (
     UserResponse, OnboardingData, UserProfile, GoalType, ExperienceLevel, AccountUpdateRequest
 )
+from models.sqlalchemy_models import User, UserProgressPhoto
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -45,33 +48,31 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         onboarding=OnboardingData(**current_user.get("onboarding", {})),
         profile=UserProfile(**current_user.get("profile", {})),
         first_scan_completed=current_user.get("first_scan_completed", False),
-        is_admin=current_user.get("is_admin", False)
+        is_admin=current_user.get("is_admin", False),
+        phone_number=current_user.get("phone_number")
     )
 
 
 @router.post("/onboarding")
 async def save_onboarding(
     data: OnboardingData,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Save onboarding questionnaire answers
     """
-    db = get_database()
-    
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     # Update onboarding data
     onboarding_data = data.model_dump()
     onboarding_data["completed"] = True
-    
-    await db.users.update_one(
-        {"_id": ObjectId(current_user["id"])},
-        {
-            "$set": {
-                "onboarding": onboarding_data,
-                "updated_at": datetime.utcnow()
-            }
-        }
-    )
+    user.onboarding = onboarding_data
+    user.updated_at = datetime.utcnow()
+    await db.commit()
     
     return {"message": "Onboarding completed", "data": onboarding_data}
 
@@ -94,13 +95,12 @@ async def save_onboarding_anonymous(data: OnboardingData):
 @router.post("/me/avatar")
 async def upload_avatar(
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Upload profile picture
     """
-    db = get_database()
-    
     # Read file content
     content = await file.read()
     
@@ -115,15 +115,16 @@ async def upload_avatar(
         raise HTTPException(status_code=500, detail="Failed to upload image")
     
     # Update user profile
-    await db.users.update_one(
-        {"_id": ObjectId(current_user["id"])},
-        {
-            "$set": {
-                "profile.avatar_url": avatar_url,
-                "updated_at": datetime.utcnow()
-            }
-        }
-    )
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not user.profile:
+        user.profile = {}
+    user.profile["avatar_url"] = avatar_url
+    user.updated_at = datetime.utcnow()
+    await db.commit()
     
     return {"avatar_url": avatar_url}
 
@@ -131,35 +132,28 @@ async def upload_avatar(
 @router.put("/profile")
 async def update_profile(
     profile: UserProfile,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Update user profile
     """
-    db = get_database()
-    
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     # Merge with existing profile data to avoid overwriting unrelated fields
-    current_profile = current_user.get("profile", {})
+    current_profile = user.profile or {}
     updated_data = profile.model_dump(exclude_unset=True)
     
-    # Combine (pydantic model dump might miss existing fields if not careful)
-    # Actually, we can just use dot notation for specific fields or merge dicts
-    # But since UserProfile replaces the whole object structure in pydantic, 
-    # we should likely merge.
-    # Simple approach: Update provided fields.
-    
-    # Construct update dict using dot notation for safety
-    update_fields = {}
     for key, value in updated_data.items():
-        update_fields[f"profile.{key}"] = value
-        
-    update_fields["updated_at"] = datetime.utcnow()
+        current_profile[key] = value
 
-    await db.users.update_one(
-        {"_id": ObjectId(current_user["id"])},
-        {"$set": update_fields}
-    )
-    
+    user.profile = current_profile
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+
     return {"message": "Profile updated"}
 
 
@@ -167,7 +161,8 @@ async def update_profile(
 async def upload_progress_photo(
     file: Optional[UploadFile] = File(None, description="Progress image (form field: file)"),
     image: Optional[UploadFile] = File(None, description="Progress image (form field: image)"),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Upload a daily progress picture for the current user.
@@ -184,8 +179,6 @@ async def upload_progress_photo(
             detail="Missing file: send multipart form with 'file' or 'image'",
         )
 
-    db = get_database()
-
     content = await upload.read()
     image_url = await storage_service.upload_image(
         content,
@@ -195,20 +188,22 @@ async def upload_progress_photo(
     if not image_url:
         raise HTTPException(status_code=500, detail="Failed to upload progress image")
 
-    doc = {
-        "user_id": current_user["id"],
-        "image_url": image_url,
-        "created_at": datetime.utcnow(),
-    }
-    result = await db.user_progress_photos.insert_one(doc)
-    doc["id"] = str(result.inserted_id)
-    return {"photo": doc}
+    photo = UserProgressPhoto(
+        user_id=UUID(current_user["id"]),
+        image_url=image_url,
+        created_at=datetime.utcnow(),
+    )
+    db.add(photo)
+    await db.commit()
+    await db.refresh(photo)
+    return {"photo": {"id": str(photo.id), "user_id": current_user["id"], "image_url": image_url, "created_at": photo.created_at}}
 
 
 @router.post("/me/progress-photo/base64")
 async def upload_progress_photo_base64(
     body: ProgressPhotoBase64Body,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Upload a progress picture as base64 (e.g. from React Native ImagePicker with base64: true).
@@ -229,7 +224,6 @@ async def upload_progress_photo_base64(
     if not content:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Empty image")
 
-    db = get_database()
     image_url = await storage_service.upload_image(
         content,
         current_user["id"],
@@ -238,44 +232,49 @@ async def upload_progress_photo_base64(
     if not image_url:
         raise HTTPException(status_code=500, detail="Failed to upload progress image")
 
-    doc = {
-        "user_id": current_user["id"],
-        "image_url": image_url,
-        "created_at": datetime.utcnow(),
-    }
-    result = await db.user_progress_photos.insert_one(doc)
-    doc["id"] = str(result.inserted_id)
-    return {"photo": doc}
+    photo = UserProgressPhoto(
+        user_id=UUID(current_user["id"]),
+        image_url=image_url,
+        created_at=datetime.utcnow(),
+    )
+    db.add(photo)
+    await db.commit()
+    await db.refresh(photo)
+    return {"photo": {"id": str(photo.id), "user_id": current_user["id"], "image_url": image_url, "created_at": photo.created_at}}
 
 
 @router.get("/me/progress-photos")
 async def list_progress_photos(
     limit: int = 50,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     List recent progress photos for the current user (most recent first).
     """
-    db = get_database()
-    cursor = db.user_progress_photos.find({"user_id": current_user["id"]}).sort("created_at", -1).limit(limit)
-    photos = []
-    async for doc in cursor:
-        doc["id"] = str(doc.pop("_id"))
-        photos.append(doc)
-    return {"photos": photos}
+    result = await db.execute(
+        select(UserProgressPhoto)
+        .where(UserProgressPhoto.user_id == UUID(current_user["id"]))
+        .order_by(UserProgressPhoto.created_at.desc())
+        .limit(limit)
+    )
+    photos = result.scalars().all()
+    return {"photos": [
+        {"id": str(p.id), "user_id": current_user["id"], "image_url": p.image_url, "created_at": p.created_at}
+        for p in photos
+    ]}
 
 
 @router.put("/account")
 async def update_account(
     data: AccountUpdateRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Update user account info (first_name, last_name, username)
     Note: Email cannot be changed
     """
-    db = get_database()
-    
     update_fields = {}
     
     if data.first_name is not None:
@@ -297,11 +296,13 @@ async def update_account(
                     detail="Username can only contain letters, numbers, and underscores"
                 )
             # Check if username is already taken by another user
-            existing = await db.users.find_one({
-                "username": username_clean.lower(),
-                "_id": {"$ne": ObjectId(current_user["id"])}
-            })
-            if existing:
+            result = await db.execute(
+                select(User).where(
+                    (User.username == username_clean.lower()) &
+                    (User.id != UUID(current_user["id"]))
+                )
+            )
+            if result.scalar_one_or_none():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Username already taken"
@@ -318,10 +319,14 @@ async def update_account(
     
     update_fields["updated_at"] = datetime.utcnow()
     
-    await db.users.update_one(
-        {"_id": ObjectId(current_user["id"])},
-        {"$set": update_fields}
-    )
+    user = await db.get(User, UUID(current_user["id"]))
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    for key, value in update_fields.items():
+        setattr(user, key, value)
+    user.updated_at = datetime.utcnow()
+    await db.commit()
     
     return {"message": "Account updated"}
 

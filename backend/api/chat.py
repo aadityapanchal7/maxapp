@@ -4,35 +4,59 @@ Chat API - Cannon LLM Chat
 
 from fastapi import APIRouter, Depends
 from datetime import datetime
-from bson import ObjectId
-from db import get_database
-from middleware import get_current_user
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from db import get_db
 from middleware.auth_middleware import require_paid_user
 from services.gemini_service import gemini_service
 from services.storage_service import storage_service
 from models.leaderboard import ChatRequest, ChatResponse
+from models.sqlalchemy_models import ChatHistory, Scan
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
 @router.post("/message", response_model=ChatResponse)
-async def send_message(data: ChatRequest, current_user: dict = Depends(require_paid_user)):
+async def send_message(
+    data: ChatRequest,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Send message to Cannon AI"""
     from services.schedule_service import schedule_service
-    db = get_database()
     user_id = current_user["id"]
+    user_uuid = UUID(user_id)
     
     # Get chat history
-    history_doc = await db.chat_history.find_one({"user_id": user_id})
-    history = history_doc.get("messages", []) if history_doc else []
+    history_result = await db.execute(
+        select(ChatHistory)
+        .where(ChatHistory.user_id == user_uuid)
+        .order_by(ChatHistory.created_at.desc())
+        .limit(50)
+    )
+    history_rows = list(reversed(history_result.scalars().all()))
+    history = [
+        {
+            "role": h.role,
+            "content": h.content,
+            "attachment_url": None,
+            "attachment_type": None,
+            "created_at": h.created_at
+        }
+        for h in history_rows
+    ]
     
     # Get active schedule for context
-    active_schedule = await schedule_service.get_current_schedule(user_id)
+    active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     
     # Get user context
-    latest_scan = await db.scans.find_one({"user_id": user_id}, sort=[("created_at", -1)])
+    latest_scan_result = await db.execute(
+        select(Scan).where(Scan.user_id == user_uuid).order_by(Scan.created_at.desc()).limit(1)
+    )
+    latest_scan = latest_scan_result.scalar_one_or_none()
     user_context = {
-        "latest_scan": latest_scan.get("analysis") if latest_scan else None,
+        "latest_scan": latest_scan.analysis if latest_scan else None,
         "active_schedule": active_schedule
     }
     
@@ -55,6 +79,7 @@ async def send_message(data: ChatRequest, current_user: dict = Depends(require_p
                     await schedule_service.adapt_schedule(
                         user_id=user_id,
                         schedule_id=active_schedule["id"],
+                        db=db,
                         feedback=feedback
                     )
                     # We could optionally add a notice to the response or refresh the context
@@ -62,29 +87,41 @@ async def send_message(data: ChatRequest, current_user: dict = Depends(require_p
                 print(f"Chat-triggered schedule adaptation failed: {e}")
     
     # Save to history
-    new_messages = history + [
-        {
-            "role": "user", 
-            "content": data.message, 
-            "attachment_url": data.attachment_url,
-            "attachment_type": data.attachment_type,
-            "created_at": datetime.utcnow()
-        },
-        {"role": "assistant", "content": response_text, "created_at": datetime.utcnow()}
-    ]
-    
-    if history_doc:
-        await db.chat_history.update_one({"_id": history_doc["_id"]}, {"$set": {"messages": new_messages[-50:], "updated_at": datetime.utcnow()}})
-    else:
-        await db.chat_history.insert_one({"user_id": user_id, "messages": new_messages, "created_at": datetime.utcnow()})
+    user_message = ChatHistory(
+        user_id=user_uuid,
+        role="user",
+        content=data.message,
+        created_at=datetime.utcnow()
+    )
+    assistant_message = ChatHistory(
+        user_id=user_uuid,
+        role="assistant",
+        content=response_text,
+        created_at=datetime.utcnow()
+    )
+    db.add(user_message)
+    db.add(assistant_message)
+    await db.commit()
     
     return ChatResponse(response=response_text)
 
 
 @router.get("/history")
-async def get_chat_history(limit: int = 50, current_user: dict = Depends(require_paid_user)):
+async def get_chat_history(
+    limit: int = 50,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
     """Get chat history"""
-    db = get_database()
-    history_doc = await db.chat_history.find_one({"user_id": current_user["id"]})
-    messages = history_doc.get("messages", [])[-limit:] if history_doc else []
-    return {"messages": messages}
+    user_uuid = UUID(current_user["id"])
+    result = await db.execute(
+        select(ChatHistory)
+        .where(ChatHistory.user_id == user_uuid)
+        .order_by(ChatHistory.created_at.desc())
+        .limit(limit)
+    )
+    rows = list(reversed(result.scalars().all()))
+    return {"messages": [
+        {"role": r.role, "content": r.content, "created_at": r.created_at}
+        for r in rows
+    ]}

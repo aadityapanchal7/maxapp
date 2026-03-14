@@ -15,6 +15,23 @@ class Settings(BaseSettings):
     # MongoDB
     mongodb_uri: str = Field(default="mongodb://localhost:27017")
     mongodb_database: str = Field(default="cannon_db")
+
+    # Supabase (user-specific data)
+    supabase_url: str = Field(default="https://your-project.supabase.co")
+    supabase_anon_key: str = Field(default="")
+    supabase_service_role_key: str = Field(default="")
+    supabase_db_host: str = Field(default="localhost")
+    supabase_db_port: int = Field(default=5432)
+    supabase_db_user: str = Field(default="postgres")
+    supabase_db_password: str = Field(default="")
+    supabase_db_name: str = Field(default="postgres")
+
+    # AWS RDS (shared data)
+    aws_rds_host: str = Field(default="localhost")
+    aws_rds_port: int = Field(default=5432)
+    aws_rds_user: str = Field(default="postgres")
+    aws_rds_password: str = Field(default="")
+    aws_rds_database: str = Field(default="cannon_shared")
     
     # JWT Authentication
     jwt_secret_key: str = Field(default="change-this-secret-key")
@@ -66,6 +83,22 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins string into list"""
         return [origin.strip() for origin in self.cors_origins.split(",")]
+
+    @property
+    def supabase_db_url(self) -> str:
+        """Supabase Postgres connection string"""
+        return (
+            f"postgresql+asyncpg://{self.supabase_db_user}:{self.supabase_db_password}"
+            f"@{self.supabase_db_host}:{self.supabase_db_port}/{self.supabase_db_name}"
+        )
+
+    @property
+    def aws_rds_db_url(self) -> str:
+        """AWS RDS Postgres connection string"""
+        return (
+            f"postgresql+asyncpg://{self.aws_rds_user}:{self.aws_rds_password}"
+            f"@{self.aws_rds_host}:{self.aws_rds_port}/{self.aws_rds_database}"
+        )
     
     class Config:
         env_file = ".env"
