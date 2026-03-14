@@ -11,10 +11,16 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables"""
-    
-    # MongoDB
-    mongodb_uri: str = Field(default="mongodb://localhost:27017")
-    mongodb_database: str = Field(default="cannon_db")
+
+    # Supabase (User-specific data)
+    supabase_url: str = Field(default="https://your-project.supabase.co")
+    supabase_anon_key: str = Field(default="")
+    supabase_service_role_key: str = Field(default="")
+    supabase_db_host: str = Field(default="localhost")
+    supabase_db_port: int = Field(default=5432)
+    supabase_db_user: str = Field(default="postgres")
+    supabase_db_password: str = Field(default="")
+    supabase_db_name: str = Field(default="postgres")
     
     # JWT Authentication
     jwt_secret_key: str = Field(default="change-this-secret-key")
@@ -42,6 +48,13 @@ class Settings(BaseSettings):
     twilio_auth_token: str = Field(default="")
     twilio_whatsapp_from: str = Field(default="whatsapp:+14155238886")  # Sandbox default
     
+    # AWS RDS (Shared data)
+    aws_rds_host: str = Field(default="localhost")
+    aws_rds_port: int = Field(default=5432)
+    aws_rds_user: str = Field(default="postgres")
+    aws_rds_password: str = Field(default="")
+    aws_rds_database: str = Field(default="cannon_shared")
+
     # AWS S3
     aws_access_key_id: str = Field(default="")
     aws_secret_access_key: str = Field(default="")
@@ -60,12 +73,22 @@ class Settings(BaseSettings):
     # Rate Limiting
     rate_limit_requests: int = Field(default=100)
     rate_limit_period_seconds: int = Field(default=60)
-    
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins string into list"""
         return [origin.strip() for origin in self.cors_origins.split(",")]
-    
+
+    @property
+    def supabase_db_url(self) -> str:
+        """Construct Supabase database URL"""
+        return f"postgresql+asyncpg://{self.supabase_db_user}:{self.supabase_db_password}@{self.supabase_db_host}:{self.supabase_db_port}/{self.supabase_db_name}"
+
+    @property
+    def aws_rds_db_url(self) -> str:
+        """Construct AWS RDS database URL"""
+        return f"postgresql+asyncpg://{self.aws_rds_user}:{self.aws_rds_password}@{self.aws_rds_host}:{self.aws_rds_port}/{self.aws_rds_database}"
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

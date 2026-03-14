@@ -214,13 +214,13 @@ def create_storage_service():
     """
     aws_key = settings.aws_access_key_id
     aws_secret = settings.aws_secret_access_key
-    
+
     # Check if AWS credentials are properly configured
     if aws_key and aws_secret and aws_key != "your-aws-access-key":
-        print("✓ Using AWS S3 storage")
+        print("[OK] Using AWS S3 storage")
         return S3StorageService()
     else:
-        print("⚠ AWS not configured - using local file storage")
+        print("[INFO] AWS not configured - using local file storage")
         return LocalStorageService()
 
 

@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import os
 
 from config import settings
-from db import mongo_client
+from db import init_db, close_db, init_rds_db, close_rds_db
 from api import (
     auth_router, users_router, scans_router, payments_router,
     courses_router, events_router, forums_router, chat_router, leaderboard_router,
@@ -22,10 +22,12 @@ from api import (
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
-    await mongo_client.connect()
+    await init_db()      # Initialize Supabase tables
+    await init_rds_db()  # Initialize RDS tables
     yield
     # Shutdown
-    await mongo_client.disconnect()
+    await close_db()     # Close Supabase connection
+    await close_rds_db() # Close RDS connection
 
 
 # Create FastAPI app

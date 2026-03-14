@@ -3,104 +3,128 @@ Leaderboard API
 """
 
 from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from uuid import UUID
 from datetime import datetime
-from db import get_database
-from middleware import get_current_user
-from middleware.auth_middleware import require_paid_user
-from bson import ObjectId
+from db import get_db
+from middleware.auth_middleware import require_paid_user, get_current_user
+from models.sqlalchemy_models import Leaderboard, User, Scan
 
 router = APIRouter(prefix="/leaderboard", tags=["Leaderboard"])
 
 
 @router.get("")
-async def get_leaderboard(limit: int = 100, current_user: dict = Depends(require_paid_user)):
+async def get_leaderboard(
+    limit: int = 100,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Get leaderboard rankings"""
-    db = get_database()
-    cursor = db.leaderboard.find().sort("rank", 1).limit(limit)
-    
+    result = await db.execute(
+        select(Leaderboard).order_by(Leaderboard.rank).limit(limit)
+    )
+
     entries = []
-    async for entry in cursor:
-        user = await db.users.find_one({"_id": ObjectId(entry["user_id"])}) if entry.get("user_id") else None
-        
+    for entry in result.scalars().all():
+        user = await db.get(User, entry.user_id)
+
         # Skip if user is admin (safety check in case they somehow got an entry)
-        if user and user.get("is_admin"):
+        if user and user.is_admin:
             continue
-            
+
         entries.append({
-            "rank": entry.get("rank", 0),
-            "user_id": str(entry["user_id"]),
-            "user_email": user["email"][:3] + "***" if user else "Anonymous",
-            "score": entry.get("score", 0),
-            "level": entry.get("level", 0),
-            "streak_days": entry.get("streak_days", 0),
-            "improvement_percentage": entry.get("improvement_percentage", 0)
+            "rank": entry.rank or 0,
+            "user_id": str(entry.user_id),
+            "user_email": user.email[:3] + "***" if user else "Anonymous",
+            "score": entry.score or 0,
+            "level": entry.level or 0,
+            "streak_days": entry.streak_days or 0,
+            "improvement_percentage": entry.improvement_percentage or 0
         })
-    
-    total = len(entries) # Should ideally be count_documents excluding admins
+
+    total = len(entries)
     return {"entries": entries, "total_users": total}
 
 
 @router.get("/me")
-async def get_my_rank(current_user: dict = Depends(require_paid_user)):
+async def get_my_rank(
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db)
+):
     """Get current user's rank"""
     if current_user.get("is_admin"):
         return {"rank": None, "total_users": 0, "message": "Admins are excluded from leaderboard"}
 
-    db = get_database()
-    user_id = current_user["id"]
-    entry = await db.leaderboard.find_one({"user_id": user_id})
-    total = await db.leaderboard.count_documents({})
-    
+    user_uuid = UUID(current_user["id"])
+
+    result = await db.execute(
+        select(Leaderboard).where(Leaderboard.user_id == user_uuid)
+    )
+    entry = result.scalar_one_or_none()
+
+    total_result = await db.execute(select(Leaderboard))
+    total = len(total_result.scalars().all())
+
     # If no leaderboard entry, check if user has completed scans and create entry
     if not entry:
-        latest_scan = await db.scans.find_one({
-            "user_id": user_id,
-            "processing_status": "completed",
-            "analysis": {"$exists": True}
-        }, sort=[("created_at", -1)])
-        
+        latest_scan_result = await db.execute(
+            select(Scan)
+            .where((Scan.user_id == user_uuid) & (Scan.processing_status == "completed"))
+            .order_by(Scan.created_at.desc())
+            .limit(1)
+        )
+        latest_scan = latest_scan_result.scalar_one_or_none()
+
         if latest_scan:
             # User has completed scan but no leaderboard entry - create one
-            analysis = latest_scan.get("analysis", {})
+            analysis = latest_scan.analysis or {}
             overall_score = analysis.get("overall_score") or analysis.get("metrics", {}).get("overall_score", 0)
             leaderboard_score = (float(overall_score) if overall_score else 0) * 10
-            
+
             # Count scans
-            scans_count = await db.scans.count_documents({
-                "user_id": user_id,
-                "processing_status": "completed"
-            })
-            
+            scans_count_result = await db.execute(
+                select(Scan).where(
+                    (Scan.user_id == user_uuid) & (Scan.processing_status == "completed")
+                )
+            )
+            scans_count = len(scans_count_result.scalars().all())
+
             # Create leaderboard entry
-            new_entry = {
-                "user_id": user_id,
-                "score": leaderboard_score,
-                "level": float(overall_score) if overall_score else 0,
-                "streak_days": 1,
-                "improvement_percentage": 0,
-                "scans_count": scans_count,
-                "last_scan_at": latest_scan.get("created_at", datetime.utcnow()),
-                "created_at": datetime.utcnow()
-            }
-            await db.leaderboard.insert_one(new_entry)
-            
+            new_entry = Leaderboard(
+                user_id=user_uuid,
+                score=leaderboard_score,
+                level=float(overall_score) if overall_score else 0,
+                streak_days=1,
+                improvement_percentage=0,
+                scans_count=scans_count,
+                last_scan_at=latest_scan.created_at
+            )
+            db.add(new_entry)
+            await db.commit()
+
             # Recalculate all ranks
-            all_entries = await db.leaderboard.find().sort("score", -1).to_list(None)
+            all_entries_result = await db.execute(
+                select(Leaderboard).order_by(Leaderboard.score.desc())
+            )
+            all_entries = all_entries_result.scalars().all()
             for rank, e in enumerate(all_entries, 1):
-                await db.leaderboard.update_one({"_id": e["_id"]}, {"$set": {"rank": rank}})
-            
+                e.rank = rank
+            await db.commit()
+
             # Fetch the newly created entry with rank
-            entry = await db.leaderboard.find_one({"user_id": user_id})
-            total = await db.leaderboard.count_documents({})
+            entry = await db.get(Leaderboard, new_entry.id)
+            total_result = await db.execute(select(Leaderboard))
+            total = len(total_result.scalars().all())
         else:
             return {"rank": None, "total_users": total, "message": "Complete a scan to join"}
-    
+
     return {
-        "rank": entry.get("rank", 0),
+        "rank": entry.rank or 0,
         "total_users": total,
-        "score": entry.get("score", 0),
-        "level": entry.get("level", 0),
-        "streak_days": entry.get("streak_days", 0),
-        "improvement_percentage": entry.get("improvement_percentage", 0)
+        "score": entry.score or 0,
+        "level": entry.level or 0,
+        "streak_days": entry.streak_days or 0,
+        "improvement_percentage": entry.improvement_percentage or 0
     }
 
