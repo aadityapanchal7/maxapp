@@ -120,9 +120,10 @@ async def upload_avatar(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if not user.profile:
-        user.profile = {}
-    user.profile["avatar_url"] = avatar_url
+    # Assign a new dict to ensure SQLAlchemy tracks JSON changes
+    current_profile = user.profile or {}
+    current_profile["avatar_url"] = avatar_url
+    user.profile = current_profile
     user.updated_at = datetime.utcnow()
     await db.commit()
     

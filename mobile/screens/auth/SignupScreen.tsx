@@ -9,7 +9,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 
 export default function SignupScreen() {
     const navigation = useNavigation<any>();
-    const { signup } = useAuth();
+    const { signup, refreshUser } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
@@ -58,7 +58,14 @@ export default function SignupScreen() {
         setLoading(true);
         try {
             await signup(email, password, firstName, lastName, username, phone || undefined);
-            if (avatarUri) { try { await api.uploadAvatar(avatarUri); } catch { Alert.alert('Note', 'Account created but profile picture could not be uploaded.'); } }
+            if (avatarUri) {
+                try {
+                    await api.uploadAvatar(avatarUri);
+                    await refreshUser();
+                } catch {
+                    Alert.alert('Note', 'Account created but profile picture could not be uploaded.');
+                }
+            }
         } catch (error: any) { Alert.alert('Signup Failed', error.response?.data?.detail || 'Could not create account'); }
         finally { setLoading(false); }
     };

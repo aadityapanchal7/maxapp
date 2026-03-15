@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Image } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -87,7 +87,14 @@ export default function HomeScreen() {
                             </View>
                             <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7}>
                                 <View style={styles.profileIcon}>
-                                    <Text style={styles.profileInitial}>{(user?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase()}</Text>
+                                    {user?.profile?.avatar_url ? (
+                                        <Image
+                                            source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }}
+                                            style={styles.profileAvatar}
+                                        />
+                                    ) : (
+                                        <Text style={styles.profileInitial}>{(user?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase()}</Text>
+                                    )}
                                 </View>
                             </TouchableOpacity>
                         </View>
@@ -174,6 +181,7 @@ const styles = StyleSheet.create({
         backgroundColor: colors.foreground, alignItems: 'center', justifyContent: 'center',
         ...shadows.sm,
     },
+    profileAvatar: { width: 40, height: 40, borderRadius: 20 },
     profileInitial: { fontSize: 16, fontWeight: '600', color: colors.buttonText },
     section: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },

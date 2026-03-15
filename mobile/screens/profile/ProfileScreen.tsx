@@ -210,7 +210,7 @@ export default function ProfileScreen() {
                     <View style={styles.header}>
                         <TouchableOpacity onPress={handleEditPress} style={styles.avatarContainer} activeOpacity={0.8}>
                             {user?.profile?.avatar_url ? (
-                                <Image source={{ uri: user.profile.avatar_url }} style={styles.avatarImage} />
+                                <Image source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }} style={styles.avatarImage} />
                             ) : (
                                 <View style={styles.avatarPlaceholder}><Ionicons name="person" size={40} color={colors.textMuted} /></View>
                             )}
@@ -291,7 +291,7 @@ export default function ProfileScreen() {
                             </TouchableOpacity>
                         </View>
                         <TouchableOpacity onPress={pickImage} style={styles.modalAvatarContainer}>
-                            {editAvatarUri ? <Image source={{ uri: editAvatarUri }} style={styles.modalAvatar} /> : user?.profile?.avatar_url ? <Image source={{ uri: user.profile.avatar_url }} style={styles.modalAvatar} /> : <View style={styles.modalAvatarPlaceholder}><Ionicons name="camera" size={28} color={colors.textMuted} /></View>}
+                            {editAvatarUri ? <Image source={{ uri: editAvatarUri }} style={styles.modalAvatar} /> : user?.profile?.avatar_url ? <Image source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }} style={styles.modalAvatar} /> : <View style={styles.modalAvatarPlaceholder}><Ionicons name="camera" size={28} color={colors.textMuted} /></View>}
                             <Text style={styles.changePhotoText}>Change Photo</Text>
                         </TouchableOpacity>
                         <Text style={styles.inputLabel}>FIRST NAME</Text>

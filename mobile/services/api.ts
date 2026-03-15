@@ -3,6 +3,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import { Platform } from 'react-native';
 import { getItemAsync, setItemAsync, deleteItemAsync } from './storage';
 
 const API_BASE_URL =
@@ -98,12 +99,17 @@ class ApiService {
 
     async uploadAvatar(imageUri: string) {
         const formData = new FormData();
-        // @ts-ignore - React Native FormData accepts { uri, name, type }
-        formData.append('file', {
-            uri: imageUri,
-            name: 'avatar.jpg',
-            type: 'image/jpeg',
-        });
+        if (Platform.OS === 'web') {
+            const blob = await fetch(imageUri).then((res) => res.blob());
+            formData.append('file', blob, 'avatar.jpg');
+        } else {
+            // @ts-ignore - React Native FormData accepts { uri, name, type }
+            formData.append('file', {
+                uri: imageUri,
+                name: 'avatar.jpg',
+                type: 'image/jpeg',
+            });
+        }
 
         const response = await this.client.post('users/me/avatar', formData, {
             transformRequest: [(data: unknown, headers?: Record<string, string>) => {
