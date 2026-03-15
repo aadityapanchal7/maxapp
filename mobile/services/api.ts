@@ -5,7 +5,9 @@
 import axios, { AxiosInstance } from 'axios';
 import { getItemAsync, setItemAsync, deleteItemAsync } from './storage';
 
-const API_BASE_URL = 'http://localhost:8000/api/';
+const API_BASE_URL =
+    process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
+    'http://localhost:8000/api/';
 
 class ApiService {
     private client: AxiosInstance;

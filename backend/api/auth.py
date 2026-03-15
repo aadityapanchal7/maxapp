@@ -4,18 +4,22 @@ Authentication API - Login, Signup, Token Management
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 import bcrypt
 from jose import jwt
 from datetime import datetime, timedelta
-from bson import ObjectId
 import hashlib
+from uuid import UUID
 
 from config import settings
-from db import get_database
+from db import get_db
 from models.user import (
     UserCreate, UserLogin, UserResponse, UserInDB,
     TokenResponse, OnboardingData, UserProfile, TokenRefreshRequest
 )
+from models.sqlalchemy_models import User
+from middleware import get_current_user
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -60,30 +64,28 @@ def create_refresh_token(user_id: str) -> str:
 
 
 @router.post("/signup", response_model=TokenResponse)
-async def signup(user_data: UserCreate):
+async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     """
     Create a new user account
     """
-    db = get_database()
-    
     # Check if email exists
-    existing = await db.users.find_one({"email": user_data.email.lower()})
-    if existing:
+    result = await db.execute(select(User).where(User.email == user_data.email.lower()))
+    if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered"
         )
     
     # Check if username exists
-    existing_username = await db.users.find_one({"username": user_data.username.lower()})
-    if existing_username:
+    result = await db.execute(select(User).where(User.username == user_data.username.lower()))
+    if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Username already taken"
         )
     
-    # Create user document
-    user_doc = UserInDB(
+    # Create user record
+    user = User(
         email=user_data.email.lower(),
         password_hash=hash_password(user_data.password),
         first_name=user_data.first_name,
@@ -93,15 +95,15 @@ async def signup(user_data: UserCreate):
         updated_at=datetime.utcnow(),
         is_paid=False,
         is_admin=False,
-        onboarding=OnboardingData(),
-        profile=UserProfile(bio=user_data.bio) if user_data.bio else UserProfile(),
+        onboarding=OnboardingData().model_dump(),
+        profile=UserProfile(bio=user_data.bio).model_dump() if user_data.bio else UserProfile().model_dump(),
         first_scan_completed=False,
         phone_number=user_data.phone_number
     )
-    
-    # Insert into database
-    result = await db.users.insert_one(user_doc.model_dump())
-    user_id = str(result.inserted_id)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    user_id = str(user.id)
     
     # Send WhatsApp welcome message (non-blocking — failure won't break signup)
     if user_data.phone_number:
@@ -121,23 +123,21 @@ async def signup(user_data: UserCreate):
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     """
     Login with email and password
     """
-    db = get_database()
-    
     # Find user by email
-    user = await db.users.find_one({"email": form_data.username.lower()})
-    
-    if not user or not verify_password(form_data.password, user["password_hash"]):
+    result = await db.execute(select(User).where(User.email == form_data.username.lower()))
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(form_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"}
         )
-    
-    user_id = str(user["_id"])
+    user_id = str(user.id)
     
     # Create tokens
     access_token = create_access_token(user_id)
@@ -151,22 +151,20 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
 
 
 @router.post("/login/json", response_model=TokenResponse)
-async def login_json(user_data: UserLogin):
+async def login_json(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
     """
     Login with JSON body (for mobile app)
     """
-    db = get_database()
-    
     # Find user by email
-    user = await db.users.find_one({"email": user_data.email.lower()})
-    
-    if not user or not verify_password(user_data.password, user["password_hash"]):
+    result = await db.execute(select(User).where(User.email == user_data.email.lower()))
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(user_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
-    
-    user_id = str(user["_id"])
+    user_id = str(user.id)
     
     # Create tokens
     access_token = create_access_token(user_id)
@@ -181,7 +179,7 @@ async def login_json(user_data: UserLogin):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-async def refresh_token(request: TokenRefreshRequest):
+async def refresh_token(request: TokenRefreshRequest, db: AsyncSession = Depends(get_db)):
     """
     Refresh access token using refresh token
     """
@@ -202,10 +200,16 @@ async def refresh_token(request: TokenRefreshRequest):
             )
         
         # Verify user exists
-        db = get_database()
-        user = await db.users.find_one({"_id": ObjectId(user_id)})
-        
-        if not user:
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found"
+            )
+
+        result = await db.execute(select(User).where(User.id == user_uuid))
+        if not result.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found"
@@ -234,10 +238,21 @@ async def refresh_token(request: TokenRefreshRequest):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(current_user: dict = Depends(get_database)):
-    """
-    Get current user information
-    """
-    from middleware import get_current_user
-    # This will be properly connected via the dependency
-    pass
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    """Get current user information"""
+    return UserResponse(
+        id=current_user["id"],
+        email=current_user["email"],
+        first_name=current_user.get("first_name"),
+        last_name=current_user.get("last_name"),
+        username=current_user.get("username"),
+        created_at=current_user["created_at"],
+        is_paid=current_user.get("is_paid", False),
+        subscription_status=current_user.get("subscription_status"),
+        subscription_end_date=current_user.get("subscription_end_date"),
+        onboarding=OnboardingData(**current_user.get("onboarding", {})),
+        profile=UserProfile(**current_user.get("profile", {})),
+        first_scan_completed=current_user.get("first_scan_completed", False),
+        is_admin=current_user.get("is_admin", False),
+        phone_number=current_user.get("phone_number")
+    )

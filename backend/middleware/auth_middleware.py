@@ -7,16 +7,22 @@ from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from datetime import datetime
 from typing import Optional
-from bson import ObjectId
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from config import settings
-from db import get_database
+from db import get_db
+from models.sqlalchemy_models import User
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db)
+) -> dict:
     """
     Verify JWT token and return current user
     """
@@ -43,18 +49,37 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
         raise credentials_exception
     
     # Get user from database
-    db = get_database()
-    user = await db.users.find_one({"_id": ObjectId(user_id)})
-    
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        raise credentials_exception
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
+    user = result.scalar_one_or_none()
+
     if user is None:
         raise credentials_exception
-    
-    # Convert ObjectId to string
-    user["id"] = str(user["_id"])
-    del user["_id"]
-    del user["password_hash"]  # Don't return password
-    
-    return user
+
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "username": user.username,
+        "created_at": user.created_at,
+        "is_paid": user.is_paid,
+        "is_admin": user.is_admin,
+        "subscription_status": user.subscription_status,
+        "subscription_id": user.subscription_id,
+        "subscription_end_date": user.subscription_end_date,
+        "stripe_customer_id": user.stripe_customer_id,
+        "onboarding": user.onboarding or {},
+        "profile": user.profile or {},
+        "first_scan_completed": user.first_scan_completed,
+        "phone_number": user.phone_number,
+        "schedule_preferences": user.schedule_preferences or {},
+        "last_progress_prompt_date": user.last_progress_prompt_date,
+    }
 
 
 async def get_current_admin_user(current_user: dict = Depends(get_current_user)) -> dict:

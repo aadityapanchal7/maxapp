@@ -9,15 +9,17 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Optional, List
 from zoneinfo import ZoneInfo
+from uuid import UUID
 
-from bson import ObjectId
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
 from config import settings
-from db import get_database
 from services.gemini_service import GeminiService
+from models.sqlalchemy_models import User, UserSchedule, Scan
+from models.rds_models import Course
 
 logger = logging.getLogger(__name__)
-
-# ── Gemini prompt for schedule generation ──────────────────────────────────────
 
 SCHEDULE_GENERATION_PROMPT = """You are an expert fitness and self-improvement coach specialising in lookmaxxing.
 Your job is to create a PERSONALISED daily schedule for a user working on a specific module.
@@ -107,54 +109,49 @@ class ScheduleService:
         user_id: str,
         course_id: str,
         module_number: int,
+        db: AsyncSession,
+        rds_db: AsyncSession,
         preferences: Optional[dict] = None,
         num_days: int = 7,
     ) -> dict:
-        """
-        Generate a personalised schedule for a user's course module.
-        Uses Gemini to create the schedule based on module guidelines and user context.
-        """
-        db = get_database()
+        """Generate a personalised schedule for a user's course module."""
+        try:
+            course_uuid = UUID(course_id)
+        except ValueError:
+            raise ValueError("Course not found")
 
-        # Fetch course and module
-        from bson import ObjectId
-        course = await db.courses.find_one({"_id": ObjectId(course_id)})
+        course_result = await rds_db.execute(select(Course).where(Course.id == course_uuid))
+        course = course_result.scalar_one_or_none()
         if not course:
             raise ValueError("Course not found")
 
         module = None
-        for m in course.get("modules", []):
+        for m in (course.modules or []):
             if m.get("module_number") == module_number:
                 module = m
                 break
         if not module:
             raise ValueError(f"Module {module_number} not found in course")
 
-        # Get user context for adaptation
-        user = await db.users.find_one({"_id": ObjectId(user_id)})
+        user_uuid = UUID(user_id)
+        user = await db.get(User, user_uuid)
         user_history_context = await self._build_user_context(db, user_id, course_id)
 
-        # Resolve user's timezone for date calculations (used for schedule start dates)
-        tz_name = (user or {}).get("onboarding", {}).get("timezone", "UTC")
+        tz_name = (user.onboarding if user else {}).get("timezone", "UTC")
         try:
             user_tz = ZoneInfo(tz_name)
         except Exception:
             user_tz = ZoneInfo("UTC")
 
-        # Parse preferences
         prefs = preferences or {}
         wake_time = prefs.get("wake_time", "07:00")
         sleep_time = prefs.get("sleep_time", "23:00")
         preferred_times = prefs.get("preferred_workout_times", ["08:00", "18:00"])
 
-        # Extract guidelines
         guidelines = module.get("guidelines", {}) or {}
-
-        # Use module's recommended_days if num_days wasn't explicitly overridden
         if num_days == 7 and guidelines.get("recommended_days"):
             num_days = guidelines["recommended_days"]
 
-        # Build prompt
         prompt = SCHEDULE_GENERATION_PROMPT.format(
             module_title=module.get("title", ""),
             module_description=module.get("description", ""),
@@ -171,23 +168,18 @@ class ScheduleService:
             user_history_context=user_history_context,
         )
 
-        # Call Gemini
         try:
             import google.generativeai as genai
-
             model = genai.GenerativeModel(settings.gemini_model)
             response = model.generate_content(
                 prompt,
-                generation_config=genai.GenerationConfig(
-                    response_mime_type="application/json",
-                ),
+                generation_config=genai.GenerationConfig(response_mime_type="application/json"),
             )
             schedule_data = json.loads(response.text)
         except Exception as e:
             logger.error(f"Gemini schedule generation failed: {e}")
             schedule_data = self._generate_fallback_schedule(module, num_days, wake_time)
 
-        # Ensure every task has a task_id
         for day in schedule_data.get("days", []):
             for task in day.get("tasks", []):
                 if not task.get("task_id"):
@@ -195,82 +187,88 @@ class ScheduleService:
                 task.setdefault("status", "pending")
                 task.setdefault("notification_sent", False)
 
-        # Assign dates starting from "tomorrow" in the user's local timezone
         start_date = datetime.now(user_tz).date() + timedelta(days=1)
         for day in schedule_data.get("days", []):
             day_num = day.get("day_number", 1)
             day["date"] = (start_date + timedelta(days=day_num - 1)).isoformat()
 
-        # Deactivate any existing active schedule for this SAME module (not all modules)
-        await db.user_schedules.update_many(
-            {"user_id": user_id, "course_id": course_id, "module_number": module_number, "is_active": True},
-            {"$set": {"is_active": False, "updated_at": datetime.utcnow()}},
+        # Deactivate existing active schedule for this module
+        existing_result = await db.execute(
+            select(UserSchedule)
+            .where(
+                (UserSchedule.user_id == user_uuid) &
+                (UserSchedule.course_id == course_uuid) &
+                (UserSchedule.module_number == module_number) &
+                (UserSchedule.is_active == True)
+            )
         )
+        for sched in existing_result.scalars().all():
+            sched.is_active = False
+            sched.updated_at = datetime.utcnow()
+        await db.commit()
 
-        # Store in DB
-        schedule_doc = {
-            "user_id": user_id,
-            "course_id": course_id,
-            "course_title": course.get("title", ""),
-            "module_number": module_number,
-            "days": schedule_data.get("days", []),
-            "preferences": prefs,
-            "is_active": True,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-            "adapted_count": 0,
-            "user_feedback": [],
-            "completion_stats": {"completed": 0, "total": 0, "skipped": 0},
-        }
-        result = await db.user_schedules.insert_one(schedule_doc)
+        schedule_row = UserSchedule(
+            user_id=user_uuid,
+            course_id=course_uuid,
+            course_title=course.title,
+            module_number=module_number,
+            days=schedule_data.get("days", []),
+            preferences=prefs,
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            adapted_count=0,
+            user_feedback=[],
+            completion_stats={"completed": 0, "total": 0, "skipped": 0},
+        )
+        db.add(schedule_row)
+        await db.commit()
+        await db.refresh(schedule_row)
 
-        schedule_doc["id"] = str(schedule_doc.pop("_id", result.inserted_id))
-        return schedule_doc
+        return self._schedule_to_dict(schedule_row)
 
-    async def get_current_schedule(self, user_id: str, course_id: str = None, module_number: int = None) -> Optional[dict]:
-        """Get the user's current active schedule(s). Optionally filter by course/module."""
-        db = get_database()
-        query: dict = {"user_id": user_id, "is_active": True}
+    async def get_current_schedule(
+        self, user_id: str, db: AsyncSession, course_id: str = None, module_number: int = None
+    ) -> Optional[dict]:
+        """Get the user's current active schedule(s)."""
+        user_uuid = UUID(user_id)
+        query = select(UserSchedule).where(
+            (UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True)
+        )
         if course_id:
-            query["course_id"] = course_id
+            try:
+                course_uuid = UUID(course_id)
+                query = query.where(UserSchedule.course_id == course_uuid)
+            except ValueError:
+                return None
         if module_number:
-            query["module_number"] = module_number
+            query = query.where(UserSchedule.module_number == module_number)
+        query = query.order_by(UserSchedule.created_at.desc()).limit(1)
+        result = await db.execute(query)
+        schedule = result.scalar_one_or_none()
+        return self._schedule_to_dict(schedule) if schedule else None
 
-        schedule = await db.user_schedules.find_one(
-            query,
-            sort=[("created_at", -1)],
-        )
-        if schedule:
-            schedule["id"] = str(schedule.pop("_id"))
-        return schedule
-
-    async def get_schedule_by_id(self, schedule_id: str, user_id: str) -> Optional[dict]:
+    async def get_schedule_by_id(self, schedule_id: str, user_id: str, db: AsyncSession) -> Optional[dict]:
         """Get a specific schedule"""
-        from bson import ObjectId
-        db = get_database()
-        schedule = await db.user_schedules.find_one(
-            {"_id": ObjectId(schedule_id), "user_id": user_id}
-        )
-        if schedule:
-            schedule["id"] = str(schedule.pop("_id"))
-        return schedule
+        try:
+            schedule_uuid = UUID(schedule_id)
+        except ValueError:
+            return None
+        schedule = await db.get(UserSchedule, schedule_uuid)
+        if schedule and schedule.user_id == UUID(user_id):
+            return self._schedule_to_dict(schedule)
+        return None
 
     async def complete_task(
-        self, user_id: str, schedule_id: str, task_id: str, feedback: Optional[str] = None
+        self, user_id: str, schedule_id: str, task_id: str, db: AsyncSession, feedback: Optional[str] = None
     ) -> dict:
-        """Mark a task as completed and record feedback for adaptation"""
-        from bson import ObjectId
-        db = get_database()
-
-        schedule = await db.user_schedules.find_one(
-            {"_id": ObjectId(schedule_id), "user_id": user_id}
-        )
+        schedule = await self._load_schedule(schedule_id, user_id, db)
         if not schedule:
             raise ValueError("Schedule not found")
 
-        # Find and update the task
         updated = False
-        for day in schedule.get("days", []):
+        days = schedule.days or []
+        for day in days:
             for task in day.get("tasks", []):
                 if task.get("task_id") == task_id:
                     task["status"] = "completed"
@@ -283,65 +281,44 @@ class ScheduleService:
         if not updated:
             raise ValueError("Task not found in schedule")
 
-        # Update completion stats
-        stats = schedule.get("completion_stats", {"completed": 0, "total": 0, "skipped": 0})
+        stats = schedule.completion_stats or {"completed": 0, "total": 0, "skipped": 0}
         stats["completed"] = stats.get("completed", 0) + 1
+        stats["total"] = sum(len(d.get("tasks", [])) for d in days)
 
-        # Count total tasks
-        total = sum(len(d.get("tasks", [])) for d in schedule.get("days", []))
-        stats["total"] = total
+        schedule.days = days
+        schedule.completion_stats = stats
+        schedule.updated_at = datetime.utcnow()
 
-        update_data = {
-            "days": schedule["days"],
-            "completion_stats": stats,
-            "updated_at": datetime.utcnow(),
-        }
-
-        # Record feedback if provided
         if feedback:
-            feedback_entry = {
+            user_feedback = schedule.user_feedback or []
+            user_feedback.append({
                 "task_id": task_id,
                 "feedback": feedback,
                 "timestamp": datetime.utcnow().isoformat(),
-            }
-            update_data["$push"] = {"user_feedback": feedback_entry}
-            await db.user_schedules.update_one(
-                {"_id": ObjectId(schedule_id)},
-                {"$set": {k: v for k, v in update_data.items() if k != "$push"}, "$push": update_data["$push"]},
-            )
-        else:
-            await db.user_schedules.update_one(
-                {"_id": ObjectId(schedule_id)},
-                {"$set": update_data},
-            )
+            })
+            schedule.user_feedback = user_feedback
 
+        await db.commit()
         return {"status": "completed", "completion_stats": stats}
 
-    async def adapt_schedule(self, user_id: str, schedule_id: str, feedback: str) -> dict:
-        """Use AI to adapt the schedule based on user feedback and completion data"""
-        from bson import ObjectId
-        db = get_database()
-
-        schedule = await db.user_schedules.find_one(
-            {"_id": ObjectId(schedule_id), "user_id": user_id}
-        )
+    async def adapt_schedule(self, user_id: str, schedule_id: str, db: AsyncSession, feedback: str) -> dict:
+        schedule = await self._load_schedule(schedule_id, user_id, db)
         if not schedule:
             raise ValueError("Schedule not found")
 
-        stats = schedule.get("completion_stats", {})
+        stats = schedule.completion_stats or {}
         total = stats.get("total", 1)
         completed = stats.get("completed", 0)
         completion_rate = round((completed / max(total, 1)) * 100)
 
-        # Find most skipped task types
         skipped_types = []
-        for day in schedule.get("days", []):
+        for day in schedule.days or []:
             for task in day.get("tasks", []):
                 if task.get("status") == "skipped":
                     skipped_types.append(task.get("task_type", "unknown"))
 
         prompt = SCHEDULE_ADAPTATION_PROMPT.format(
-            current_schedule_json=json.dumps({"days": schedule["days"]}, indent=2),
+            current_schedule_json=json.dumps({"days": schedule.days}, indent=2),
             completed_count=completed,
             total_count=total,
             most_skipped=", ".join(set(skipped_types)) if skipped_types else "none",
@@ -351,7 +328,6 @@ class ScheduleService:
 
         try:
             import google.generativeai as genai
-
             model = genai.GenerativeModel(settings.gemini_model)
             response = model.generate_content(
                 prompt,
@@ -362,58 +338,43 @@ class ScheduleService:
             logger.error(f"Schedule adaptation failed: {e}")
             raise ValueError(f"Failed to adapt schedule: {e}")
 
-        await db.user_schedules.update_one(
-            {"_id": ObjectId(schedule_id)},
-            {
-                "$set": {
-                    "days": adapted.get("days", schedule["days"]),
-                    "updated_at": datetime.utcnow(),
-                },
-                "$inc": {"adapted_count": 1},
-                "$push": {
-                    "user_feedback": {
-                        "type": "adaptation",
-                        "feedback": feedback,
-                        "timestamp": datetime.utcnow().isoformat(),
-                    }
-                },
-            },
-        )
+        schedule.days = adapted.get("days", schedule.days)
+        schedule.updated_at = datetime.utcnow()
+        schedule.adapted_count = (schedule.adapted_count or 0) + 1
 
-        schedule["days"] = adapted.get("days", schedule["days"])
-        schedule["id"] = str(schedule.pop("_id", schedule_id))
-        schedule["adapted_count"] = schedule.get("adapted_count", 0) + 1
-        return schedule
+        user_feedback = schedule.user_feedback or []
+        user_feedback.append({
+            "type": "adaptation",
+            "feedback": feedback,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+        schedule.user_feedback = user_feedback
+        await db.commit()
+
+        return self._schedule_to_dict(schedule)
 
     async def edit_task(
-        self, user_id: str, schedule_id: str, task_id: str, updates: dict
+        self, user_id: str, schedule_id: str, task_id: str, db: AsyncSession, updates: dict
     ) -> dict:
-        """Edit a task's time, title, description, or duration"""
-        from bson import ObjectId
-        db = get_database()
-
-        schedule = await db.user_schedules.find_one(
-            {"_id": ObjectId(schedule_id), "user_id": user_id}
-        )
+        schedule = await self._load_schedule(schedule_id, user_id, db)
         if not schedule:
             raise ValueError("Schedule not found")
 
         updated = False
         updated_task = None
-        for day in schedule.get("days", []):
+        days = schedule.days or []
+        for day in days:
             for task in day.get("tasks", []):
                 if task.get("task_id") == task_id:
                     if updates.get("time"):
                         task["time"] = updates["time"]
+                        task["notification_sent"] = False
                     if updates.get("title"):
                         task["title"] = updates["title"]
                     if updates.get("description"):
                         task["description"] = updates["description"]
                     if updates.get("duration_minutes"):
                         task["duration_minutes"] = updates["duration_minutes"]
-                    # Reset notification if time changed
-                    if updates.get("time"):
-                        task["notification_sent"] = False
                     updated = True
                     updated_task = task
                     break
@@ -423,27 +384,21 @@ class ScheduleService:
         if not updated:
             raise ValueError("Task not found in schedule")
 
-        await db.user_schedules.update_one(
-            {"_id": ObjectId(schedule_id)},
-            {"$set": {"days": schedule["days"], "updated_at": datetime.utcnow()}},
-        )
+        schedule.days = days
+        schedule.updated_at = datetime.utcnow()
+        await db.commit()
         return {"status": "updated", "task": updated_task}
 
     async def delete_task(
-        self, user_id: str, schedule_id: str, task_id: str
+        self, user_id: str, schedule_id: str, task_id: str, db: AsyncSession
     ) -> dict:
-        """Remove a task from the schedule"""
-        from bson import ObjectId
-        db = get_database()
-
-        schedule = await db.user_schedules.find_one(
-            {"_id": ObjectId(schedule_id), "user_id": user_id}
-        )
+        schedule = await self._load_schedule(schedule_id, user_id, db)
         if not schedule:
             raise ValueError("Schedule not found")
 
         deleted = False
-        for day in schedule.get("days", []):
+        days = schedule.days or []
+        for day in days:
             original_count = len(day.get("tasks", []))
             day["tasks"] = [t for t in day.get("tasks", []) if t.get("task_id") != task_id]
             if len(day["tasks"]) < original_count:
@@ -453,59 +408,68 @@ class ScheduleService:
         if not deleted:
             raise ValueError("Task not found in schedule")
 
-        await db.user_schedules.update_one(
-            {"_id": ObjectId(schedule_id)},
-            {"$set": {"days": schedule["days"], "updated_at": datetime.utcnow()}},
-        )
+        schedule.days = days
+        schedule.updated_at = datetime.utcnow()
+        await db.commit()
         return {"status": "deleted"}
 
-    async def update_preferences(self, user_id: str, preferences: dict) -> dict:
+    async def update_preferences(self, user_id: str, preferences: dict, db: AsyncSession) -> dict:
         """Update schedule preferences for a user (stored on active schedule)"""
-        db = get_database()
-        result = await db.user_schedules.update_one(
-            {"user_id": user_id, "is_active": True},
-            {"$set": {"preferences": preferences, "updated_at": datetime.utcnow()}},
+        user_uuid = UUID(user_id)
+        result = await db.execute(
+            select(UserSchedule).where((UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True))
         )
-        if result.modified_count == 0:
-            # Store preferences on user doc as a fallback
-            from bson import ObjectId
-            await db.users.update_one(
-                {"_id": ObjectId(user_id)},
-                {"$set": {"schedule_preferences": preferences}},
-            )
+        schedule = result.scalar_one_or_none()
+        if schedule:
+            schedule.preferences = preferences
+            schedule.updated_at = datetime.utcnow()
+            await db.commit()
+        else:
+            user = await db.get(User, user_uuid)
+            if user:
+                user.schedule_preferences = preferences
+                user.updated_at = datetime.utcnow()
+                await db.commit()
         return {"message": "Preferences updated"}
 
-    # ── Private helpers ────────────────────────────────────────────────────────
+    # --- helpers ---
 
-    async def _build_user_context(self, db, user_id: str, course_id: str) -> str:
-        """Build user history context string for Gemini"""
+    async def _build_user_context(self, db: AsyncSession, user_id: str, course_id: str) -> str:
         lines: list[str] = []
+        user_uuid = UUID(user_id)
+        course_uuid = UUID(course_id)
 
-        # Past schedule completion data
-        past_schedules = db.user_schedules.find(
-            {"user_id": user_id, "course_id": course_id, "is_active": False}
-        ).sort("created_at", -1).limit(3)
+        result = await db.execute(
+            select(UserSchedule)
+            .where(
+                (UserSchedule.user_id == user_uuid) &
+                (UserSchedule.course_id == course_uuid) &
+                (UserSchedule.is_active == False)
+            )
+            .order_by(UserSchedule.created_at.desc())
+            .limit(3)
+        )
+        past_schedules = result.scalars().all()
 
         past_feedback = []
-        async for sched in past_schedules:
-            stats = sched.get("completion_stats", {})
+        for sched in past_schedules:
+            stats = sched.completion_stats or {}
             total = stats.get("total", 0)
             completed = stats.get("completed", 0)
             if total > 0:
                 lines.append(f"Past schedule: {completed}/{total} tasks completed ({round(completed/total*100)}%)")
-            for fb in sched.get("user_feedback", []):
+            for fb in (sched.user_feedback or []):
                 past_feedback.append(fb.get("feedback", ""))
 
         if past_feedback:
             lines.append(f"Past feedback: {'; '.join(past_feedback[:5])}")
 
-        # Latest scan data
-        latest_scan = await db.scans.find_one(
-            {"user_id": user_id},
-            sort=[("created_at", -1)],
+        latest_scan_result = await db.execute(
+            select(Scan).where(Scan.user_id == user_uuid).order_by(Scan.created_at.desc()).limit(1)
         )
-        if latest_scan and latest_scan.get("analysis"):
-            metrics = latest_scan["analysis"].get("metrics", {})
+        latest_scan = latest_scan_result.scalar_one_or_none()
+        if latest_scan and latest_scan.analysis:
+            metrics = (latest_scan.analysis or {}).get("metrics", {})
             jawline = metrics.get("jawline", {})
             if jawline:
                 lines.append(f"User jawline score: {jawline.get('definition_score', 'N/A')}/10")
@@ -513,9 +477,8 @@ class ScheduleService:
             if overall:
                 lines.append(f"User overall face score: {overall}/10")
 
-        # Onboarding Personalization Data
-        user = await db.users.find_one({"_id": ObjectId(user_id)})
-        onboarding = user.get("onboarding", {})
+        user = await db.get(User, user_uuid)
+        onboarding = (user.onboarding if user else {}) or {}
         if onboarding:
             profile_parts = []
             if onboarding.get("gender"): profile_parts.append(f"Gender: {onboarding['gender']}")
@@ -528,10 +491,8 @@ class ScheduleService:
 
             if onboarding.get("activity_level"):
                 lines.append(f"Activity Level: {onboarding['activity_level']}")
-            
             if onboarding.get("equipment"):
                 lines.append(f"Available Equipment: {', '.join(onboarding['equipment'])}")
-            
             if onboarding.get("skin_type"):
                 lines.append(f"Skin Type: {onboarding['skin_type']}")
 
@@ -540,23 +501,20 @@ class ScheduleService:
         return "\nNo prior history available — this is the user's first schedule."
 
     def _generate_fallback_schedule(self, module: dict, num_days: int, wake_time: str) -> dict:
-        """Generate a basic fallback schedule when Gemini fails"""
         guidelines = module.get("guidelines", {}) or {}
         exercises = guidelines.get("exercises", ["General exercise"])
 
         days = []
         for day_num in range(1, num_days + 1):
             tasks = []
-            # Morning session
             tasks.append({
                 "task_id": str(uuid.uuid4()),
                 "time": wake_time,
                 "title": f"Morning {exercises[0] if exercises else 'Exercise'}",
                 "description": f"Start your day with a {exercises[0].lower() if exercises else 'exercise'} session.",
                 "task_type": "exercise",
-                "duration_minutes": 15 + (day_num * 2),  # gradual increase
+                "duration_minutes": 15 + (day_num * 2),
             })
-            # Evening session
             tasks.append({
                 "task_id": str(uuid.uuid4()),
                 "time": "18:00",
@@ -568,11 +526,34 @@ class ScheduleService:
             days.append({
                 "day_number": day_num,
                 "tasks": tasks,
-                "motivation_message": f"Day {day_num} — keep pushing! 💪",
+                "motivation_message": f"Day {day_num} — keep pushing!",
             })
 
         return {"days": days}
 
+    async def _load_schedule(self, schedule_id: str, user_id: str, db: AsyncSession) -> Optional[UserSchedule]:
+        try:
+            schedule_uuid = UUID(schedule_id)
+        except ValueError:
+            return None
+        schedule = await db.get(UserSchedule, schedule_uuid)
+        if schedule and schedule.user_id == UUID(user_id):
+            return schedule
+        return None
 
-# Singleton instance
+    def _schedule_to_dict(self, schedule: UserSchedule) -> dict:
+        return {
+            "id": str(schedule.id),
+            "user_id": str(schedule.user_id),
+            "course_id": str(schedule.course_id),
+            "course_title": schedule.course_title,
+            "module_number": schedule.module_number,
+            "days": schedule.days or [],
+            "preferences": schedule.preferences or {},
+            "is_active": schedule.is_active,
+            "created_at": schedule.created_at,
+            "adapted_count": schedule.adapted_count or 0,
+        }
+
+
 schedule_service = ScheduleService()
