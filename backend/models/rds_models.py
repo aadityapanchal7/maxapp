@@ -22,6 +22,25 @@ import uuid
 Base = declarative_base()
 
 
+class Maxx(Base):
+    """Looksmaxxing programs (fitmax, skinmax, etc.)"""
+    __tablename__ = "maxes"
+
+    id = Column(String, primary_key=True)  # e.g. "fitmax"
+    label = Column(String, nullable=False)  # e.g. "Fitmax"
+    description = Column(Text)
+    icon = Column(String)
+    color = Column(String)
+    modules = Column(JSON, default=list)   # [{title, description, steps:[{title,content}]}]
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_maxes_active", is_active),
+    )
+
+
 class Course(Base):
     """Structured improvement courses"""
     __tablename__ = "courses"

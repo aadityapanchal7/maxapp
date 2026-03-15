@@ -12,3 +12,4 @@ from .leaderboard import router as leaderboard_router
 from .admin import router as admin_router
 from .notifications import router as notifications_router
 from .schedules import router as schedules_router
+from .maxes import router as maxes_router

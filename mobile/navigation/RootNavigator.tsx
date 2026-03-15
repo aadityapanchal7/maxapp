@@ -26,6 +26,7 @@ import CourseDetailScreen from '../screens/courses/CourseDetailScreen';
 import ChapterViewScreen from '../screens/courses/ChapterViewScreen';
 import ScheduleScreen from '../screens/courses/ScheduleScreen';
 import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
+import MaxxDetailScreen from '../screens/courses/MaxxDetailScreen';
 import TabNavigator from './TabNavigator';
 import LandingScreen from '../screens/onboarding/LandingScreen';
 import AdminNavigator from './AdminNavigator';
@@ -102,6 +103,7 @@ export function RootNavigator() {
                     <Stack.Screen name="CourseDetail" component={CourseDetailScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="ChapterView" component={ChapterViewScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="Schedule" component={ScheduleScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="MaxxDetail" component={MaxxDetailScreen} options={{ headerShown: false }} />
                 </>
             )}
         </Stack.Navigator>

@@ -9,8 +9,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
     const { user } = useAuth();
-    const [progress, setProgress] = useState<any[]>([]);
-    const [courses, setCourses] = useState<any[]>([]);
+    const [maxes, setMaxes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -27,12 +26,8 @@ export default function HomeScreen() {
 
     const loadData = async () => {
         try {
-            const [progressRes, coursesRes] = await Promise.all([
-                api.getCourseProgress(),
-                api.getCourses()
-            ]);
-            setProgress(progressRes.progress || []);
-            setCourses(coursesRes.courses || []);
+            const res = await api.getMaxxes();
+            setMaxes(res.maxes || []);
         } catch (error) {
             console.error(error);
         } finally {
@@ -41,39 +36,10 @@ export default function HomeScreen() {
     };
 
     const userName = user?.first_name || user?.email?.split('@')[0] || 'there';
+    const selectedGoals: string[] = (user?.onboarding?.goals || []).map((g: string) => g.toLowerCase());
 
-    // Determine which maxxes to show based on user's onboarded goals
-    const selectedGoals: string[] = user?.onboarding?.goals || [];
-
-    // Dummy module lists per maxx goal
-    const MODULES_BY_GOAL: Record<string, string[]> = {
-        fitmax: ['Workout plan', 'Nutrition basics', 'Cardio protocol'],
-        bonemax: ['Mewing fundamentals', 'Jawline exercises', 'Posture stack'],
-        heightmax: ['Spine decompression', 'Stretch routine', 'Growth safety'],
-        skinmax: ['Morning routine', 'Night routine', 'Acne protocol'],
-        hairmax: ['Wash routine', 'Topicals & meds', 'Microneedling plan'],
-    };
-
-    // Map goal IDs to possible course categories (RDS may use different names)
-    const GOAL_TO_CATEGORIES: Record<string, string[]> = {
-        bonemax: ['bonemax', 'mewing', 'jawline', 'posture'],
-        fitmax: ['fitmax', 'fat_loss'],
-        heightmax: ['heightmax'],
-        skinmax: ['skinmax', 'skincare'],
-        hairmax: ['hairmax', 'hair'],
-    };
-
-    // Map each goal to its corresponding course and find progress if any
-    const activeMaxxes = selectedGoals.map(goalId => {
-        const categories = GOAL_TO_CATEGORIES[goalId?.toLowerCase()] || [goalId?.toLowerCase()];
-        const course = courses.find(c => {
-            const cat = (c.category || '').toLowerCase();
-            return categories.includes(cat) || c.id === goalId;
-        });
-        if (!course) return null;
-        const prog = progress.find(p => p.course_id === course.id);
-        return { course, progress: prog, goalId };
-    }).filter(Boolean) as { course: any, progress: any, goalId: string }[];
+    // Filter maxes from RDS down to only the ones the user selected
+    const activeMaxxes = maxes.filter(m => selectedGoals.includes(m.id?.toLowerCase()));
 
     return (
         <View style={styles.container}>
@@ -106,35 +72,27 @@ export default function HomeScreen() {
                             {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length}</Text>}
                         </View>
 
-                        {activeMaxxes.map((item, i) => {
-                            const p = item.progress;
-                            const c = item.course;
-                            const modules = MODULES_BY_GOAL[item.goalId?.toLowerCase()] || [];
+                        {activeMaxxes.map((maxx) => {
+                            const moduleTitles: string[] = (maxx.modules || []).map((m: any) => m.title);
                             return (
-                                <TouchableOpacity key={c.id} style={styles.courseCard} onPress={() => navigation.navigate('CourseDetail', { courseId: c.id })} activeOpacity={0.7}>
+                                <TouchableOpacity
+                                    key={maxx.id}
+                                    style={styles.courseCard}
+                                    onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
+                                    activeOpacity={0.7}
+                                >
                                     <View style={styles.courseRow}>
-                                        <View style={styles.courseIcon}>
-                                            <Ionicons name={i % 2 === 0 ? "book-outline" : "water-outline"} size={16} color={colors.textSecondary} />
+                                        <View style={[styles.courseIcon, maxx.color ? { backgroundColor: maxx.color + '22' } : {}]}>
+                                            <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
                                         </View>
                                         <View style={styles.courseContent}>
-                                            <Text style={styles.courseTitle} numberOfLines={1}>{c.title}</Text>
-
-                                            {p ? (
-                                                <View style={styles.progressRow}>
-                                                    <View style={styles.progressBar}>
-                                                        <View style={[styles.progressFill, { width: `${Math.round(p.progress_percentage || 0)}%` }]} />
-                                                    </View>
-                                                    <Text style={styles.coursePercent}>{Math.round(p.progress_percentage || 0)}%</Text>
-                                                </View>
-                                            ) : (
-                                                <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]}>Tap to start maxxing</Text>
-                                            )}
-
-                                            {modules.length > 0 && (
+                                            <Text style={styles.courseTitle} numberOfLines={1}>{maxx.label}</Text>
+                                            <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 6, textAlign: 'left' }]} numberOfLines={2}>{maxx.description}</Text>
+                                            {moduleTitles.length > 0 && (
                                                 <View style={styles.moduleRow}>
-                                                    {modules.map((m) => (
-                                                        <View key={m} style={styles.modulePill}>
-                                                            <Text style={styles.moduleText}>{m}</Text>
+                                                    {moduleTitles.map((t) => (
+                                                        <View key={t} style={styles.modulePill}>
+                                                            <Text style={styles.moduleText}>{t}</Text>
                                                         </View>
                                                     ))}
                                                 </View>

@@ -261,6 +261,17 @@ class ApiService {
         return response.data;
     }
 
+    // Maxes
+    async getMaxxes() {
+        const response = await this.client.get('maxes');
+        return response.data;
+    }
+
+    async getMaxx(maxxId: string) {
+        const response = await this.client.get(`maxes/${maxxId}`);
+        return response.data;
+    }
+
     // Courses
     async getCourses() {
         const response = await this.client.get('courses');

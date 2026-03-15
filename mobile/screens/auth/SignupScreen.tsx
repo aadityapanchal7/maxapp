@@ -22,6 +22,9 @@ export default function SignupScreen() {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
+    const [fieldErrorMessages, setFieldErrorMessages] = useState<Record<string, string>>({});
+    const [apiError, setApiError] = useState<string | null>(null);
+    const [passwordMismatch, setPasswordMismatch] = useState(false);
 
     const fadeCard = useRef(new Animated.Value(0)).current;
     const slideCard = useRef(new Animated.Value(30)).current;
@@ -49,13 +52,19 @@ export default function SignupScreen() {
         if (!password) err.password = true;
         if (password && password.length < 8) err.password = true;
         if (!confirmPassword) err.confirmPassword = true;
-        if (password && confirmPassword && password !== confirmPassword) { err.password = true; err.confirmPassword = true; }
+        const pwdMismatch = !!(password && confirmPassword && password !== confirmPassword);
+        if (pwdMismatch) { err.password = true; err.confirmPassword = true; }
         if (!phone.trim()) err.phone = true;
 
         setFieldErrors(err);
+        setApiError(null);
+        setFieldErrorMessages({});
+        setPasswordMismatch(pwdMismatch);
         if (Object.keys(err).length > 0) return;
 
         setLoading(true);
+        setApiError(null);
+        setFieldErrorMessages({});
         try {
             await signup(email, password, firstName, lastName, username, phone || undefined);
             if (avatarUri) {
@@ -66,7 +75,19 @@ export default function SignupScreen() {
                     Alert.alert('Note', 'Account created but profile picture could not be uploaded.');
                 }
             }
-        } catch (error: any) { Alert.alert('Signup Failed', error.response?.data?.detail || 'Could not create account'); }
+        } catch (error: any) {
+            const msg = (typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Could not create account') as string;
+            setFieldErrorMessages({});
+            if (msg.toLowerCase().includes('username') && msg.toLowerCase().includes('taken')) {
+                setFieldErrors((p) => ({ ...p, username: true }));
+                setFieldErrorMessages((p) => ({ ...p, username: 'Username already taken' }));
+            } else if (msg.toLowerCase().includes('email') && msg.toLowerCase().includes('registered')) {
+                setFieldErrors((p) => ({ ...p, email: true }));
+                setFieldErrorMessages((p) => ({ ...p, email: 'Email already registered' }));
+            } else {
+                setApiError(msg);
+            }
+        }
         finally { setLoading(false); }
     };
 
@@ -91,24 +112,26 @@ export default function SignupScreen() {
 
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.firstName && styles.labelError]}>FIRST NAME</Text>
-                                <TextInput style={[styles.input, fieldErrors.firstName && styles.inputError]} placeholder="John" placeholderTextColor={colors.textMuted} value={firstName} onChangeText={(t) => { setFirstName(t); setFieldErrors((p) => ({ ...p, firstName: false })); }} autoCapitalize="words" />
+                                <TextInput style={[styles.input, fieldErrors.firstName && styles.inputError]} placeholder="John" placeholderTextColor={colors.textMuted} value={firstName} onChangeText={(t) => { setFirstName(t); setFieldErrors((p) => ({ ...p, firstName: false })); setApiError(null); }} autoCapitalize="words" />
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.lastName && styles.labelError]}>LAST NAME</Text>
-                                <TextInput style={[styles.input, fieldErrors.lastName && styles.inputError]} placeholder="Doe" placeholderTextColor={colors.textMuted} value={lastName} onChangeText={(t) => { setLastName(t); setFieldErrors((p) => ({ ...p, lastName: false })); }} autoCapitalize="words" />
+                                <TextInput style={[styles.input, fieldErrors.lastName && styles.inputError]} placeholder="Doe" placeholderTextColor={colors.textMuted} value={lastName} onChangeText={(t) => { setLastName(t); setFieldErrors((p) => ({ ...p, lastName: false })); setApiError(null); }} autoCapitalize="words" />
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.username && styles.labelError]}>USERNAME</Text>
-                                <TextInput style={[styles.input, fieldErrors.username && styles.inputError]} placeholder="johndoe" placeholderTextColor={colors.textMuted} value={username} onChangeText={(t) => { setUsername(t); setFieldErrors((p) => ({ ...p, username: false })); }} autoCapitalize="none" />
+                                <TextInput style={[styles.input, fieldErrors.username && styles.inputError]} placeholder="johndoe" placeholderTextColor={colors.textMuted} value={username} onChangeText={(t) => { setUsername(t); setFieldErrors((p) => ({ ...p, username: false })); setFieldErrorMessages((p) => ({ ...p, username: '' })); setApiError(null); }} autoCapitalize="none" />
+                                {fieldErrorMessages.username ? <Text style={styles.helperError}>{fieldErrorMessages.username}</Text> : null}
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.email && styles.labelError]}>EMAIL</Text>
-                                <TextInput style={[styles.input, fieldErrors.email && styles.inputError]} placeholder="you@example.com" placeholderTextColor={colors.textMuted} value={email} onChangeText={(t) => { setEmail(t); setFieldErrors((p) => ({ ...p, email: false })); }} keyboardType="email-address" autoCapitalize="none" />
+                                <TextInput style={[styles.input, fieldErrors.email && styles.inputError]} placeholder="you@example.com" placeholderTextColor={colors.textMuted} value={email} onChangeText={(t) => { setEmail(t); setFieldErrors((p) => ({ ...p, email: false })); setFieldErrorMessages((p) => ({ ...p, email: '' })); setApiError(null); }} keyboardType="email-address" autoCapitalize="none" />
+                                {fieldErrorMessages.email ? <Text style={styles.helperError}>{fieldErrorMessages.email}</Text> : null}
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.password && styles.labelError]}>PASSWORD</Text>
                                 <View style={[styles.passwordRow, fieldErrors.password && styles.inputError]}>
-                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Min. 8 characters" placeholderTextColor={colors.textMuted} value={password} onChangeText={(t) => { setPassword(t); setFieldErrors((p) => ({ ...p, password: false, confirmPassword: false })); }} secureTextEntry={!showPassword} />
+                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Min. 8 characters" placeholderTextColor={colors.textMuted} value={password} onChangeText={(t) => { setPassword(t); setFieldErrors((p) => ({ ...p, password: false, confirmPassword: false })); setPasswordMismatch(false); setApiError(null); }} secureTextEntry={!showPassword} />
                                     <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((p) => !p)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                                         <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textMuted} />
                                     </TouchableOpacity>
@@ -117,16 +140,24 @@ export default function SignupScreen() {
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.confirmPassword && styles.labelError]}>CONFIRM PASSWORD</Text>
                                 <View style={[styles.passwordRow, fieldErrors.confirmPassword && styles.inputError]}>
-                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Re-enter password" placeholderTextColor={colors.textMuted} value={confirmPassword} onChangeText={(t) => { setConfirmPassword(t); setFieldErrors((p) => ({ ...p, confirmPassword: false, password: false })); }} secureTextEntry={!showConfirmPassword} />
+                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Re-enter password" placeholderTextColor={colors.textMuted} value={confirmPassword} onChangeText={(t) => { setConfirmPassword(t); setFieldErrors((p) => ({ ...p, confirmPassword: false, password: false })); setPasswordMismatch(false); setApiError(null); }} secureTextEntry={!showConfirmPassword} />
                                     <TouchableOpacity style={styles.eyeButton} onPress={() => setShowConfirmPassword((p) => !p)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                                         <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textMuted} />
                                     </TouchableOpacity>
                                 </View>
+                                {passwordMismatch && <Text style={styles.helperError}>Passwords don&apos;t match</Text>}
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>WHATSAPP · Required</Text>
-                                <TextInput style={[styles.input, fieldErrors.phone && styles.inputError]} placeholder="+91 98765 43210" placeholderTextColor={colors.textMuted} value={phone} onChangeText={(t) => { setPhone(t); setFieldErrors((p) => ({ ...p, phone: false })); }} keyboardType="phone-pad" />
+                                <TextInput style={[styles.input, fieldErrors.phone && styles.inputError]} placeholder="+91 98765 43210" placeholderTextColor={colors.textMuted} value={phone} onChangeText={(t) => { setPhone(t); setFieldErrors((p) => ({ ...p, phone: false })); setApiError(null); }} keyboardType="phone-pad" />
                             </View>
+
+                            {apiError && (
+                                <View style={styles.apiErrorBox}>
+                                    <Ionicons name="alert-circle-outline" size={18} color="#ef4444" />
+                                    <Text style={styles.apiErrorText}>{apiError}</Text>
+                                </View>
+                            )}
 
                             <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleSignup} disabled={loading} activeOpacity={0.7}>
                                 <Text style={styles.buttonText}>{loading ? 'Creating Account...' : 'Create Account'}</Text>
@@ -175,6 +206,19 @@ const styles = StyleSheet.create({
     eyeButton: { position: 'absolute', right: 12, padding: 4 },
     inputError: { borderWidth: 1, borderColor: '#ef4444' },
     labelError: { color: '#ef4444' },
+    helperError: { fontSize: 12, color: '#ef4444', marginTop: 4, marginLeft: 2 },
+    apiErrorBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        padding: spacing.md,
+        borderRadius: borderRadius.md,
+        marginTop: spacing.sm,
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.3)',
+    },
+    apiErrorText: { flex: 1, fontSize: 13, color: '#ef4444', fontWeight: '500' },
     textArea: { minHeight: 64, textAlignVertical: 'top' },
     button: {
         backgroundColor: colors.foreground, borderRadius: borderRadius.full,
