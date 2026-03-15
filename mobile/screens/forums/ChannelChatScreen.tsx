@@ -44,7 +44,6 @@ export default function ChannelChatScreen() {
     const [channelDescription, setChannelDescription] = useState<string | null>(null);
     const [channelCategory, setChannelCategory] = useState<string | null>(null);
     const [channelTags, setChannelTags] = useState<string[]>([]);
-    const userTimeZone = user?.onboarding?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     const flatListRef = useRef<FlatList>(null);
     const isAdmin = user?.is_admin || false;
     const currentUserId = user?.id;
@@ -52,7 +51,7 @@ export default function ChannelChatScreen() {
 
     useFocusEffect(useCallback(() => {
         loadMessages();
-        const interval = !isSearching ? setInterval(loadMessages, 5000) : null;
+        const interval = !isSearching ? setInterval(loadMessages, 2000) : null;
         return () => interval && clearInterval(interval);
     }, [channelId, searchQuery, isSearching]));
 
@@ -66,23 +65,20 @@ export default function ChannelChatScreen() {
 
     const formatTime = (dateString: string) => {
         const dt = new Date(parseTimestamp(dateString));
-        return new Intl.DateTimeFormat(undefined, {
-            hour: '2-digit',
-            minute: '2-digit',
-            month: 'short',
-            day: 'numeric',
-            timeZone: userTimeZone,
-        }).format(dt);
+        return dt.toLocaleString();
     };
 
     const loadMessages = async () => {
         try {
             const data = await api.getChannelMessages(channelId, 50, searchQuery);
             const sorted = (data.messages || []).slice().sort((a: Message, b: Message) => {
+                const aScore = (a.reactions?.['⬆️'] || []).length - (a.reactions?.['⬇️'] || []).length;
+                const bScore = (b.reactions?.['⬆️'] || []).length - (b.reactions?.['⬇️'] || []).length;
+                if (aScore !== bScore) return bScore - aScore;
                 const at = parseTimestamp(a.created_at);
                 const bt = parseTimestamp(b.created_at);
-                if (at !== bt) return at - bt;
-                return a.id.localeCompare(b.id);
+                if (at !== bt) return bt - at;
+                return b.id.localeCompare(a.id);
             });
             setMessages(sorted);
             if (data.is_admin_only !== undefined) setIsAdminOnly(data.is_admin_only);
@@ -116,10 +112,13 @@ export default function ChannelChatScreen() {
             const result = await api.sendChannelMessage(channelId, messageText.trim() || '', replyingTo?.id, attachmentUrl, attachmentType);
             if (result.message) {
                 setMessages(prev => [...prev, result.message].sort((a, b) => {
+                    const aScore = (a.reactions?.['⬆️'] || []).length - (a.reactions?.['⬇️'] || []).length;
+                    const bScore = (b.reactions?.['⬆️'] || []).length - (b.reactions?.['⬇️'] || []).length;
+                    if (aScore !== bScore) return bScore - aScore;
                     const at = parseTimestamp(a.created_at);
                     const bt = parseTimestamp(b.created_at);
-                    if (at !== bt) return at - bt;
-                    return a.id.localeCompare(b.id);
+                    if (at !== bt) return bt - at;
+                    return b.id.localeCompare(a.id);
                 }));
             }
             setMessageText(''); setReplyingTo(null); setSelectedImage(null);
@@ -140,7 +139,23 @@ export default function ChannelChatScreen() {
     };
 
     const handleToggleReaction = async (messageId: string, emoji: string) => {
-        try { const result = await api.toggleReaction(channelId, messageId, emoji); setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions: result.reactions } : m)); } catch (e) { console.error(e); }
+        setMessages(prev => prev.map(m => {
+            if (m.id !== messageId) return m;
+            const reactions = { ...(m.reactions || {}) };
+            const userId = currentUserId || '';
+            const list = new Set(reactions[emoji] || []);
+            if (list.has(userId)) {
+                list.delete(userId);
+            } else {
+                list.add(userId);
+            }
+            reactions[emoji] = Array.from(list);
+            return { ...m, reactions };
+        }));
+        try {
+            const result = await api.toggleReaction(channelId, messageId, emoji);
+            setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions: result.reactions } : m));
+        } catch (e) { console.error(e); }
     };
 
     const getDisplayName = (message: Message) => {
@@ -209,17 +224,17 @@ export default function ChannelChatScreen() {
                     </View>
                     {renderReactions(item)}
                     <View style={styles.messageActions}>
-                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, '⬆️')} style={styles.actionBtn}>
+                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, '⬆️')} style={styles.actionBtn} activeOpacity={0.6}>
                             <Ionicons name="arrow-up" size={14} color={colors.textMuted} />
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, '⬇️')} style={styles.actionBtn}>
+                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, '⬇️')} style={styles.actionBtn} activeOpacity={0.6}>
                             <Ionicons name="arrow-down" size={14} color={colors.textMuted} />
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => setReplyingTo(item)} style={styles.actionBtn}>
+                        <TouchableOpacity onPress={() => setReplyingTo(item)} style={styles.actionBtn} activeOpacity={0.6}>
                             <Ionicons name="arrow-undo" size={14} color={colors.textMuted} />
                         </TouchableOpacity>
                         {item.user_id !== currentUserId && (
-                            <TouchableOpacity onPress={() => handleToggleReaction(item.id, '\uD83D\uDD25')} style={styles.actionBtn}>
+                            <TouchableOpacity onPress={() => handleToggleReaction(item.id, '\uD83D\uDD25')} style={styles.actionBtn} activeOpacity={0.6}>
                                 <Ionicons name="flash" size={14} color={colors.textMuted} />
                             </TouchableOpacity>
                         )}
