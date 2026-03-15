@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 from db import get_db
 from middleware import get_current_user
-from services.storage_service import storage_service
+from services.storage_service import storage_service, delete_by_url
 from models.user import (
     UserResponse, OnboardingData, UserProfile, GoalType, ExperienceLevel, AccountUpdateRequest
 )
@@ -104,6 +104,15 @@ async def upload_avatar(
     # Read file content
     content = await file.read()
     
+    # Delete previous avatar if it exists
+    try:
+        user_uuid = UUID(current_user["id"])
+        user = await db.get(User, user_uuid)
+        if user and user.profile and user.profile.get("avatar_url"):
+            delete_by_url(user.profile.get("avatar_url"))
+    except Exception as e:
+        logger.warning("Avatar cleanup failed: %s", e)
+
     # Upload to storage
     avatar_url = await storage_service.upload_image(
         content,
@@ -121,7 +130,7 @@ async def upload_avatar(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Assign a new dict to ensure SQLAlchemy tracks JSON changes
-    current_profile = user.profile or {}
+    current_profile = dict(user.profile or {})
     current_profile["avatar_url"] = avatar_url
     user.profile = current_profile
     user.updated_at = datetime.utcnow()
@@ -145,7 +154,7 @@ async def update_profile(
         raise HTTPException(status_code=404, detail="User not found")
 
     # Merge with existing profile data to avoid overwriting unrelated fields
-    current_profile = user.profile or {}
+    current_profile = dict(user.profile or {})
     updated_data = profile.model_dump(exclude_unset=True)
     
     for key, value in updated_data.items():

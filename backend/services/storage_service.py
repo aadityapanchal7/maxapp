@@ -207,6 +207,22 @@ class S3StorageService:
             return None
 
 
+def _extract_s3_key(url: str, bucket: str, region: str) -> Optional[str]:
+    """Extract S3 object key from a standard S3 URL."""
+    if not url:
+        return None
+    if url.startswith("s3://"):
+        # s3://bucket/key
+        parts = url.replace("s3://", "", 1).split("/", 1)
+        if len(parts) == 2 and parts[0] == bucket:
+            return parts[1]
+        return None
+    prefix = f"https://{bucket}.s3.{region}.amazonaws.com/"
+    if url.startswith(prefix):
+        return url[len(prefix):]
+    return None
+
+
 def create_storage_service():
     """
     Factory function to create appropriate storage service.
@@ -226,4 +242,21 @@ def create_storage_service():
 
 # Singleton instance - automatically picks the right storage
 storage_service = create_storage_service()
+
+
+def delete_by_url(url: str) -> bool:
+    """
+    Delete a stored image by URL or key.
+    Supports local "/uploads/..." paths and S3 URLs/keys.
+    """
+    if not url:
+        return False
+    # Local storage paths
+    if url.startswith("/uploads/"):
+        return storage_service.delete_image(url)
+    # S3 keys or URLs
+    if isinstance(storage_service, S3StorageService):
+        key = _extract_s3_key(url, settings.aws_s3_bucket, settings.aws_s3_region) or url
+        return storage_service.delete_image(key)
+    return False
 
