@@ -121,7 +121,7 @@ async def seed_db():
             thread = {
                 "forum_id": str(result.inserted_id),
                 "user_id": user_ids[0],
-                "title": "Welcome to Cannon!",
+                "title": "Welcome to Max!",
                 "content": "Let's start our journey to better looks!",
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),
@@ -137,7 +137,7 @@ async def seed_db():
         {
             "title": "Weekly Q&A with Style Experts",
             "description": "Get your questions answered live on TikTok.",
-            "tiktok_link": "https://tiktok.com/@cannon_app/live",
+            "tiktok_link": "https://tiktok.com/@max_app/live",
             "scheduled_at": datetime.utcnow() + timedelta(days=2),
             "duration_minutes": 45,
             "thumbnail_url": "https://images.unsplash.com/photo-1516280440614-37939bbacd81?w=500&auto=format&fit=crop&q=60",
@@ -147,7 +147,7 @@ async def seed_db():
         {
             "title": "Skin Care Masterclass",
             "description": "Learn the 7-step glass skin routine.",
-            "tiktok_link": "https://tiktok.com/@cannon_app/live",
+            "tiktok_link": "https://tiktok.com/@max_app/live",
             "scheduled_at": datetime.utcnow() - timedelta(days=1),
             "duration_minutes": 60,
             "is_live": False,

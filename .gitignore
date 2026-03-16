@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+env/
+
+# Local duplicate app folder
+cannonapp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env (sensitive)
+.env
+.env.*
+!.env.example

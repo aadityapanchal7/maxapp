@@ -42,7 +42,7 @@ async def send_test_message(
     """Send a test WhatsApp message to verify Twilio is working"""
     success = await twilio_service.send_whatsapp(
         request.phone,
-        "🧪 Test message from Cannon! Your WhatsApp notifications are working correctly. ✅"
+        "🧪 Test message from Max! Your WhatsApp notifications are working correctly. ✅"
     )
     if not success:
         raise HTTPException(

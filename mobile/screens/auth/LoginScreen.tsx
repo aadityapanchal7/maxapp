@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, Animated } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
@@ -10,6 +11,7 @@ export default function LoginScreen() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
+    const [apiError, setApiError] = useState<string | null>(null);
 
     const fadeCard = useRef(new Animated.Value(0)).current;
     const slideCard = useRef(new Animated.Value(30)).current;
@@ -21,10 +23,17 @@ export default function LoginScreen() {
     }, []);
 
     const handleLogin = async () => {
-        if (!email || !password) { Alert.alert('Error', 'Please fill in all fields'); return; }
+        if (!email.trim() || !password) {
+            setApiError('Please fill in all fields');
+            return;
+        }
         setLoading(true);
+        setApiError(null);
         try { await login(email, password); }
-        catch (error: any) { Alert.alert('Login Failed', error.response?.data?.detail || 'Invalid credentials'); }
+        catch (error: any) {
+            const msg = error.response?.data?.detail || 'Invalid credentials';
+            setApiError(typeof msg === 'string' ? msg : 'Invalid credentials');
+        }
         finally { setLoading(false); }
     };
 
@@ -38,12 +47,19 @@ export default function LoginScreen() {
                     <View style={styles.form}>
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>EMAIL</Text>
-                            <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={colors.textMuted} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                            <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={colors.textMuted} value={email} onChangeText={(t) => { setEmail(t); setApiError(null); }} keyboardType="email-address" autoCapitalize="none" />
                         </View>
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>PASSWORD</Text>
-                            <TextInput style={styles.input} placeholder="Enter your password" placeholderTextColor={colors.textMuted} value={password} onChangeText={setPassword} secureTextEntry />
+                            <TextInput style={styles.input} placeholder="Enter your password" placeholderTextColor={colors.textMuted} value={password} onChangeText={(t) => { setPassword(t); setApiError(null); }} secureTextEntry />
                         </View>
+
+                        {apiError && (
+                            <View style={styles.apiErrorBox}>
+                                <Ionicons name="alert-circle-outline" size={18} color="#ef4444" />
+                                <Text style={styles.apiErrorText}>{apiError}</Text>
+                            </View>
+                        )}
 
                         <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading} activeOpacity={0.7}>
                             <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
@@ -94,6 +110,18 @@ const styles = StyleSheet.create({
         color: colors.textPrimary,
         fontSize: 15,
     },
+    apiErrorBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        padding: spacing.md,
+        borderRadius: borderRadius.md,
+        marginTop: spacing.sm,
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.3)',
+    },
+    apiErrorText: { flex: 1, fontSize: 13, color: '#ef4444', fontWeight: '500' },
     button: {
         backgroundColor: colors.foreground,
         borderRadius: borderRadius.full,

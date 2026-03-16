@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from datetime import datetime
+from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from uuid import UUID
-from datetime import datetime
 from db import get_db
 from middleware.auth_middleware import require_paid_user, get_current_user
 from services.storage_service import storage_service
@@ -23,46 +23,40 @@ class RealtimeScanRequest(BaseModel):
 async def upload_scan_video(
     video: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Upload a 15-second face scan video and analyze directly"""
-    user_id = current_user["id"]
-    user_uuid = UUID(user_id)
+    user_uuid = UUID(current_user["id"])
 
-    # Read video data directly without saving locally
     video_data = await video.read()
-
     if not video_data:
         raise HTTPException(status_code=400, detail="No video data received")
 
-    # Create scan record without video URL since we're not storing it
-    scan_doc = Scan(
+    scan_row = Scan(
         user_id=user_uuid,
+        created_at=datetime.utcnow(),
+        is_unlocked=current_user.get("is_paid", False),
         processing_status="processing",
-        is_unlocked=current_user.get("is_paid", False)
+        scan_type="video",
     )
-
-    db.add(scan_doc)
+    db.add(scan_row)
     await db.commit()
-    await db.refresh(scan_doc)
-    scan_id = str(scan_doc.id)
+    await db.refresh(scan_row)
+    scan_id = str(scan_row.id)
 
-    # Send video directly to cannon_facial_analysis service
     try:
         analysis = await facial_analysis_client.upload_video(video_data)
 
-        # Update scan with analysis results
-        scan_doc.analysis = analysis
-        scan_doc.processing_status = "completed"
+        scan_row.analysis = analysis
+        scan_row.processing_status = "completed"
         await db.commit()
 
-        # Update user first scan status
         user = await db.get(User, user_uuid)
         if user and not user.first_scan_completed:
             user.first_scan_completed = True
             await db.commit()
 
-        # Update leaderboard (reuse existing logic)
+        # Update leaderboard
         overall_score = 0.0
         if isinstance(analysis, dict):
             overall_score = analysis.get("scan_summary", {}).get("overall_score")
@@ -71,31 +65,30 @@ async def upload_scan_video(
             if overall_score is None:
                 overall_score = analysis.get("overall_score", 0.0)
 
-        # Calculate leaderboard score and update
         leaderboard_score = (float(overall_score) if overall_score else 0) * 10
 
         leaderboard_result = await db.execute(
             select(Leaderboard).where(Leaderboard.user_id == user_uuid)
         )
-        existing_entry = leaderboard_result.scalar_one_or_none()
+        entry = leaderboard_result.scalar_one_or_none()
 
-        if existing_entry:
-            new_score = max(existing_entry.score or 0, leaderboard_score)
-            existing_entry.score = new_score
-            existing_entry.level = float(overall_score) if overall_score else 0
-            existing_entry.last_scan_at = datetime.utcnow()
-            existing_entry.scans_count = (existing_entry.scans_count or 0) + 1
+        if entry:
+            entry.score = max(entry.score or 0, leaderboard_score)
+            entry.level = float(overall_score) if overall_score else 0
+            entry.last_scan_at = datetime.utcnow()
+            entry.scans_count = (entry.scans_count or 0) + 1
         else:
-            new_entry = Leaderboard(
+            entry = Leaderboard(
                 user_id=user_uuid,
                 score=leaderboard_score,
                 level=float(overall_score) if overall_score else 0,
                 streak_days=1,
                 improvement_percentage=0,
                 scans_count=1,
-                last_scan_at=datetime.utcnow()
+                last_scan_at=datetime.utcnow(),
+                created_at=datetime.utcnow(),
             )
-            db.add(new_entry)
+            db.add(entry)
 
         await db.commit()
 
@@ -104,19 +97,18 @@ async def upload_scan_video(
             select(Leaderboard).order_by(Leaderboard.score.desc())
         )
         all_entries = all_entries_result.scalars().all()
-        for rank, entry in enumerate(all_entries, 1):
-            entry.rank = rank
+        for rank, e in enumerate(all_entries, 1):
+            e.rank = rank
         await db.commit()
 
-        # Send WhatsApp notification if user has phone number (non-blocking)
+        # Send WhatsApp notification (non-blocking)
         try:
-            user_doc = await db.get(User, user_uuid)
-            if user_doc and user_doc.phone_number:
+            if user and user.phone_number:
                 from services.twilio_service import twilio_service
                 import asyncio
                 asyncio.create_task(twilio_service.send_scan_complete(
-                    user_doc.phone_number,
-                    user_doc.email or "",
+                    user.phone_number,
+                    user.email or "",
                     float(overall_score) if overall_score else None
                 ))
         except Exception as notif_err:
@@ -126,8 +118,8 @@ async def upload_scan_video(
         return {"scan_id": scan_id, "analysis": analysis}
 
     except Exception as e:
-        scan_doc.processing_status = "failed"
-        scan_doc.analysis = {"error_message": str(e)}
+        scan_row.processing_status = "failed"
+        scan_row.error_message = str(e)
         await db.commit()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
@@ -137,12 +129,7 @@ async def analyze_realtime_scan(
     payload: RealtimeScanRequest,
     current_user: dict = Depends(get_current_user),
 ):
-    """
-    Lightweight proxy to the cannon_facial_analysis /scan/analyze-realtime endpoint.
-
-    Used by the mobile/web face scan UI to fetch a live MediaPipe mesh overlay and
-    basic head-pose / quality feedback while recording.
-    """
+    """Proxy to realtime analysis endpoint"""
     try:
         result = await facial_analysis_client.analyze_realtime(
             image_data_url=payload.image,
@@ -158,7 +145,7 @@ async def analyze_realtime_scan(
 async def analyze_scan(
     scan_id: str,
     current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Trigger AI analysis for uploaded scan (supports only image scans now)"""
     try:
@@ -167,7 +154,6 @@ async def analyze_scan(
         raise HTTPException(status_code=400, detail="Invalid scan ID format")
 
     user_uuid = UUID(current_user["id"])
-
     result = await db.execute(
         select(Scan).where((Scan.id == scan_uuid) & (Scan.user_id == user_uuid))
     )
@@ -176,28 +162,21 @@ async def analyze_scan(
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
 
-    # Check if already processing
-    if scan.processing_status == "processing":
-        raise HTTPException(status_code=400, detail="Scan is already being analyzed")
-
-    if scan.processing_status == "completed":
-        return {"message": "Analysis already completed", "scan_id": scan_id}
+    if scan.scan_type == "video":
+        if scan.processing_status == "completed":
+            return {"message": "Analysis already completed", "scan_id": scan_id}
+        raise HTTPException(status_code=400, detail="Video scans are analyzed during upload")
 
     scan.processing_status = "processing"
     await db.commit()
 
     try:
-        # Handle legacy image scan only
-        front_url = scan.images.get("front") if scan.images else None
-        left_url = scan.images.get("left") if scan.images else None
-        right_url = scan.images.get("right") if scan.images else None
+        front_url = (scan.images or {}).get("front")
+        left_url = (scan.images or {}).get("left")
+        right_url = (scan.images or {}).get("right")
 
         if not all([front_url, left_url, right_url]):
             raise HTTPException(status_code=400, detail="Missing image URLs")
-
-        front_data = None
-        left_data = None
-        right_data = None
 
         if front_url.startswith("/uploads/"):
             front_data = await storage_service.get_image(front_url)
@@ -222,7 +201,6 @@ async def analyze_scan(
         scan.processing_status = "completed"
         await db.commit()
 
-        # Update leaderboard entry for this user
         overall_score = 0.0
         if isinstance(analysis, dict):
             overall_score = analysis.get("scan_summary", {}).get("overall_score")
@@ -231,74 +209,70 @@ async def analyze_scan(
             if overall_score is None:
                 overall_score = analysis.get("overall_score", 0.0)
 
-        # Get all completed scans for this user to calculate improvement
-        all_scans_result = await db.execute(
+        # Calculate improvement percentage
+        scans_result = await db.execute(
             select(Scan)
             .where((Scan.user_id == user_uuid) & (Scan.processing_status == "completed"))
             .order_by(Scan.created_at.desc())
         )
-        user_scans = []
-        for s in all_scans_result.scalars().all():
+        user_scans = scans_result.scalars().all()
+        scores = []
+        for s in user_scans:
             a = s.analysis or {}
             score = a.get("scan_summary", {}).get("overall_score")
             if score is None:
                 score = a.get("metrics", {}).get("overall_score")
             if score is None:
                 score = a.get("overall_score", 0)
-            user_scans.append({"score": score, "created_at": s.created_at})
+            scores.append(score)
 
-        # Calculate improvement percentage (compare first to latest)
         improvement_percentage = 0
-        if len(user_scans) >= 2:
-            first_score = user_scans[-1]["score"] or 0
-            latest_score = user_scans[0]["score"] or 0
+        if len(scores) >= 2:
+            first_score = scores[-1] or 0
+            latest_score = scores[0] or 0
             if first_score > 0:
                 improvement_percentage = ((latest_score - first_score) / first_score) * 100
 
-        # Calculate score for leaderboard
         leaderboard_score = (float(overall_score) if overall_score else 0) * 10
-
-        # Update or create leaderboard entry
         leaderboard_result = await db.execute(
             select(Leaderboard).where(Leaderboard.user_id == user_uuid)
         )
-        existing_entry = leaderboard_result.scalar_one_or_none()
+        entry = leaderboard_result.scalar_one_or_none()
 
-        if existing_entry:
-            new_score = max(existing_entry.score or 0, leaderboard_score)
-            existing_entry.score = new_score
-            existing_entry.level = float(overall_score) if overall_score else 0
-            existing_entry.improvement_percentage = improvement_percentage
-            existing_entry.last_scan_at = datetime.utcnow()
-            existing_entry.scans_count = (existing_entry.scans_count or 0) + 1
+        if entry:
+            entry.score = max(entry.score or 0, leaderboard_score)
+            entry.level = float(overall_score) if overall_score else 0
+            entry.improvement_percentage = improvement_percentage
+            entry.last_scan_at = datetime.utcnow()
+            entry.scans_count = (entry.scans_count or 0) + 1
         else:
-            new_entry = Leaderboard(
+            entry = Leaderboard(
                 user_id=user_uuid,
                 score=leaderboard_score,
                 level=float(overall_score) if overall_score else 0,
                 streak_days=1,
                 improvement_percentage=improvement_percentage,
                 scans_count=1,
-                last_scan_at=datetime.utcnow()
+                last_scan_at=datetime.utcnow(),
+                created_at=datetime.utcnow(),
             )
-            db.add(new_entry)
+            db.add(entry)
 
         await db.commit()
 
-        # Recalculate ranks for all leaderboard entries
         all_entries_result = await db.execute(
             select(Leaderboard).order_by(Leaderboard.score.desc())
         )
         all_entries = all_entries_result.scalars().all()
-        for rank, entry in enumerate(all_entries, 1):
-            entry.rank = rank
+        for rank, e in enumerate(all_entries, 1):
+            e.rank = rank
         await db.commit()
 
         return {"message": "Analysis complete", "scan_id": scan_id}
 
     except Exception as e:
         scan.processing_status = "failed"
-        scan.analysis = {"error_message": str(e)}
+        scan.error_message = str(e)
         await db.commit()
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
@@ -306,19 +280,14 @@ async def analyze_scan(
 @router.get("/latest")
 async def get_latest_scan(
     current_user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Get most recent scan"""
     user_uuid = UUID(current_user["id"])
-
     result = await db.execute(
-        select(Scan)
-        .where(Scan.user_id == user_uuid)
-        .order_by(Scan.created_at.desc())
-        .limit(1)
+        select(Scan).where(Scan.user_id == user_uuid).order_by(Scan.created_at.desc()).limit(1)
     )
     scan = result.scalar_one_or_none()
-
     if not scan:
         raise HTTPException(status_code=404, detail="No scans found")
 
@@ -328,14 +297,13 @@ async def get_latest_scan(
         "created_at": scan.created_at,
         "images": scan.images or {},
         "is_unlocked": is_paid,
-        "processing_status": scan.processing_status
+        "processing_status": scan.processing_status,
     }
 
     if scan.analysis:
         if is_paid:
             response["analysis"] = scan.analysis
         else:
-            # For unpaid users, only show overall score
             a = scan.analysis
             overall_score = a.get("scan_summary", {}).get("overall_score")
             if overall_score is None:
@@ -351,11 +319,10 @@ async def get_latest_scan(
 async def get_scan_history(
     limit: int = 10,
     current_user: dict = Depends(require_paid_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Get scan history (paid only)"""
     user_uuid = UUID(current_user["id"])
-
     result = await db.execute(
         select(Scan)
         .where(Scan.user_id == user_uuid)
@@ -363,7 +330,6 @@ async def get_scan_history(
         .limit(limit)
     )
     scans_list = result.scalars().all()
-
     scans = []
     for s in scans_list:
         a = s.analysis or {}
@@ -373,7 +339,6 @@ async def get_scan_history(
         if score is None:
             score = a.get("overall_score", 0)
         scans.append({"id": str(s.id), "created_at": s.created_at, "overall_score": score})
-
     return {"scans": scans}
 
 
@@ -381,7 +346,7 @@ async def get_scan_history(
 async def get_scan_by_id(
     scan_id: str,
     current_user: dict = Depends(require_paid_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Get a specific scan with full analysis (paid only)"""
     try:
@@ -390,12 +355,10 @@ async def get_scan_by_id(
         raise HTTPException(status_code=400, detail="Invalid scan ID format")
 
     user_uuid = UUID(current_user["id"])
-
     result = await db.execute(
         select(Scan).where((Scan.id == scan_uuid) & (Scan.user_id == user_uuid))
     )
     scan = result.scalar_one_or_none()
-
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
 
@@ -404,6 +367,5 @@ async def get_scan_by_id(
         "created_at": scan.created_at,
         "images": scan.images or {},
         "analysis": scan.analysis,
-        "processing_status": scan.processing_status
+        "processing_status": scan.processing_status,
     }
-

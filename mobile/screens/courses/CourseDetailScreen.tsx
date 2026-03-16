@@ -58,6 +58,22 @@ export default function CourseDetailScreen() {
                     </TouchableOpacity>
                 )}
 
+                {isStarted && (
+                    <TouchableOpacity
+                        style={styles.scheduleButton}
+                        onPress={() => navigation.navigate('Schedule', {
+                            courseId,
+                            moduleNumber: progress?.current_module || 1,
+                            courseTitle: course.title,
+                        })}
+                        activeOpacity={0.7}
+                    >
+                        <Ionicons name="calendar-outline" size={18} color={colors.foreground} />
+                        <Text style={styles.scheduleButtonText}>View AI Schedule</Text>
+                        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                    </TouchableOpacity>
+                )}
+
                 <Text style={styles.sectionLabel}>MODULES</Text>
 
                 {course.modules.map((mod: any) => (
@@ -107,6 +123,12 @@ const styles = StyleSheet.create({
     description: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.xl, lineHeight: 20 },
     joinButton: { backgroundColor: colors.foreground, padding: spacing.md, borderRadius: borderRadius.full, alignItems: 'center', marginBottom: spacing.xl, ...shadows.md },
     joinText: { ...typography.button },
+    scheduleButton: {
+        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+        backgroundColor: colors.card, padding: spacing.md, borderRadius: borderRadius.lg,
+        marginBottom: spacing.xl, ...shadows.sm,
+    },
+    scheduleButtonText: { flex: 1, fontSize: 14, fontWeight: '600' as const, color: colors.foreground },
     sectionLabel: { ...typography.label, marginBottom: spacing.md },
     moduleCard: {
         backgroundColor: colors.card, borderRadius: borderRadius['2xl'],

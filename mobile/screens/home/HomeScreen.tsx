@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Image } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -9,7 +9,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
     const { user } = useAuth();
-    const [progress, setProgress] = useState<any[]>([]);
+    const [maxes, setMaxes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -25,12 +25,21 @@ export default function HomeScreen() {
     }, []);
 
     const loadData = async () => {
-        try { const progressRes = await api.getCourseProgress(); setProgress(progressRes.progress || []); }
-        catch (error) { console.error(error); }
-        finally { setLoading(false); }
+        try {
+            const res = await api.getMaxxes();
+            setMaxes(res.maxes || []);
+        } catch (error) {
+            console.error(error);
+        } finally {
+            setLoading(false);
+        }
     };
 
-    const userName = user?.email?.split('@')[0] || 'there';
+    const userName = user?.first_name || user?.email?.split('@')[0] || 'there';
+    const selectedGoals: string[] = (user?.onboarding?.goals || []).map((g: string) => g.toLowerCase());
+
+    // Filter maxes from RDS down to only the ones the user selected
+    const activeMaxxes = maxes.filter(m => selectedGoals.includes(m.id?.toLowerCase()));
 
     return (
         <View style={styles.container}>
@@ -44,7 +53,14 @@ export default function HomeScreen() {
                             </View>
                             <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7}>
                                 <View style={styles.profileIcon}>
-                                    <Text style={styles.profileInitial}>{userName.charAt(0).toUpperCase()}</Text>
+                                    {user?.profile?.avatar_url ? (
+                                        <Image
+                                            source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }}
+                                            style={styles.profileAvatar}
+                                        />
+                                    ) : (
+                                        <Text style={styles.profileInitial}>{(user?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase()}</Text>
+                                    )}
                                 </View>
                             </TouchableOpacity>
                         </View>
@@ -52,37 +68,55 @@ export default function HomeScreen() {
 
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionLabel}>MY COURSES</Text>
-                            {progress.length > 0 && <Text style={styles.sectionCount}>{progress.length}</Text>}
+                            <Text style={styles.sectionLabel}>MY ACTIVE MAXXES</Text>
+                            {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length}</Text>}
                         </View>
 
-                        {progress.map((p, i) => (
-                            <TouchableOpacity key={i} style={styles.courseCard} onPress={() => navigation.navigate('CourseDetail', { courseId: p.course_id })} activeOpacity={0.7}>
-                                <View style={styles.courseRow}>
-                                    <View style={styles.courseIcon}>
-                                        <Ionicons name={i % 2 === 0 ? "book-outline" : "water-outline"} size={16} color={colors.textSecondary} />
-                                    </View>
-                                    <View style={styles.courseContent}>
-                                        <Text style={styles.courseTitle} numberOfLines={1}>{p.course_title || 'Course'}</Text>
-                                        <View style={styles.progressRow}>
-                                            <View style={styles.progressBar}>
-                                                <View style={[styles.progressFill, { width: `${p.progress_percentage}%` }]} />
-                                            </View>
-                                            <Text style={styles.coursePercent}>{Math.round(p.progress_percentage)}%</Text>
+                        {activeMaxxes.map((maxx) => {
+                            const moduleTitles: string[] = (maxx.modules || []).map((m: any) => m.title);
+                            return (
+                                <TouchableOpacity
+                                    key={maxx.id}
+                                    style={styles.courseCard}
+                                    onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={styles.courseRow}>
+                                        <View style={[styles.courseIcon, maxx.color ? { backgroundColor: maxx.color + '22' } : {}]}>
+                                            <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
                                         </View>
+                                        <View style={styles.courseContent}>
+                                            <Text style={styles.courseTitle} numberOfLines={1}>{maxx.label}</Text>
+                                            <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 6, textAlign: 'left' }]} numberOfLines={2}>{maxx.description}</Text>
+                                            {moduleTitles.length > 0 && (
+                                                <View style={styles.moduleRow}>
+                                                    {moduleTitles.map((t) => (
+                                                        <View key={t} style={styles.modulePill}>
+                                                            <Text style={styles.moduleText}>{t}</Text>
+                                                        </View>
+                                                    ))}
+                                                </View>
+                                            )}
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                                     </View>
-                                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                                </TouchableOpacity>
+                            );
+                        })}
+
+                        {activeMaxxes.length === 0 && (
+                            <TouchableOpacity style={styles.emptyCard} onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })} activeOpacity={0.7}>
+                                <Text style={styles.emptyTitle}>No Maxxes active</Text>
+                                <Text style={styles.emptyDesc}>Select a max goal in your profile to begin.</Text>
+                                <View style={styles.emptyButton}>
+                                    <Text style={styles.emptyButtonText}>Select Goals</Text>
                                 </View>
                             </TouchableOpacity>
-                        ))}
+                        )}
 
-                        {progress.length === 0 && (
-                            <TouchableOpacity style={styles.emptyCard} onPress={() => navigation.navigate('CourseList')} activeOpacity={0.7}>
-                                <Text style={styles.emptyTitle}>No courses yet</Text>
-                                <Text style={styles.emptyDesc}>Start your first course to begin your journey</Text>
-                                <View style={styles.emptyButton}>
-                                    <Text style={styles.emptyButtonText}>Browse Courses</Text>
-                                </View>
+                        {activeMaxxes.length > 0 && (
+                            <TouchableOpacity style={[styles.emptyButton, { marginTop: spacing.md, alignSelf: 'center' }]} onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })} activeOpacity={0.7}>
+                                <Text style={styles.emptyButtonText}>Add More Maxxes</Text>
                             </TouchableOpacity>
                         )}
                     </View>
@@ -105,8 +139,9 @@ const styles = StyleSheet.create({
         backgroundColor: colors.foreground, alignItems: 'center', justifyContent: 'center',
         ...shadows.sm,
     },
+    profileAvatar: { width: 40, height: 40, borderRadius: 20 },
     profileInitial: { fontSize: 16, fontWeight: '600', color: colors.buttonText },
-    section: { paddingHorizontal: spacing.lg, marginTop: spacing.sm },
+    section: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
     sectionLabel: { ...typography.label },
     sectionCount: {
@@ -116,23 +151,41 @@ const styles = StyleSheet.create({
     },
     courseCard: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius.lg,
-        padding: spacing.md,
-        marginBottom: spacing.sm,
-        ...shadows.sm,
+        borderRadius: borderRadius['2xl'],
+        paddingVertical: spacing.xl,
+        paddingHorizontal: spacing.lg,
+        marginBottom: spacing.md,
+        ...shadows.md,
     },
     courseRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     courseIcon: {
-        width: 36, height: 36, borderRadius: borderRadius.sm,
+        width: 48, height: 48, borderRadius: borderRadius.md,
         backgroundColor: colors.surface,
         alignItems: 'center', justifyContent: 'center',
     },
     courseContent: { flex: 1 },
-    courseTitle: { fontSize: 14, fontWeight: '600', color: colors.foreground, marginBottom: 6 },
+    courseTitle: { fontSize: 18, fontWeight: '700', color: colors.foreground, marginBottom: 8 },
     progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    progressBar: { flex: 1, height: 3, backgroundColor: colors.borderLight, borderRadius: 2, overflow: 'hidden' },
-    progressFill: { height: '100%', backgroundColor: colors.foreground, borderRadius: 2 },
-    coursePercent: { fontSize: 12, fontWeight: '500', color: colors.textMuted, width: 32, textAlign: 'right' },
+    progressBar: { flex: 1, height: 6, backgroundColor: colors.borderLight, borderRadius: 3, overflow: 'hidden' },
+    progressFill: { height: '100%', backgroundColor: colors.foreground, borderRadius: 3 },
+    coursePercent: { fontSize: 13, fontWeight: '500', color: colors.textMuted, width: 40, textAlign: 'right' },
+    moduleRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.xs,
+        marginTop: spacing.sm,
+    },
+    modulePill: {
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 4,
+        borderRadius: 999,
+        backgroundColor: colors.surface,
+    },
+    moduleText: {
+        fontSize: 11,
+        fontWeight: '500',
+        color: colors.textSecondary,
+    },
     emptyCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],

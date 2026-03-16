@@ -63,6 +63,10 @@ async def get_current_user(
     return {
         "id": str(user.id),
         "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "username": user.username,
+        "created_at": user.created_at,
         "is_paid": user.is_paid,
         "is_admin": user.is_admin,
         "subscription_status": user.subscription_status,
@@ -72,7 +76,9 @@ async def get_current_user(
         "onboarding": user.onboarding or {},
         "profile": user.profile or {},
         "first_scan_completed": user.first_scan_completed,
-        "phone_number": user.phone_number
+        "phone_number": user.phone_number,
+        "schedule_preferences": user.schedule_preferences or {},
+        "last_progress_prompt_date": user.last_progress_prompt_date,
     }
 
 

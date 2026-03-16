@@ -91,6 +91,10 @@ class MongoDBClient:
         # Chat history indexes
         await db.chat_history.create_index("user_id")
         await db.chat_history.create_index([("user_id", 1), ("created_at", -1)])
+
+        # Progress photos indexes
+        await db.user_progress_photos.create_index("user_id")
+        await db.user_progress_photos.create_index([("user_id", 1), ("created_at", -1)])
         
         print("📊 Database indexes created")
 

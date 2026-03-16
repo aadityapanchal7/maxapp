@@ -2,16 +2,14 @@ import React from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, borderRadius, shadows } from '../theme/dark';
-import { useNavigation } from '@react-navigation/native';
+import { colors, spacing, shadows } from '../theme/dark';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import HomeScreen from '../screens/home/HomeScreen';
-import CannonChatScreen from '../screens/chat/CannonChatScreen';
+import MaxChatScreen from '../screens/chat/MaxChatScreen';
 import ForumsScreen from '../screens/forums/ForumsScreen';
 import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
-import LeaderboardScreen from '../screens/leaderboard/LeaderboardScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -25,13 +23,8 @@ function ForumsStack() {
     );
 }
 
-function ScanPlaceholder() {
-    return <View />;
-}
-
 export default function TabNavigator() {
     const insets = useSafeAreaInsets();
-    const navigation = useNavigation<any>();
 
     return (
         <Tab.Navigator
@@ -44,7 +37,7 @@ export default function TabNavigator() {
                         paddingBottom: insets.bottom,
                     }
                 ],
-                tabBarActiveTintColor: colors.foreground,
+                tabBarActiveTintColor: '#000000',
                 tabBarInactiveTintColor: colors.textMuted,
                 tabBarLabelStyle: styles.tabLabel,
             }}
@@ -58,26 +51,12 @@ export default function TabNavigator() {
             />
             <Tab.Screen
                 name="Chat"
-                component={CannonChatScreen}
-                options={{
-                    tabBarLabel: 'Max',
-                    tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-outline" size={22} color={color} />,
-                }}
-            />
-            <Tab.Screen
-                name="Scan"
-                component={ScanPlaceholder}
-                listeners={{
-                    tabPress: (e) => {
-                        e.preventDefault();
-                        navigation.navigate('FaceScan');
-                    },
-                }}
+                component={MaxChatScreen}
                 options={{
                     tabBarLabel: () => null,
                     tabBarIcon: () => (
-                        <View style={styles.scanIcon}>
-                            <Ionicons name="add" size={22} color={colors.buttonText} />
+                        <View style={styles.centerIcon}>
+                            <Ionicons name="chatbubble-outline" size={22} color={colors.buttonText} />
                         </View>
                     ),
                 }}
@@ -87,13 +66,6 @@ export default function TabNavigator() {
                 component={ForumsStack}
                 options={{
                     tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={22} color={color} />,
-                }}
-            />
-            <Tab.Screen
-                name="Rank"
-                component={LeaderboardScreen}
-                options={{
-                    tabBarIcon: ({ color, size }) => <Ionicons name="trophy-outline" size={22} color={color} />,
                 }}
             />
         </Tab.Navigator>
@@ -113,7 +85,7 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         letterSpacing: 0.2,
     },
-    scanIcon: {
+    centerIcon: {
         width: 40,
         height: 40,
         borderRadius: 20,

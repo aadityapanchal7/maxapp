@@ -1,39 +1,73 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
-const FEATURES = [
-    'Full facial analysis with 50+ metrics',
-    'Personalized improvement plans',
-    'Access to all courses',
-    'Join TikTok Live events',
-    'Track your progress over time',
-    'Climb the leaderboard',
-    'Chat with Max AI',
-    'Community forums access',
+const PLANS = [
+    {
+        id: 'basic',
+        name: 'Basic',
+        price: 20,
+        stripeUrl: 'https://buy.stripe.com/9B64gzazZgDmaVL7vKbII01',
+        features: [
+            'Core course modules',
+            'Basic progress tracking',
+            'Standard community access',
+            'Standard support',
+        ],
+    },
+    {
+        id: 'premium',
+        name: 'Premium',
+        price: 29,
+        stripeUrl: 'https://buy.stripe.com/dRmdR9gYn72Me7X9DSbII00',
+        features: [
+            'Full course library access',
+            'AI schedule + reminders',
+            'Community & forums',
+            'Priority support',
+        ],
+    },
 ];
 
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const { refreshUser } = useAuth();
-    const [loading, setLoading] = useState(false);
+    const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+    const [devLoading, setDevLoading] = useState(false);
 
-    const handleSubscribe = async () => {
-        setLoading(true);
+    const handleOpenStripe = async (planId: string, url: string) => {
         try {
-            const returnUrl = Linking.createURL('/payment-success');
-            const cancelUrl = Linking.createURL('/payment-cancel');
-            const { checkout_url } = await api.createCheckoutSession(returnUrl, cancelUrl);
-            const result = await WebBrowser.openBrowserAsync(checkout_url);
-            if (result.type === 'cancel') await refreshUser();
-        } catch (e) { Alert.alert('Error', 'Could not start checkout'); }
-        finally { setLoading(false); }
+            setLoadingPlan(planId);
+            const result = await WebBrowser.openBrowserAsync(url);
+            if (result.type === 'cancel' || result.type === 'dismiss') {
+                navigation.navigate('PaymentThankYou');
+            }
+        } catch (e) {
+            Alert.alert('Error', 'Could not open checkout.');
+        } finally {
+            setLoadingPlan(null);
+        }
+    };
+
+    const handleDevSkip = async () => {
+        try {
+            setDevLoading(true);
+            await api.testActivateSubscription();
+            await refreshUser();
+            navigation.navigate('PaymentThankYou');
+        } catch (error: any) {
+            const msg = error?.response?.data?.detail
+                || error?.message
+                || (error?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
+            Alert.alert('Error', String(msg));
+        } finally {
+            setDevLoading(false);
+        }
     };
 
     return (
@@ -44,36 +78,51 @@ export default function PaymentScreen() {
                 </TouchableOpacity>
 
                 <View style={styles.header}>
-                    <Text style={styles.title}>max premium</Text>
-                    <Text style={styles.subtitle}>Unlock your full potential</Text>
+                    <Text style={styles.title}>Choose your plan</Text>
+                    <Text style={styles.subtitle}>Dummy comparison for now — both redirect to Stripe links you provided.</Text>
                 </View>
 
-                <View style={styles.features}>
-                    {FEATURES.map((feature, i) => (
-                        <View key={i} style={styles.featureItem}>
-                            <Ionicons name="checkmark" size={16} color={colors.foreground} />
-                            <Text style={styles.featureText}>{feature}</Text>
+                {PLANS.map((plan) => (
+                    <View key={plan.id} style={styles.planCard}>
+                        <View style={styles.planHeader}>
+                            <Text style={styles.planName}>{plan.name}</Text>
+                            <View style={styles.priceRow}>
+                                <Text style={styles.price}>${plan.price}</Text>
+                                <Text style={styles.priceLabel}>/month</Text>
+                            </View>
                         </View>
-                    ))}
-                </View>
 
-                <View style={styles.priceCard}>
-                    <Text style={styles.price}>$9.99</Text>
-                    <Text style={styles.priceLabel}>/month</Text>
-                </View>
+                        <View style={styles.featureList}>
+                            {plan.features.map((feature, idx) => (
+                                <View key={idx} style={styles.featureItem}>
+                                    <Ionicons name="checkmark" size={16} color={colors.foreground} />
+                                    <Text style={styles.featureText}>{feature}</Text>
+                                </View>
+                            ))}
+                        </View>
 
-                <TouchableOpacity style={styles.button} onPress={handleSubscribe} disabled={loading} activeOpacity={0.7}>
-                    <Text style={styles.buttonText}>{loading ? 'Loading...' : 'Subscribe Now'}</Text>
-                </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.button}
+                            activeOpacity={0.85}
+                            onPress={() => handleOpenStripe(plan.id, plan.stripeUrl)}
+                            disabled={!!loadingPlan || devLoading}
+                        >
+                            <Text style={styles.buttonText}>
+                                {loadingPlan === plan.id ? 'Opening...' : `Continue with ${plan.name}`}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+                ))}
 
-                <Text style={styles.disclaimer}>Cancel anytime. No commitment.</Text>
+                <Text style={styles.disclaimer}>You can change or cancel your plan any time from your account settings.</Text>
 
-                <TouchableOpacity style={styles.devButton} onPress={async () => {
-                    try { setLoading(true); await api.testActivateSubscription(); await refreshUser(); Alert.alert('Success', 'Subscription activated!'); }
-                    catch (error: any) { Alert.alert('Error', error.response?.data?.detail || 'Failed to activate'); }
-                    finally { setLoading(false); }
-                }} disabled={loading}>
-                    <Text style={styles.devButtonText}>DEV: Skip Payment</Text>
+                <TouchableOpacity
+                    style={styles.devButton}
+                    activeOpacity={0.85}
+                    onPress={handleDevSkip}
+                    disabled={devLoading || !!loadingPlan}
+                >
+                    <Text style={styles.devButtonText}>{devLoading ? 'Activating...' : 'DEV: Skip payment & unlock'}</Text>
                 </TouchableOpacity>
             </ScrollView>
         </View>
@@ -84,22 +133,62 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     content: { padding: spacing.lg, paddingTop: 64, paddingBottom: 40 },
     backButton: { position: 'absolute', top: 54, left: spacing.lg, zIndex: 10, padding: spacing.sm },
-    header: { alignItems: 'center', marginBottom: spacing.xl, marginTop: spacing.xl },
-    title: { fontSize: 32, fontWeight: '400', color: colors.foreground, letterSpacing: -1, marginBottom: spacing.xs },
-    subtitle: { fontSize: 14, color: colors.textSecondary },
-    features: {
-        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
-        padding: spacing.lg, gap: spacing.md,
+    header: { alignItems: 'flex-start', marginBottom: spacing.xl, marginTop: spacing.xl },
+    title: { fontSize: 28, fontWeight: '600', color: colors.foreground, letterSpacing: -0.5, marginBottom: spacing.xs },
+    subtitle: { fontSize: 13, color: colors.textSecondary },
+    planCard: {
+        backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'],
+        padding: spacing.lg,
+        marginBottom: spacing.lg,
         ...shadows.md,
     },
-    featureItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    planHeader: {
+        flexDirection: 'row',
+        alignItems: 'flex-end',
+        justifyContent: 'space-between',
+        marginBottom: spacing.md,
+    },
+    planName: {
+        fontSize: 18,
+        fontWeight: '600',
+        color: colors.foreground,
+        textTransform: 'uppercase',
+    },
+    priceRow: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        gap: 4,
+    },
+    price: { fontSize: 28, fontWeight: '700', color: colors.foreground },
+    priceLabel: { fontSize: 14, fontWeight: '400', color: colors.textMuted },
+    featureList: {
+        marginBottom: spacing.lg,
+        gap: spacing.sm,
+    },
+    featureItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     featureText: { fontSize: 14, color: colors.foreground },
-    priceCard: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center', marginTop: spacing.xl },
-    price: { fontSize: 44, fontWeight: '700', color: colors.foreground },
-    priceLabel: { fontSize: 18, fontWeight: '400', color: colors.textMuted },
-    button: { backgroundColor: colors.foreground, borderRadius: borderRadius.full, padding: spacing.md, alignItems: 'center', marginTop: spacing.xl, ...shadows.md },
+    button: {
+        backgroundColor: colors.foreground,
+        borderRadius: borderRadius.full,
+        paddingVertical: spacing.md,
+        alignItems: 'center',
+        ...shadows.md,
+    },
     buttonText: { ...typography.button },
     disclaimer: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: spacing.md },
-    devButton: { backgroundColor: colors.surface, borderRadius: borderRadius.full, padding: spacing.sm, alignItems: 'center', marginTop: spacing.lg, borderWidth: 1, borderColor: colors.border },
-    devButtonText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+    devButton: {
+        marginTop: spacing.lg,
+        borderRadius: borderRadius.full,
+        paddingVertical: spacing.sm,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    devButtonText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.textSecondary,
+    },
 });

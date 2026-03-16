@@ -3,9 +3,12 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import { Platform } from 'react-native';
 import { getItemAsync, setItemAsync, deleteItemAsync } from './storage';
 
-const API_BASE_URL = 'http://13.236.183.141:8000/api/';
+const API_BASE_URL =
+    process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
+    'http://localhost:8000/api/';
 
 class ApiService {
     private client: AxiosInstance;
@@ -77,8 +80,8 @@ class ApiService {
     }
 
     // Auth
-    async signup(email: string, password: string, bio?: string, phone_number?: string) {
-        const response = await this.client.post('auth/signup', { email, password, bio, phone_number });
+    async signup(email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) {
+        const response = await this.client.post('auth/signup', { email, password, first_name, last_name, username, phone_number });
         await this.setTokens(response.data.access_token, response.data.refresh_token);
         return response.data;
     }
@@ -96,16 +99,53 @@ class ApiService {
 
     async uploadAvatar(imageUri: string) {
         const formData = new FormData();
-        // @ts-ignore
-        formData.append('file', {
-            uri: imageUri,
-            name: 'avatar.jpg',
-            type: 'image/jpeg',
-        });
+        if (Platform.OS === 'web') {
+            const blob = await fetch(imageUri).then((res) => res.blob());
+            formData.append('file', blob, 'avatar.jpg');
+        } else {
+            // @ts-ignore - React Native FormData accepts { uri, name, type }
+            formData.append('file', {
+                uri: imageUri,
+                name: 'avatar.jpg',
+                type: 'image/jpeg',
+            });
+        }
 
         const response = await this.client.post('users/me/avatar', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
+            transformRequest: [(data: unknown, headers?: Record<string, string>) => {
+                if (headers) delete headers['Content-Type'];
+                return data;
+            }],
         });
+        return response.data;
+    }
+
+    async uploadProgressPhoto(imageUri: string) {
+        const formData = new FormData();
+        // @ts-ignore - React Native FormData accepts { uri, name, type }
+        formData.append('file', {
+            uri: imageUri,
+            name: 'progress.jpg',
+            type: 'image/jpeg',
+        });
+        const response = await this.client.post('users/me/progress-photo', formData, {
+            transformRequest: [(data: unknown, headers?: Record<string, string>) => {
+                if (headers) delete headers['Content-Type'];
+                return data;
+            }],
+        });
+        return response.data;
+    }
+
+    async uploadProgressPhotoBase64(imageBase64: string) {
+        const response = await this.client.post('users/me/progress-photo/base64', {
+            image_base64: imageBase64,
+        });
+        return response.data;
+    }
+
+    async getProgressPhotos() {
+        const response = await this.client.get('users/me/progress-photos');
         return response.data;
     }
 
@@ -114,9 +154,48 @@ class ApiService {
         return response.data;
     }
 
+    async updateAccount(data: { first_name?: string; last_name?: string; username?: string }) {
+        const response = await this.client.put('users/account', data);
+        return response.data;
+    }
+
     // Onboarding
-    async saveOnboarding(data: { goals: string[]; experience_level: string }) {
+    async saveOnboarding(data: {
+        goals: string[];
+        experience_level: string;
+        gender?: string;
+        age?: number;
+        height?: number;
+        weight?: number;
+        activity_level?: string;
+        equipment?: string[];
+        skin_type?: string;
+        unit_system?: string;
+        timezone?: string;
+        completed?: boolean;
+    }) {
         const response = await this.client.post('users/onboarding', data);
+        return response.data;
+    }
+
+    async saveOnboardingAnonymous(data: {
+        goals: string[];
+        experience_level: string;
+        gender?: string;
+        age?: number;
+        height?: number;
+        weight?: number;
+        activity_level?: string;
+        equipment?: string[];
+        skin_type?: string;
+        unit_system?: string;
+        timezone?: string;
+        completed?: boolean;
+    }) {
+        const response = await this.client.post('users/onboarding/anonymous', data, {
+            // explicitly avoid auth retry loops if token is missing
+            headers: { 'Content-Type': 'application/json' },
+        });
         return response.data;
     }
 
@@ -182,6 +261,17 @@ class ApiService {
         return response.data;
     }
 
+    // Maxes
+    async getMaxxes() {
+        const response = await this.client.get('maxes');
+        return response.data;
+    }
+
+    async getMaxx(maxxId: string) {
+        const response = await this.client.get(`maxes/${maxxId}`);
+        return response.data;
+    }
+
     // Courses
     async getCourses() {
         const response = await this.client.get('courses');
@@ -228,12 +318,14 @@ class ApiService {
     }
 
     // Chat
-    async sendChatMessage(message: string, attachmentUrl?: string, attachmentType?: string) {
-        const response = await this.client.post('chat/message', {
+    async sendChatMessage(message: string, attachmentUrl?: string, attachmentType?: string, initContext?: string) {
+        const body: any = {
             message,
             attachment_url: attachmentUrl,
-            attachment_type: attachmentType
-        });
+            attachment_type: attachmentType,
+        };
+        if (initContext) body.init_context = initContext;
+        const response = await this.client.post('chat/message', body);
         return response.data;
     }
 
@@ -248,6 +340,11 @@ class ApiService {
         return response.data;
     }
 
+    async createForum(data: { name: string; description: string; category?: string; tags?: string[]; is_admin_only?: boolean }) {
+        const response = await this.client.post('forums', data);
+        return response.data;
+    }
+
     async getChannelMessages(channelId: string, limit: number = 50, query?: string) {
         const response = await this.client.get(`forums/${channelId}/messages`, { params: { limit, query } });
         return response.data;
@@ -255,7 +352,10 @@ class ApiService {
 
     async uploadChatFile(formData: FormData) {
         const response = await this.client.post('forums/upload', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' }
+            transformRequest: [(data: unknown, headers?: Record<string, string>) => {
+                if (headers) delete headers['Content-Type'];
+                return data;
+            }],
         });
         return response.data;
     }
@@ -314,7 +414,7 @@ class ApiService {
         return response.data;
     }
 
-    // Admin: Chat as Cannon for a specific user
+    // Admin: Chat as Max for a specific user
     async getAdminUserChat(userId: string) {
         const response = await this.client.get(`admin/users/${userId}/chat`);
         return response.data;
@@ -322,6 +422,75 @@ class ApiService {
 
     async sendAdminUserChat(userId: string, message: string) {
         const response = await this.client.post(`admin/users/${userId}/chat`, { message });
+        return response.data;
+    }
+
+    // Schedules
+    async generateSchedule(courseId: string, moduleNumber: number, numDays: number = 7, preferences?: any) {
+        const response = await this.client.post('schedules/generate', {
+            course_id: courseId,
+            module_number: moduleNumber,
+            num_days: numDays,
+            preferences,
+        });
+        return response.data;
+    }
+
+    async generateMaxxSchedule(maxxId: string, wakeTime: string, sleepTime: string, outsideToday: boolean = false, numDays: number = 7) {
+        const response = await this.client.post('schedules/generate-maxx', {
+            maxx_id: maxxId,
+            wake_time: wakeTime,
+            sleep_time: sleepTime,
+            outside_today: outsideToday,
+            num_days: numDays,
+        });
+        return response.data;
+    }
+
+    async getMaxxSchedule(maxxId: string) {
+        const response = await this.client.get(`schedules/maxx/${maxxId}`);
+        return response.data;
+    }
+
+    async getCurrentSchedule(courseId?: string, moduleNumber?: number) {
+        const response = await this.client.get('schedules/current', {
+            params: {
+                course_id: courseId,
+                module_number: moduleNumber
+            }
+        });
+        return response.data;
+    }
+
+    async getSchedule(scheduleId: string) {
+        const response = await this.client.get(`schedules/${scheduleId}`);
+        return response.data;
+    }
+
+    async completeScheduleTask(scheduleId: string, taskId: string, feedback?: string) {
+        const response = await this.client.put(`schedules/${scheduleId}/tasks/${taskId}/complete`, {
+            feedback,
+        });
+        return response.data;
+    }
+
+    async updateSchedulePreferences(preferences: any) {
+        const response = await this.client.put('schedules/preferences', preferences);
+        return response.data;
+    }
+
+    async adaptSchedule(scheduleId: string, feedback: string) {
+        const response = await this.client.post(`schedules/${scheduleId}/adapt`, { feedback });
+        return response.data;
+    }
+
+    async editScheduleTask(scheduleId: string, taskId: string, updates: { time?: string; title?: string; description?: string; duration_minutes?: number }) {
+        const response = await this.client.put(`schedules/${scheduleId}/tasks/${taskId}`, updates);
+        return response.data;
+    }
+
+    async deleteScheduleTask(scheduleId: string, taskId: string) {
+        const response = await this.client.delete(`schedules/${scheduleId}/tasks/${taskId}`);
         return response.data;
     }
 }

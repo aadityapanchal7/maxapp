@@ -8,12 +8,14 @@ from datetime import datetime
 
 
 class ChannelCreate(BaseModel):
-    """Request to create a new channel (admin)"""
+    """Request to create a new channel"""
     name: str
-    slug: str = Field(description="URL-friendly identifier")
+    slug: Optional[str] = Field(default=None, description="URL-friendly identifier")
     description: str
     is_admin_only: bool = Field(default=False, description="If true, only admins can post")
     icon: Optional[str] = None
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
     order: int = Field(default=0, description="Display order")
 
 
@@ -25,6 +27,8 @@ class ChannelResponse(BaseModel):
     description: str
     is_admin_only: bool
     icon: Optional[str] = None
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
     message_count: int = 0
     last_activity: Optional[datetime] = None
     created_at: datetime
@@ -40,6 +44,8 @@ class ChannelInDB(BaseModel):
     description: str
     is_admin_only: bool = False
     icon: Optional[str] = None
+    category: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
     order: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

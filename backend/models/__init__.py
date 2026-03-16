@@ -45,3 +45,14 @@ from .forum import (
     ForumResponse,
     ForumInDB
 )
+from .schedule import (
+    ModuleGuideline,
+    ScheduleTask,
+    DailySchedule,
+    SchedulePreferences,
+    GenerateScheduleRequest,
+    ScheduleResponse,
+    ScheduleInDB,
+    CompleteTaskRequest,
+    AdaptScheduleRequest,
+)
