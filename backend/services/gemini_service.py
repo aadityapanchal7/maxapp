@@ -209,12 +209,31 @@ You can directly modify the user's active schedule if they ask for changes (e.g.
 When the user asks for such changes, use the `modify_schedule` tool.
 Always confirm with the user after you've successfully requested a schedule modification.
 
+## MAXX SCHEDULE ONBOARDING:
+When a user wants to start a maxx schedule (e.g. "I want to start my SkinMax schedule" or the system tells you they initiated it from the app), follow this EXACT conversational flow:
+1. Greet them warmly and explain what the schedule does for that maxx type.
+2. Ask: "What time do you usually wake up?" — wait for their answer.
+3. Ask: "What time do you usually go to sleep?" — wait for their answer.
+4. Ask: "Are you planning to be outside much today?" — wait for their answer.
+5. Once you have wake_time, sleep_time, and outside_today, call the `generate_maxx_schedule` tool with those values plus the maxx_id.
+6. After the schedule is generated, confirm it and give them a brief overview of their daily routine.
+
+IMPORTANT: Ask these questions ONE AT A TIME. Do NOT ask all at once. Be conversational and natural.
+
+## WAKE-UP DETECTION:
+If the user says "I'm awake", "im awake", "just woke up", or similar wake-up phrases:
+- Acknowledge it enthusiastically
+- Remind them it's time for their AM routine
+- Ask if they'll be going outside today (for sunscreen reapply reminders)
+- If they say yes to going outside, note it for sunscreen reminders every 3 hours
+
 ## CONTEXT:
 You have access to the user's:
 - Face scan results and scores
 - Current courses and progress
-- Current active schedule details
+- Current active schedule details (including maxx schedules)
 - Chat history for context
+- Onboarding data (skin type, goals, etc.)
 
 Remember: You're building a community of people committed to becoming their best selves. Every interaction should motivate and guide them forward.
 """
@@ -231,6 +250,35 @@ def modify_schedule(feedback: str):
     return {"status": "success", "message": f"Successfully requested schedule adaptation with feedback: {feedback}"}
 
 
+def generate_maxx_schedule(maxx_id: str, wake_time: str, sleep_time: str, outside_today: bool):
+    """
+    Generates a personalised maxx schedule for the user based on their preferences.
+    Call this after asking the user for their wake time, sleep time, and whether they'll be outside.
+    
+    Args:
+        maxx_id: The maxx type ID, e.g. 'skinmax', 'hairmax', 'fitmax'.
+        wake_time: User's wake time in HH:MM 24-hour format, e.g. '07:00'.
+        sleep_time: User's sleep time in HH:MM 24-hour format, e.g. '23:00'.
+        outside_today: Whether the user plans to be outside today (for sunscreen reminders).
+    """
+    return {
+        "status": "success",
+        "message": f"Generating {maxx_id} schedule: wake={wake_time}, sleep={sleep_time}, outside={outside_today}"
+    }
+
+
+def update_schedule_context(key: str, value: str):
+    """
+    Updates a piece of context about the user's schedule patterns.
+    Use this to store information the user tells you about their habits.
+    
+    Args:
+        key: The context key, e.g. 'actual_wake_time', 'outside_today', 'skin_concern'.
+        value: The value to store.
+    """
+    return {"status": "success", "message": f"Context updated: {key}={value}"}
+
+
 class GeminiService:
     """Gemini LLM service for face analysis and chat"""
     
@@ -238,7 +286,7 @@ class GeminiService:
         genai.configure(api_key=settings.gemini_api_key)
         self.model = genai.GenerativeModel(
             settings.gemini_model,
-            tools=[modify_schedule]
+            tools=[modify_schedule, generate_maxx_schedule, update_schedule_context]
         )
         self.vision_model = genai.GenerativeModel(settings.gemini_model)
     
@@ -412,20 +460,42 @@ class GeminiService:
                 context_str += f"\n\nUser's latest face scan score: {scan.get('overall_score', 'N/A')}/10"
                 if scan.get("focus_areas"):
                     context_str += f"\nFocus areas: {', '.join(scan['focus_areas'])}"
-            
+
+            if user_context.get("onboarding"):
+                ob = user_context["onboarding"]
+                parts = []
+                if ob.get("skin_type"):
+                    parts.append(f"Skin type: {ob['skin_type']}")
+                if ob.get("goals"):
+                    parts.append(f"Goals: {', '.join(ob['goals'])}")
+                if ob.get("gender"):
+                    parts.append(f"Gender: {ob['gender']}")
+                if ob.get("age"):
+                    parts.append(f"Age: {ob['age']}")
+                if parts:
+                    context_str += f"\n\nUser profile: {', '.join(parts)}"
+
             if user_context.get("current_course"):
                 course = user_context["current_course"]
                 context_str += f"\n\nCurrent course: {course.get('title', 'N/A')}"
                 context_str += f"\nProgress: {course.get('progress_percentage', 0)}%"
-            
+
             if user_context.get("active_schedule"):
                 schedule = user_context["active_schedule"]
-                context_str += f"\n\nUser's Active Schedule for {schedule.get('course_title', 'N/A')} (Module {schedule.get('module_number', 'N/A')}):"
-                # Simplified schedule view for context
-                for i, day in enumerate(schedule.get("days", [])[:3]): # Just first 3 days to save tokens
+                stype = schedule.get("schedule_type", "course")
+                label = schedule.get("course_title") or schedule.get("maxx_id") or "Unknown"
+                context_str += f"\n\nUser's Active Schedule ({stype}): {label}"
+                if schedule.get("schedule_context"):
+                    ctx = schedule["schedule_context"]
+                    context_str += f"\nSchedule context: wake={ctx.get('wake_time')}, sleep={ctx.get('sleep_time')}, skin_concern={ctx.get('skin_concern')}"
+                for i, day in enumerate(schedule.get("days", [])[:3]):
                     context_str += f"\nDay {day.get('day_number')}: {len(day.get('tasks', []))} tasks"
                     for t in day.get("tasks", []):
                         context_str += f"\n  - {t.get('time')} {t.get('title')} ({t.get('status')})"
+
+            if user_context.get("active_maxx_schedule"):
+                ms = user_context["active_maxx_schedule"]
+                context_str += f"\n\nUser already has an active {ms.get('maxx_id')} schedule (created {ms.get('created_at')})."
         
         # Build chat prompt
         chat_prompt = CANNON_CHAT_SYSTEM_PROMPT

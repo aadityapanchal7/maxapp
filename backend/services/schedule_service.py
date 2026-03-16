@@ -13,9 +13,16 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
 from services.gemini_service import GeminiService
+from services.maxx_guidelines import (
+    get_maxx_guideline,
+    resolve_skin_concern,
+    build_skinmax_prompt_section,
+    MAXX_GUIDELINES,
+)
 from models.sqlalchemy_models import User, UserSchedule, Scan
 from models.rds_models import Course
 
@@ -95,6 +102,64 @@ Modify the remaining days of the schedule based on the feedback and completion d
 - Keep the same JSON structure as the input.
 
 Return ONLY valid JSON with the updated "days" array.
+"""
+
+
+MAXX_SCHEDULE_PROMPT = """You are an expert self-improvement coach specialising in lookmaxxing.
+Your job is to create a PERSONALISED recurring daily/weekly schedule for a user.
+
+## MAXX TYPE: {maxx_label}
+
+{protocol_section}
+
+## USER CONTEXT
+Wake time: {wake_time}
+Sleep time: {sleep_time}
+Skin type: {skin_type}
+Skin concern: {skin_concern}
+Outside today: {outside_today}
+{user_profile_context}
+
+## INSTRUCTIONS
+1. Create a schedule for {num_days} days.
+2. AM routine tasks should be scheduled shortly after wake time.
+3. PM routine tasks should be scheduled 1 hour before sleep time (so products don't rub off on pillow).
+4. Weekly tasks (masks, exfoliants, peels) should be spread across different days.
+5. If user is going to be outside, add sunscreen reapply reminders every 3 hours between wake and sleep times.
+6. Include a morning check-in task at wake time (reminder to confirm they're awake).
+7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
+8. task_type "routine" = skincare steps, "reminder" = sunscreen reapply / check-in, "checkpoint" = weekly treatments.
+9. Keep daily routines consistent but vary weekly treatments across days.
+10. Include brief motivational messages for each day.
+
+## OUTPUT FORMAT
+Return ONLY valid JSON matching this structure (no markdown fences):
+{{
+  "days": [
+    {{
+      "day_number": 1,
+      "tasks": [
+        {{
+          "task_id": "uuid-string",
+          "time": "07:00",
+          "title": "Morning Check-in",
+          "description": "Let me know you're awake! Say 'I'm awake' in chat.",
+          "task_type": "reminder",
+          "duration_minutes": 1
+        }},
+        {{
+          "task_id": "uuid-string",
+          "time": "07:15",
+          "title": "AM Skincare Routine",
+          "description": "Gentle cleanser → serum → moisturizer → sunscreen",
+          "task_type": "routine",
+          "duration_minutes": 10
+        }}
+      ],
+      "motivation_message": "Day 1! Your skin transformation starts now."
+    }}
+  ]
+}}
 """
 
 
@@ -227,6 +292,165 @@ class ScheduleService:
 
         return self._schedule_to_dict(schedule_row)
 
+    async def generate_maxx_schedule(
+        self,
+        user_id: str,
+        maxx_id: str,
+        db: AsyncSession,
+        wake_time: str = "07:00",
+        sleep_time: str = "23:00",
+        skin_concern: Optional[str] = None,
+        outside_today: bool = False,
+        num_days: int = 7,
+    ) -> dict:
+        """Generate a personalised recurring schedule for a maxx module."""
+        guideline = get_maxx_guideline(maxx_id)
+        if not guideline:
+            raise ValueError(f"Unknown maxx: {maxx_id}")
+
+        user_uuid = UUID(user_id)
+        user = await db.get(User, user_uuid)
+        onboarding = (user.onboarding if user else {}) or {}
+
+        skin_type = onboarding.get("skin_type", "normal")
+        concern = resolve_skin_concern(skin_type, skin_concern)
+        protocol_section = build_skinmax_prompt_section(concern)
+
+        profile_parts = []
+        if onboarding.get("gender"):
+            profile_parts.append(f"Gender: {onboarding['gender']}")
+        if onboarding.get("age"):
+            profile_parts.append(f"Age: {onboarding['age']}")
+        user_profile_context = ", ".join(profile_parts) if profile_parts else "No profile data yet."
+
+        prompt = MAXX_SCHEDULE_PROMPT.format(
+            maxx_label=guideline["label"],
+            protocol_section=protocol_section,
+            wake_time=wake_time,
+            sleep_time=sleep_time,
+            skin_type=skin_type,
+            skin_concern=concern,
+            outside_today="Yes" if outside_today else "No",
+            user_profile_context=user_profile_context,
+            num_days=num_days,
+        )
+
+        try:
+            import google.generativeai as genai
+            model = genai.GenerativeModel(settings.gemini_model)
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(response_mime_type="application/json"),
+            )
+            schedule_data = json.loads(response.text)
+        except Exception as e:
+            logger.error(f"Gemini maxx schedule generation failed: {e}")
+            schedule_data = self._generate_maxx_fallback(maxx_id, num_days, wake_time, sleep_time)
+
+        tz_name = onboarding.get("timezone", "UTC")
+        try:
+            user_tz = ZoneInfo(tz_name)
+        except Exception:
+            user_tz = ZoneInfo("UTC")
+
+        start_date = datetime.now(user_tz).date()
+        for day in schedule_data.get("days", []):
+            day_num = day.get("day_number", 1)
+            day["date"] = (start_date + timedelta(days=day_num - 1)).isoformat()
+            for task in day.get("tasks", []):
+                if not task.get("task_id"):
+                    task["task_id"] = str(uuid.uuid4())
+                task.setdefault("status", "pending")
+                task.setdefault("notification_sent", False)
+
+        existing_result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == user_uuid)
+                & (UserSchedule.maxx_id == maxx_id)
+                & (UserSchedule.is_active == True)
+            )
+        )
+        for sched in existing_result.scalars().all():
+            sched.is_active = False
+            sched.updated_at = datetime.utcnow()
+        await db.commit()
+
+        prefs = {
+            "wake_time": wake_time,
+            "sleep_time": sleep_time,
+            "notifications_enabled": True,
+            "notification_minutes_before": 5,
+        }
+
+        schedule_row = UserSchedule(
+            user_id=user_uuid,
+            schedule_type="maxx",
+            maxx_id=maxx_id,
+            course_title=guideline["label"],
+            days=schedule_data.get("days", []),
+            preferences=prefs,
+            schedule_context={
+                "skin_concern": concern,
+                "skin_type": skin_type,
+                "outside_today": outside_today,
+                "wake_time": wake_time,
+                "sleep_time": sleep_time,
+            },
+            is_active=True,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+            adapted_count=0,
+            user_feedback=[],
+            completion_stats={"completed": 0, "total": 0, "skipped": 0},
+        )
+        db.add(schedule_row)
+        await db.commit()
+        await db.refresh(schedule_row)
+
+        return self._schedule_to_dict(schedule_row)
+
+    def _generate_maxx_fallback(self, maxx_id: str, num_days: int, wake_time: str, sleep_time: str) -> dict:
+        """Fallback schedule when Gemini fails for maxx schedules."""
+        days = []
+        wh, wm = map(int, wake_time.split(":"))
+        sh, sm = map(int, sleep_time.split(":"))
+        pm_hour = max(0, sh - 1)
+
+        for day_num in range(1, num_days + 1):
+            tasks = [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{wh:02d}:{wm:02d}",
+                    "title": "Morning Check-in",
+                    "description": "Let me know you're awake! Say 'I'm awake' in chat.",
+                    "task_type": "reminder",
+                    "duration_minutes": 1,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{wh:02d}:{wm + 15:02d}" if wm + 15 < 60 else f"{wh + 1:02d}:{(wm + 15) % 60:02d}",
+                    "title": "AM Skincare Routine",
+                    "description": "Gentle cleanser → serum → moisturizer → sunscreen",
+                    "task_type": "routine",
+                    "duration_minutes": 10,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{pm_hour:02d}:{sm:02d}",
+                    "title": "PM Skincare Routine",
+                    "description": "Cleanser → treatment → moisturizer",
+                    "task_type": "routine",
+                    "duration_minutes": 10,
+                },
+            ]
+            days.append({
+                "day_number": day_num,
+                "tasks": tasks,
+                "motivation_message": f"Day {day_num} — consistency is everything!",
+            })
+
+        return {"days": days}
+
     async def get_current_schedule(
         self, user_id: str, db: AsyncSession, course_id: str = None, module_number: int = None
     ) -> Optional[dict]:
@@ -286,6 +510,7 @@ class ScheduleService:
         stats["total"] = sum(len(d.get("tasks", [])) for d in days)
 
         schedule.days = days
+        flag_modified(schedule, "days")
         schedule.completion_stats = stats
         schedule.updated_at = datetime.utcnow()
 
@@ -339,6 +564,7 @@ class ScheduleService:
             raise ValueError(f"Failed to adapt schedule: {e}")
 
         schedule.days = adapted.get("days", schedule.days)
+        flag_modified(schedule, "days")
         schedule.updated_at = datetime.utcnow()
         schedule.adapted_count = (schedule.adapted_count or 0) + 1
 
@@ -385,6 +611,7 @@ class ScheduleService:
             raise ValueError("Task not found in schedule")
 
         schedule.days = days
+        flag_modified(schedule, "days")
         schedule.updated_at = datetime.utcnow()
         await db.commit()
         return {"status": "updated", "task": updated_task}
@@ -409,9 +636,36 @@ class ScheduleService:
             raise ValueError("Task not found in schedule")
 
         schedule.days = days
+        flag_modified(schedule, "days")
         schedule.updated_at = datetime.utcnow()
         await db.commit()
         return {"status": "deleted"}
+
+    async def get_maxx_schedule(self, user_id: str, maxx_id: str, db: AsyncSession) -> Optional[dict]:
+        """Get the user's active schedule for a specific maxx."""
+        user_uuid = UUID(user_id)
+        result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == user_uuid)
+                & (UserSchedule.maxx_id == maxx_id)
+                & (UserSchedule.is_active == True)
+            ).order_by(UserSchedule.created_at.desc()).limit(1)
+        )
+        schedule = result.scalar_one_or_none()
+        return self._schedule_to_dict(schedule) if schedule else None
+
+    async def update_schedule_context(self, user_id: str, schedule_id: str, db: AsyncSession, context_updates: dict) -> dict:
+        """Update learned context on a schedule (e.g. outside_today, actual wake time)."""
+        schedule = await self._load_schedule(schedule_id, user_id, db)
+        if not schedule:
+            raise ValueError("Schedule not found")
+        ctx = schedule.schedule_context or {}
+        ctx.update(context_updates)
+        schedule.schedule_context = ctx
+        flag_modified(schedule, "schedule_context")
+        schedule.updated_at = datetime.utcnow()
+        await db.commit()
+        return {"status": "updated", "schedule_context": ctx}
 
     async def update_preferences(self, user_id: str, preferences: dict, db: AsyncSession) -> dict:
         """Update schedule preferences for a user (stored on active schedule)"""
@@ -542,18 +796,22 @@ class ScheduleService:
         return None
 
     def _schedule_to_dict(self, schedule: UserSchedule) -> dict:
-        return {
+        d = {
             "id": str(schedule.id),
             "user_id": str(schedule.user_id),
-            "course_id": str(schedule.course_id),
+            "schedule_type": schedule.schedule_type or "course",
+            "course_id": str(schedule.course_id) if schedule.course_id else None,
             "course_title": schedule.course_title,
             "module_number": schedule.module_number,
+            "maxx_id": schedule.maxx_id,
             "days": schedule.days or [],
             "preferences": schedule.preferences or {},
+            "schedule_context": schedule.schedule_context or {},
             "is_active": schedule.is_active,
             "created_at": schedule.created_at,
             "adapted_count": schedule.adapted_count or 0,
         }
+        return d
 
 
 schedule_service = ScheduleService()

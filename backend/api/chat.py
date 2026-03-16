@@ -1,10 +1,10 @@
 """
 Chat API - Cannon LLM Chat
+Handles AI chat with tool-calling for schedule management.
 """
 
 from fastapi import APIRouter, Depends
 from datetime import datetime
-from zoneinfo import ZoneInfo
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -12,114 +12,10 @@ from db import get_db
 from middleware.auth_middleware import require_paid_user
 from services.gemini_service import gemini_service
 from services.storage_service import storage_service
-from services.skinmax import SKINMAX_CONCERNS, parse_time_from_text, get_concern_key
 from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
-
-def _user_tz(user: User) -> ZoneInfo:
-    tz_name = (user.onboarding or {}).get("timezone", "UTC")
-    try:
-        return ZoneInfo(tz_name)
-    except Exception:
-        return ZoneInfo("UTC")
-
-
-def _skinmax_prompt_for_concern() -> str:
-    return (
-        "Which skin concern should we focus on? Reply with a number:\n"
-        "1) Acne / Congestion\n"
-        "2) Pigmentation / Uneven Tone\n"
-        "3) Texture / Scarring\n"
-        "4) Redness / Sensitivity\n"
-        "5) Aging / Skin Quality"
-    )
-
-
-def _skinmax_summary(concern_key: str, wake_time: str, sleep_time: str) -> str:
-    concern = SKINMAX_CONCERNS[concern_key]
-    return (
-        "Skinmax reminders are set.\n\n"
-        f"AM routine ({wake_time}): {concern['am']}\n"
-        f"PM routine (1 hour before bed): {concern['pm']}\n"
-        f"Weekly care: {concern['weekly']}\n"
-        f"Sunscreen: {concern['sunscreen']}\n\n"
-        "I’ll message you at wake time and 1 hour before sleep, plus sunscreen reapply every 3 hours.\n"
-        "If you wake earlier or later, text me \"im awake\" so I can adjust."
-    )
-
-
-async def _handle_skinmax_flow(message: str, user: User) -> tuple[str | None, bool]:
-    prefs = dict(user.schedule_preferences or {})
-    skin = dict(prefs.get("skinmax") or {})
-    msg = (message or "").strip()
-    msg_lower = msg.lower()
-    updated = False
-
-    if skin.get("enabled") and skin.get("setup_complete"):
-        if msg_lower in {"im awake", "i'm awake", "im up", "i am awake", "awake"}:
-            tz = _user_tz(user)
-            local_now = datetime.now(tz)
-            skin["wake_time"] = local_now.strftime("%H:%M")
-            skin["last_wake_reported_at"] = local_now.isoformat()
-            last_sent = dict(skin.get("last_sent") or {})
-            if last_sent.get("date") == local_now.date().isoformat():
-                last_sent["am_sent"] = False
-                last_sent["sunscreen_times"] = []
-            skin["last_sent"] = last_sent
-            prefs["skinmax"] = skin
-            user.schedule_preferences = prefs
-            updated = True
-            return "Got it. You’re up. I’ll adjust today’s reminders.", updated
-        return None, False
-
-    step = skin.get("setup_step")
-    if not step:
-        skin["setup_step"] = "awaiting_wake_time"
-        skin["enabled"] = True
-        prefs["skinmax"] = skin
-        user.schedule_preferences = prefs
-        updated = True
-        return "Let’s set your Skinmax reminders. What time do you usually wake up? (e.g. 7:30 AM)", updated
-
-    if step == "awaiting_wake_time":
-        wake_time = parse_time_from_text(msg, default_meridian="am")
-        if not wake_time:
-            return "What time do you usually wake up? Example: 7:00 AM or 6:30.", False
-        skin["wake_time"] = wake_time
-        skin["setup_step"] = "awaiting_sleep_time"
-        prefs["skinmax"] = skin
-        user.schedule_preferences = prefs
-        updated = True
-        return "Got it. What time do you usually go to sleep? (e.g. 10:30 PM)", updated
-
-    if step == "awaiting_sleep_time":
-        sleep_time = parse_time_from_text(msg, default_meridian="pm")
-        if not sleep_time:
-            return "What time do you usually go to sleep? Example: 10:30 PM or 11:00.", False
-        skin["sleep_time"] = sleep_time
-        skin["setup_step"] = "awaiting_concern"
-        prefs["skinmax"] = skin
-        user.schedule_preferences = prefs
-        updated = True
-        return _skinmax_prompt_for_concern(), updated
-
-    if step == "awaiting_concern":
-        concern_key = get_concern_key(msg_lower)
-        if not concern_key:
-            return _skinmax_prompt_for_concern(), False
-        skin["concern"] = concern_key
-        skin["setup_step"] = None
-        skin["setup_complete"] = True
-        skin["enabled"] = True
-        skin.setdefault("last_sent", {})
-        prefs["skinmax"] = skin
-        user.schedule_preferences = prefs
-        updated = True
-        return _skinmax_summary(concern_key, skin.get("wake_time", "07:00"), skin.get("sleep_time", "23:00")), updated
-
-    return None, False
 
 
 @router.post("/message", response_model=ChatResponse)
@@ -132,32 +28,7 @@ async def send_message(
     from services.schedule_service import schedule_service
     user_id = current_user["id"]
     user_uuid = UUID(user_id)
-    user = await db.get(User, user_uuid)
 
-    # Skinmax setup / wake-time update flow (SMS-like)
-    if user:
-        skinmax_response, prefs_updated = await _handle_skinmax_flow(data.message, user)
-        if skinmax_response:
-            if prefs_updated:
-                user.updated_at = datetime.utcnow()
-            user_message = ChatHistory(
-                user_id=user_uuid,
-                role="user",
-                content=data.message,
-                created_at=datetime.utcnow()
-            )
-            assistant_message = ChatHistory(
-                user_id=user_uuid,
-                role="assistant",
-                content=skinmax_response,
-                created_at=datetime.utcnow()
-            )
-            db.add(user_message)
-            db.add(assistant_message)
-            await db.commit()
-            return ChatResponse(response=skinmax_response)
-    
-    # Get chat history
     history_result = await db.execute(
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
@@ -171,35 +42,49 @@ async def send_message(
             "content": h.content,
             "attachment_url": None,
             "attachment_type": None,
-            "created_at": h.created_at
+            "created_at": h.created_at,
         }
         for h in history_rows
     ]
-    
-    # Get active schedule for context
+
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
-    
-    # Get user context
+
+    user = await db.get(User, user_uuid)
+    onboarding = (user.onboarding if user else {}) or {}
+
     latest_scan_result = await db.execute(
         select(Scan).where(Scan.user_id == user_uuid).order_by(Scan.created_at.desc()).limit(1)
     )
     latest_scan = latest_scan_result.scalar_one_or_none()
+
     user_context = {
         "latest_scan": latest_scan.analysis if latest_scan else None,
-        "active_schedule": active_schedule
+        "active_schedule": active_schedule,
+        "onboarding": onboarding,
     }
-    
-    # Get attachment data if it's an image
+
+    # If init_context is set, prepend context to the message so Cannon knows
+    message = data.message
+    if data.init_context:
+        maxx_id = data.init_context
+        try:
+            existing_maxx = await schedule_service.get_maxx_schedule(user_id, maxx_id, db=db)
+        except Exception:
+            existing_maxx = None
+        if existing_maxx:
+            user_context["active_maxx_schedule"] = existing_maxx
+            message = f"[SYSTEM: User opened the {maxx_id} module and already has an active schedule. They may want to view or update it.]\n\n{message}"
+        else:
+            message = f"[SYSTEM: User just tapped 'Start Schedule' in the {maxx_id} module. Begin the schedule onboarding flow — ask their wake time, sleep time, and whether they'll be outside. Ask one question at a time.]\n\n{message}"
+
     image_data = None
     if data.attachment_url and data.attachment_type == "image":
         image_data = await storage_service.get_image(data.attachment_url)
-    
-    # Get response from Gemini
-    result = await gemini_service.chat(data.message, history, user_context, image_data)
+
+    result = await gemini_service.chat(message, history, user_context, image_data)
     response_text = result.get("text", "")
     tool_calls = result.get("tool_calls", [])
-    
-    # Handle tools
+
     for tool in tool_calls:
         if tool["name"] == "modify_schedule" and active_schedule:
             try:
@@ -209,29 +94,63 @@ async def send_message(
                         user_id=user_id,
                         schedule_id=active_schedule["id"],
                         db=db,
-                        feedback=feedback
+                        feedback=feedback,
                     )
-                    # We could optionally add a notice to the response or refresh the context
             except Exception as e:
                 print(f"Chat-triggered schedule adaptation failed: {e}")
-    
-    # Save to history
+
+        elif tool["name"] == "generate_maxx_schedule":
+            try:
+                args = tool["args"]
+                schedule = await schedule_service.generate_maxx_schedule(
+                    user_id=user_id,
+                    maxx_id=str(args.get("maxx_id", "skinmax")),
+                    db=db,
+                    wake_time=str(args.get("wake_time", "07:00")),
+                    sleep_time=str(args.get("sleep_time", "23:00")),
+                    skin_concern=onboarding.get("skin_type"),
+                    outside_today=bool(args.get("outside_today", False)),
+                )
+                schedule_summary = _summarise_schedule(schedule)
+                if not response_text.strip():
+                    response_text = schedule_summary
+                else:
+                    response_text += f"\n\n{schedule_summary}"
+            except Exception as e:
+                print(f"Chat-triggered maxx schedule generation failed: {e}")
+                response_text += f"\n\nSorry, I had trouble generating your schedule. Try again in a moment."
+
+        elif tool["name"] == "update_schedule_context":
+            try:
+                args = tool["args"]
+                key = str(args.get("key", ""))
+                value = str(args.get("value", ""))
+                if active_schedule and key:
+                    await schedule_service.update_schedule_context(
+                        user_id=user_id,
+                        schedule_id=active_schedule["id"],
+                        db=db,
+                        context_updates={key: value},
+                    )
+            except Exception as e:
+                print(f"Chat-triggered context update failed: {e}")
+
     user_message = ChatHistory(
         user_id=user_uuid,
         role="user",
         content=data.message,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     assistant_message = ChatHistory(
         user_id=user_uuid,
         role="assistant",
         content=response_text,
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     db.add(user_message)
     db.add(assistant_message)
     await db.commit()
-    
+
     return ChatResponse(response=response_text)
 
 
@@ -250,7 +169,26 @@ async def get_chat_history(
         .limit(limit)
     )
     rows = list(reversed(result.scalars().all()))
-    return {"messages": [
-        {"role": r.role, "content": r.content, "created_at": r.created_at}
-        for r in rows
-    ]}
+    return {
+        "messages": [
+            {"role": r.role, "content": r.content, "created_at": r.created_at}
+            for r in rows
+        ]
+    }
+
+
+def _summarise_schedule(schedule: dict) -> str:
+    """Build a human-readable summary of a generated schedule."""
+    days = schedule.get("days", [])
+    if not days:
+        return "Your schedule has been created!"
+
+    first_day = days[0]
+    tasks = first_day.get("tasks", [])
+    lines = [f"Your {schedule.get('course_title', 'schedule')} is ready! Here's Day 1:"]
+    for t in tasks[:6]:
+        lines.append(f"  {t.get('time', '??:??')} — {t.get('title', 'Task')}")
+    if len(tasks) > 6:
+        lines.append(f"  ... and {len(tasks) - 6} more tasks")
+    lines.append(f"\nTotal: {len(days)} days planned. Check your Schedule tab to see everything!")
+    return "\n".join(lines)

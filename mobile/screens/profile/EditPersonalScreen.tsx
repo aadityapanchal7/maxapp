@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -43,6 +43,8 @@ const SKIN_TYPES = [
 export default function EditPersonalScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+  const { width } = useWindowDimensions();
+  const isWide = width > 600;
   const { user, refreshUser } = useAuth();
   const [loading, setLoading] = useState(false);
 
@@ -223,7 +225,7 @@ export default function EditPersonalScreen() {
       </View>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={[styles.content, isWide && styles.contentWide]} showsVerticalScrollIndicator={false}>
 
           {/* Goals Section */}
           <Text style={styles.sectionTitle}>Your Goals</Text>
@@ -371,13 +373,14 @@ const styles = StyleSheet.create({
   backButton: { padding: 4 },
   saveHeaderBtn: { padding: 4 },
   saveHeaderText: { fontSize: 16, fontWeight: '600', color: colors.accent },
-  content: { padding: spacing.lg },
-  sectionTitle: { ...typography.h2, fontSize: 20, marginBottom: spacing.md, marginTop: spacing.md },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xl, marginBottom: spacing.sm },
-  goalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  content: { padding: spacing.xl },
+  contentWide: { maxWidth: 560, alignSelf: 'center', width: '100%', paddingHorizontal: spacing.xxl },
+  sectionTitle: { ...typography.h2, fontSize: 20, marginBottom: spacing.lg, marginTop: spacing.lg },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xxl, marginBottom: spacing.md },
+  goalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   goalCard: {
     width: '31%', backgroundColor: colors.card, borderRadius: borderRadius.lg,
-    padding: spacing.md, alignItems: 'center', justifyContent: 'center',
+    padding: spacing.lg, alignItems: 'center', justifyContent: 'center',
     borderWidth: 1, borderColor: 'transparent', ...shadows.sm,
   },
   goalCardSelected: { backgroundColor: colors.accentMuted, borderColor: colors.foreground },
@@ -391,31 +394,31 @@ const styles = StyleSheet.create({
   unitBtnActive: { backgroundColor: colors.foreground },
   unitLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
   unitLabelActive: { color: colors.background },
-  inputLabel: { ...typography.label, color: colors.textMuted, marginBottom: spacing.sm, marginTop: spacing.md },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  inputLabel: { ...typography.label, color: colors.textMuted, marginBottom: spacing.sm, marginTop: spacing.lg },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   chip: {
-    paddingHorizontal: 16, paddingVertical: 8, borderRadius: borderRadius.full,
+    paddingHorizontal: 18, paddingVertical: 10, borderRadius: borderRadius.full,
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.borderLight,
   },
   chipSelected: { backgroundColor: colors.foreground, borderColor: colors.foreground },
   chipText: { ...typography.bodySmall, color: colors.textSecondary },
   chipTextSelected: { color: colors.background, fontWeight: '600' },
-  inputGroup: { flexDirection: 'row', gap: spacing.md },
+  inputGroup: { flexDirection: 'row', gap: spacing.lg },
   inputHalf: { flex: 1 },
   input: {
-    backgroundColor: colors.card, borderRadius: borderRadius.md, padding: 16,
+    backgroundColor: colors.card, borderRadius: borderRadius.md, padding: spacing.lg,
     color: colors.foreground, fontSize: 16, borderWidth: 1, borderColor: colors.borderLight,
   },
-  list: { gap: spacing.sm },
+  list: { gap: spacing.md },
   listCard: {
-    backgroundColor: colors.card, borderRadius: borderRadius.lg, padding: 16,
+    backgroundColor: colors.card, borderRadius: borderRadius.lg, padding: spacing.lg,
     borderWidth: 1, borderColor: 'transparent',
   },
   listCardSelected: { backgroundColor: colors.accentMuted, borderColor: colors.foreground },
   listLabel: { ...typography.body, fontWeight: '600', color: colors.foreground },
   listDesc: { ...typography.caption, color: colors.textMuted, marginTop: 2 },
   footer: {
-    padding: spacing.lg, paddingBottom: Platform.OS === 'ios' ? 40 : 20,
+    padding: spacing.xl, paddingBottom: Platform.OS === 'ios' ? 40 : 24,
     backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.borderLight,
   },
   saveBtn: {

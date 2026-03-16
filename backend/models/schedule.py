@@ -70,11 +70,21 @@ class SchedulePreferences(BaseModel):
 # --- API Request / Response Models ---
 
 class GenerateScheduleRequest(BaseModel):
-    """Request to generate a new schedule"""
+    """Request to generate a new course schedule"""
     course_id: str
     module_number: int = Field(ge=1)
     preferences: Optional[SchedulePreferences] = None
     num_days: int = Field(default=7, ge=1, le=90, description="Number of days to generate (overrides module default if set)")
+
+
+class GenerateMaxxScheduleRequest(BaseModel):
+    """Request to generate a maxx-based schedule (e.g. SkinMax)"""
+    maxx_id: str = Field(description="e.g. 'skinmax', 'hairmax'")
+    wake_time: str = Field(default="07:00", description="HH:MM")
+    sleep_time: str = Field(default="23:00", description="HH:MM")
+    skin_concern: Optional[str] = Field(default=None, description="Explicit concern override: acne, pigmentation, texture, redness, aging")
+    outside_today: bool = Field(default=False, description="Whether user plans to be outside today")
+    num_days: int = Field(default=7, ge=1, le=30)
 
 
 class ScheduleResponse(BaseModel):

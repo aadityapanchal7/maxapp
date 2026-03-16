@@ -318,12 +318,14 @@ class ApiService {
     }
 
     // Chat
-    async sendChatMessage(message: string, attachmentUrl?: string, attachmentType?: string) {
-        const response = await this.client.post('chat/message', {
+    async sendChatMessage(message: string, attachmentUrl?: string, attachmentType?: string, initContext?: string) {
+        const body: any = {
             message,
             attachment_url: attachmentUrl,
-            attachment_type: attachmentType
-        });
+            attachment_type: attachmentType,
+        };
+        if (initContext) body.init_context = initContext;
+        const response = await this.client.post('chat/message', body);
         return response.data;
     }
 
@@ -431,6 +433,22 @@ class ApiService {
             num_days: numDays,
             preferences,
         });
+        return response.data;
+    }
+
+    async generateMaxxSchedule(maxxId: string, wakeTime: string, sleepTime: string, outsideToday: boolean = false, numDays: number = 7) {
+        const response = await this.client.post('schedules/generate-maxx', {
+            maxx_id: maxxId,
+            wake_time: wakeTime,
+            sleep_time: sleepTime,
+            outside_today: outsideToday,
+            num_days: numDays,
+        });
+        return response.data;
+    }
+
+    async getMaxxSchedule(maxxId: string) {
+        const response = await this.client.get(`schedules/maxx/${maxxId}`);
         return response.data;
     }
 

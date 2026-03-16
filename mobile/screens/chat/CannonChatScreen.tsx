@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -8,20 +9,50 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 interface Message { role: 'user' | 'assistant'; content: string; attachment_url?: string; attachment_type?: string; }
 
 export default function CannonChatScreen() {
+    const route = useRoute<any>();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const flatListRef = useRef<FlatList>(null);
+    const initScheduleHandled = useRef(false);
 
     useEffect(() => { loadHistory(); }, []);
+
+    useEffect(() => {
+        const initSchedule = route.params?.initSchedule;
+        if (!initSchedule) return;
+        if (initScheduleHandled.current === initSchedule) return;
+        if (loading) return;
+        initScheduleHandled.current = initSchedule;
+        const maxxLabel = initSchedule.charAt(0).toUpperCase() + initSchedule.slice(1).replace('max', 'Max');
+        sendMessageWithContext(
+            `I want to start my ${maxxLabel} schedule.`,
+            initSchedule,
+        );
+    }, [route.params?.initSchedule, loading]);
 
     const loadHistory = async () => { try { const { messages: history } = await api.getChatHistory(); setMessages(history || []); } catch (e) { console.error(e); } };
 
     const handlePickImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
         if (!result.canceled) setSelectedImage(result.assets[0].uri);
+    };
+
+    const sendMessageWithContext = async (msg: string, initContext?: string) => {
+        if (!msg.trim() || loading) return;
+        setLoading(true);
+        setMessages(prev => [...prev, { role: 'user', content: msg }]);
+        try {
+            const { response } = await api.sendChatMessage(msg, undefined, undefined, initContext);
+            setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+        } catch (e: any) {
+            console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
+            setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Try sending your message again.' }]);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const sendMessage = async () => {

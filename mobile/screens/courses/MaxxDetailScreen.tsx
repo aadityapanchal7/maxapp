@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
+const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'hairmax', 'fitmax'];
+
 export default function MaxxDetailScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
@@ -12,6 +14,10 @@ export default function MaxxDetailScreen() {
     const [maxx, setMaxx] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [expandedModule, setExpandedModule] = useState<number | null>(0);
+    const [activeSchedule, setActiveSchedule] = useState<any>(null);
+    const [scheduleLoading, setScheduleLoading] = useState(false);
+
+    const canSchedule = SCHEDULE_CAPABLE_MAXXES.includes(maxxId);
 
     useEffect(() => { loadData(); }, [maxxId]);
 
@@ -21,6 +27,10 @@ export default function MaxxDetailScreen() {
             const data = await api.getMaxx(maxxId);
             setMaxx(data);
             setExpandedModule(0);
+            if (SCHEDULE_CAPABLE_MAXXES.includes(maxxId)) {
+                const schedRes = await api.getMaxxSchedule(maxxId);
+                if (schedRes?.schedule) setActiveSchedule(schedRes.schedule);
+            }
         } catch (e) {
             console.error(e);
         } finally {
@@ -63,6 +73,36 @@ export default function MaxxDetailScreen() {
 
             <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 <Text style={styles.description}>{maxx.description}</Text>
+
+                {canSchedule && (
+                    <View style={styles.scheduleActions}>
+                        <TouchableOpacity
+                            style={styles.scheduleButton}
+                            activeOpacity={0.7}
+                            onPress={() => {
+                                (navigation as any).navigate('Main', {
+                                    screen: 'Chat',
+                                    params: { initSchedule: maxxId },
+                                });
+                            }}
+                        >
+                            <Ionicons name="calendar-outline" size={20} color={colors.buttonText} />
+                            <Text style={styles.scheduleButtonText}>
+                                {activeSchedule ? 'Update Schedule' : 'Start Schedule'}
+                            </Text>
+                        </TouchableOpacity>
+                        {activeSchedule && (
+                            <TouchableOpacity
+                                style={styles.viewScheduleButton}
+                                activeOpacity={0.7}
+                                onPress={() => (navigation as any).navigate('Schedule', { scheduleId: activeSchedule.id })}
+                            >
+                                <Ionicons name="eye-outline" size={20} color={colors.foreground} />
+                                <Text style={styles.viewScheduleText}>View Schedule</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
 
                 <Text style={styles.sectionLabel}>MODULES</Text>
 
@@ -143,4 +183,39 @@ const styles = StyleSheet.create({
     stepBlock: { paddingTop: spacing.lg },
     stepTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground, marginBottom: 6 },
     stepContent: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
+    scheduleActions: {
+        marginBottom: spacing.xl,
+        gap: spacing.md,
+    },
+    scheduleButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: colors.foreground,
+        paddingVertical: 14,
+        borderRadius: borderRadius.xl,
+        ...shadows.md,
+    },
+    scheduleButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: colors.buttonText,
+    },
+    viewScheduleButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: colors.card,
+        paddingVertical: 14,
+        borderRadius: borderRadius.xl,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    viewScheduleText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: colors.foreground,
+    },
 });

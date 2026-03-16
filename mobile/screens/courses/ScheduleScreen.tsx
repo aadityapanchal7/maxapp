@@ -30,11 +30,14 @@ type Day = {
 type Schedule = {
   id: string;
   user_id: string;
-  course_id: string;
+  schedule_type?: string;
+  course_id?: string;
   course_title: string;
-  module_number: number;
+  module_number?: number;
+  maxx_id?: string;
   days: Day[];
   preferences: any;
+  schedule_context?: any;
   is_active: boolean;
   created_at: string;
   adapted_count: number;
@@ -60,7 +63,7 @@ const formatTimeTo12Hour = (time24: string) => {
 export default function ScheduleScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const { courseId, moduleNumber, courseTitle } = route.params || {};
+  const { courseId, moduleNumber, courseTitle, scheduleId: paramScheduleId, maxxId } = route.params || {};
 
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,9 +85,24 @@ export default function ScheduleScreen() {
 
   const loadSchedule = async () => {
     try {
-      const result = await api.getCurrentSchedule(courseId, moduleNumber);
-      if (result.schedule) {
-        setSchedule(result.schedule);
+      let result;
+      if (paramScheduleId) {
+        result = await api.getSchedule(paramScheduleId);
+        if (result.schedule) {
+          setSchedule(result.schedule);
+        }
+      } else if (maxxId) {
+        result = await api.getMaxxSchedule(maxxId);
+        if (result.schedule) {
+          setSchedule(result.schedule);
+        }
+      } else {
+        result = await api.getCurrentSchedule(courseId, moduleNumber);
+        if (result.schedule) {
+          setSchedule(result.schedule);
+        }
+      }
+      if (result?.schedule) {
         const today = new Date().toISOString().split('T')[0];
         const todayIdx = result.schedule.days.findIndex((d: Day) => d.date === today);
         if (todayIdx >= 0) setSelectedDayIndex(todayIdx);

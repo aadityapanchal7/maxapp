@@ -4,6 +4,7 @@ Async PostgreSQL via Supabase (user-specific data)
 """
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import text
 from typing import AsyncGenerator
 from config import settings
 
@@ -51,9 +52,35 @@ async def init_db():
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         print("[OK] Supabase tables created/verified")
+
+        # Run lightweight column migrations for new features
+        await _run_column_migrations()
     except Exception as e:
         print(f"[WARNING] Could not initialize Supabase database: {e}")
         print("[INFO] Ensure Supabase is accessible from deployment environment.")
+
+
+async def _run_column_migrations():
+    """Add missing columns to existing tables (safe to run repeatedly)."""
+    migrations = [
+        "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",
+        "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS maxx_id VARCHAR",
+        "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_context JSONB DEFAULT '{}'",
+    ]
+    try:
+        async with engine.begin() as conn:
+            for sql in migrations:
+                await conn.execute(text(sql))
+            # Make course_id and module_number nullable if they aren't already
+            await conn.execute(text(
+                "ALTER TABLE user_schedules ALTER COLUMN course_id DROP NOT NULL"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE user_schedules ALTER COLUMN module_number DROP NOT NULL"
+            ))
+        print("[OK] Column migrations applied")
+    except Exception as e:
+        print(f"[INFO] Column migration note: {e}")
 
 
 async def close_db():

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, Alert, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,8 +7,26 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
+const getImageModalWidth = (width: number) =>
+    Platform.OS === 'web' && width > 600
+        ? Math.min(width - 80, 320)
+        : Math.min(width - 64, 300);
+
+function formatProgressDate(dateStr: string): string {
+    const d = new Date(dateStr);
+    const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const day = d.getDate();
+    const suffix = day === 1 || day === 21 || day === 31 ? 'st' : day === 2 || day === 22 ? 'nd' : day === 3 || day === 23 ? 'rd' : 'th';
+    return `${months[d.getMonth()]} ${day}${suffix} ${d.getFullYear()}`;
+}
+
 export default function ProfileScreen() {
     const navigation = useNavigation<any>();
+    const { width: winWidth } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && winWidth > 480;
+    const gridColumns = Platform.OS === 'web' ? (winWidth > 800 ? 3 : winWidth > 500 ? 2 : 3) : 3;
+    const gridItemWidth = `${100 / gridColumns}%` as any;
+    const imageModalWidth = getImageModalWidth(winWidth);
     const { user, logout, refreshUser } = useAuth();
     const [loading, setLoading] = useState(true);
     const [progressPhotos, setProgressPhotos] = useState<any[]>([]);
@@ -237,7 +255,7 @@ export default function ProfileScreen() {
                     </View>
 
                     {/* Progress archive - grid like IG */}
-                    <View style={styles.section}>
+                    <View style={[styles.section, isDesktop && styles.progressSectionDesktop]}>
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionTitle}>Progress</Text>
                         </View>
@@ -250,18 +268,30 @@ export default function ProfileScreen() {
                                 <Text style={styles.archiveEmptySub}>Add progress photos to your private archive</Text>
                             </TouchableOpacity>
                         ) : (
-                            <View style={styles.archiveGrid}>
-                                {progressPhotos.map((item, index) => (
+                            <>
+                                <View style={[styles.archiveGrid, isDesktop && styles.archiveGridDesktop]}>
+                                    {(progressPhotos.length > 3 ? progressPhotos.slice(0, 3) : progressPhotos).map((item, index) => (
+                                        <TouchableOpacity
+                                            key={item.id}
+                                            style={[styles.archiveGridItem, isDesktop && styles.archiveGridItemDesktop, Platform.OS === 'web' && { width: gridItemWidth, padding: 6 }]}
+                                            onPress={() => openProgressArchiveAt(index)}
+                                            activeOpacity={0.9}
+                                        >
+                                            <Image source={{ uri: api.resolveAttachmentUrl(item.image_url) }} style={styles.archiveGridImage} />
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                                {progressPhotos.length > 3 && (
                                     <TouchableOpacity
-                                        key={item.id}
-                                        style={styles.archiveGridItem}
-                                        onPress={() => openProgressArchiveAt(index)}
-                                        activeOpacity={0.9}
+                                        style={styles.viewMoreButton}
+                                        onPress={() => navigation.navigate('ProgressArchive')}
+                                        activeOpacity={0.7}
                                     >
-                                        <Image source={{ uri: api.resolveAttachmentUrl(item.image_url) }} style={styles.archiveGridImage} />
+                                        <Text style={styles.viewMoreText}>View more</Text>
+                                        <Ionicons name="chevron-forward" size={18} color={colors.foreground} />
                                     </TouchableOpacity>
-                                ))}
-                            </View>
+                                )}
+                            </>
                         )}
                     </View>
 
@@ -290,24 +320,26 @@ export default function ProfileScreen() {
                                 <Ionicons name="close" size={18} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
-                        <TouchableOpacity onPress={pickImage} style={styles.modalAvatarContainer}>
-                            {editAvatarUri ? <Image source={{ uri: editAvatarUri }} style={styles.modalAvatar} /> : user?.profile?.avatar_url ? <Image source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }} style={styles.modalAvatar} /> : <View style={styles.modalAvatarPlaceholder}><Ionicons name="camera" size={28} color={colors.textMuted} /></View>}
-                            <Text style={styles.changePhotoText}>Change Photo</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.inputLabel}>FIRST NAME</Text>
-                        <TextInput style={styles.input} value={editFirstName} onChangeText={setEditFirstName} placeholder="First name" placeholderTextColor={colors.textMuted} autoCapitalize="words" />
-                        <Text style={styles.inputLabel}>LAST NAME</Text>
-                        <TextInput style={styles.input} value={editLastName} onChangeText={setEditLastName} placeholder="Last name" placeholderTextColor={colors.textMuted} autoCapitalize="words" />
-                        <Text style={styles.inputLabel}>USERNAME</Text>
-                        <TextInput style={styles.input} value={editUsername} onChangeText={setEditUsername} placeholder="username" placeholderTextColor={colors.textMuted} autoCapitalize="none" />
-                        <Text style={styles.inputLabel}>EMAIL (Cannot be changed)</Text>
-                        <TextInput style={[styles.input, styles.inputDisabled]} value={user?.email || ''} editable={false} placeholderTextColor={colors.textMuted} />
-                        <Text style={styles.inputLabel}>BIO</Text>
-                        <TextInput style={styles.bioInput} value={editBio} onChangeText={setEditBio} multiline numberOfLines={3} placeholder="Tell us about yourself..." placeholderTextColor={colors.textMuted} />
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity style={styles.cancelButton} onPress={() => setEditModalVisible(false)}><Text style={styles.cancelButtonText}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saveLoading} activeOpacity={0.7}>{saveLoading ? <ActivityIndicator color={colors.buttonText} /> : <Text style={styles.saveButtonText}>Save</Text>}</TouchableOpacity>
-                        </View>
+                        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.editModalScroll}>
+                            <TouchableOpacity onPress={pickImage} style={styles.modalAvatarContainer}>
+                                {editAvatarUri ? <Image source={{ uri: editAvatarUri }} style={styles.modalAvatar} /> : user?.profile?.avatar_url ? <Image source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }} style={styles.modalAvatar} /> : <View style={styles.modalAvatarPlaceholder}><Ionicons name="camera" size={28} color={colors.textMuted} /></View>}
+                                <Text style={styles.changePhotoText}>Change Photo</Text>
+                            </TouchableOpacity>
+                            <Text style={styles.inputLabel}>FIRST NAME</Text>
+                            <TextInput style={styles.input} value={editFirstName} onChangeText={setEditFirstName} placeholder="First name" placeholderTextColor={colors.textMuted} autoCapitalize="words" />
+                            <Text style={styles.inputLabel}>LAST NAME</Text>
+                            <TextInput style={styles.input} value={editLastName} onChangeText={setEditLastName} placeholder="Last name" placeholderTextColor={colors.textMuted} autoCapitalize="words" />
+                            <Text style={styles.inputLabel}>USERNAME</Text>
+                            <TextInput style={styles.input} value={editUsername} onChangeText={setEditUsername} placeholder="username" placeholderTextColor={colors.textMuted} autoCapitalize="none" />
+                            <Text style={styles.inputLabel}>EMAIL (Cannot be changed)</Text>
+                            <TextInput style={[styles.input, styles.inputDisabled]} value={user?.email || ''} editable={false} placeholderTextColor={colors.textMuted} />
+                            <Text style={styles.inputLabel}>BIO</Text>
+                            <TextInput style={styles.bioInput} value={editBio} onChangeText={setEditBio} multiline numberOfLines={3} placeholder="Tell us about yourself..." placeholderTextColor={colors.textMuted} />
+                            <View style={styles.modalButtons}>
+                                <TouchableOpacity style={styles.cancelButton} onPress={() => setEditModalVisible(false)}><Text style={styles.cancelButtonText}>Cancel</Text></TouchableOpacity>
+                                <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saveLoading} activeOpacity={0.7}>{saveLoading ? <ActivityIndicator color={colors.buttonText} /> : <Text style={styles.saveButtonText}>Save</Text>}</TouchableOpacity>
+                            </View>
+                        </ScrollView>
                     </View>
                 </View>
             </Modal>
@@ -317,28 +349,56 @@ export default function ProfileScreen() {
                 visible={progressModalVisible}
                 onRequestClose={() => setProgressModalVisible(false)}
             >
-                <View style={styles.modalOverlay}>
-                    <View style={styles.progressModalContent}>
+                <Pressable style={styles.modalOverlay} onPress={() => setProgressModalVisible(false)}>
+                    <Pressable style={[styles.progressModalContent, { width: imageModalWidth + spacing.lg * 2 }]} onPress={() => {}}>
                         <TouchableOpacity
-                            style={styles.modalClose}
+                            style={styles.progressModalClose}
                             onPress={() => setProgressModalVisible(false)}
                             activeOpacity={0.7}
                         >
-                            <Ionicons name="close" size={18} color={colors.textSecondary} />
+                            <Ionicons name="close" size={24} color={colors.foreground} />
                         </TouchableOpacity>
                         {progressPhotos[selectedPhotoIndex] && (
-                            <>
+                            <View style={[styles.progressImageBox, { width: imageModalWidth, height: imageModalWidth * (4 / 3) }]}>
                                 <Image
                                     source={{ uri: api.resolveAttachmentUrl(progressPhotos[selectedPhotoIndex].image_url) }}
-                                    style={styles.progressFullImage}
+                                    style={{ width: imageModalWidth, height: imageModalWidth * (4 / 3) }}
+                                    resizeMode="contain"
                                 />
-                                <Text style={styles.progressModalDate}>
-                                    {new Date(progressPhotos[selectedPhotoIndex].created_at).toLocaleString()}
-                                </Text>
-                            </>
+                            </View>
                         )}
-                    </View>
-                </View>
+                        {progressPhotos[selectedPhotoIndex] && (
+                            <Text style={styles.progressModalDate}>
+                                {formatProgressDate(progressPhotos[selectedPhotoIndex].created_at)}
+                            </Text>
+                        )}
+                        {progressPhotos.length > 1 && (
+                            <View style={[styles.progressModalNav, { width: imageModalWidth }]}>
+                                <TouchableOpacity
+                                    style={[styles.progressNavButton, selectedPhotoIndex === 0 && styles.progressNavButtonDisabled]}
+                                    onPress={() => setSelectedPhotoIndex(prev => Math.max(0, prev - 1))}
+                                    disabled={selectedPhotoIndex === 0}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="chevron-back" size={20} color={selectedPhotoIndex === 0 ? colors.textMuted : colors.foreground} />
+                                    <Text style={[styles.progressNavText, selectedPhotoIndex === 0 && styles.progressNavTextDisabled]}>Prev</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.progressModalCounter}>
+                                    {selectedPhotoIndex + 1} / {progressPhotos.length}
+                                </Text>
+                                <TouchableOpacity
+                                    style={[styles.progressNavButton, selectedPhotoIndex >= progressPhotos.length - 1 && styles.progressNavButtonDisabled]}
+                                    onPress={() => setSelectedPhotoIndex(prev => Math.min(progressPhotos.length - 1, prev + 1))}
+                                    disabled={selectedPhotoIndex >= progressPhotos.length - 1}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.progressNavText, selectedPhotoIndex >= progressPhotos.length - 1 && styles.progressNavTextDisabled]}>Next</Text>
+                                    <Ionicons name="chevron-forward" size={20} color={selectedPhotoIndex >= progressPhotos.length - 1 ? colors.textMuted : colors.foreground} />
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </Pressable>
+                </Pressable>
             </Modal>
         </View>
     );
@@ -448,21 +508,52 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: colors.textMuted,
     },
+    progressSectionDesktop: {
+        maxWidth: 900,
+        width: '100%',
+        alignSelf: 'center',
+    },
     archiveGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         marginHorizontal: -2,
+    },
+    archiveGridDesktop: {
+        marginHorizontal: -3,
     },
     archiveGridItem: {
         width: '33.33%',
         padding: 2,
         aspectRatio: 1,
     },
+    archiveGridItemDesktop: {
+        width: '33.33%',
+        padding: 8,
+    },
     archiveGridImage: {
         width: '100%',
         height: '100%',
         borderRadius: 4,
         backgroundColor: colors.surface,
+    },
+    viewMoreButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        marginTop: spacing.md,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.lg,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        ...shadows.sm,
+    },
+    viewMoreText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.foreground,
     },
     archiveSkeletonRow: {
         flexDirection: 'row',
@@ -507,48 +598,113 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: colors.textMuted,
     },
-    modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: spacing.lg },
+    modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', padding: spacing.lg },
     modalContent: {
-        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
-        padding: spacing.xl, ...shadows.xl,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'],
+        padding: spacing.xl,
+        maxWidth: 440,
+        width: '100%',
+        maxHeight: '90%',
+        ...shadows.xl,
     },
-    modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
+    editModalScroll: { paddingBottom: spacing.xl },
+    modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xl },
     modalTitle: { ...typography.h3 },
     modalClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-    modalAvatarContainer: { alignSelf: 'center', alignItems: 'center', marginBottom: spacing.lg },
-    modalAvatar: { width: 72, height: 72, borderRadius: 36 },
-    modalAvatarPlaceholder: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
-    changePhotoText: { fontSize: 12, color: colors.info, fontWeight: '500', marginTop: spacing.sm },
-    inputLabel: { ...typography.label, marginBottom: spacing.xs, marginLeft: 2 },
+    modalAvatarContainer: { alignSelf: 'center', alignItems: 'center', marginBottom: spacing.xl },
+    modalAvatar: { width: 80, height: 80, borderRadius: 40 },
+    modalAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
+    changePhotoText: { fontSize: 13, color: colors.info, fontWeight: '500', marginTop: spacing.sm },
+    inputLabel: { ...typography.label, marginBottom: spacing.sm, marginLeft: 2, marginTop: spacing.md },
     input: {
-        backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md,
-        color: colors.textPrimary, fontSize: 14, marginBottom: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        padding: spacing.lg,
+        color: colors.textPrimary,
+        fontSize: 16,
+        marginBottom: spacing.sm,
     },
     inputDisabled: {
-        opacity: 0.6, backgroundColor: colors.card,
+        opacity: 0.6,
+        backgroundColor: colors.card,
     },
-    bioInput: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, color: colors.textPrimary, fontSize: 14, textAlignVertical: 'top', minHeight: 80 },
+    bioInput: {
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        padding: spacing.lg,
+        color: colors.textPrimary,
+        fontSize: 16,
+        textAlignVertical: 'top',
+        minHeight: 100,
+    },
     progressModalContent: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
-        padding: spacing.md,
-        width: '88%',
-        maxHeight: '80%',
+        padding: spacing.lg,
+        maxHeight: '90%',
         ...shadows.lg,
         alignItems: 'center',
     },
-    progressFullImage: {
-        width: '100%',
-        aspectRatio: 3 / 4,
+    progressModalClose: {
+        position: 'absolute',
+        top: spacing.md,
+        right: spacing.md,
+        zIndex: 10,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.card,
+        alignItems: 'center',
+        justifyContent: 'center',
+        ...shadows.md,
+    },
+    progressImageBox: {
         borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: colors.border || colors.surfaceLight,
         backgroundColor: colors.surface,
+        overflow: 'hidden',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     progressModalDate: {
-        marginTop: spacing.sm,
-        fontSize: 12,
-        color: colors.textSecondary,
+        marginTop: spacing.md,
+        fontSize: 18,
+        fontWeight: '600',
+        color: colors.foreground,
     },
-    modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.lg, gap: spacing.md },
+    progressModalNav: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginTop: spacing.md,
+        width: '100%',
+        maxWidth: 280,
+    },
+    progressNavButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+    },
+    progressNavButtonDisabled: {
+        opacity: 0.5,
+    },
+    progressNavText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.foreground,
+    },
+    progressNavTextDisabled: {
+        color: colors.textMuted,
+    },
+    progressModalCounter: {
+        fontSize: 13,
+        color: colors.textMuted,
+    },
+    modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.xl, gap: spacing.md },
     cancelButton: { padding: spacing.md },
     cancelButtonText: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
     saveButton: { backgroundColor: colors.foreground, borderRadius: borderRadius.full, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, ...shadows.sm },

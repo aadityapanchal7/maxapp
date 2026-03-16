@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db import get_db, get_rds_db
 from models.schedule import (
     GenerateScheduleRequest,
+    GenerateMaxxScheduleRequest,
     SchedulePreferences,
     CompleteTaskRequest,
     AdaptScheduleRequest,
@@ -41,6 +42,44 @@ async def generate_schedule(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Schedule generation failed: {e}")
+
+
+@router.post("/generate-maxx")
+async def generate_maxx_schedule(
+    data: GenerateMaxxScheduleRequest,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a personalised AI schedule for a maxx module (e.g. SkinMax)"""
+    try:
+        schedule = await schedule_service.generate_maxx_schedule(
+            user_id=current_user["id"],
+            maxx_id=data.maxx_id,
+            db=db,
+            wake_time=data.wake_time,
+            sleep_time=data.sleep_time,
+            skin_concern=data.skin_concern,
+            outside_today=data.outside_today,
+            num_days=data.num_days,
+        )
+        return {"schedule": schedule}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Maxx schedule generation failed: {e}")
+
+
+@router.get("/maxx/{maxx_id}")
+async def get_maxx_schedule(
+    maxx_id: str,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the user's active schedule for a specific maxx"""
+    schedule = await schedule_service.get_maxx_schedule(current_user["id"], maxx_id, db=db)
+    if not schedule:
+        return {"schedule": None, "message": f"No active {maxx_id} schedule. Start one from the module."}
+    return {"schedule": schedule}
 
 
 @router.get("/current")

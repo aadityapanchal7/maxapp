@@ -21,6 +21,7 @@ import PaymentScreen from '../screens/payment/PaymentScreen';
 import PaymentThankYouScreen from '../screens/payment/PaymentThankYouScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import EditPersonalScreen from '../screens/profile/EditPersonalScreen';
+import ProgressArchiveScreen from '../screens/profile/ProgressArchiveScreen';
 import CourseListScreen from '../screens/courses/CourseListScreen';
 import CourseDetailScreen from '../screens/courses/CourseDetailScreen';
 import ChapterViewScreen from '../screens/courses/ChapterViewScreen';
@@ -97,6 +98,7 @@ export function RootNavigator() {
                     <Stack.Screen name="Main" component={TabNavigator} />
                     <Stack.Screen name="Profile" component={ProfileScreen} />
                     <Stack.Screen name="EditPersonal" component={EditPersonalScreen} />
+                    <Stack.Screen name="ProgressArchive" component={ProgressArchiveScreen} options={{ headerShown: false }} />
 
                     {/* Course Screens */}
                     <Stack.Screen name="CourseList" component={CourseListScreen} />

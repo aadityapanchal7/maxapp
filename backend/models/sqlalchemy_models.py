@@ -198,17 +198,21 @@ class UserProgressPhoto(Base):
 
 
 class UserSchedule(Base):
-    """AI-generated schedules for users"""
+    """AI-generated schedules for users (course-based or maxx-based)"""
     __tablename__ = "user_schedules"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
-    course_id = Column(UUID(as_uuid=True), nullable=False)  # References AWS RDS
+
+    schedule_type = Column(String, default="course")  # "course" or "maxx"
+    course_id = Column(UUID(as_uuid=True), nullable=True)
     course_title = Column(String)
-    module_number = Column(Integer, nullable=False)
+    module_number = Column(Integer, nullable=True)
+    maxx_id = Column(String, nullable=True)  # e.g. "skinmax", "hairmax"
 
     days = Column(JSON, default=list)
     preferences = Column(JSON, default=dict)
+    schedule_context = Column(JSON, default=dict)  # learned patterns, outside today, etc.
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -220,4 +224,5 @@ class UserSchedule(Base):
         Index("idx_user_schedules_user_id", user_id),
         Index("idx_user_schedules_course_id", course_id),
         Index("idx_user_schedules_active", is_active),
+        Index("idx_user_schedules_maxx_id", maxx_id),
     )
