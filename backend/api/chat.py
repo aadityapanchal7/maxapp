@@ -162,6 +162,11 @@ async def get_chat_history(
 ):
     """Get chat history"""
     user_uuid = UUID(current_user["id"])
+    # If user wants skinmax and hasn't set it up, seed the conversation
+    user = await db.get(User, user_uuid)
+    goals = (user.onboarding or {}).get("goals", []) if user else []
+    skin = (user.schedule_preferences or {}).get("skinmax", {}) if user else {}
+
     result = await db.execute(
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
