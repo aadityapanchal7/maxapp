@@ -4,17 +4,22 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
 export default function ForumsScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
+    const { user } = useAuth() as any;
     const [forums, setForums] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
     const [page, setPage] = useState<'official' | 'community'>('community');
-    const [categoryFilter, setCategoryFilter] = useState<string>('all');
+    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+    const [selectedTags, setSelectedTags] = useState<string[]>([]);
+    const [onlyWithPosts, setOnlyWithPosts] = useState(false);
+    const [onlyMine, setOnlyMine] = useState(false);
     const [sortMode, setSortMode] = useState<'new' | 'top'>('new');
     const [createVisible, setCreateVisible] = useState(false);
     const [filtersVisible, setFiltersVisible] = useState(false);
@@ -37,15 +42,38 @@ export default function ForumsScreen() {
 
     const categoryOptions = useMemo(() => {
         const set = new Set<string>();
-        forums.forEach((f) => { if (f.category) set.add(f.category); });
-        return ['all', ...Array.from(set)];
+        forums.forEach((f) => { if (f.category) set.add(f.category.toLowerCase()); });
+        return Array.from(set);
     }, [forums]);
+
+    const tagOptions = useMemo(() => {
+        const set = new Set<string>();
+        forums.forEach((f) => { (f.tags || []).forEach((t: string) => set.add(t)); });
+        return Array.from(set);
+    }, [forums]);
+
+    const toggleItem = (list: string[], value: string) => {
+        if (list.includes(value)) return list.filter((v) => v !== value);
+        return [...list, value];
+    };
 
     const filteredForums = useMemo(() => {
         const official = forums.filter((f) => f.is_admin_only || f.name.toLowerCase().includes('announce') || f.name.toLowerCase().includes('welcome'));
         const community = forums.filter((f) => !official.some((o: any) => o.id === f.id));
         const base = page === 'official' ? official : community;
-        const filtered = categoryFilter === 'all' ? base : base.filter((f) => (f.category || '').toLowerCase() === categoryFilter.toLowerCase());
+        let filtered = base;
+        if (selectedCategories.length > 0) {
+            filtered = filtered.filter((f) => selectedCategories.includes((f.category || '').toLowerCase()));
+        }
+        if (selectedTags.length > 0) {
+            filtered = filtered.filter((f) => (f.tags || []).some((t: string) => selectedTags.includes(t)));
+        }
+        if (onlyWithPosts) {
+            filtered = filtered.filter((f) => (f.message_count || 0) > 0);
+        }
+        if (onlyMine && user?.id) {
+            filtered = filtered.filter((f) => f.created_by === user.id);
+        }
         if (sortMode === 'top') {
             return [...filtered].sort((a, b) => (b.message_count || 0) - (a.message_count || 0));
         }
@@ -55,7 +83,14 @@ export default function ForumsScreen() {
             if (at !== bt) return bt - at;
             return (a.name || '').localeCompare(b.name || '');
         });
-    }, [forums, page, categoryFilter, sortMode]);
+    }, [forums, page, selectedCategories, selectedTags, onlyWithPosts, onlyMine, sortMode, user?.id]);
+
+    const clearFilters = () => {
+        setSelectedCategories([]);
+        setSelectedTags([]);
+        setOnlyWithPosts(false);
+        setOnlyMine(false);
+    };
 
     const handleCreateForum = async () => {
         const tags = newTags.split(',').map(t => t.trim()).filter(Boolean);
@@ -126,6 +161,47 @@ export default function ForumsScreen() {
                         </TouchableOpacity>
                     )}
                 </View>
+                {(selectedCategories.length > 0 || selectedTags.length > 0 || onlyWithPosts || (onlyMine && user?.id)) && (
+                    <View style={styles.activeFiltersRow}>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                            {selectedCategories.map((cat) => (
+                                <View key={`cat-${cat}`} style={styles.activeFilterChip}>
+                                    <Text style={styles.activeFilterText}>{cat}</Text>
+                                    <TouchableOpacity onPress={() => setSelectedCategories(prev => prev.filter((c) => c !== cat))}>
+                                        <Ionicons name="close" size={14} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                            {selectedTags.map((tag) => (
+                                <View key={`tag-${tag}`} style={styles.activeFilterChip}>
+                                    <Text style={styles.activeFilterText}>#{tag}</Text>
+                                    <TouchableOpacity onPress={() => setSelectedTags(prev => prev.filter((t) => t !== tag))}>
+                                        <Ionicons name="close" size={14} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
+                            {onlyWithPosts && (
+                                <View style={styles.activeFilterChip}>
+                                    <Text style={styles.activeFilterText}>With posts</Text>
+                                    <TouchableOpacity onPress={() => setOnlyWithPosts(false)}>
+                                        <Ionicons name="close" size={14} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                            {onlyMine && user?.id && (
+                                <View style={styles.activeFilterChip}>
+                                    <Text style={styles.activeFilterText}>Created by me</Text>
+                                    <TouchableOpacity onPress={() => setOnlyMine(false)}>
+                                        <Ionicons name="close" size={14} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                        </ScrollView>
+                        <TouchableOpacity onPress={clearFilters} style={styles.clearFiltersBtn}>
+                            <Text style={styles.clearFiltersText}>Clear</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
             </View>
 
             {loading && forums.length === 0 ? (
@@ -235,18 +311,61 @@ export default function ForumsScreen() {
                                 {categoryOptions.map((cat) => (
                                     <TouchableOpacity
                                         key={cat}
-                                        style={[styles.modalChip, categoryFilter === cat && styles.modalChipActive]}
-                                        onPress={() => setCategoryFilter(cat)}
+                                        style={[styles.modalChip, selectedCategories.includes(cat.toLowerCase()) && styles.modalChipActive]}
+                                        onPress={() => setSelectedCategories((prev) => toggleItem(prev, cat.toLowerCase()))}
                                         activeOpacity={0.7}
                                     >
-                                        <Text style={[styles.modalChipText, categoryFilter === cat && styles.modalChipTextActive]}>
-                                            {cat === 'all' ? 'All categories' : cat}
+                                        <Text style={[styles.modalChipText, selectedCategories.includes(cat.toLowerCase()) && styles.modalChipTextActive]}>
+                                            {cat}
                                         </Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
                         </View>
+                        <View style={styles.modalSection}>
+                            <Text style={styles.modalSectionTitle}>Tags</Text>
+                            <View style={styles.modalChipRow}>
+                                {tagOptions.map((tag) => (
+                                    <TouchableOpacity
+                                        key={tag}
+                                        style={[styles.modalChip, selectedTags.includes(tag) && styles.modalChipActive]}
+                                        onPress={() => setSelectedTags((prev) => toggleItem(prev, tag))}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[styles.modalChipText, selectedTags.includes(tag) && styles.modalChipTextActive]}>
+                                            #{tag}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                        </View>
+                        <View style={styles.modalSection}>
+                            <Text style={styles.modalSectionTitle}>Extras</Text>
+                            <View style={styles.modalChipRow}>
+                                <TouchableOpacity
+                                    style={[styles.modalChip, onlyWithPosts && styles.modalChipActive]}
+                                    onPress={() => setOnlyWithPosts((prev) => !prev)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text style={[styles.modalChipText, onlyWithPosts && styles.modalChipTextActive]}>
+                                        With posts
+                                    </Text>
+                                </TouchableOpacity>
+                                {user?.id && (
+                                    <TouchableOpacity
+                                        style={[styles.modalChip, onlyMine && styles.modalChipActive]}
+                                        onPress={() => setOnlyMine((prev) => !prev)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={[styles.modalChipText, onlyMine && styles.modalChipTextActive]}>
+                                            Created by me
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        </View>
                         <View style={styles.modalActions}>
+                            <TouchableOpacity onPress={clearFilters} style={styles.modalBtn}><Text style={styles.modalBtnText}>Clear all</Text></TouchableOpacity>
                             <TouchableOpacity onPress={() => setFiltersVisible(false)} style={styles.modalPrimary}><Text style={styles.modalPrimaryText}>Done</Text></TouchableOpacity>
                         </View>
                     </View>
@@ -291,6 +410,11 @@ const styles = StyleSheet.create({
     },
     searchIcon: { marginRight: spacing.sm },
     searchInput: { flex: 1, color: colors.textPrimary, fontSize: 15 },
+    activeFiltersRow: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.sm, gap: spacing.sm },
+    activeFilterChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: borderRadius.full, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, marginRight: spacing.sm },
+    activeFilterText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
+    clearFiltersBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: borderRadius.full, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+    clearFiltersText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     list: { flex: 1, paddingHorizontal: spacing.lg },
     section: { marginBottom: spacing.xl },
