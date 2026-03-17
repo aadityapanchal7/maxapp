@@ -48,6 +48,11 @@ export default function ChannelChatScreen() {
     const isAdmin = user?.is_admin || false;
     const currentUserId = user?.id;
     const canPostTopLevel = !isAdminOnly || isAdmin;
+    const UPVOTE = '\u2B06\uFE0F';
+    const DOWNVOTE = '\u2B07\uFE0F';
+    const LEGACY_UPVOTE = 'â¬†ï¸';
+    const LEGACY_DOWNVOTE = 'â¬‡ï¸';
+    const [pendingReactions, setPendingReactions] = useState<Record<string, boolean>>({});
 
     useFocusEffect(useCallback(() => {
         loadMessages();
@@ -58,7 +63,13 @@ export default function ChannelChatScreen() {
     const parseTimestamp = (dateString: string) => {
         if (!dateString) return 0;
         const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(dateString);
-        const normalized = hasTz ? dateString : `${dateString}Z`;
+        let normalized = dateString;
+        if (!normalized.includes('T') && normalized.includes(' ')) {
+            normalized = normalized.replace(' ', 'T');
+        }
+        if (!hasTz) {
+            normalized = `${normalized}Z`;
+        }
         const time = new Date(normalized).getTime();
         return Number.isNaN(time) ? 0 : time;
     };
@@ -72,8 +83,12 @@ export default function ChannelChatScreen() {
         try {
             const data = await api.getChannelMessages(channelId, 50, searchQuery);
             const sorted = (data.messages || []).slice().sort((a: Message, b: Message) => {
-                const aScore = (a.reactions?.['⬆️'] || []).length - (a.reactions?.['⬇️'] || []).length;
-                const bScore = (b.reactions?.['⬆️'] || []).length - (b.reactions?.['⬇️'] || []).length;
+                const aUp = (a.reactions?.[UPVOTE] || a.reactions?.[LEGACY_UPVOTE] || []).length;
+                const aDown = (a.reactions?.[DOWNVOTE] || a.reactions?.[LEGACY_DOWNVOTE] || []).length;
+                const bUp = (b.reactions?.[UPVOTE] || b.reactions?.[LEGACY_UPVOTE] || []).length;
+                const bDown = (b.reactions?.[DOWNVOTE] || b.reactions?.[LEGACY_DOWNVOTE] || []).length;
+                const aScore = aUp - aDown;
+                const bScore = bUp - bDown;
                 if (aScore !== bScore) return bScore - aScore;
                 const at = parseTimestamp(a.created_at);
                 const bt = parseTimestamp(b.created_at);
@@ -112,8 +127,12 @@ export default function ChannelChatScreen() {
             const result = await api.sendChannelMessage(channelId, messageText.trim() || '', replyingTo?.id, attachmentUrl, attachmentType);
             if (result.message) {
                 setMessages(prev => [...prev, result.message].sort((a, b) => {
-                    const aScore = (a.reactions?.['⬆️'] || []).length - (a.reactions?.['⬇️'] || []).length;
-                    const bScore = (b.reactions?.['⬆️'] || []).length - (b.reactions?.['⬇️'] || []).length;
+                    const aUp = (a.reactions?.[UPVOTE] || a.reactions?.[LEGACY_UPVOTE] || []).length;
+                    const aDown = (a.reactions?.[DOWNVOTE] || a.reactions?.[LEGACY_DOWNVOTE] || []).length;
+                    const bUp = (b.reactions?.[UPVOTE] || b.reactions?.[LEGACY_UPVOTE] || []).length;
+                    const bDown = (b.reactions?.[DOWNVOTE] || b.reactions?.[LEGACY_DOWNVOTE] || []).length;
+                    const aScore = aUp - aDown;
+                    const bScore = bUp - bDown;
                     if (aScore !== bScore) return bScore - aScore;
                     const at = parseTimestamp(a.created_at);
                     const bt = parseTimestamp(b.created_at);
@@ -139,23 +158,43 @@ export default function ChannelChatScreen() {
     };
 
     const handleToggleReaction = async (messageId: string, emoji: string) => {
+        const reactionKey = `${messageId}:${emoji}`;
+        if (pendingReactions[reactionKey]) return;
+        setPendingReactions(prev => ({ ...prev, [reactionKey]: true }));
         setMessages(prev => prev.map(m => {
             if (m.id !== messageId) return m;
-            const reactions = { ...(m.reactions || {}) };
+            const reactions = { ...(m.reactions || {}) } as Record<string, string[]>;
             const userId = currentUserId || '';
-            const list = new Set(reactions[emoji] || []);
-            if (list.has(userId)) {
-                list.delete(userId);
+            const target = emoji;
+            const opposite = emoji === UPVOTE ? DOWNVOTE : emoji === DOWNVOTE ? UPVOTE : null;
+            const targetList = new Set(reactions[target] || []);
+            if (targetList.has(userId)) {
+                targetList.delete(userId);
             } else {
-                list.add(userId);
+                targetList.add(userId);
             }
-            reactions[emoji] = Array.from(list);
+            reactions[target] = Array.from(targetList);
+            if (opposite) {
+                const oppositeList = new Set(reactions[opposite] || []);
+                oppositeList.delete(userId);
+                if (oppositeList.size) reactions[opposite] = Array.from(oppositeList);
+                else delete reactions[opposite];
+                delete reactions[emoji === UPVOTE ? LEGACY_DOWNVOTE : LEGACY_UPVOTE];
+            }
+            delete reactions[emoji === UPVOTE ? LEGACY_UPVOTE : LEGACY_DOWNVOTE];
             return { ...m, reactions };
         }));
         try {
             const result = await api.toggleReaction(channelId, messageId, emoji);
             setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions: result.reactions } : m));
         } catch (e) { console.error(e); }
+        finally {
+            setPendingReactions(prev => {
+                const next = { ...prev };
+                delete next[reactionKey];
+                return next;
+            });
+        }
     };
 
     const getDisplayName = (message: Message) => {
@@ -176,8 +215,8 @@ export default function ChannelChatScreen() {
         const repliedMessage = item.parent_id ? messages.find(m => m.id === item.parent_id) : null;
         const isHighlighted = highlightedId === item.id;
         const isReply = !!item.parent_id;
-        const upvotes = (item.reactions?.['⬆️'] || []).length;
-        const downvotes = (item.reactions?.['⬇️'] || []).length;
+        const upvotes = (item.reactions?.[UPVOTE] || item.reactions?.[LEGACY_UPVOTE] || []).length;
+        const downvotes = (item.reactions?.[DOWNVOTE] || item.reactions?.[LEGACY_DOWNVOTE] || []).length;
         const score = upvotes - downvotes;
 
         return (
@@ -224,10 +263,10 @@ export default function ChannelChatScreen() {
                     </View>
                     {renderReactions(item)}
                     <View style={styles.messageActions}>
-                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, '⬆️')} style={styles.actionBtn} activeOpacity={0.6}>
+                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, UPVOTE)} style={styles.actionBtn} activeOpacity={0.6}>
                             <Ionicons name="arrow-up" size={14} color={colors.textMuted} />
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, '⬇️')} style={styles.actionBtn} activeOpacity={0.6}>
+                        <TouchableOpacity onPress={() => handleToggleReaction(item.id, DOWNVOTE)} style={styles.actionBtn} activeOpacity={0.6}>
                             <Ionicons name="arrow-down" size={14} color={colors.textMuted} />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => setReplyingTo(item)} style={styles.actionBtn} activeOpacity={0.6}>
@@ -246,9 +285,13 @@ export default function ChannelChatScreen() {
 
     const renderReactions = (message: Message) => {
         if (!message.reactions || Object.keys(message.reactions).length === 0) return null;
+        const entries = Object.entries(message.reactions).map(([emoji, userIds]) => {
+            const normalizedEmoji = emoji === LEGACY_UPVOTE ? UPVOTE : emoji === LEGACY_DOWNVOTE ? DOWNVOTE : emoji;
+            return [normalizedEmoji, userIds] as [string, string[]];
+        });
         return (
             <View style={styles.reactionsRow}>
-                {Object.entries(message.reactions).map(([emoji, userIds]) => {
+                {entries.map(([emoji, userIds]) => {
                     const hasReacted = currentUserId ? userIds.includes(currentUserId) : false;
                     return (
                         <TouchableOpacity key={emoji} onPress={() => handleToggleReaction(message.id, emoji)} style={[styles.reactionBadge, hasReacted && styles.reactionBadgeActive]}>

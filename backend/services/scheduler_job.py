@@ -273,16 +273,6 @@ async def send_coaching_check_ins():
                         flag_modified(sched, "schedule_context")
                         logger.info(f"Reset outside_today for user {user.id} (date rolled over)")
 
-                        # Send daily outside/sunscreen check message
-                        if 6 <= hour <= 10:
-                            outside_msg = ChatHistory(
-                                user_id=user.id,
-                                role="assistant",
-                                content="yo you gonna be outside today? lmk so i can set up sunscreen reminders",
-                                created_at=datetime.utcnow(),
-                            )
-                            db.add(outside_msg)
-
                 # Get coaching state
                 state_result = await db.execute(
                     select(UserCoachingState).where(UserCoachingState.user_id == user.id)
@@ -293,16 +283,6 @@ async def send_coaching_check_ins():
                     db.add(state)
                     await db.commit()
                     await db.refresh(state)
-
-                # Check for active schedules (skip if none — user likely in onboarding)
-                sched_result = await db.execute(
-                    select(UserSchedule).where(
-                        (UserSchedule.user_id == user.id) & (UserSchedule.is_active == True)
-                    )
-                )
-                schedules = sched_result.scalars().all()
-                if not schedules:
-                    continue
 
                 # Cooldown: don't check in if we did recently
                 cooldown_hours = COACHING_CONFIG.get("check_in_cooldown_hours", 8)
@@ -326,7 +306,13 @@ async def send_coaching_check_ins():
                 if not check_in_type:
                     continue
 
-                # Check for missed tasks today (schedules already loaded above)
+                # Check for missed tasks today
+                sched_result = await db.execute(
+                    select(UserSchedule).where(
+                        (UserSchedule.user_id == user.id) & (UserSchedule.is_active == True)
+                    )
+                )
+                schedules = sched_result.scalars().all()
                 missed_today = 0
                 for s in schedules:
                     for day in (s.days or []):
