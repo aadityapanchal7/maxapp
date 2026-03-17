@@ -172,7 +172,7 @@ MAX_CHAT_SYSTEM_PROMPT = """You are Max — the AI lookmaxxing coach. You talk l
 - `log_check_in` — log workout done, sleep, calories, mood, injuries after user reports them
 
 ## MAXX SCHEDULE ONBOARDING
-Follow the [SYSTEM] message flow if provided. Otherwise: ask concern first (for skinmax), then wake time, sleep time, outside today. ONE question at a time.
+Follow the [SYSTEM] message flow if provided. Otherwise: ask the maxx-specific concern/focus first when relevant, then wake time, sleep time, outside today. ONE question at a time.
 
 ## WAKE-UP DETECTION
 If user says "im awake" / "just woke up" — acknowledge briefly, remind AM routine, ask if going outside today.
@@ -194,14 +194,14 @@ def modify_schedule(feedback: str):
 def generate_maxx_schedule(maxx_id: str, wake_time: str, sleep_time: str, outside_today: bool, skin_concern: str = None):
     """
     Generates a personalised maxx schedule for the user based on their preferences.
-    Call this after asking the user for their concern (if applicable), wake time, sleep time, and whether they'll be outside.
+    Call this after asking the user for their selected concern or focus area (if applicable), wake time, sleep time, and whether they'll be outside.
     
     Args:
-        maxx_id: The maxx type ID, e.g. 'skinmax', 'hairmax', 'fitmax'.
+        maxx_id: The maxx type ID, e.g. 'skinmax', 'heightmax', 'hairmax', 'fitmax'.
         wake_time: User's wake time in HH:MM 24-hour format, e.g. '07:00'.
         sleep_time: User's sleep time in HH:MM 24-hour format, e.g. '23:00'.
         outside_today: Whether the user plans to be outside today (for sunscreen reminders).
-        skin_concern: User's chosen concern, e.g. 'acne', 'pigmentation', 'texture', 'redness', 'aging'. Required for SkinMax.
+        skin_concern: User's chosen concern or focus area. For SkinMax this is the skin concern; for other maxxes reuse this field for the selected focus area.
     """
     return {
         "status": "success",

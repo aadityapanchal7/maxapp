@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
-const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'hairmax', 'fitmax'];
+const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax'];
 
 export default function MaxxDetailScreen() {
     const navigation = useNavigation<any>();
