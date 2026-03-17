@@ -141,6 +141,88 @@ HEIGHTMAX_CONCERNS = [
     {"id": "hormones_to_max", "label": "Hormones to Max"},
 ]
 
+HEIGHTMAX_MODULES = [
+    {
+        "title": "Posturemaxxing",
+        "description": "Highest-ROI adult height lever because posture changes how your frame reads immediately.",
+        "steps": [
+            {"title": "All day rule", "content": "Ears over shoulders, ribcage stacked over pelvis, slight chin tuck, no phone-neck. Use occasional reminders only, around 1-2x a day."},
+            {"title": "How to do it", "content": "Every 2-3 hours, stand up, pull chin straight back for 10 reps, squeeze shoulder blades down and back for 10 seconds, then walk for 1 minute without slouching."},
+            {"title": "Notification", "content": "You're leaking inches. Chin back x 10. Stack ribs over pelvis. Walk tall for 60 sec."},
+            {"title": "Blackpilled truth", "content": "If your posture is cooked, you can look 1-2+ inches shorter than your frame reads. This is the highest-ROI height lever for adults because spinal posture changes presentation even when bone length does not."},
+        ],
+    },
+    {
+        "title": "Sprintmaxxing",
+        "description": "Frame, leanness, and posture play. Useful, but not bone-length science.",
+        "steps": [
+            {"title": "Cadence", "content": "Do it 2-3x per week, not daily."},
+            {"title": "How to do it", "content": "After warm-up, do 6-10 sprints of 8-12 seconds with 60-90 seconds rest. Keep volume low and quality high."},
+            {"title": "Best time", "content": "Afternoon or early evening, not right before bed."},
+            {"title": "Notification", "content": "Sprint day. Short burst, full intent, long rest. Don't turn it into cardio."},
+            {"title": "Blackpilled truth", "content": "Sprinting is not a proven adult height hack; the value is that intense exercise can acutely raise GH/IGF-1 signaling and improves frame, leanness, and athletic posture. That helps you read taller, even if it does not lengthen bones."},
+        ],
+    },
+    {
+        "title": "Deep Sleep Routine",
+        "description": "The actual hormone-support habit worth obsessing over.",
+        "steps": [
+            {"title": "Cadence", "content": "Night routine, daily."},
+            {"title": "How to do it", "content": "Keep a fixed sleep window, aim 7-9 hours, cut screens 30-60 minutes before bed, cut caffeine several hours before bed, and don't let bedtime drift."},
+            {"title": "Notification", "content": "Height is won or lost tonight. Get off screens. Same sleep time. Don't sabotage the GH window."},
+            {"title": "Blackpilled truth", "content": "Sleep is the only hormone-maxxing habit that actually deserves obsession here. Tissue repair and growth-related hormone release are strongly tied to sleep. If you sleep like trash, everything else is cope."},
+        ],
+    },
+    {
+        "title": "Decompress / Lengthen",
+        "description": "Spinal decompression and posture height, not fake bone growth.",
+        "steps": [
+            {"title": "Cadence", "content": "Morning dead hangs on wake-up, plus a midday or evening decompression block daily if you sit a lot."},
+            {"title": "How to do it", "content": "Dead hang: 2 x 20-30 sec. Hip flexor stretch: 2 x 30 sec/side. Hamstring stretch: 2 x 30 sec/side. Thoracic extension over bench or foam roller: 5-8 slow reps."},
+            {"title": "Blackpilled truth", "content": "This is for spinal decompression and posture height, not real bone growth. Very worth doing if you sit all day because compression posture makes you look shorter and weaker."},
+        ],
+    },
+    {
+        "title": "Height Killers",
+        "description": "Anti-habit module for the boring stuff that actually wrecks your presentation and recovery.",
+        "steps": [
+            {"title": "What to avoid", "content": "Chronic slouching, all-day sitting folded over, under-eating, sleep debt, added sugars, and overtraining."},
+            {"title": "About no-gooning", "content": "There is no good evidence that porn or masturbation changes adult height, so don't frame it as a real height lever. If it stays in-app, frame it as sleep sabotage or motivation drain, not bone growth science."},
+            {"title": "Notification", "content": "Stop doing the stuff that makes you look compressed, inflamed, under-recovered, and shorter."},
+            {"title": "Blackpilled truth", "content": "Most heightmaxxing online is fantasy. The real killers are boring: bad sleep, bad posture, bad recovery."},
+        ],
+    },
+    {
+        "title": "Look Taller Instantly",
+        "description": "Immediate ROI presentation module.",
+        "steps": [
+            {"title": "What to do", "content": "Prioritize posture, stay lean enough for a longer frame to show, use straighter-fitting clothes, avoid proportions that visually shorten the legs or torso, and use lifts only if you want the instant cheat code."},
+            {"title": "Notification", "content": "If bones aren't changing, presentation has to. Stop dressing like you want to look compressed."},
+            {"title": "Blackpilled truth", "content": "For most adults, looking taller is more realistic than getting taller. That is not defeatist; it is just the highest-IQ route once growth plates are closed."},
+        ],
+    },
+    {
+        "title": "Height Fuel",
+        "description": "Recovery and frame support through food and a simple supplement stack.",
+        "steps": [
+            {"title": "Cadence", "content": "Daily with meals."},
+            {"title": "How to do it", "content": "Hit 1.6-2.0 g/kg protein, keep calories adequate, and if supplementing, use a simple stack: vitamin D3, K2, magnesium, zinc, boron."},
+            {"title": "Notification", "content": "Protein first. Growth-support stack with food. Don't under-eat and expect to grow or recover."},
+            {"title": "Blackpilled truth", "content": "Nutrition matters most before plates close and for recovery at any age. In adults, this supports posture, muscle, bone density, and frame, not miracle leg-bone lengthening. Overweight or overnutrition can also speed skeletal maturation in youth, which can hurt final height."},
+        ],
+    },
+    {
+        "title": "Hormones to Max",
+        "description": "Behavior rules for a better recovery environment.",
+        "steps": [
+            {"title": "Cadence", "content": "Behavior rules, daily."},
+            {"title": "How to do it", "content": "Keep sleep tight, lift or sprint a few times weekly, avoid chronic stress spirals, and avoid big late-night sugar hits."},
+            {"title": "Notification", "content": "Protect the hormone environment: train hard, recover harder, don't spike sugar before bed."},
+            {"title": "Blackpilled truth", "content": "Hormone maxxing is mostly code for don't nuke sleep and recovery. Repeated insulin spikes, poor sleep, and stress make you look softer, flatter, and more compressed; they are not helping your growth profile. Exercise can stimulate GH acutely, but the basics still dominate."},
+        ],
+    },
+]
+
 MAXX_GUIDELINES = {
     "skinmax": {
         "label": "SkinMax",
@@ -170,6 +252,7 @@ MAXX_GUIDELINES = {
             "sprint_spacing": "Sprint sessions should be spaced with recovery days and not scheduled daily.",
             "presentation_focus": "Favor posture, recovery, decompression, and visual presentation over fake bone-growth claims.",
         },
+        "modules": HEIGHTMAX_MODULES,
         "protocols": HEIGHTMAX_PROTOCOLS,
         "concern_mapping": {},
         "concern_question": "What's the main height lever you want to attack first? Pick one: Posturemaxxing, Sprintmaxxing, Deep Sleep Routine, Decompress / Lengthen, Height Killers, Look Taller Instantly, Height Fuel, or Hormones to Max.",
