@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
-interface Message { role: 'user' | 'assistant'; content: string; attachment_url?: string; attachment_type?: string; }
+interface Message { role: 'user' | 'assistant'; content: string; attachment_url?: string; attachment_type?: string; isTyping?: boolean; }
 
 export default function MaxChatScreen() {
     const route = useRoute<any>();
@@ -17,6 +17,9 @@ export default function MaxChatScreen() {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const flatListRef = useRef<FlatList>(null);
     const initScheduleHandled = useRef(false);
+
+    const addTyping = () => setMessages(prev => [...prev.filter(m => !m.isTyping), { role: 'assistant', content: '', isTyping: true }]);
+    const removeTyping = () => setMessages(prev => prev.filter(m => !m.isTyping));
 
     useEffect(() => { loadHistory(); }, []);
 
@@ -44,12 +47,15 @@ export default function MaxChatScreen() {
         if (!msg.trim() || loading) return;
         setLoading(true);
         setMessages(prev => [...prev, { role: 'user', content: msg }]);
+        addTyping();
         try {
             const { response } = await api.sendChatMessage(msg, undefined, undefined, initContext);
+            removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
-            setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Try sending your message again.' }]);
+            removeTyping();
+            setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong. try again.' }]);
         } finally {
             setLoading(false);
         }
@@ -72,22 +78,45 @@ export default function MaxChatScreen() {
             }
             setMessages(prev => [...prev, { role: 'user', content: userContent, attachment_url: attachmentUrl, attachment_type: attachmentType }]);
             setSelectedImage(null);
+            addTyping();
             const { response } = await api.sendChatMessage(userContent, attachmentUrl, attachmentType);
+            removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
-        } catch (e) { console.error(e); setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong.' }]); }
+        } catch (e) { console.error(e); removeTyping(); setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong.' }]); }
         finally { setLoading(false); setUploading(false); }
     };
 
-    const renderMessage = ({ item }: { item: Message }) => (
-        <View style={[styles.messageRow, item.role === 'user' && styles.userMessageRow]}>
-            <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-                {item.content ? <Text style={[styles.messageText, item.role === 'user' && styles.userMessageText]}>{item.content}</Text> : null}
-                {item.attachment_url && item.attachment_type === 'image' && (
-                    <Image source={{ uri: api.resolveAttachmentUrl(item.attachment_url) }} style={styles.attachmentImage} resizeMode="cover" />
-                )}
+    const TypingDots = () => {
+        const [dots, setDots] = React.useState('');
+        React.useEffect(() => {
+            const id = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 400);
+            return () => clearInterval(id);
+        }, []);
+        return <Text style={styles.typingText}>typing{dots}</Text>;
+    };
+
+    const renderMessage = ({ item }: { item: Message }) => {
+        if (item.isTyping) {
+            return (
+                <View style={styles.messageRow}>
+                    <View style={[styles.bubble, styles.assistantBubble, styles.typingBubble]}>
+                        <TypingDots />
+                    </View>
+                </View>
+            );
+        }
+        if (!item.content?.trim() && !(item.attachment_url && item.attachment_type === 'image')) return null;
+        return (
+            <View style={[styles.messageRow, item.role === 'user' && styles.userMessageRow]}>
+                <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
+                    {item.content ? <Text style={[styles.messageText, item.role === 'user' && styles.userMessageText]}>{item.content}</Text> : null}
+                    {item.attachment_url && item.attachment_type === 'image' && (
+                        <Image source={{ uri: api.resolveAttachmentUrl(item.attachment_url) }} style={styles.attachmentImage} resizeMode="cover" />
+                    )}
+                </View>
             </View>
-        </View>
-    );
+        );
+    };
 
     const ListEmpty = () => (
         <View style={styles.emptyState}>
@@ -113,7 +142,7 @@ export default function MaxChatScreen() {
                     ref={flatListRef}
                     data={messages}
                     renderItem={renderMessage}
-                    keyExtractor={(_, i) => i.toString()}
+                    keyExtractor={(item, i) => item.isTyping ? 'typing' : i.toString()}
                     contentContainerStyle={[styles.messageList, messages.length === 0 && styles.messageListEmpty]}
                     onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
                     showsVerticalScrollIndicator={false}
@@ -202,6 +231,8 @@ const styles = StyleSheet.create({
     },
     messageText: { fontSize: 15, lineHeight: 22, color: colors.foreground },
     userMessageText: { color: colors.buttonText },
+    typingBubble: { paddingVertical: 10, paddingHorizontal: 16 },
+    typingText: { fontSize: 14, color: colors.textMuted, fontStyle: 'italic' },
     attachmentImage: { width: 220, height: 160, borderRadius: 12, marginTop: spacing.sm },
     emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
     emptyTitle: { fontSize: 18, fontWeight: '600', color: colors.foreground, marginBottom: 8 },

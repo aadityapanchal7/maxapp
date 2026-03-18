@@ -198,6 +198,9 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             except Exception as e:
                 print(f"Check-in logging failed: {e}")
 
+    # --- Enforce lowercase on all AI responses ---
+    response_text = response_text.lower()
+
     # --- Save messages ---
     user_message = ChatHistory(
         user_id=user_uuid,
