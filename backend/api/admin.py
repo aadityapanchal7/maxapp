@@ -100,7 +100,7 @@ async def broadcast_message(
     admin: dict = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Send a message to ALL users in their Max AI chat"""
+    """Send a message to ALL users in their Cannon AI chat"""
     result = await db.execute(select(User.id))
     user_ids = result.scalars().all()
 
@@ -124,7 +124,7 @@ async def direct_message(
     admin: dict = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Send a direct message to a specific user as Max"""
+    """Send a direct message to a specific user as Cannon"""
     try:
         user_uuid = UUID(data.user_id)
     except ValueError:
@@ -145,7 +145,7 @@ async def direct_message(
     return {"status": "Message sent"}
 
 
-# ----- Admin ↔ User Chat (as Max) -----
+# ----- Admin ↔ User Chat (as Cannon) -----
 
 @router.get("/users/{user_id}/chat")
 async def get_user_chat(
@@ -154,7 +154,7 @@ async def get_user_chat(
     admin: dict = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get a user's Max chat history (admin only)"""
+    """Get a user's Cannon chat history (admin only)"""
     try:
         user_uuid = UUID(user_id)
     except ValueError:
@@ -189,7 +189,7 @@ async def send_user_chat(
     admin: dict = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Send a message to a user's Max chat as the assistant (admin only)"""
+    """Send a message to a user's Cannon chat as the assistant (admin only)"""
     try:
         user_uuid = UUID(user_id)
     except ValueError:

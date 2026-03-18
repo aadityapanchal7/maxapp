@@ -8,6 +8,7 @@ from sqlalchemy import select
 from db import get_rds_db
 from middleware.auth_middleware import require_paid_user
 from models.rds_models import Maxx
+from services.maxx_guidelines import get_maxx_guideline
 
 router = APIRouter(prefix="/maxes", tags=["Maxes"])
 
@@ -39,16 +40,17 @@ async def get_maxx(
 
 
 def _serialize(m: Maxx) -> dict:
+    fallback = get_maxx_guideline(m.id) or {}
     return {
         "id": m.id,
         "label": m.label,
         "description": m.description,
         "icon": m.icon,
         "color": m.color,
-        "modules": m.modules or [],
-        "protocols": m.protocols or {},
-        "concerns": m.concerns or [],
-        "concern_question": m.concern_question,
+        "modules": m.modules or fallback.get("modules", []),
+        "protocols": m.protocols or fallback.get("protocols", {}),
+        "concerns": m.concerns or fallback.get("concerns", []),
+        "concern_question": m.concern_question or fallback.get("concern_question"),
         "is_active": m.is_active,
         "created_at": m.created_at,
     }

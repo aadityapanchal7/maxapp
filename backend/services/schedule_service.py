@@ -114,21 +114,21 @@ Your job is to create a PERSONALISED recurring daily/weekly schedule for a user.
 ## USER CONTEXT
 Wake time: {wake_time}
 Sleep time: {sleep_time}
-Skin type: {skin_type}
-Skin concern: {skin_concern}
+Profile hint: {profile_hint}
+Selected concern: {selected_concern}
 Outside today: {outside_today}
 {user_profile_context}
 
 ## INSTRUCTIONS
 1. Create a schedule for {num_days} days.
-2. AM routine tasks should be scheduled shortly after wake time.
-3. PM routine tasks should be scheduled 1 hour before sleep time (so products don't rub off on pillow).
-4. Weekly tasks (masks, exfoliants, peels) should be spread across different days.
-5. If user is going to be outside, add sunscreen reapply reminders every 3 hours between wake and sleep times.
-6. Include a morning check-in task at wake time (reminder to confirm they're awake).
+2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
+3. Schedule morning tasks shortly after wake time and evening tasks with enough runway before sleep to actually get done.
+4. Spread weekly or higher-intensity tasks across different days.
+5. If the protocol involves outside exposure reminders, only add them when outside_today is true.
+6. Include a short morning check-in task at wake time.
 7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
-8. task_type "routine" = skincare steps, "reminder" = sunscreen reapply / check-in, "checkpoint" = weekly treatments.
-9. Keep daily routines consistent but vary weekly treatments across days.
+8. task_type "routine" = core habit block, "reminder" = cue or anti-habit push, "checkpoint" = weekly treatment, harder session, or review.
+9. Keep daily routines consistent but vary weekly treatments, sprint sessions, and review tasks across days.
 10. Include brief motivational messages for each day.
 
 ## OUTPUT FORMAT
@@ -315,6 +315,7 @@ class ScheduleService:
         skin_type = onboarding.get("skin_type", "normal")
         concern = resolve_concern(guideline, skin_type, skin_concern)
         protocol_section = build_protocol_prompt_section(guideline, concern)
+        profile_hint = skin_type if maxx_id == "skinmax" else onboarding.get("goal", "none")
 
         profile_parts = []
         if onboarding.get("gender"):
@@ -328,8 +329,8 @@ class ScheduleService:
             protocol_section=protocol_section,
             wake_time=wake_time,
             sleep_time=sleep_time,
-            skin_type=skin_type,
-            skin_concern=concern,
+            profile_hint=profile_hint,
+            selected_concern=concern,
             outside_today="Yes" if outside_today else "No",
             user_profile_context=user_profile_context,
             num_days=num_days,
@@ -391,6 +392,7 @@ class ScheduleService:
             days=schedule_data.get("days", []),
             preferences=prefs,
             schedule_context={
+                "selected_concern": concern,
                 "skin_concern": concern,
                 "skin_type": skin_type,
                 "outside_today": outside_today,
@@ -413,6 +415,9 @@ class ScheduleService:
 
     def _generate_maxx_fallback(self, maxx_id: str, num_days: int, wake_time: str, sleep_time: str) -> dict:
         """Fallback schedule when Gemini fails for maxx schedules."""
+        if maxx_id == "heightmax":
+            return self._generate_heightmax_fallback(num_days, wake_time, sleep_time)
+
         days = []
         wh, wm = map(int, wake_time.split(":"))
         sh, sm = map(int, sleep_time.split(":"))
@@ -450,6 +455,94 @@ class ScheduleService:
                 "tasks": tasks,
                 "motivation_message": f"Day {day_num} — consistency is everything!",
             })
+
+        return {"days": days}
+
+    def _generate_heightmax_fallback(self, num_days: int, wake_time: str, sleep_time: str) -> dict:
+        days = []
+        wh, wm = map(int, wake_time.split(":"))
+        sh, sm = map(int, sleep_time.split(":"))
+        morning_minute = (wm + 10) % 60
+        morning_hour = wh + ((wm + 10) // 60)
+        wind_down_hour = max(0, sh - 3)
+        evening_hour = max(0, sh - 1)
+        posture_times = ["11:30", "16:30"]
+        sprint_days = {2, 4, 6}
+
+        for day_num in range(1, num_days + 1):
+            tasks = [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{wh:02d}:{wm:02d}",
+                    "title": "Morning Check-in",
+                    "description": "You're up. Own posture early and stop donating height to bad mechanics.",
+                    "task_type": "reminder",
+                    "duration_minutes": 1,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{morning_hour:02d}:{morning_minute:02d}",
+                    "title": "Dead Hang + Decompress",
+                    "description": "Dead hang 2 x 20-30 sec, then open hips and hamstrings before desk posture crushes you.",
+                    "task_type": "routine",
+                    "duration_minutes": 8,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": posture_times[(day_num - 1) % len(posture_times)],
+                    "title": "Posture Reset",
+                    "description": "Chin back x 10, ribs stacked over pelvis, shoulder blades down and back, then walk tall for 60 sec.",
+                    "task_type": "reminder",
+                    "duration_minutes": 3,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{wind_down_hour:02d}:{sm:02d}",
+                    "title": "Sleep Protection",
+                    "description": "No caffeine from here, stop the late sugar spiral, and set up the same bedtime again tonight.",
+                    "task_type": "reminder",
+                    "duration_minutes": 5,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{evening_hour:02d}:{sm:02d}",
+                    "title": "Night Height Routine",
+                    "description": "Screens off, posture relaxed, and get to bed on time so recovery isn't fake.",
+                    "task_type": "routine",
+                    "duration_minutes": 15,
+                },
+            ]
+
+            if day_num in sprint_days and day_num <= num_days:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": "17:30",
+                        "title": "Sprint Session",
+                        "description": "Warm up, then 6-10 sprints of 8-12 seconds with 60-90 sec rest. Keep it explosive, not cardio.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 20,
+                    }
+                )
+            else:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": "14:00",
+                        "title": "Height Killer Check",
+                        "description": "Audit slouching, under-eating, all-day sitting, and recovery debt before they flatten your frame.",
+                        "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+
+            days.append(
+                {
+                    "day_number": day_num,
+                    "tasks": tasks,
+                    "motivation_message": f"Day {day_num} — stop leaking inches and make your frame read the way it should.",
+                }
+            )
 
         return {"days": days}
 

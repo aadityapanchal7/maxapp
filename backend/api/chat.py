@@ -64,6 +64,8 @@ async def send_message(
         msg_lower = message.lower()
         if "skinmax" in msg_lower or "skin max" in msg_lower:
             maxx_id = "skinmax"
+        elif "heightmax" in msg_lower or "height max" in msg_lower:
+            maxx_id = "heightmax"
         elif "hairmax" in msg_lower or "hair max" in msg_lower:
             maxx_id = "hairmax"
         elif "fitmax" in msg_lower or "fit max" in msg_lower:
@@ -98,13 +100,14 @@ async def send_message(
 
             if concern_question and concerns:
                 concerns_str = ", ".join(c.get("label", c.get("id", "")) for c in concerns)
+                concern_ids = ", ".join(c.get("id", "") for c in concerns if c.get("id"))
                 message = f"""[SYSTEM: User wants to start their {maxx_id} schedule. CRITICAL — follow this EXACT order:
 1. Greet briefly and explain what the schedule does.
 2. Your FIRST question MUST be: "{concern_question}" Options: {concerns_str}. Do NOT ask wake time or sleep time yet. Wait for their answer.
 3. After they pick a concern, ask: "What time do you usually wake up?" — wait for answer.
 4. Then ask: "What time do you usually go to sleep?" — wait for answer.
 5. Then ask: "Are you planning to be outside much today?" — wait for answer.
-6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern (acne/pigmentation/texture/redness/aging), wake_time, sleep_time, outside_today.
+6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern ({concern_ids}), wake_time, sleep_time, outside_today.
 Ask ONE question at a time. Your very first response must ask the concern question.]\n\n{message}"""
             else:
                 message = f"[SYSTEM: User wants to start {maxx_id} schedule. Ask wake time, sleep time, outside today. One at a time.]\n\n{message}"
@@ -194,6 +197,9 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     await coaching_service.process_check_in(user_id, db, check_in_data)
             except Exception as e:
                 print(f"Check-in logging failed: {e}")
+
+    # --- Enforce lowercase on all AI responses ---
+    response_text = response_text.lower()
 
     # --- Save messages ---
     user_message = ChatHistory(
