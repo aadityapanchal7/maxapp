@@ -104,13 +104,18 @@ async def process_chat_message(
 
             if concern_question and concerns:
                 concerns_str = ", ".join(c.get("label", c.get("id", "")) for c in concerns)
+                concern_ids = ", ".join(c.get("id", "") for c in concerns if c.get("id"))
                 message = f"""[SYSTEM: User wants to start their {maxx_id} schedule. CRITICAL — follow this EXACT order:
 1. Greet briefly and explain what the schedule does.
 2. Your FIRST question MUST be: "{concern_question}" Options: {concerns_str}. Do NOT ask wake time or sleep time yet. Wait for their answer.
 3. After they pick a concern, ask: "What time do you usually wake up?" — wait for answer.
 4. Then ask: "What time do you usually go to sleep?" — wait for answer.
 5. Then ask: "Are you planning to be outside much today?" — wait for answer.
+<<<<<<< HEAD
 6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern, wake_time, sleep_time, outside_today.
+=======
+6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern ({concern_ids}), wake_time, sleep_time, outside_today.
+>>>>>>> d63294ca1238d09f64acc2e5ee400bd26a4f6bdb
 Ask ONE question at a time. Your very first response must ask the concern question.]\n\n{message}"""
             else:
                 message = f"[SYSTEM: User wants to start {maxx_id} schedule. Ask wake time, sleep time, outside today. One at a time.]\n\n{message}"
@@ -201,7 +206,11 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             except Exception as e:
                 print(f"Check-in logging failed: {e}")
 
+<<<<<<< HEAD
     # --- Enforce lowercase ---
+=======
+    # --- Enforce lowercase on all AI responses ---
+>>>>>>> d63294ca1238d09f64acc2e5ee400bd26a4f6bdb
     response_text = response_text.lower()
 
     # --- Save messages ---
