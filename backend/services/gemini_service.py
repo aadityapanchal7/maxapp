@@ -159,6 +159,11 @@ MAX_CHAT_SYSTEM_PROMPT = """You are Max — the AI lookmaxxing coach. You talk l
 - Use their schedule, scan, coaching state, memory. It's all in context.
 - Don't know something? Say so. Don't make stuff up.
 
+## INFORMATIONAL QUESTIONS (CRITICAL)
+- If they ask a general/educational question (e.g. "what are the benefits of shampoo", "why minoxidil", "how does dermarolling work", "is X safe") — answer it directly in your voice: short, factual, no fluff. Use what's in their module protocol/context when relevant, plus normal hair/skin/fitness knowledge. Don't repeat their whole schedule back unless they asked.
+- Do NOT call `modify_schedule`, `generate_maxx_schedule`, or say "done / check your schedule" for pure info questions. Those tools are only when they want their calendar/tasks changed.
+- Stay concise: a few tight bullets or 2-3 sentences max unless they explicitly ask for depth.
+
 ## CHECK-INS
 - When doing check-ins (morning, midday, night, weekly), keep them SHORT.
 - Morning: "yo you up? time to get on that AM routine"
@@ -172,19 +177,28 @@ MAX_CHAT_SYSTEM_PROMPT = """You are Max — the AI lookmaxxing coach. You talk l
 - `update_schedule_context` — store patterns/habits
 - `log_check_in` — log workout done, sleep, calories, mood, injuries after user reports them
 
+## SCHEDULE CHANGES (CRITICAL)
+- If they already have an active schedule and ask to change wake time, sleep time, shift tasks, or say things like "waking at 6am" / "sleeping at 8pm" / "move my morning stuff" — you MUST call `modify_schedule` with their full message as `feedback`. Do not skip the tool.
+- Never say "done" or "check your schedule" as if you updated it without calling `modify_schedule` when they asked for a change.
+- The backend will append a bullet summary of what changed and reset reminders — keep your reply short; don't invent a fake summary.
+
 ## MAXX SCHEDULE ONBOARDING
 Follow the [SYSTEM] message flow if provided. Otherwise: ask the maxx-specific concern/focus first when relevant, then wake time, sleep time, outside today. ONE question at a time.
+IMPORTANT: For HeightMax, NEVER ask about outside today — that is only for SkinMax.
 
 ## WAKE-UP DETECTION
-If user says "im awake" / "just woke up" — acknowledge briefly, remind AM routine, ask if going outside today.
-outside_today is refreshed daily. When context shows "outside_today: unknown", ask the user each morning and use update_schedule_context(key="outside_today", value="true"/"false").
+If user says "im awake" / "just woke up" — acknowledge briefly, remind AM routine. For SkinMax only: ask if going outside today. For HeightMax/FitMax/etc: do NOT ask outside today.
+outside_today is refreshed daily for SkinMax. When context shows "outside_today: unknown" for a SkinMax schedule, ask the user each morning and use update_schedule_context(key="outside_today", value="true"/"false").
 """
 
 
 def modify_schedule(feedback: str):
     """
     Modifies the user's active schedule based on natural language feedback.
-    Use this when the user asks to change, move, add, or remove tasks from their schedule.
+    Use ONLY when the user wants to change/move/add/remove tasks or times on their schedule.
+    Do NOT use for "what is/are", "benefits of", "why", "how does X work", or other informational questions — answer those in chat without this tool.
+    After a successful change, the user will receive a summary of what was updated.
+    Notifications/reminders will be sent for the updated tasks.
     
     Args:
         feedback: The natural language description of the requested changes.
@@ -192,17 +206,37 @@ def modify_schedule(feedback: str):
     return {"status": "success", "message": f"Successfully requested schedule adaptation with feedback: {feedback}"}
 
 
-def generate_maxx_schedule(maxx_id: str, wake_time: str, sleep_time: str, outside_today: bool, skin_concern: str = None):
+def generate_maxx_schedule(
+    maxx_id: str,
+    wake_time: str,
+    sleep_time: str,
+    outside_today: bool,
+    skin_concern: str = None,
+    age: int = None,
+    sex: str = None,
+    height: str = None,
+    hair_type: str = None,
+    scalp_state: str = None,
+    daily_styling: str = None,
+    thinning: str = None,
+):
     """
     Generates a personalised maxx schedule for the user based on their preferences.
     Call this after asking the user for their selected concern or focus area (if applicable), wake time, sleep time, and whether they'll be outside.
-    
+
     Args:
         maxx_id: The maxx type ID, e.g. 'skinmax', 'heightmax', 'hairmax', 'fitmax'.
         wake_time: User's wake time in HH:MM 24-hour format, e.g. '07:00'.
         sleep_time: User's sleep time in HH:MM 24-hour format, e.g. '23:00'.
         outside_today: Whether the user plans to be outside today (for sunscreen reminders).
         skin_concern: User's chosen concern or focus area. For SkinMax this is the skin concern; for other maxxes reuse this field for the selected focus area.
+        age: User's age (for HeightMax). Pass if learned from conversation.
+        sex: User's sex/gender (for HeightMax). Pass if learned from conversation.
+        height: User's current height (for HeightMax). Any format, e.g. "5'10" or "178cm". Pass if learned from conversation.
+        hair_type: For HairMax: straight, wavy, curly, or coily.
+        scalp_state: For HairMax: normal, dry/flaky, oily/greasy, itchy.
+        daily_styling: For HairMax: yes or no — uses products/styling most days.
+        thinning: For HairMax: yes or no — thinning or receding hairline.
     """
     return {
         "status": "success",

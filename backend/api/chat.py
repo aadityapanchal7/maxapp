@@ -4,21 +4,140 @@ Handles AI chat with tool-calling, coaching state, check-in parsing, and memory.
 The core logic lives in process_chat_message() so it can be reused by the SMS webhook.
 """
 
-from fastapi import APIRouter, Depends
+import logging
+import re
 from datetime import datetime
-from uuid import UUID
 from typing import Optional
-from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
+
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from db import get_db, get_rds_db_optional
 from middleware.auth_middleware import require_paid_user
-from services.gemini_service import gemini_service
-from services.storage_service import storage_service
-from services.coaching_service import coaching_service
 from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
+from services.coaching_service import coaching_service
+from services.gemini_service import gemini_service
+from services.storage_service import storage_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+
+def _looks_like_informational_question(text: str) -> bool:
+    """
+    True for education / definition / why-how questions — not schedule change commands.
+    Used to skip schedule tools when the model mis-fires.
+    """
+    if not text or len(text.strip()) < 6:
+        return False
+    t = text.lower().strip()
+    # Schedule-change phrases that can co-occur with questions — exclude
+    if any(
+        x in t
+        for x in (
+            "move my",
+            "change my schedule",
+            "reschedule",
+            "push my",
+            "wake up at",
+            "sleep at",
+            "earlier than",
+            "later than",
+        )
+    ):
+        return False
+    patterns = (
+        r"\bwhat (are|is|was)\s+(the\s+)?(benefits?|risks?|pros?|cons?|difference|point|deal)\b",
+        r"\bwhat('s| is| are)\b",
+        r"\bwhy\b",
+        r"\bhow (do|does|can|should|to|much|long|often|come)\b",
+        r"^explain\b",
+        r"\btell me (about|why|how)\b",
+        r"\bis (it|this|that|minoxidil|derma)\b",
+        r"\bdoes (minoxidil|shampoo|derma|it)\b",
+        r"\bcan i use\b",
+        r"\bworth (it|using)\b",
+        r"\bdifference between\b",
+        r"\bshould i (use|take|buy|start)\b",
+        r"\bdefine\b",
+        r"\bmeaning of\b",
+    )
+    for pat in patterns:
+        if re.search(pat, t, re.I):
+            return True
+    return False
+
+
+def _user_requests_schedule_change(text: str) -> bool:
+    """
+    True when the user is clearly asking to change wake/sleep/times on an existing schedule.
+    Used to run adapt_schedule if the model forgot to call modify_schedule.
+    """
+    if not text or len(text.strip()) < 15:
+        return False
+    if _looks_like_informational_question(text):
+        return False
+    t = text.lower()
+    change_intent = any(
+        x in t
+        for x in (
+            "wake",
+            "waking",
+            "sleep",
+            "sleeping",
+            "bedtime",
+            "bed time",
+            "earlier",
+            "later",
+            "change",
+            "update",
+            "move",
+            "shift",
+            "instead",
+            "actually",
+            "going to be",
+            "gonna be",
+            "from now",
+            "tomorrow",
+            "day after",
+        )
+    )
+    if not change_intent:
+        return False
+    has_time = bool(
+        re.search(r"\d{1,2}(\s*:\s*\d{2})?\s*(am|pm)|\d{1,2}:\d{2}", t, re.I)
+    )
+    if has_time or "wake" in t or "sleep" in t or "bed" in t:
+        return True
+    return False
+
+
+def _yes_no_answered(val) -> bool:
+    """True if user gave an explicit yes/no answer (for hairmax daily_styling / thinning)."""
+    if val is None:
+        return False
+    if isinstance(val, bool):
+        return True
+    s = str(val).strip().lower()
+    return s in ("yes", "no", "y", "n", "true", "false", "1", "0")
+
+
+def _normalize_hair_yes_no(val) -> Optional[str]:
+    """Normalize to 'yes' / 'no' for schedule context, or None."""
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        return "yes" if val else "no"
+    s = str(val).strip().lower()
+    if s in ("yes", "y", "true", "1"):
+        return "yes"
+    if s in ("no", "n", "false", "0"):
+        return "no"
+    return None
 
 
 async def process_chat_message(
@@ -83,6 +202,143 @@ async def process_chat_message(
         if existing_maxx:
             user_context["active_maxx_schedule"] = existing_maxx
             message = f"[SYSTEM: User opened {maxx_id} and already has an active schedule.]\n\n{message}"
+        elif maxx_id == "heightmax":
+            message = f"""[SYSTEM: you are running the HEIGHTMAX schedule setup.
+
+the user just opened heightmax to start a new schedule. follow the same tone and style you use for other maxx modules: short, casual, direct, and focused on getting their schedule locked in.
+
+CRITICAL — FORBIDDEN FOR HEIGHTMAX
+- NEVER ask "outside today" or "you gonna be outside today" or "will you be outside" — that is ONLY for SkinMax. HeightMax does NOT use outside_today. If you ask this, you have failed.
+
+MAIN RULES FOR HEIGHTMAX
+- do NOT ask "what is your main concern?" or any generic concern questions.
+- height is already the focus. don't ask what area they want to work on.
+- your job is just to grab missing info, then call generate_maxx_schedule and let the backend build the schedule.
+
+WHAT YOU'RE ALLOWED TO ASK FOR (ONLY IF MISSING)
+- age
+- sex / gender
+- current height
+- wake time
+- sleep time
+
+HOW TO RUN THE FLOW
+1) greet very briefly, in your usual style, and say you're going to set up their heightmax schedule.
+
+2) check what info is already known in user_context. ONLY ask for what's missing. ORDER: age first, then sex, then height, then wake time, then sleep time.
+   - if age is missing: ask "how old are you?"
+   - if sex / gender is missing: ask "what's your sex or gender?"
+   - if height is missing: ask "what's your current height?" (any format is fine)
+   - if wake_time is missing: ask "what time do you usually wake up?"
+   - if sleep_time is missing: ask "what time do you usually go to sleep?"
+
+   ask ONE question at a time. do NOT skip to wake/sleep before you have age, sex, and height. do NOT ask about outside today.
+
+3) once you have age, sex, height, wake_time, and sleep_time available (from context + answers), you must call the tool generate_maxx_schedule exactly once with:
+   - maxx_id = "heightmax"
+   - wake_time = the user's wake time
+   - sleep_time = the user's sleep time
+   - skin_concern = null / empty (heightmax doesn't use concerns)
+   - outside_today = false (heightmax doesn't use outside_today)
+   - age = their age (number, if known)
+   - sex = their sex/gender (if known)
+   - height = their current height in any format, e.g. "5'10" or "178cm" (if known)
+
+   the backend will use their age, sex, and height to decide how the heightmax schedule looks. you don't need to explain that logic in detail.
+
+4) after generate_maxx_schedule runs and the backend attaches a schedule summary, stay in your normal style:
+   - confirm the schedule is locked in.
+   - tell them to check the schedule tab for full details.
+   - keep it short, e.g. "your heightmax schedule is locked in. check your schedule tab."
+
+STYLE
+- same tone as skinmax/fitmax: friendly, casual, not overly motivational.
+- stay focused on heightmax in this flow. don't switch topics to skin, hair, or gym unless a different module is explicitly opened.
+- keep responses concise. no long lectures, no custom step-by-step routines you invent yourself.
+
+your first response in this heightmax start flow should:
+- briefly acknowledge they're starting heightmax, and
+- immediately ask for the first missing piece of required info (age → sex → height → wake time → sleep time).]\n\n{message}"""
+        elif maxx_id == "hairmax":
+            message = f"""[SYSTEM: you are running the HAIRMAX schedule setup.
+
+the user just opened hairmax to start a new schedule. follow the same tone and style as other maxx modules: short, casual, direct, focused on getting their schedule locked in.
+
+DO NOT:
+- do not ask "what is your main concern?" or any generic concern questions.
+- do not ask if they will be outside today (that's only for skin).
+- do not invent your own detailed routine; the backend schedule handles tasks and timings.
+- stay inside hairmax. don't switch to skin, height, or fit here.
+
+what you're allowed to ask for (only if missing in user_context or onboarding):
+- hair basics:
+  - hair type: straight, wavy, curly, coily
+  - scalp state: normal, dry/flaky, oily/greasy, itchy
+  - daily styling/product use: "do you use hair products or styling most days?" (yes/no)
+- thinning:
+  - "do you notice hair thinning or a receding hairline?" (yes/no)
+- timing anchors:
+  - wake_time
+  - sleep_time
+  - pm routine time (night routine / skincare) if needed for minoxidil/dermastamp timing
+
+guiding rules (for how you talk; backend does final schedule):
+- shampoo/conditioner:
+  - default shampoo suggestion is gentle, sulfate-free, paraben-free, scalp-focused, not harsh stripping.
+  - default conditioner: always on hair strands, not on scalp unless clearly scalp-safe. leave-in conditioner is a safe generic rec.
+  - anti-dandruff shampoo is only relevant if flakes are oily/yellow/persistent or scalp stays itchy despite gentle products.
+  - never push "no shampoo"; "less often" is okay when over-washed.
+- when to wash:
+  - straight/wavy: about 2–3x/week.
+  - curly: shampoo less often with fixed wash days; optional co-wash between.
+  - daily product users: enough washing to clear buildup every couple days.
+  - if dry with small white flakes/over-washed: reduce frequency.
+  - if greasy/itchy/buildup: increase frequency.
+- thinning + minoxidil:
+  - only for users who say they have thinning/receding.
+  - minoxidil is daily (non-negotiable).
+  - main anchor: pm skincare/night routine; optional second morning application for advanced users.
+  - reminder style: "minoxidil. thinning areas only." with consistency pressure like "miss days = lose gains." and identity framing like "you either maintain your hairline or watch it go."
+  - if they skip a lot, tone can escalate slightly. if they're consistent, keep reminders cleaner and fewer (e.g., 1/day).
+- dermastamp/roller:
+  - only for users with thinning.
+  - default frequency: 1x/week, max 2x/week (never more).
+  - timing: evening, near pm routine / before bed, ideally same day each week.
+  - reminder style: "dermastamp tonight. hairline/crown only."
+
+flow for a new hairmax schedule:
+1) greet briefly and say you're setting up their hairmax schedule.
+2) check user_context/onboarding for existing data. only ask what's missing. STRICT ORDER — do not skip ahead:
+   - hair type (straight / wavy / curly / coily)
+   - scalp state (normal, dry/flaky, oily/greasy, itchy)
+   - daily product/styling (yes/no)
+   - thinning or receding hairline (yes/no)
+   - wake_time
+   - sleep_time
+   - pm routine time (only if needed and unknown)
+   ask one question at a time. you MUST collect all four hair lines (type, scalp, daily styling, thinning) before wake/sleep.
+3) only after you have all of those, call generate_maxx_schedule exactly once. the backend will reject the call if hair fields are missing — pass them explicitly:
+   - maxx_id = "hairmax"
+   - hair_type = e.g. "curly"
+   - scalp_state = e.g. "oily/greasy"
+   - daily_styling = "yes" or "no"
+   - thinning = "yes" or "no"
+   - wake_time = user's wake time
+   - sleep_time = user's sleep time
+   - skin_concern = null/empty (hairmax does not use concerns)
+   - outside_today = false (hairmax does not use outside_today)
+4) after generate_maxx_schedule runs and the backend appends a schedule summary, confirm in your usual short style, e.g.:
+   - "your hairmax schedule is locked in. check your schedule tab."
+   do not invent new tasks or times; the backend already scheduled everything.
+
+style:
+- same as other maxx modules: friendly, casual, short.
+- one question at a time.
+- no long lectures, no generic concern questions.
+
+your first response in this hairmax start flow should:
+- briefly acknowledge they're starting hairmax, and
+- immediately ask the first missing hair-related question (hair type / scalp / products / thinning). if all hair basics are known, ask for missing timing (wake/sleep), then proceed to trigger generate_maxx_schedule.]\n\n{message}"""
         else:
             concern_question, concerns = None, []
             if rds_db:
@@ -111,11 +367,7 @@ async def process_chat_message(
 3. After they pick a concern, ask: "What time do you usually wake up?" — wait for answer.
 4. Then ask: "What time do you usually go to sleep?" — wait for answer.
 5. Then ask: "Are you planning to be outside much today?" — wait for answer.
-<<<<<<< HEAD
-6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern, wake_time, sleep_time, outside_today.
-=======
 6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern ({concern_ids}), wake_time, sleep_time, outside_today.
->>>>>>> d63294ca1238d09f64acc2e5ee400bd26a4f6bdb
 Ask ONE question at a time. Your very first response must ask the concern question.]\n\n{message}"""
             else:
                 message = f"[SYSTEM: User wants to start {maxx_id} schedule. Ask wake time, sleep time, outside today. One at a time.]\n\n{message}"
@@ -131,33 +383,99 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     tool_calls = result.get("tool_calls", [])
 
     # --- Process tool calls ---
+    modify_schedule_ran = False
     for tool in tool_calls:
         if tool["name"] == "modify_schedule" and active_schedule:
             try:
+                if _looks_like_informational_question(message_text):
+                    logger.info(
+                        "Skipping modify_schedule — informational question: %s",
+                        message_text[:80],
+                    )
+                    continue
                 feedback = tool["args"].get("feedback")
                 if feedback:
-                    await schedule_service.adapt_schedule(
+                    modify_schedule_ran = True
+                    adapt_result = await schedule_service.adapt_schedule(
                         user_id=user_id,
                         schedule_id=active_schedule["id"],
                         db=db,
                         feedback=feedback,
                     )
+                    summary = adapt_result.get("changes_summary", "").strip()
+                    # Summary is always set (LLM or deterministic fallback)
+                    if summary:
+                        response_text = (response_text + "\n\n" + summary).strip() if response_text else summary
             except Exception as e:
-                print(f"Schedule adaptation failed: {e}")
+                logger.exception("Schedule adaptation failed: %s", e)
 
         elif tool["name"] == "generate_maxx_schedule":
             try:
                 args = tool["args"]
+                req_maxx = str(args.get("maxx_id", "skinmax"))
                 skin_concern = args.get("skin_concern") or onboarding.get("skin_type")
+                # For HeightMax, allow AI to pass age/sex/height from conversation
+                age_raw = args.get("age")
+                age = int(age_raw) if age_raw is not None and str(age_raw).isdigit() else None
+                sex = args.get("sex") or args.get("gender")
+                height = args.get("height")
+                # HeightMax REQUIRES age, sex, height — reject if missing
+                if req_maxx == "heightmax":
+                    has_age = age is not None or onboarding.get("age") is not None
+                    has_sex = bool(sex or onboarding.get("gender"))
+                    has_height = bool(height or onboarding.get("height"))
+                    if not has_age or not has_sex or not has_height:
+                        if not has_age:
+                            response_text = "hold up — i need your age, sex, and height before i can build your schedule. how old are you?"
+                        elif not has_sex:
+                            response_text = "got it. what's your sex or gender?"
+                        else:
+                            response_text = "almost there. what's your current height? any format works."
+                        continue
+                # HairMax REQUIRES hair type, scalp, daily styling, thinning — reject if missing
+                if req_maxx == "hairmax":
+                    hair_type = args.get("hair_type") or onboarding.get("hair_type")
+                    scalp_state = args.get("scalp_state") or onboarding.get("scalp_state")
+                    daily_styling = args.get("daily_styling")
+                    if daily_styling is None:
+                        daily_styling = onboarding.get("daily_styling")
+                    thinning = args.get("thinning") or args.get("hair_thinning")
+                    if thinning is None:
+                        thinning = onboarding.get("hair_thinning") or onboarding.get("thinning")
+                    has_ht = bool(str(hair_type or "").strip())
+                    has_ss = bool(str(scalp_state or "").strip())
+                    has_ds = _yes_no_answered(daily_styling)
+                    has_th = _yes_no_answered(thinning)
+                    if not has_ht or not has_ss or not has_ds or not has_th:
+                        if not has_ht:
+                            response_text = "need a bit more first — is your hair straight, wavy, curly, or coily?"
+                        elif not has_ss:
+                            response_text = "how's your scalp: normal, dry/flaky, oily/greasy, or itchy?"
+                        elif not has_ds:
+                            response_text = "do you use hair products or styling most days? yes or no."
+                        else:
+                            response_text = "you notice thinning or a receding hairline? yes or no."
+                        continue
                 schedule = await schedule_service.generate_maxx_schedule(
                     user_id=user_id,
-                    maxx_id=str(args.get("maxx_id", "skinmax")),
+                    maxx_id=req_maxx,
                     db=db,
                     rds_db=rds_db if rds_db else None,
                     wake_time=str(args.get("wake_time", "07:00")),
                     sleep_time=str(args.get("sleep_time", "23:00")),
                     skin_concern=skin_concern,
                     outside_today=bool(args.get("outside_today", False)),
+                    override_age=age,
+                    override_sex=sex,
+                    override_height=str(height) if height is not None else None,
+                    override_hair_type=(args.get("hair_type") or onboarding.get("hair_type") or "").strip() or None,
+                    override_scalp_state=(args.get("scalp_state") or onboarding.get("scalp_state") or "").strip() or None,
+                    override_daily_styling=_normalize_hair_yes_no(
+                        args.get("daily_styling") if args.get("daily_styling") is not None else onboarding.get("daily_styling")
+                    ),
+                    override_thinning=_normalize_hair_yes_no(
+                        args.get("thinning") or args.get("hair_thinning") or onboarding.get("hair_thinning") or onboarding.get("thinning")
+                    ),
                 )
                 schedule_summary = _summarise_schedule(schedule)
                 if not response_text.strip():
@@ -206,11 +524,27 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             except Exception as e:
                 print(f"Check-in logging failed: {e}")
 
-<<<<<<< HEAD
-    # --- Enforce lowercase ---
-=======
+    # --- If user asked to change schedule times but the model didn't call modify_schedule, adapt anyway ---
+    if (
+        active_schedule
+        and not modify_schedule_ran
+        and not _looks_like_informational_question(message_text)
+        and _user_requests_schedule_change(message_text)
+    ):
+        try:
+            adapt_result = await schedule_service.adapt_schedule(
+                user_id=user_id,
+                schedule_id=active_schedule["id"],
+                db=db,
+                feedback=message_text,
+            )
+            summ = adapt_result.get("changes_summary", "").strip()
+            if summ:
+                response_text = (response_text + "\n\n" + summ).strip() if response_text else summ
+        except Exception as e:
+            logger.exception("Forced schedule adaptation failed: %s", e)
+
     # --- Enforce lowercase on all AI responses ---
->>>>>>> d63294ca1238d09f64acc2e5ee400bd26a4f6bdb
     response_text = response_text.lower()
 
     # --- Save messages ---

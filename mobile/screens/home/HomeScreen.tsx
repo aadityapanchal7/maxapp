@@ -6,6 +6,18 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
+const MAX_TAG_PILLS = 3;
+
+/** Module step titles first (detail cards); else concern labels (e.g. SkinMax). */
+function getMaxxTagLabels(maxx: any): string[] {
+    const modules = maxx.modules || [];
+    if (modules.length > 0) {
+        return modules.map((m: any) => m.title).filter(Boolean);
+    }
+    const concerns = maxx.concerns || [];
+    return concerns.map((c: any) => c.label || c.id).filter(Boolean);
+}
+
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
     const { user } = useAuth();
@@ -73,7 +85,9 @@ export default function HomeScreen() {
                         </View>
 
                         {activeMaxxes.map((maxx) => {
-                            const moduleTitles: string[] = (maxx.modules || []).map((m: any) => m.title);
+                            const allTags = getMaxxTagLabels(maxx);
+                            const previewTags = allTags.slice(0, MAX_TAG_PILLS);
+                            const moreCount = allTags.length - previewTags.length;
                             return (
                                 <TouchableOpacity
                                     key={maxx.id}
@@ -88,13 +102,18 @@ export default function HomeScreen() {
                                         <View style={styles.courseContent}>
                                             <Text style={styles.courseTitle} numberOfLines={1}>{maxx.label}</Text>
                                             <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 6, textAlign: 'left' }]} numberOfLines={2}>{maxx.description}</Text>
-                                            {moduleTitles.length > 0 && (
+                                            {previewTags.length > 0 && (
                                                 <View style={styles.moduleRow}>
-                                                    {moduleTitles.map((t) => (
-                                                        <View key={t} style={styles.modulePill}>
-                                                            <Text style={styles.moduleText}>{t}</Text>
+                                                    {previewTags.map((t, i) => (
+                                                        <View key={`${maxx.id}-tag-${i}`} style={styles.modulePill}>
+                                                            <Text style={styles.moduleText} numberOfLines={1}>{t}</Text>
                                                         </View>
                                                     ))}
+                                                    {moreCount > 0 && (
+                                                        <Text style={styles.moduleMoreHint} numberOfLines={1}>
+                                                            +{moreCount} more…
+                                                        </Text>
+                                                    )}
                                                 </View>
                                             )}
                                         </View>
@@ -176,15 +195,25 @@ const styles = StyleSheet.create({
         marginTop: spacing.sm,
     },
     modulePill: {
-        paddingHorizontal: spacing.sm,
-        paddingVertical: 4,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
         borderRadius: 999,
         backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
     },
     moduleText: {
-        fontSize: 11,
-        fontWeight: '500',
+        fontSize: 10,
+        fontWeight: '600',
         color: colors.textSecondary,
+        maxWidth: 130,
+    },
+    moduleMoreHint: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: colors.textMuted,
+        alignSelf: 'center',
+        marginLeft: 2,
     },
     emptyCard: {
         backgroundColor: colors.card,
