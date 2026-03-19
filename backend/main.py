@@ -16,7 +16,8 @@ from db import init_db, close_db, init_rds_db, close_rds_db
 from api import (
     auth_router, users_router, scans_router, payments_router,
     courses_router, events_router, forums_router, chat_router, leaderboard_router,
-    admin_router, notifications_router, schedules_router, maxes_router
+    admin_router, notifications_router, schedules_router, maxes_router,
+    twilio_webhook_router,
 )
 
 
@@ -88,6 +89,7 @@ app.include_router(admin_router, prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 app.include_router(schedules_router, prefix="/api")
 app.include_router(maxes_router, prefix="/api")
+app.include_router(twilio_webhook_router, prefix="/api")
 
 # Mount uploads directory
 uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")

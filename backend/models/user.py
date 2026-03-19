@@ -67,7 +67,7 @@ class UserCreate(BaseModel):
     last_name: str = Field(..., min_length=1, max_length=50)
     username: str = Field(..., min_length=3, max_length=30, pattern="^[a-zA-Z0-9_]+$")
     bio: Optional[str] = None
-    phone_number: Optional[str] = Field(default=None, description="Phone number with country code, e.g. +919876543210")
+    phone_number: str = Field(..., min_length=7, description="Phone number for SMS (with country code, e.g. +15551234567)")
     
     class Config:
         json_schema_extra = {

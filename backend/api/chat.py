@@ -1,11 +1,13 @@
 """
 Chat API - Max LLM Chat
 Handles AI chat with tool-calling, coaching state, check-in parsing, and memory.
+The core logic lives in process_chat_message() so it can be reused by the SMS webhook.
 """
 
 from fastapi import APIRouter, Depends
 from datetime import datetime
 from uuid import UUID
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from db import get_db, get_rds_db_optional
@@ -19,16 +21,20 @@ from models.sqlalchemy_models import ChatHistory, Scan, User
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
-@router.post("/message", response_model=ChatResponse)
-async def send_message(
-    data: ChatRequest,
-    current_user: dict = Depends(require_paid_user),
-    db: AsyncSession = Depends(get_db),
-    rds_db: AsyncSession | None = Depends(get_rds_db_optional),
-):
-    """Send message to Max AI"""
+async def process_chat_message(
+    user_id: str,
+    message_text: str,
+    db: AsyncSession,
+    rds_db: Optional[AsyncSession] = None,
+    init_context: Optional[str] = None,
+    attachment_url: Optional[str] = None,
+    attachment_type: Optional[str] = None,
+) -> str:
+    """
+    Core chat logic shared by the HTTP endpoint and the SMS webhook.
+    Returns the AI response text. Saves both user + assistant messages to ChatHistory.
+    """
     from services.schedule_service import schedule_service
-    user_id = current_user["id"]
     user_uuid = UUID(user_id)
 
     # Load chat history
@@ -44,9 +50,7 @@ async def send_message(
         for h in history_rows
     ]
 
-    # Build full coaching context (schedule, scans, state, memory, tone)
     coaching_context = await coaching_service.build_full_context(user_id, db, rds_db)
-
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     user = await db.get(User, user_uuid)
     onboarding = (user.onboarding if user else {}) or {}
@@ -58,12 +62,14 @@ async def send_message(
     }
 
     # --- Init context / maxx schedule onboarding ---
-    message = data.message
-    maxx_id = data.init_context
+    message = message_text
+    maxx_id = init_context
     if not maxx_id and message:
         msg_lower = message.lower()
         if "skinmax" in msg_lower or "skin max" in msg_lower:
             maxx_id = "skinmax"
+        elif "heightmax" in msg_lower or "height max" in msg_lower:
+            maxx_id = "heightmax"
         elif "hairmax" in msg_lower or "hair max" in msg_lower:
             maxx_id = "hairmax"
         elif "fitmax" in msg_lower or "fit max" in msg_lower:
@@ -104,15 +110,15 @@ async def send_message(
 3. After they pick a concern, ask: "What time do you usually wake up?" — wait for answer.
 4. Then ask: "What time do you usually go to sleep?" — wait for answer.
 5. Then ask: "Are you planning to be outside much today?" — wait for answer.
-6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern (acne/pigmentation/texture/redness/aging), wake_time, sleep_time, outside_today.
+6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern, wake_time, sleep_time, outside_today.
 Ask ONE question at a time. Your very first response must ask the concern question.]\n\n{message}"""
             else:
                 message = f"[SYSTEM: User wants to start {maxx_id} schedule. Ask wake time, sleep time, outside today. One at a time.]\n\n{message}"
 
     # --- Image handling ---
     image_data = None
-    if data.attachment_url and data.attachment_type == "image":
-        image_data = await storage_service.get_image(data.attachment_url)
+    if attachment_url and attachment_type == "image":
+        image_data = await storage_service.get_image(attachment_url)
 
     # --- LLM call ---
     result = await gemini_service.chat(message, history, user_context, image_data)
@@ -195,11 +201,14 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             except Exception as e:
                 print(f"Check-in logging failed: {e}")
 
+    # --- Enforce lowercase ---
+    response_text = response_text.lower()
+
     # --- Save messages ---
     user_message = ChatHistory(
         user_id=user_uuid,
         role="user",
-        content=data.message,
+        content=message_text,
         created_at=datetime.utcnow(),
     )
     assistant_message = ChatHistory(
@@ -222,13 +231,32 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         except Exception as e:
             print(f"AI memory update failed: {e}")
 
-    # --- Background: detect tone preference every ~20 messages ---
     if total_msgs % 20 == 0:
         try:
             await coaching_service.detect_tone_preference(user_id, db, history[-30:])
         except Exception as e:
             print(f"Tone detection failed: {e}")
 
+    return response_text
+
+
+@router.post("/message", response_model=ChatResponse)
+async def send_message(
+    data: ChatRequest,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+    rds_db: AsyncSession | None = Depends(get_rds_db_optional),
+):
+    """Send message to Max AI (in-app)"""
+    response_text = await process_chat_message(
+        user_id=current_user["id"],
+        message_text=data.message,
+        db=db,
+        rds_db=rds_db,
+        init_context=data.init_context,
+        attachment_url=data.attachment_url,
+        attachment_type=data.attachment_type,
+    )
     return ChatResponse(response=response_text)
 
 

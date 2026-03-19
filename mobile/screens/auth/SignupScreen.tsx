@@ -148,8 +148,8 @@ export default function SignupScreen() {
                                 {passwordMismatch && <Text style={styles.helperError}>Passwords don&apos;t match</Text>}
                             </View>
                             <View style={styles.inputGroup}>
-                                <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>WHATSAPP · Required</Text>
-                                <TextInput style={[styles.input, fieldErrors.phone && styles.inputError]} placeholder="+91 98765 43210" placeholderTextColor={colors.textMuted} value={phone} onChangeText={(t) => { setPhone(t); setFieldErrors((p) => ({ ...p, phone: false })); setApiError(null); }} keyboardType="phone-pad" />
+                                <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>PHONE NUMBER (SMS) · Required</Text>
+                                <TextInput style={[styles.input, fieldErrors.phone && styles.inputError]} placeholder="+1 555 123 4567" placeholderTextColor={colors.textMuted} value={phone} onChangeText={(t) => { setPhone(t); setFieldErrors((p) => ({ ...p, phone: false })); setApiError(null); }} keyboardType="phone-pad" />
                             </View>
 
                             {apiError && (

@@ -105,12 +105,6 @@ async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
     await db.refresh(user)
     user_id = str(user.id)
     
-    # Send WhatsApp welcome message (non-blocking — failure won't break signup)
-    if user_data.phone_number:
-        from services.twilio_service import twilio_service
-        import asyncio
-        asyncio.create_task(twilio_service.send_welcome(user_data.phone_number, user_data.email))
-    
     # Create tokens
     access_token = create_access_token(user_id)
     refresh_token = create_refresh_token(user_id)

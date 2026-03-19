@@ -1,6 +1,7 @@
 """
-Scheduler Job - Background tasks: WhatsApp reminders, in-app chat reminders,
-proactive coaching check-ins (morning, midday, night, weekly, missed-task nudges).
+Scheduler Job - Background tasks: SMS reminders, coaching check-ins,
+daily progress prompts, weekly resets.
+All notifications route to SMS (not in-app chat).
 """
 
 import logging
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 async def send_due_notifications():
-    """Check for schedule tasks that are due and send WhatsApp reminders."""
+    """Check for schedule tasks that are due and send SMS reminders."""
     try:
         async with AsyncSessionLocal() as db:
             result = await db.execute(
@@ -28,7 +29,7 @@ async def send_due_notifications():
 
             for schedule in schedules:
                 user = await db.get(User, schedule.user_id)
-                if not user:
+                if not user or not user.phone_number:
                     continue
 
                 tz_name = (user.onboarding or {}).get("timezone", "UTC")
@@ -74,99 +75,16 @@ async def send_due_notifications():
                             notify_at = task_dt - timedelta(minutes=reminder_offset)
 
                             if notify_at <= local_now <= task_dt + timedelta(minutes=5):
-                                if user.phone_number:
-                                    success = await twilio_service.send_schedule_reminder(
-                                        phone=user.phone_number,
-                                        task_title=task.get("title", "Task"),
-                                        task_description=task.get("description", ""),
-                                        task_time=task_time,
-                                    )
-                                    if success:
-                                        task["notification_sent"] = True
-                                        updated = True
-                                        logger.info(f"Sent reminder to {user.id} for task {task.get('task_id')}")
-                        except (ValueError, TypeError) as e:
-                            logger.warning(f"Invalid task time '{task_time}': {e}")
-                            continue
-
-                if updated:
-                    schedule.days = days
-                    schedule.updated_at = datetime.utcnow()
-
-            await db.commit()
-
-    except Exception as e:
-        logger.error(f"Scheduler job error: {e}", exc_info=True)
-
-
-async def send_chat_reminders():
-    """Insert Max chat messages for due schedule tasks (in-app reminders)."""
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(UserSchedule).where(UserSchedule.is_active == True)
-            )
-            schedules = result.scalars().all()
-
-            for schedule in schedules:
-                user = await db.get(User, schedule.user_id)
-                if not user:
-                    continue
-
-                tz_name = (user.onboarding or {}).get("timezone", "UTC")
-                try:
-                    user_tz = ZoneInfo(tz_name)
-                except Exception:
-                    user_tz = ZoneInfo("UTC")
-
-                now_utc = datetime.now(ZoneInfo("UTC"))
-                local_now = now_utc.astimezone(user_tz)
-                today_iso = local_now.date().isoformat()
-
-                days = schedule.days or []
-                updated = False
-                for day in days:
-                    if day.get("date") != today_iso:
-                        continue
-
-                    for task in day.get("tasks", []):
-                        if task.get("chat_reminded") or task.get("status") != "pending":
-                            continue
-
-                        task_time = task.get("time", "")
-                        if not task_time:
-                            continue
-
-                        try:
-                            task_time_clean = task_time.strip().upper()
-                            if "AM" in task_time_clean or "PM" in task_time_clean:
-                                from datetime import datetime as dt
-                                parsed_time = dt.strptime(task_time_clean, "%I:%M %p").time()
-                                task_hour, task_min = parsed_time.hour, parsed_time.minute
-                            else:
-                                task_hour, task_min = map(int, task_time_clean.split(":"))
-
-                            task_dt = local_now.replace(
-                                hour=task_hour, minute=task_min, second=0, microsecond=0
-                            )
-
-                            if task_dt <= local_now <= task_dt + timedelta(minutes=10):
-                                title = task.get("title", "Task")
-                                desc = task.get("description", "")
-                                msg = f"⏰ **{title}**\n{desc}" if desc else f"⏰ **{title}**"
-
-                                chat_msg = ChatHistory(
-                                    user_id=schedule.user_id,
-                                    role="assistant",
-                                    content=msg,
-                                    created_at=datetime.utcnow(),
+                                success = await twilio_service.send_schedule_reminder(
+                                    phone=user.phone_number,
+                                    task_title=task.get("title", "Task"),
+                                    task_description=task.get("description", ""),
+                                    task_time=task_time,
                                 )
-                                db.add(chat_msg)
-                                task["chat_reminded"] = True
-                                updated = True
-                                logger.info(
-                                    f"Sent chat reminder to {user.id} for task '{title}'"
-                                )
+                                if success:
+                                    task["notification_sent"] = True
+                                    updated = True
+                                    logger.info(f"Sent SMS reminder to {user.id} for task {task.get('task_id')}")
                         except (ValueError, TypeError) as e:
                             logger.warning(f"Invalid task time '{task_time}': {e}")
                             continue
@@ -179,7 +97,7 @@ async def send_chat_reminders():
             await db.commit()
 
     except Exception as e:
-        logger.error(f"Chat reminders job error: {e}", exc_info=True)
+        logger.error(f"Scheduler job error: {e}", exc_info=True)
 
 
 async def send_daily_progress_prompts():
@@ -330,11 +248,17 @@ async def send_coaching_check_ins():
                 if missed_today > 0 and check_in_type != "morning":
                     check_in_type = "missed_task"
 
-                # Generate check-in message via AI (fully dynamic)
+                # Generate check-in message via AI and send as SMS
+                if not user.phone_number:
+                    continue
+
                 msg_text = await coaching_service.generate_check_in_message(
                     str(user.id), db, None, check_in_type, missed_today
                 )
 
+                await twilio_service.send_coaching_sms(user.phone_number, msg_text)
+
+                # Also save to chat history so it shows in-app too
                 chat_msg = ChatHistory(
                     user_id=user.id,
                     role="assistant",
@@ -343,7 +267,6 @@ async def send_coaching_check_ins():
                 )
                 db.add(chat_msg)
 
-                # Update last_check_in
                 state.last_check_in = datetime.utcnow()
                 state.updated_at = datetime.utcnow()
 
@@ -351,7 +274,7 @@ async def send_coaching_check_ins():
                     state.missed_days = (state.missed_days or 0) + 1
                     state.streak_days = 0
 
-                logger.info(f"Sent {check_in_type} check-in to {user.id}")
+                logger.info(f"Sent {check_in_type} check-in SMS to {user.id}")
 
             await db.commit()
 
@@ -391,6 +314,9 @@ async def send_weekly_resets():
                     str(user.id), db, None, "weekly", 0
                 )
 
+                if user.phone_number:
+                    await twilio_service.send_coaching_sms(user.phone_number, msg_text)
+
                 chat_msg = ChatHistory(
                     user_id=user.id,
                     role="assistant",
@@ -399,10 +325,9 @@ async def send_weekly_resets():
                 )
                 db.add(chat_msg)
 
-                # Reset weekly counters
                 state.missed_days = 0
                 state.updated_at = datetime.utcnow()
-                logger.info(f"Sent weekly reset to {user.id}")
+                logger.info(f"Sent weekly reset SMS to {user.id}")
 
             await db.commit()
 
@@ -421,13 +346,6 @@ def start_scheduler(app):
             "interval",
             minutes=5,
             id="schedule_notifications",
-            replace_existing=True,
-        )
-        scheduler.add_job(
-            send_chat_reminders,
-            "interval",
-            minutes=5,
-            id="chat_reminders",
             replace_existing=True,
         )
         scheduler.add_job(
@@ -452,7 +370,7 @@ def start_scheduler(app):
             replace_existing=True,
         )
         scheduler.start()
-        logger.info("APScheduler started — notifications 5min, chat 5min, coaching 30min, weekly 60min")
+        logger.info("APScheduler started — SMS notifications 5min, coaching 30min, weekly 60min")
         return scheduler
     except ImportError:
         logger.warning("APScheduler not installed — background notifications disabled. Run: pip install apscheduler")

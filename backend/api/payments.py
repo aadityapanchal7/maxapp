@@ -2,6 +2,8 @@
 Payments API - Stripe subscriptions
 """
 
+import asyncio
+import logging
 from fastapi import APIRouter, HTTPException, Request, Depends
 from datetime import datetime
 from uuid import UUID
@@ -10,8 +12,11 @@ from sqlalchemy import select
 from db import get_db
 from middleware import get_current_user
 from services.stripe_service import stripe_service
+from services.twilio_service import twilio_service
 from models.payment import PaymentCreate, CheckoutSessionResponse
 from models.sqlalchemy_models import User, Scan
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
@@ -67,6 +72,11 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             user.subscription_status = "active"
             await db.commit()
 
+            if user.phone_number:
+                asyncio.create_task(
+                    twilio_service.send_welcome(user.phone_number, user.email)
+                )
+
         scans_result = await db.execute(
             select(Scan).where(Scan.user_id == user_uuid)
         )
@@ -116,11 +126,16 @@ async def test_activate_subscription(
         for scan in scans_result.scalars().all():
             scan.is_unlocked = True
         await db.commit()
+
+        if user.phone_number:
+            asyncio.create_task(
+                twilio_service.send_welcome(user.phone_number, user.email)
+            )
     except HTTPException:
         raise
     except Exception as e:
         await db.rollback()
-        print(f"[ERROR] test-activate failed: {e}")
+        logger.error(f"test-activate failed: {e}")
         raise HTTPException(status_code=500, detail=f"Activation failed: {e}")
     
     return {"status": "activated", "message": "Subscription activated for testing"}
