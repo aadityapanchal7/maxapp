@@ -6,6 +6,7 @@ python-multipart>=0.0.6
 # Database
 sqlalchemy>=2.0.0
 asyncpg>=0.29.0
+greenlet>=3.0.0
 
 # Authentication
 python-jose[cryptography]>=3.3.0

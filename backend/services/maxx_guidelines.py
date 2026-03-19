@@ -223,6 +223,144 @@ HEIGHTMAX_MODULES = [
     },
 ]
 
+# ---------------------------------------------------------------------------
+# HairMax protocols keyed by concern
+# ---------------------------------------------------------------------------
+HAIR_TYPE_TO_CONCERN = {
+    "straight": "wash_routine",
+    "wavy": "wash_routine",
+    "curly": "wash_routine",
+    "thinning": "minoxidil",
+    "normal": "wash_routine",
+}
+
+HAIRMAX_PROTOCOLS = {
+    "wash_routine": {
+        "label": "Wash Routine",
+        "shampoo": "Gentle, sulfate-free, paraben-free, scalp-focused (not harsh stripping)",
+        "conditioner": "Always on hair strands, never on scalp unless specifically intended. Leave-in conditioner is safest broad recommendation.",
+        "frequency_straight_wavy": "Shampoo 2–3x/week",
+        "frequency_curly": "Shampoo less often, build fixed wash days; optional co-wash between",
+        "frequency_product_heavy": "If product used daily, wash out buildup every couple days",
+        "over_washed_signs": "Dry + small white flakes → reduce shampoo frequency",
+        "under_washed_signs": "Greasy itchy scalp + buildup → increase wash frequency",
+        "rule": "Never push 'no shampoo' as a recommendation",
+    },
+    "anti_dandruff": {
+        "label": "Anti-Dandruff Protocol",
+        "when_to_use": "Only if flakes are oily/yellow/persistent OR scalp stays itchy despite gentle products",
+        "shampoo": "Anti-dandruff shampoo (ketoconazole, zinc pyrithione, or selenium sulfide based)",
+        "frequency": "2–3x/week during flare, reduce to 1x/week maintenance once controlled",
+        "conditioner": "Still use conditioner on strands after anti-dandruff shampoo",
+        "rule": "Do not recommend anti-dandruff unless clear signs of fungal/seborrheic issue",
+    },
+    "oils_masks": {
+        "label": "Oils & Hair Masks",
+        "when_to_use": "For dry/damaged hair, pre-wash treatment, or scalp nourishment",
+        "frequency": "1–2x/week",
+        "how_to": "Apply oil to scalp and lengths 30 mins to overnight before washing. Massage into scalp.",
+        "best_oils": "Castor oil, rosemary oil, argan oil, coconut oil (avoid if protein-sensitive)",
+        "masks": "Deep conditioning mask 1x/week after shampooing, leave 5–10 mins",
+        "notification": "Oil your scalp tonight. Massage in, leave overnight, wash tomorrow.",
+    },
+    "minoxidil": {
+        "label": "Minoxidil Protocol",
+        "who_needs_it": "Anyone with visible hair thinning, receding hairline, or crown thinning",
+        "when_to_apply": "PM skincare time, before skincare routine. Optional morning secondary if user is advanced.",
+        "frequency": "Daily (non-negotiable)",
+        "how_to": "Apply to thinning areas only (hairline, crown, temples). Let dry before bed.",
+        "notification_core": "Minoxidil. Thinning areas only.",
+        "notification_pressure": "Miss days = lose gains.",
+        "notification_identity": "You either maintain your hairline or watch it go.",
+        "notification_skip_escalate": "Skipped yesterday. That's how hairlines die. Apply now.",
+        "notification_consistent": "Minoxidil done? Good. Keep the streak.",
+        "rule": "Daily application is non-negotiable for results. Consistency is everything.",
+    },
+    "dermastamp": {
+        "label": "Dermastamp / Dermaroller",
+        "who_needs_it": "Anyone with hair thinning, used alongside minoxidil for enhanced absorption and stimulation",
+        "when_to_use": "Evening PM skincare time before bed. Ideally same day each week (habit lock).",
+        "frequency": "1x/week default, max 2x/week (never more)",
+        "how_to": "Use 0.5–1.5mm needles on hairline/crown only. Clean device before/after. Do not apply minoxidil immediately after (wait 24 hours).",
+        "notification": "Dermastamp tonight. Hairline/crown only.",
+        "rule": "Never exceed 2x/week. Always sterilize. Don't stack with minoxidil same night.",
+    },
+}
+
+HAIRMAX_CONCERNS = [
+    {"id": "wash_routine", "label": "Wash Routine Optimization"},
+    {"id": "anti_dandruff", "label": "Anti-Dandruff Treatment"},
+    {"id": "oils_masks", "label": "Oils & Hair Masks"},
+    {"id": "minoxidil", "label": "Minoxidil (Hair Thinning)"},
+    {"id": "dermastamp", "label": "Dermastamp / Dermaroller"},
+]
+
+HAIRMAX_MODULES = [
+    {
+        "title": "Shampoo & Conditioner Basics",
+        "description": "The foundation of healthy hair: choosing the right products and using them correctly.",
+        "steps": [
+            {"title": "Shampoo selection", "content": "Use a gentle, sulfate-free, paraben-free shampoo. Focus on scalp cleansing, not harsh stripping. Your shampoo should clean without leaving hair squeaky or dry."},
+            {"title": "Conditioner rules", "content": "Always use conditioner on the hair strands (mid-length to ends). Do NOT put conditioner on your scalp unless it's specifically designed for scalp use. Leave-in conditioner is the safest broad recommendation for most users."},
+            {"title": "Anti-dandruff trigger", "content": "Only use anti-dandruff shampoo if: flakes are oily/yellow/persistent, OR scalp stays itchy despite using gentle products. Don't jump to anti-dandruff for simple dry scalp."},
+            {"title": "Blackpilled truth", "content": "Most hair problems come from using the wrong products or washing incorrectly. Get this foundation right before adding anything else."},
+        ],
+    },
+    {
+        "title": "When to Wash",
+        "description": "Wash frequency based on your hair type. Over-washing and under-washing both cause problems.",
+        "steps": [
+            {"title": "Straight/wavy hair", "content": "Shampoo 2–3x/week. This balances oil control without stripping."},
+            {"title": "Curly hair", "content": "Shampoo less often. Build fixed wash days (e.g., Sunday/Wednesday). Optional co-wash between shampoo days to refresh without stripping."},
+            {"title": "Product users", "content": "If you use styling products daily, wash out buildup every couple of days. Product buildup suffocates follicles."},
+            {"title": "Over-washed signs", "content": "Dry hair + small white flakes = you're washing too much. Reduce shampoo frequency."},
+            {"title": "Under-washed signs", "content": "Greasy itchy scalp + visible buildup = you're not washing enough. Increase wash frequency."},
+            {"title": "Golden rule", "content": "Never push 'no shampoo' lifestyle. Your scalp needs cleaning."},
+        ],
+    },
+    {
+        "title": "Oils & Hair Masks",
+        "description": "Deep nourishment for scalp and hair health.",
+        "steps": [
+            {"title": "When to use", "content": "For dry/damaged hair, as a pre-wash treatment, or for scalp nourishment."},
+            {"title": "Frequency", "content": "Oil treatment 1–2x/week. Deep conditioning mask 1x/week."},
+            {"title": "How to oil", "content": "Apply oil to scalp and lengths 30 mins to overnight before washing. Massage into scalp for 5 minutes to stimulate blood flow. Wash out the next morning."},
+            {"title": "Best oils", "content": "Castor oil (thickness), rosemary oil (growth stimulation), argan oil (shine/moisture), coconut oil (penetrates shaft—avoid if protein-sensitive)."},
+            {"title": "Hair mask protocol", "content": "After shampooing, apply deep conditioning mask. Leave 5–10 mins. Rinse thoroughly. Do this 1x/week."},
+            {"title": "Notification", "content": "Oil your scalp tonight. Massage in, leave overnight, wash tomorrow."},
+        ],
+    },
+    {
+        "title": "Minoxidil Protocol",
+        "description": "The non-negotiable daily treatment for anyone with hair thinning. Miss days = lose gains.",
+        "steps": [
+            {"title": "Who needs it", "content": "Anyone with visible hair thinning, receding hairline, temple recession, or crown thinning. If you're losing hair, this is the intervention."},
+            {"title": "When to apply", "content": "PM skincare time, before your skincare routine. Let it dry before bed. Optional: morning secondary application if you're advanced and committed."},
+            {"title": "Frequency", "content": "Daily. Non-negotiable. This is not optional if you want results."},
+            {"title": "How to apply", "content": "Apply to thinning areas only—hairline, crown, temples. Use dropper or foam. Massage in gently. Let dry completely before sleeping."},
+            {"title": "Notification: Core", "content": "Minoxidil. Thinning areas only."},
+            {"title": "Notification: Pressure", "content": "Miss days = lose gains."},
+            {"title": "Notification: Identity", "content": "You either maintain your hairline or watch it go."},
+            {"title": "If you skip", "content": "Escalate tone: 'Skipped yesterday. That's how hairlines die. Apply now.'"},
+            {"title": "If you're consistent", "content": "Reduce to 1 clean reminder/day: 'Minoxidil done? Good. Keep the streak.'"},
+            {"title": "Blackpilled truth", "content": "Minoxidil works. But only if you use it every single day. One week off can undo months of progress. This is a lifetime commitment if you want to keep your hair."},
+        ],
+    },
+    {
+        "title": "Dermastamp / Dermaroller",
+        "description": "Weekly microneedling for enhanced minoxidil absorption and follicle stimulation. High friction, high reward.",
+        "steps": [
+            {"title": "Who needs it", "content": "Anyone with hair thinning. Used alongside minoxidil for enhanced absorption and direct follicle stimulation."},
+            {"title": "When to use", "content": "Evening PM skincare time before bed. Pick the same day each week to lock in the habit (e.g., every Sunday night)."},
+            {"title": "Frequency", "content": "1x/week default. Maximum 2x/week. Never more—you need scalp recovery time."},
+            {"title": "How to do it", "content": "Use 0.5–1.5mm needle length. Target hairline and crown only. Roll/stamp in multiple directions. Clean and sterilize device before and after use."},
+            {"title": "Minoxidil timing", "content": "Do NOT apply minoxidil immediately after dermastamping. Wait 24 hours. The micro-wounds need to heal first."},
+            {"title": "Notification", "content": "Dermastamp tonight. Hairline/crown only."},
+            {"title": "Blackpilled truth", "content": "Microneedling creates micro-injuries that trigger healing response and increase blood flow to follicles. Combined with minoxidil, it's one of the most effective non-surgical interventions. But overdoing it causes scarring. Stick to 1x/week."},
+        ],
+    },
+]
+
 MAXX_GUIDELINES = {
     "skinmax": {
         "label": "SkinMax",
@@ -275,6 +413,46 @@ Blackpilled truth: {blackpill}
 - Include anti-habit reminders for slouching, under-recovery, and under-eating
 """,
     },
+    "hairmax": {
+        "label": "HairMax",
+        "description": "AI-personalised hair care schedule based on your hair type and concerns (thinning, wash routine, scalp health).",
+        "schedule_rules": {
+            "wash_timing": "Based on hair type: straight/wavy 2-3x/week, curly less often with co-wash days",
+            "minoxidil_timing": "PM skincare time, before skincare routine. Daily non-negotiable.",
+            "dermastamp_timing": "Same day each week (habit lock), evening before bed. Never same night as minoxidil.",
+            "oil_timing": "1-2x/week, evening before wash day (overnight treatment)",
+            "learn_patterns": True,
+            "thinning_escalation": "If user skips minoxidil, escalate notification tone",
+        },
+        "modules": HAIRMAX_MODULES,
+        "protocols": HAIRMAX_PROTOCOLS,
+        "concern_mapping": HAIR_TYPE_TO_CONCERN,
+        "concern_question": "What's your main hair concern? Pick one: Wash Routine, Anti-Dandruff, Oils & Masks, Minoxidil (for thinning), or Dermastamp.",
+        "concerns": HAIRMAX_CONCERNS,
+        "recurring": True,
+        "daily_tasks": True,
+        "weekly_tasks": True,
+        "protocol_prompt_template": """## HAIR PROTOCOL — {label}
+
+{protocol_details}
+
+## SCHEDULE RULES
+- Wash frequency depends on hair type: straight/wavy 2-3x/week, curly less often with optional co-wash
+- Minoxidil is PM skincare time, daily, non-negotiable for thinning users
+- Dermastamp is 1x/week max, same day each week, never same night as minoxidil (wait 24h)
+- Oil treatments are 1-2x/week, evening before wash day as overnight treatment
+- Anti-dandruff shampoo only when clear fungal/seborrheic signs, not for simple dry scalp
+- Conditioner goes on strands only, never on scalp unless specifically designed for it
+- Never push "no shampoo" as a lifestyle recommendation
+
+## NOTIFICATION RULES FOR THINNING USERS
+- Core reminder: "Minoxidil. Thinning areas only."
+- Consistency pressure: "Miss days = lose gains."
+- Identity framing: "You either maintain your hairline or watch it go."
+- If user skips: escalate tone slightly
+- If user is consistent: reduce to 1 clean reminder/day
+""",
+    },
 }
 
 
@@ -306,4 +484,84 @@ Sunscreen: {protocol['sunscreen']}
 - Sunscreen reapply reminders every 3 hours IF user will be outside that day
 - Weekly tasks (masks, exfoliants, peels) should be spread across the week
 - Learn the user's patterns and adapt over time
+"""
+
+
+def resolve_hair_concern(hair_type: Optional[str], explicit_concern: Optional[str] = None, has_thinning: bool = False) -> str:
+    """Resolve hair concern based on hair type and thinning status."""
+    if explicit_concern and explicit_concern in HAIRMAX_PROTOCOLS:
+        return explicit_concern
+    if has_thinning:
+        return "minoxidil"
+    return HAIR_TYPE_TO_CONCERN.get(hair_type or "normal", "wash_routine")
+
+
+def build_hairmax_prompt_section(concern: str) -> str:
+    """Build protocol text for the Gemini prompt."""
+    protocol = HAIRMAX_PROTOCOLS.get(concern)
+    if not protocol:
+        protocol = HAIRMAX_PROTOCOLS["wash_routine"]
+
+    # Build protocol details based on the concern type
+    if concern == "wash_routine":
+        details = f"""Shampoo: {protocol['shampoo']}
+Conditioner: {protocol['conditioner']}
+Straight/Wavy frequency: {protocol['frequency_straight_wavy']}
+Curly frequency: {protocol['frequency_curly']}
+Product users: {protocol['frequency_product_heavy']}
+Over-washed signs: {protocol['over_washed_signs']}
+Under-washed signs: {protocol['under_washed_signs']}
+Rule: {protocol['rule']}"""
+    elif concern == "minoxidil":
+        details = f"""Who needs it: {protocol['who_needs_it']}
+When to apply: {protocol['when_to_apply']}
+Frequency: {protocol['frequency']}
+How to apply: {protocol['how_to']}
+Notification (core): {protocol['notification_core']}
+Notification (pressure): {protocol['notification_pressure']}
+Notification (identity): {protocol['notification_identity']}
+If skipped: {protocol['notification_skip_escalate']}
+If consistent: {protocol['notification_consistent']}
+Rule: {protocol['rule']}"""
+    elif concern == "dermastamp":
+        details = f"""Who needs it: {protocol['who_needs_it']}
+When to use: {protocol['when_to_use']}
+Frequency: {protocol['frequency']}
+How to do it: {protocol['how_to']}
+Notification: {protocol['notification']}
+Rule: {protocol['rule']}"""
+    elif concern == "oils_masks":
+        details = f"""When to use: {protocol['when_to_use']}
+Frequency: {protocol['frequency']}
+How to apply: {protocol['how_to']}
+Best oils: {protocol['best_oils']}
+Masks: {protocol['masks']}
+Notification: {protocol['notification']}"""
+    elif concern == "anti_dandruff":
+        details = f"""When to use: {protocol['when_to_use']}
+Shampoo: {protocol['shampoo']}
+Frequency: {protocol['frequency']}
+Conditioner: {protocol['conditioner']}
+Rule: {protocol['rule']}"""
+    else:
+        details = str(protocol)
+
+    return f"""## HAIR PROTOCOL — {protocol['label']}
+{details}
+
+## SCHEDULE RULES
+- Wash frequency depends on hair type: straight/wavy 2-3x/week, curly less often with optional co-wash
+- Minoxidil is PM skincare time, daily, non-negotiable for thinning users
+- Dermastamp is 1x/week max, same day each week, never same night as minoxidil (wait 24h)
+- Oil treatments are 1-2x/week, evening before wash day as overnight treatment
+- Anti-dandruff shampoo only when clear fungal/seborrheic signs
+- Conditioner goes on strands only, never on scalp
+- Never push "no shampoo" as a lifestyle recommendation
+
+## NOTIFICATION RULES FOR THINNING USERS
+- Core: "Minoxidil. Thinning areas only."
+- Pressure: "Miss days = lose gains."
+- Identity: "You either maintain your hairline or watch it go."
+- If skip: escalate tone
+- If consistent: 1 clean reminder/day
 """
