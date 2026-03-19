@@ -372,6 +372,9 @@ MAXX_GUIDELINES = {
             "learn_patterns": True,
             "wake_check": "Ask user to confirm they are awake each morning; if they say 'im awake' earlier or later, adjust",
         },
+          "intake_questions": [
+        "What time do you usually wake up AND go to sleep? (e.g., 7am / 11pm)"
+    ],
         "protocols": SKINMAX_PROTOCOLS,
         "concern_mapping": SKIN_TYPE_TO_CONCERN,
         "concern_question": "What's your ONE main skin concern? Pick one: Acne, Pigmentation, Texture, Redness, or Aging.",
@@ -411,6 +414,14 @@ Blackpilled truth: {blackpill}
 - Posture reminders should be sparse but strict: 1-2 well-timed pushes beats notification spam
 - Sprint sessions belong 2-3x per week with full recovery, never daily
 - Include anti-habit reminders for slouching, under-recovery, and under-eating
+
+- Learn the user's patterns and adjust timing if they complete tasks early/late
+- If the user repeatedly skips steps, reduce friction and simplify the routine
+
+- All tasks MUST be anchored to the user's wake and sleep times
+- Do NOT output vague times like "morning" or "night"
+- Convert everything into exact clock times
+
 """,
     },
     "hairmax": {
@@ -424,6 +435,9 @@ Blackpilled truth: {blackpill}
             "learn_patterns": True,
             "thinning_escalation": "If user skips minoxidil, escalate notification tone",
         },
+          "intake_questions": [
+        "What time do you usually wake up AND go to sleep? (e.g., 7am / 11pm)"
+    ],
         "modules": HAIRMAX_MODULES,
         "protocols": HAIRMAX_PROTOCOLS,
         "concern_mapping": HAIR_TYPE_TO_CONCERN,
@@ -451,6 +465,8 @@ Blackpilled truth: {blackpill}
 - Identity framing: "You either maintain your hairline or watch it go."
 - If user skips: escalate tone slightly
 - If user is consistent: reduce to 1 clean reminder/day
+- Prioritize highest ROI actions
+- Do NOT spam repeated reminders for the same task
 """,
     },
 }
@@ -484,6 +500,13 @@ Sunscreen: {protocol['sunscreen']}
 - Sunscreen reapply reminders every 3 hours IF user will be outside that day
 - Weekly tasks (masks, exfoliants, peels) should be spread across the week
 - Learn the user's patterns and adapt over time
+
+- All tasks MUST be anchored to the user's wake and sleep times
+- Do NOT output vague times like "morning" or "night"
+- Convert everything into exact clock times
+
+- Learn the user's patterns and adjust timing if they complete tasks early/late
+- If the user repeatedly skips steps, reduce friction and simplify the routine
 """
 
 
@@ -557,6 +580,12 @@ Rule: {protocol['rule']}"""
 - Anti-dandruff shampoo only when clear fungal/seborrheic signs
 - Conditioner goes on strands only, never on scalp
 - Never push "no shampoo" as a lifestyle recommendation
+- Adjust schedule timing based on user behavior (early/late completion)
+- Reduce volume if user skips consistently
+- All tasks MUST be anchored to the user's wake and sleep times
+- Do NOT output vague times like "morning" or "night"
+- Convert everything into exact clock times
+
 
 ## NOTIFICATION RULES FOR THINNING USERS
 - Core: "Minoxidil. Thinning areas only."
@@ -564,4 +593,5 @@ Rule: {protocol['rule']}"""
 - Identity: "You either maintain your hairline or watch it go."
 - If skip: escalate tone
 - If consistent: 1 clean reminder/day
+- Prioritize highest ROI actions
 """
