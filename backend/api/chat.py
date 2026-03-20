@@ -55,6 +55,21 @@ FITMAX_FOOD_DB = {
     "whey protein": {"calories": 120, "protein_g": 24, "carbs_g": 3, "fat_g": 2},
 }
 
+FITMAX_HEURISTIC_DISHES = {
+    "tomato soup": {"calories": 170, "protein_g": 4, "carbs_g": 27, "fat_g": 5},
+    "soup": {"calories": 190, "protein_g": 6, "carbs_g": 25, "fat_g": 7},
+    "salad": {"calories": 240, "protein_g": 8, "carbs_g": 18, "fat_g": 15},
+    "pasta": {"calories": 520, "protein_g": 18, "carbs_g": 78, "fat_g": 16},
+    "rice bowl": {"calories": 560, "protein_g": 24, "carbs_g": 72, "fat_g": 18},
+    "burrito": {"calories": 700, "protein_g": 30, "carbs_g": 74, "fat_g": 31},
+    "sandwich": {"calories": 430, "protein_g": 20, "carbs_g": 42, "fat_g": 19},
+    "burger": {"calories": 520, "protein_g": 26, "carbs_g": 41, "fat_g": 27},
+    "pizza": {"calories": 285, "protein_g": 12, "carbs_g": 36, "fat_g": 10},
+    "stir fry": {"calories": 480, "protein_g": 24, "carbs_g": 42, "fat_g": 23},
+    "curry": {"calories": 520, "protein_g": 20, "carbs_g": 46, "fat_g": 28},
+    "noodles": {"calories": 500, "protein_g": 16, "carbs_g": 78, "fat_g": 14},
+}
+
 
 def _fitmax_missing_fields(profile: dict) -> list[str]:
     return [f for f in FITMAX_REQUIRED_FIELDS if profile.get(f) in (None, "", [])]
@@ -271,6 +286,47 @@ def _fitmax_parse_quantity(text: str) -> tuple[float, str]:
     return max(qty, 0.25), cleaned
 
 
+def _fitmax_portion_multiplier(text: str) -> float:
+    s = (text or "").lower()
+    mult = 1.0
+    if any(k in s for k in ["small", "kid size", "cup"]):
+        mult *= 0.8
+    if any(k in s for k in ["large", "big", "extra large"]):
+        mult *= 1.35
+    if "bowl" in s:
+        mult *= 1.2
+    if "plate" in s:
+        mult *= 1.3
+    if "slice" in s:
+        mult *= 0.75
+    return mult
+
+
+def _fitmax_heuristic_estimate(cleaned_item: str, qty: float) -> Optional[dict]:
+    s = (cleaned_item or "").strip().lower()
+    if not s:
+        return None
+
+    base = None
+    for key in sorted(FITMAX_HEURISTIC_DISHES.keys(), key=len, reverse=True):
+        if key in s:
+            base = FITMAX_HEURISTIC_DISHES[key]
+            break
+
+    if not base:
+        return None
+
+    factor = max(qty, 0.25) * _fitmax_portion_multiplier(s)
+    return {
+        "calories": int(round(base["calories"] * factor)),
+        "protein_g": int(round(base["protein_g"] * factor)),
+        "carbs_g": int(round(base["carbs_g"] * factor)),
+        "fat_g": int(round(base["fat_g"] * factor)),
+        "matched_name": s,
+        "source": "heuristic",
+    }
+
+
 async def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
     s = (message or "").lower().strip()
     if not s:
@@ -287,6 +343,7 @@ async def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
     segments = re.split(r",| and |\+", tail)
     totals = {"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0}
     matched_items: list[str] = []
+    used_heuristic = False
 
     for seg in segments:
         qty, cleaned = _fitmax_parse_quantity(seg)
@@ -306,17 +363,27 @@ async def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
             totals["carbs_g"] += int(lookup["carbs_g"])
             totals["fat_g"] += int(lookup["fat_g"])
             matched_items.append(lookup.get("matched_name") or cleaned)
+            if lookup.get("source") == "heuristic":
+                used_heuristic = True
             continue
 
-        if not match_key:
+        if match_key:
+            base = FITMAX_FOOD_DB[match_key]
+            totals["calories"] += int(round(base["calories"] * qty))
+            totals["protein_g"] += int(round(base["protein_g"] * qty))
+            totals["carbs_g"] += int(round(base["carbs_g"] * qty))
+            totals["fat_g"] += int(round(base["fat_g"] * qty))
+            matched_items.append(match_key)
             continue
 
-        base = FITMAX_FOOD_DB[match_key]
-        totals["calories"] += int(round(base["calories"] * qty))
-        totals["protein_g"] += int(round(base["protein_g"] * qty))
-        totals["carbs_g"] += int(round(base["carbs_g"] * qty))
-        totals["fat_g"] += int(round(base["fat_g"] * qty))
-        matched_items.append(match_key)
+        heuristic = _fitmax_heuristic_estimate(cleaned, qty)
+        if heuristic:
+            totals["calories"] += int(heuristic["calories"])
+            totals["protein_g"] += int(heuristic["protein_g"])
+            totals["carbs_g"] += int(heuristic["carbs_g"])
+            totals["fat_g"] += int(heuristic["fat_g"])
+            matched_items.append(heuristic.get("matched_name") or cleaned)
+            used_heuristic = True
 
     if not matched_items or totals["calories"] <= 0:
         return None
@@ -327,6 +394,7 @@ async def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
         "protein_g": totals["protein_g"],
         "carbs_g": totals["carbs_g"],
         "fat_g": totals["fat_g"],
+        "used_heuristic": used_heuristic,
     }
 
 
@@ -611,11 +679,16 @@ async def process_chat_message(
             consumed_before = _fitmax_consumed_from_history(history)
             consumed_now = consumed_before + int(food_log["calories"])
             remaining = max(0, calorie_target - consumed_now)
+            heuristic_note = (
+                " i estimated this from a typical dish portion since exact product data wasn't available."
+                if food_log.get("used_heuristic")
+                else ""
+            )
 
             response_text = (
                 f"logged. that's roughly {food_log['calories']} calories and {food_log['protein_g']}g protein "
                 f"({food_log['carbs_g']}g carbs, {food_log['fat_g']}g fat). "
-                f"you've got {remaining} calories left today."
+                f"you've got {remaining} calories left today.{heuristic_note}"
             )
 
             user_message = ChatHistory(
