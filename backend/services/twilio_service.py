@@ -101,10 +101,15 @@ class TwilioService:
         )
         return bool(await self.send_sms(phone, message))
 
-    async def send_schedule_reminder(self, phone: str, task_title: str, task_description: str, task_time: str) -> bool:
-        """Send an SMS reminder for a scheduled task"""
-        desc = f" - {task_description}" if task_description else ""
-        message = f"max reminder ({task_time}): {task_title}{desc}. open the app to mark it done."
+    async def send_schedule_reminder(
+        self, phone: str, task_title: str, task_description: str, task_time: str
+    ) -> bool:
+        """
+        Send an SMS nudge that a schedule item is due.
+        Body is intentionally generic: no "max reminder" label, no clock time, no task/module title
+        (caller's task_* args are ignored for message copy).
+        """
+        message = "open the max app to check your schedule and mark tasks done."
         return bool(await self.send_sms(phone, message))
 
     async def send_daily_progress_prompt(self, phone: str, name: str | None = None) -> bool:
