@@ -91,13 +91,13 @@ class TwilioService:
             logger.error(f"SMS send failed to {to_phone}: {e}")
             return None
 
-    async def send_welcome(self, phone: str, email: str) -> bool:
+    async def send_welcome(self, phone: str, first_name: str | None = None) -> bool:
         """Welcome SMS sent after payment activation (or dev skip)"""
-        name = email.split("@")[0].capitalize()
+        name = first_name or "there"
         message = (
             f"welcome to max, {name}! "
             f"you're all set — your subscription is active. "
-            f"open the app, do your first face scan, and let's get started."
+            f"open the app, select your modules, and let's get started."
         )
         return bool(await self.send_sms(phone, message))
 

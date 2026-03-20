@@ -126,6 +126,7 @@ class UserResponse(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     username: Optional[str] = None
+    last_username_change: Optional[datetime] = None
     created_at: datetime
     is_paid: bool = False
     subscription_status: Optional[str] = None

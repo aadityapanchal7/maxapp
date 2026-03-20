@@ -62,6 +62,9 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
         print("[OK] Supabase tables created/verified")
 
+        # app_users alters in their own transaction so a lock failure on other tables
+        # cannot roll back critical columns (e.g. last_username_change).
+        await _run_app_users_column_migrations()
         await _run_column_migrations()
     except Exception as e:
         print(f"[WARNING] Could not initialize Supabase database: {e}")
@@ -86,6 +89,23 @@ async def _terminate_stale_connections():
         print(f"[INFO] Could not clean stale connections: {e}")
 
 
+async def _run_app_users_column_migrations():
+    """Add app_users columns in a dedicated transaction (commits even if other migrations fail)."""
+    statements = [
+        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS last_username_change TIMESTAMPTZ",
+        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS ai_context TEXT DEFAULT ''",
+        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS ai_summaries JSONB DEFAULT '[]'",
+    ]
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '30s'"))
+            for sql in statements:
+                await conn.execute(text(sql))
+        print("[OK] app_users column migrations applied")
+    except Exception as e:
+        print(f"[WARNING] app_users column migrations: {e}")
+
+
 async def _run_column_migrations():
     """Add missing columns to existing tables (safe to run repeatedly)."""
     migrations = [
@@ -93,8 +113,6 @@ async def _run_column_migrations():
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS maxx_id VARCHAR",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_context JSONB DEFAULT '{}'",
-        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS ai_context TEXT DEFAULT ''",
-        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS ai_summaries JSONB DEFAULT '[]'",
     ]
     try:
         async with engine.begin() as conn:

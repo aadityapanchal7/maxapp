@@ -74,7 +74,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
             if user.phone_number:
                 asyncio.create_task(
-                    twilio_service.send_welcome(user.phone_number, user.email)
+                    twilio_service.send_welcome(user.phone_number, user.first_name)
                 )
 
         scans_result = await db.execute(
@@ -129,7 +129,7 @@ async def test_activate_subscription(
 
         if user.phone_number:
             asyncio.create_task(
-                twilio_service.send_welcome(user.phone_number, user.email)
+                twilio_service.send_welcome(user.phone_number, user.first_name)
             )
     except HTTPException:
         raise

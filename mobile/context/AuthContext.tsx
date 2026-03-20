@@ -12,6 +12,8 @@ interface User {
     first_name?: string;
     last_name?: string;
     username?: string;
+    /** ISO timestamp — used for 2-week username change cooldown */
+    last_username_change?: string | null;
     is_paid: boolean;
     onboarding: {
         completed: boolean;

@@ -63,7 +63,7 @@ async def sms_webhook(
     user = result.scalars().first()
 
     if not user:
-        reply = "hey, you're not signed up for max yet. download the app to get started."
+        reply = "hey, you're not signed up for max yet. sign up on the site to get started: https://maxmaxmax.today"
         return Response(content=_twiml_reply(reply), media_type="application/xml")
 
     user_id_str = str(user.id)

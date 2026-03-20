@@ -4,8 +4,9 @@ Users API - Profile and Onboarding
 
 import base64
 import logging
+import math
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from pydantic import BaseModel
 from uuid import UUID
@@ -13,6 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    """Timezone-aware UTC now for TIMESTAMPTZ columns (asyncpg-safe)."""
+    return datetime.now(timezone.utc)
+
+
+def _as_utc_aware(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
 
 from db import get_db
 from middleware import get_current_user
@@ -41,6 +54,7 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         first_name=current_user.get("first_name"),
         last_name=current_user.get("last_name"),
         username=current_user.get("username"),
+        last_username_change=current_user.get("last_username_change"),
         created_at=current_user["created_at"],
         is_paid=current_user.get("is_paid", False),
         subscription_status=current_user.get("subscription_status"),
@@ -300,8 +314,22 @@ async def update_account(
         update_fields["last_name"] = data.last_name.strip() if data.last_name.strip() else None
     if data.username is not None:
         username_clean = data.username.strip()
-        if username_clean:
-            # Validate username format
+        current_username = current_user.get("username") or ""
+        username_actually_changed = username_clean.lower() != current_username.lower()
+
+        if username_clean and username_actually_changed:
+            last_change = current_user.get("last_username_change")
+            if last_change:
+                last_utc = _as_utc_aware(last_change)
+                cooldown_end = last_utc + timedelta(weeks=2)
+                now = _utcnow()
+                if now < cooldown_end:
+                    seconds_left = (cooldown_end - now).total_seconds()
+                    days_left = max(1, math.ceil(seconds_left / 86400))
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"You can only change your username once every 2 weeks. Try again in {days_left} day{'s' if days_left != 1 else ''}."
+                    )
             if len(username_clean) < 3:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -312,20 +340,20 @@ async def update_account(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Username can only contain letters, numbers, and underscores"
                 )
-            # Check if username is already taken by another user
             result = await db.execute(
                 select(User).where(
                     (User.username == username_clean.lower()) &
                     (User.id != UUID(current_user["id"]))
                 )
             )
-            if result.scalar_one_or_none():
+            if result.scalars().first():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Username already taken"
                 )
             update_fields["username"] = username_clean.lower()
-        else:
+            update_fields["last_username_change"] = _utcnow()
+        elif not username_clean:
             update_fields["username"] = None
     
     if not update_fields:
@@ -333,16 +361,14 @@ async def update_account(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No fields to update"
         )
-    
-    update_fields["updated_at"] = datetime.utcnow()
-    
+
     user = await db.get(User, UUID(current_user["id"]))
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     for key, value in update_fields.items():
         setattr(user, key, value)
-    user.updated_at = datetime.utcnow()
+    user.updated_at = _utcnow()
     await db.commit()
     
     return {"message": "Account updated"}

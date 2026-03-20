@@ -77,6 +77,7 @@ async def get_current_user(
         "profile": user.profile or {},
         "first_scan_completed": user.first_scan_completed,
         "phone_number": user.phone_number,
+        "last_username_change": user.last_username_change,
         "schedule_preferences": user.schedule_preferences or {},
         "last_progress_prompt_date": user.last_progress_prompt_date,
     }

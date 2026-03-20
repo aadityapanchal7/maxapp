@@ -35,6 +35,7 @@ class User(Base):
     first_name = Column(String)
     last_name = Column(String)
     username = Column(String, unique=True)
+    last_username_change = Column(DateTime(timezone=True))
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
