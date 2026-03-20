@@ -679,12 +679,13 @@ async def process_chat_message(
     init_context: Optional[str] = None,
     attachment_url: Optional[str] = None,
     attachment_type: Optional[str] = None,
+    channel: str = "app",
 ) -> str:
     """
     Core chat logic shared by the HTTP endpoint and the SMS webhook.
     Returns the AI response text. Saves both user + assistant messages to ChatHistory.
     """
-    from services.schedule_service import schedule_service
+    from services.schedule_service import schedule_service, ScheduleLimitError
     user_uuid = UUID(user_id)
 
     # Load chat history
@@ -775,26 +776,33 @@ async def process_chat_message(
             flag_modified(user, "profile")
             user.updated_at = datetime.utcnow()
 
-            schedule = await schedule_service.generate_maxx_schedule(
-                user_id=user_id,
-                maxx_id="fitmax",
-                db=db,
-                rds_db=rds_db if rds_db else None,
-                wake_time="07:00",
-                sleep_time="23:00",
-                skin_concern=plan["goal_label"],
-                outside_today=False,
-                num_days=7,
-            )
-            user_context["active_maxx_schedule"] = schedule
+            try:
+                schedule = await schedule_service.generate_maxx_schedule(
+                    user_id=user_id,
+                    maxx_id="fitmax",
+                    db=db,
+                    rds_db=rds_db if rds_db else None,
+                    wake_time="07:00",
+                    sleep_time="23:00",
+                    skin_concern=plan["goal_label"],
+                    outside_today=False,
+                    num_days=7,
+                )
+                user_context["active_maxx_schedule"] = schedule
 
-            response_text = (
-                "got everything i need. here's what i've built for you:\n\n"
-                "view your fitmax plan ->\n\n"
-                f"your daily calorie target is {plan['calories']} calories with {plan['protein_g']}g protein. "
-                f"your split is {plan['split']}, {plan['days_per_week']} days a week. "
-                "i'll text you each morning with what's on deck. want to start with module 1, or do you want any plan tweaks first?"
-            )
+                response_text = (
+                    "got everything i need. here's what i've built for you:\n\n"
+                    "view your fitmax plan ->\n\n"
+                    f"your daily calorie target is {plan['calories']} calories with {plan['protein_g']}g protein. "
+                    f"your split is {plan['split']}, {plan['days_per_week']} days a week. "
+                    "i'll text you each morning with what's on deck. want to start with module 1, or do you want any plan tweaks first?"
+                )
+            except ScheduleLimitError as e:
+                names = ", ".join(e.active_labels)
+                response_text = (
+                    f"your fitmax profile is saved, but you already have 2 active modules ({names}). "
+                    "stop one of them first and then come back to start fitmax."
+                )
 
             user_message = ChatHistory(
                 user_id=user_uuid,
@@ -1229,9 +1237,38 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     response_text = schedule_summary
                 else:
                     response_text += f"\n\n{schedule_summary}"
+            except ScheduleLimitError as e:
+                names = ", ".join(e.active_labels)
+                response_text = (
+                    f"you already have 2 active modules ({names}). "
+                    "you gotta stop one before starting a new one — "
+                    "tell me which module to stop, or hit the stop button on the module page in the app."
+                )
             except Exception as e:
                 print(f"Maxx schedule generation failed: {e}")
                 response_text += "\n\nhad trouble generating your schedule. try again in a sec."
+
+        elif tool["name"] == "stop_schedule":
+            if channel == "sms":
+                response_text = (
+                    "stopping or changing modules can only be done in the app. "
+                    "open the app and go to the module you want to stop, or ask me there."
+                )
+            else:
+                try:
+                    args = tool["args"]
+                    target_maxx = str(args.get("maxx_id", "")).strip().lower()
+                    if not target_maxx:
+                        response_text = "which module do you want to stop? (e.g. skinmax, hairmax, fitmax, bonemax, heightmax)"
+                    else:
+                        result = await schedule_service.deactivate_schedule_by_maxx(user_id, target_maxx, db)
+                        if result:
+                            response_text = f"done — {target_maxx} has been stopped. you can restart it anytime from the module page."
+                        else:
+                            response_text = f"you don't have an active {target_maxx} schedule right now."
+                except Exception as e:
+                    logger.exception("stop_schedule failed: %s", e)
+                    response_text = "couldn't stop that module. try again or use the stop button on the module page."
 
         elif tool["name"] == "update_schedule_context":
             try:

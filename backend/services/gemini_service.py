@@ -175,8 +175,13 @@ MAX_CHAT_SYSTEM_PROMPT = """You are Max — the AI lookmaxxing coach. You talk l
 ## TOOLS
 - `modify_schedule` — when user wants to change their schedule
 - `generate_maxx_schedule` — when starting a new maxx schedule (follow the [SYSTEM] flow if provided)
+- `stop_schedule` — when user wants to stop/cancel/deactivate a module. Ask them which module. This can ONLY be done in the app, NOT via SMS.
 - `update_schedule_context` — store patterns/habits
 - `log_check_in` — log workout done, sleep, calories, mood, injuries after user reports them
+
+## ACTIVE MODULE LIMIT
+Users can have a maximum of 2 active modules at once. If they try to start a 3rd, tell them they need to stop one first.
+When they ask to stop a module, use the `stop_schedule` tool with the maxx_id of the module to stop.
 
 ## SCHEDULE CHANGES (CRITICAL)
 - If they already have an active schedule and ask to change wake time, sleep time, shift tasks, or say things like "waking at 6am" / "sleeping at 8pm" / "move my morning stuff" — you MUST call `modify_schedule` with their full message as `feedback`. Do not skip the tool.
@@ -258,6 +263,18 @@ def generate_maxx_schedule(
     }
 
 
+def stop_schedule(maxx_id: str):
+    """
+    Stops/deactivates the user's active schedule for a specific module.
+    Use when user says they want to stop, cancel, or quit a module.
+    Ask the user which module they want to stop before calling this.
+
+    Args:
+        maxx_id: The maxx type to stop, e.g. 'skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'.
+    """
+    return {"status": "success", "message": f"Stopping {maxx_id} schedule"}
+
+
 def update_schedule_context(key: str, value: str):
     """
     Updates a piece of context about the user's schedule patterns.
@@ -295,7 +312,7 @@ class GeminiService:
         genai.configure(api_key=settings.gemini_api_key)
         self.model = genai.GenerativeModel(
             settings.gemini_model,
-            tools=[modify_schedule, generate_maxx_schedule, update_schedule_context, log_check_in]
+            tools=[modify_schedule, generate_maxx_schedule, stop_schedule, update_schedule_context, log_check_in]
         )
         self.vision_model = genai.GenerativeModel(settings.gemini_model)
     

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -28,10 +28,22 @@ export default function MaxxDetailScreen() {
     const [showAllModules, setShowAllModules] = useState(false);
     const [activeSchedule, setActiveSchedule] = useState<any>(null);
     const [scheduleLoading, setScheduleLoading] = useState(false);
+    const [activeCount, setActiveCount] = useState(0);
+    const [activeLabels, setActiveLabels] = useState<string[]>([]);
 
     const canSchedule = SCHEDULE_CAPABLE_MAXXES.includes(maxxId);
+    const atLimit = !activeSchedule && activeCount >= 2;
 
     useEffect(() => { loadData(); }, [maxxId]);
+
+    useFocusEffect(
+        React.useCallback(() => {
+            if (canSchedule) {
+                api.getMaxxSchedule(maxxId).then(r => setActiveSchedule(r?.schedule || null)).catch(() => {});
+                api.getActiveSchedules().then(r => { setActiveCount(r.count); setActiveLabels(r.labels); }).catch(() => {});
+            }
+        }, [maxxId])
+    );
 
     const loadData = async () => {
         if (!maxxId) { setLoading(false); return; }
@@ -41,13 +53,56 @@ export default function MaxxDetailScreen() {
             setExpandedModule(0);
             setShowAllModules(false);
             if (SCHEDULE_CAPABLE_MAXXES.includes(maxxId)) {
-                const schedRes = await api.getMaxxSchedule(maxxId);
-                if (schedRes?.schedule) setActiveSchedule(schedRes.schedule);
+                try {
+                    const schedRes = await api.getMaxxSchedule(maxxId);
+                    if (schedRes?.schedule) setActiveSchedule(schedRes.schedule);
+                } catch {}
+                try {
+                    const activeRes = await api.getActiveSchedules();
+                    setActiveCount(activeRes.count);
+                    setActiveLabels(activeRes.labels);
+                } catch {}
             }
         } catch (e) {
             console.error(e);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const doStopSchedule = async () => {
+        if (!activeSchedule) return;
+        try {
+            await api.stopSchedule(activeSchedule.id);
+            setActiveSchedule(null);
+            try {
+                const r = await api.getActiveSchedules();
+                setActiveCount(r.count);
+                setActiveLabels(r.labels);
+            } catch {}
+        } catch (e) {
+            if (Platform.OS === 'web') {
+                window.alert('Could not stop schedule. Try again.');
+            } else {
+                Alert.alert('Error', 'Could not stop schedule. Try again.');
+            }
+        }
+    };
+
+    const handleStopSchedule = () => {
+        if (!activeSchedule) return;
+        if (Platform.OS === 'web') {
+            const ok = window.confirm(`Stop your ${maxxId} schedule? You can restart it anytime.`);
+            if (ok) doStopSchedule();
+        } else {
+            Alert.alert(
+                'Stop schedule?',
+                `This will deactivate your ${maxxId} schedule. You can restart it anytime.`,
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Stop', style: 'destructive', onPress: () => doStopSchedule() },
+                ]
+            );
         }
     };
 
@@ -102,30 +157,49 @@ export default function MaxxDetailScreen() {
 
                 {canSchedule && (
                     <View style={styles.scheduleActions}>
-                        <TouchableOpacity
-                            style={styles.scheduleButton}
-                            activeOpacity={0.7}
-                            onPress={() => {
-                                (navigation as any).navigate('Main', {
-                                    screen: 'Chat',
-                                    params: { initSchedule: maxxId },
-                                });
-                            }}
-                        >
-                            <Ionicons name="calendar-outline" size={20} color={colors.buttonText} />
-                            <Text style={styles.scheduleButtonText}>
-                                {activeSchedule ? 'Update Schedule' : 'Start Schedule'}
-                            </Text>
-                        </TouchableOpacity>
-                        {activeSchedule && (
+                        {atLimit ? (
+                            <View style={styles.limitBanner}>
+                                <Ionicons name="alert-circle-outline" size={18} color={colors.warning || '#f59e0b'} />
+                                <Text style={styles.limitBannerText}>
+                                    You have 2 active modules ({activeLabels.join(', ')}). Stop one to start this.
+                                </Text>
+                            </View>
+                        ) : (
                             <TouchableOpacity
-                                style={styles.viewScheduleButton}
+                                style={styles.scheduleButton}
                                 activeOpacity={0.7}
-                                onPress={() => (navigation as any).navigate('Schedule', { scheduleId: activeSchedule.id })}
+                                onPress={() => {
+                                    (navigation as any).navigate('Main', {
+                                        screen: 'Chat',
+                                        params: { initSchedule: maxxId },
+                                    });
+                                }}
                             >
-                                <Ionicons name="eye-outline" size={20} color={colors.foreground} />
-                                <Text style={styles.viewScheduleText}>View Schedule</Text>
+                                <Ionicons name="calendar-outline" size={20} color={colors.buttonText} />
+                                <Text style={styles.scheduleButtonText}>
+                                    {activeSchedule ? 'Update Schedule' : 'Start Schedule'}
+                                </Text>
                             </TouchableOpacity>
+                        )}
+                        {activeSchedule && (
+                            <>
+                                <TouchableOpacity
+                                    style={styles.viewScheduleButton}
+                                    activeOpacity={0.7}
+                                    onPress={() => (navigation as any).navigate('Schedule', { scheduleId: activeSchedule.id })}
+                                >
+                                    <Ionicons name="eye-outline" size={20} color={colors.foreground} />
+                                    <Text style={styles.viewScheduleText}>View Schedule</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    style={styles.stopButton}
+                                    activeOpacity={0.7}
+                                    onPress={handleStopSchedule}
+                                >
+                                    <Ionicons name="stop-circle-outline" size={20} color="#ef4444" />
+                                    <Text style={styles.stopButtonText}>Stop Schedule</Text>
+                                </TouchableOpacity>
+                            </>
                         )}
                     </View>
                 )}
@@ -308,5 +382,38 @@ const styles = StyleSheet.create({
         fontSize: 16,
         fontWeight: '600',
         color: colors.foreground,
+    },
+    stopButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 14,
+        borderRadius: borderRadius.xl,
+        borderWidth: 1,
+        borderColor: '#ef444440',
+        backgroundColor: '#ef444410',
+    },
+    stopButtonText: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#ef4444',
+    },
+    limitBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        backgroundColor: '#f59e0b15',
+        borderRadius: borderRadius.xl,
+        borderWidth: 1,
+        borderColor: '#f59e0b40',
+        paddingVertical: 14,
+        paddingHorizontal: spacing.lg,
+    },
+    limitBannerText: {
+        flex: 1,
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
     },
 });

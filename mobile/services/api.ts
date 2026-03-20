@@ -504,6 +504,16 @@ class ApiService {
         const response = await this.client.delete(`schedules/${scheduleId}/tasks/${taskId}`);
         return response.data;
     }
+
+    async stopSchedule(scheduleId: string) {
+        const response = await this.client.post(`schedules/${scheduleId}/stop`);
+        return response.data;
+    }
+
+    async getActiveSchedules(): Promise<{ count: number; labels: string[]; max: number }> {
+        const response = await this.client.get('schedules/active/all');
+        return response.data;
+    }
 }
 
 export const api = new ApiService();

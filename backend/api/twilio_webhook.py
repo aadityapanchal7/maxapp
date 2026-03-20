@@ -100,6 +100,7 @@ async def sms_webhook(
                 message_text=body,
                 db=db,
                 rds_db=rds_db,
+                channel="sms",
             )
         except Exception as e:
             logger.error("SMS chat processing failed for user %s: %s", user_id_str, e, exc_info=True)

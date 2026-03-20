@@ -30,6 +30,20 @@ from models.rds_models import Course
 
 logger = logging.getLogger(__name__)
 
+MAX_ACTIVE_SCHEDULES = 2
+
+
+class ScheduleLimitError(Exception):
+    """Raised when the user already has the maximum number of active schedules."""
+
+    def __init__(self, active_labels: list[str]):
+        self.active_labels = active_labels
+        names = ", ".join(active_labels)
+        super().__init__(
+            f"You already have {len(active_labels)} active module{'s' if len(active_labels) != 1 else ''} ({names}). "
+            f"Stop one before starting a new one."
+        )
+
 
 def _sync_gemini_json_response(prompt: str) -> str:
     """Run blocking Gemini SDK in a worker thread (must not block asyncio event loop)."""
@@ -204,6 +218,82 @@ class ScheduleService:
     def __init__(self):
         self.gemini = GeminiService()
 
+    async def get_active_schedule_count(self, user_id: str, db: AsyncSession) -> tuple[int, list[str]]:
+        """Return (count, list_of_labels) of all currently active schedules."""
+        user_uuid = UUID(user_id)
+        result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True)
+            )
+        )
+        schedules = result.scalars().all()
+        labels = []
+        for s in schedules:
+            label = getattr(s, "maxx_id", None) or getattr(s, "course_title", None) or "unknown"
+            labels.append(label)
+        return len(schedules), labels
+
+    async def _enforce_schedule_limit(self, user_id: str, db: AsyncSession, replacing_maxx_id: str | None = None, replacing_course_module: tuple | None = None):
+        """
+        Raise ScheduleLimitError if adding a new schedule would exceed MAX_ACTIVE_SCHEDULES.
+        Doesn't count the schedule being *replaced* (same maxx_id or same course+module).
+        """
+        user_uuid = UUID(user_id)
+        result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True)
+            )
+        )
+        active = result.scalars().all()
+        filtered = []
+        for s in active:
+            if replacing_maxx_id and getattr(s, "maxx_id", None) == replacing_maxx_id:
+                continue
+            if replacing_course_module:
+                cid, mnum = replacing_course_module
+                if str(getattr(s, "course_id", "")) == cid and getattr(s, "module_number", None) == mnum:
+                    continue
+            filtered.append(s)
+        if len(filtered) >= MAX_ACTIVE_SCHEDULES:
+            labels = []
+            for s in filtered:
+                labels.append(getattr(s, "maxx_id", None) or getattr(s, "course_title", None) or "module")
+            raise ScheduleLimitError(labels)
+
+    async def deactivate_schedule(self, user_id: str, schedule_id: str, db: AsyncSession) -> dict:
+        """Deactivate a specific schedule by ID."""
+        user_uuid = UUID(user_id)
+        sched_uuid = UUID(schedule_id)
+        result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.id == sched_uuid) & (UserSchedule.user_id == user_uuid)
+            )
+        )
+        schedule = result.scalar_one_or_none()
+        if not schedule:
+            raise ValueError("Schedule not found")
+        schedule.is_active = False
+        schedule.updated_at = datetime.utcnow()
+        await db.commit()
+        label = getattr(schedule, "maxx_id", None) or getattr(schedule, "course_title", None) or "schedule"
+        return {"status": "stopped", "label": label}
+
+    async def deactivate_schedule_by_maxx(self, user_id: str, maxx_id: str, db: AsyncSession) -> dict | None:
+        """Deactivate the active schedule for a given maxx_id. Returns info dict or None."""
+        user_uuid = UUID(user_id)
+        result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == user_uuid) & (UserSchedule.maxx_id == maxx_id) & (UserSchedule.is_active == True)
+            )
+        )
+        schedule = result.scalar_one_or_none()
+        if not schedule:
+            return None
+        schedule.is_active = False
+        schedule.updated_at = datetime.utcnow()
+        await db.commit()
+        return {"status": "stopped", "maxx_id": maxx_id}
+
     async def generate_schedule(
         self,
         user_id: str,
@@ -215,6 +305,9 @@ class ScheduleService:
         num_days: int = 7,
     ) -> dict:
         """Generate a personalised schedule for a user's course module."""
+        await self._enforce_schedule_limit(
+            user_id, db, replacing_course_module=(course_id, module_number)
+        )
         try:
             course_uuid = UUID(course_id)
         except ValueError:
@@ -347,6 +440,7 @@ class ScheduleService:
         height_components: Optional[dict] = None,
     ) -> dict:
         """Generate a personalised recurring schedule for a maxx module."""
+        await self._enforce_schedule_limit(user_id, db, replacing_maxx_id=maxx_id)
         if maxx_id == "heightmax" and height_components is not None and len(height_components) > 0:
             if not any(bool(v) for v in height_components.values()):
                 raise ValueError("Select at least one height schedule component")

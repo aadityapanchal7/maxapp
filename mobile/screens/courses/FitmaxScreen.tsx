@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -32,6 +32,9 @@ export default function FitmaxScreen() {
   const progress = useMemo(() => fitmaxPhaseProgress(modules), [modules]);
   const [loadingSchedule, setLoadingSchedule] = useState(true);
   const [activeSchedule, setActiveSchedule] = useState<any>(null);
+  const [activeCount, setActiveCount] = useState(0);
+  const [activeLabels, setActiveLabels] = useState<string[]>([]);
+  const atLimit = !activeSchedule && activeCount >= 2;
   const [macroSnapshot, setMacroSnapshot] = useState({
     caloriesTarget: defaultFitmaxMacroSummary().calories,
     caloriesConsumed: 0,
@@ -53,6 +56,11 @@ export default function FitmaxScreen() {
         ]);
 
         if (mounted) setActiveSchedule(scheduleRes?.schedule || null);
+
+        try {
+          const activeRes = await api.getActiveSchedules();
+          if (mounted) { setActiveCount(activeRes.count); setActiveLabels(activeRes.labels); }
+        } catch {}
 
         const context = scheduleRes?.schedule?.schedule_context || {};
         const targetCalories = Number(context.calories ?? context.calorie_target ?? context.target_calories ?? defaultFitmaxMacroSummary().calories);
@@ -85,6 +93,42 @@ export default function FitmaxScreen() {
       mounted = false;
     };
   }, []);
+
+  const doStopSchedule = async () => {
+    if (!activeSchedule) return;
+    try {
+      await api.stopSchedule(activeSchedule.id);
+      setActiveSchedule(null);
+      try {
+        const r = await api.getActiveSchedules();
+        setActiveCount(r.count);
+        setActiveLabels(r.labels);
+      } catch {}
+    } catch {
+      if (Platform.OS === 'web') {
+        window.alert('Could not stop schedule. Try again.');
+      } else {
+        Alert.alert('Error', 'Could not stop schedule. Try again.');
+      }
+    }
+  };
+
+  const handleStopSchedule = () => {
+    if (!activeSchedule) return;
+    if (Platform.OS === 'web') {
+      const ok = window.confirm('Stop your fitmax schedule? You can restart it anytime.');
+      if (ok) doStopSchedule();
+    } else {
+      Alert.alert(
+        'Stop fitmax schedule?',
+        'This will deactivate your fitmax schedule. You can restart it anytime.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Stop', style: 'destructive', onPress: () => doStopSchedule() },
+        ]
+      );
+    }
+  };
 
   const remainingCalories = Math.max(0, macroSnapshot.caloriesTarget - macroSnapshot.caloriesConsumed);
   const proteinLeft = Math.max(0, macroSnapshot.proteinTarget - macroSnapshot.proteinConsumed);
@@ -120,19 +164,28 @@ export default function FitmaxScreen() {
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <View style={styles.scheduleActions}>
-          <TouchableOpacity
-            style={styles.scheduleButton}
-            activeOpacity={0.85}
-            onPress={() => {
-              navigation.navigate('Main', {
-                screen: 'Chat',
-                params: { initSchedule: 'fitmax' },
-              });
-            }}
-          >
-            <Ionicons name="calendar-outline" size={20} color={colors.buttonText} />
-            <Text style={styles.scheduleButtonText}>{activeSchedule ? 'Update Schedule' : 'Start Schedule'}</Text>
-          </TouchableOpacity>
+          {atLimit ? (
+            <View style={styles.limitBanner}>
+              <Ionicons name="alert-circle-outline" size={18} color="#f59e0b" />
+              <Text style={styles.limitBannerText}>
+                You have 2 active modules ({activeLabels.join(', ')}). Stop one to start fitmax.
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.scheduleButton}
+              activeOpacity={0.85}
+              onPress={() => {
+                navigation.navigate('Main', {
+                  screen: 'Chat',
+                  params: { initSchedule: 'fitmax' },
+                });
+              }}
+            >
+              <Ionicons name="calendar-outline" size={20} color={colors.buttonText} />
+              <Text style={styles.scheduleButtonText}>{activeSchedule ? 'Update Schedule' : 'Start Schedule'}</Text>
+            </TouchableOpacity>
+          )}
 
           {loadingSchedule ? (
             <View style={styles.scheduleLoadingRow}>
@@ -140,14 +193,24 @@ export default function FitmaxScreen() {
               <Text style={styles.scheduleLoadingText}>Checking your schedule...</Text>
             </View>
           ) : activeSchedule ? (
-            <TouchableOpacity
-              style={styles.viewScheduleButton}
-              activeOpacity={0.85}
-              onPress={() => navigation.navigate('Schedule', { scheduleId: activeSchedule.id })}
-            >
-              <Ionicons name="eye-outline" size={20} color={colors.foreground} />
-              <Text style={styles.viewScheduleText}>View Schedule</Text>
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity
+                style={styles.viewScheduleButton}
+                activeOpacity={0.85}
+                onPress={() => navigation.navigate('Schedule', { scheduleId: activeSchedule.id })}
+              >
+                <Ionicons name="eye-outline" size={20} color={colors.foreground} />
+                <Text style={styles.viewScheduleText}>View Schedule</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.stopButton}
+                activeOpacity={0.85}
+                onPress={handleStopSchedule}
+              >
+                <Ionicons name="stop-circle-outline" size={20} color="#ef4444" />
+                <Text style={styles.stopButtonText}>Stop Schedule</Text>
+              </TouchableOpacity>
+            </>
           ) : null}
         </View>
 
@@ -269,6 +332,30 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   viewScheduleText: { fontSize: 16, fontWeight: '600', color: colors.foreground },
+  stopButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: '#ef444440',
+    backgroundColor: '#ef444410',
+  },
+  stopButtonText: { fontSize: 16, fontWeight: '600', color: '#ef4444' },
+  limitBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#f59e0b15',
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: '#f59e0b40',
+    paddingVertical: 14,
+    paddingHorizontal: spacing.lg,
+  },
+  limitBannerText: { flex: 1, fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
   scheduleLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   scheduleLoadingText: { ...typography.bodySmall },
   modulesLabel: { ...typography.label, marginBottom: spacing.md },

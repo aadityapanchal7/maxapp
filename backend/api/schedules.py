@@ -14,7 +14,7 @@ from models.schedule import (
     EditTaskRequest,
 )
 from middleware.auth_middleware import require_paid_user
-from services.schedule_service import schedule_service
+from services.schedule_service import schedule_service, ScheduleLimitError
 
 router = APIRouter(prefix="/schedules", tags=["Schedules"])
 
@@ -38,6 +38,8 @@ async def generate_schedule(
             num_days=data.num_days,
         )
         return {"schedule": schedule}
+    except ScheduleLimitError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -66,6 +68,8 @@ async def generate_maxx_schedule(
             height_components=data.height_components,
         )
         return {"schedule": schedule}
+    except ScheduleLimitError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -99,6 +103,18 @@ async def get_current_schedule(
     if not schedule:
         return {"schedule": None, "message": "No active schedule. Generate one from a course module."}
     return {"schedule": schedule}
+
+
+@router.get("/active/all")
+async def get_all_active_schedules(
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get count and labels of all active schedules for the user."""
+    count, labels = await schedule_service.get_active_schedule_count(
+        current_user["id"], db
+    )
+    return {"count": count, "labels": labels, "max": 2}
 
 
 @router.get("/{schedule_id}")
@@ -209,3 +225,21 @@ async def adapt_schedule(
         return {"schedule": schedule}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{schedule_id}/stop")
+async def stop_schedule(
+    schedule_id: str,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deactivate/stop a schedule."""
+    try:
+        result = await schedule_service.deactivate_schedule(
+            user_id=current_user["id"],
+            schedule_id=schedule_id,
+            db=db,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
