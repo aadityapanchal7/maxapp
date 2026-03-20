@@ -231,6 +231,7 @@ async def send_coaching_check_ins():
                     )
                 )
                 schedules = sched_result.scalars().all()
+                fitmax_schedule = next((s for s in schedules if s.maxx_id == "fitmax"), None)
                 missed_today = 0
                 for s in schedules:
                     for day in (s.days or []):
@@ -247,6 +248,22 @@ async def send_coaching_check_ins():
 
                 if missed_today > 0 and check_in_type != "morning":
                     check_in_type = "missed_task"
+
+                if fitmax_schedule and check_in_type:
+                    today_fitmax = next((d for d in (fitmax_schedule.days or []) if d.get("date") == today_iso), None)
+                    tasks = today_fitmax.get("tasks", []) if today_fitmax else []
+                    has_session = any(
+                        any(k in (t.get("title", "").lower()) for k in ["push", "pull", "legs", "upper", "lower", "workout", "session"])
+                        for t in tasks
+                    )
+                    if check_in_type == "morning":
+                        check_in_type = "morning_training_day" if has_session else "morning_rest_day"
+                    elif check_in_type == "midday":
+                        check_in_type = "preworkout"
+                    elif check_in_type == "night":
+                        check_in_type = "evening_nutrition"
+                    elif check_in_type == "missed_task":
+                        check_in_type = "postworkout"
 
                 # Generate check-in message via AI and send as SMS
                 if not user.phone_number:
@@ -300,8 +317,20 @@ async def send_weekly_resets():
                     user_tz = ZoneInfo("UTC")
 
                 local_now = datetime.now(ZoneInfo("UTC")).astimezone(user_tz)
-                if local_now.weekday() != 0 or local_now.hour != 9:
-                    continue
+                fitmax_result = await db.execute(
+                    select(UserSchedule).where(
+                        (UserSchedule.user_id == user.id)
+                        & (UserSchedule.maxx_id == "fitmax")
+                        & (UserSchedule.is_active == True)
+                    ).limit(1)
+                )
+                has_fitmax = fitmax_result.scalar_one_or_none() is not None
+                if has_fitmax:
+                    if local_now.weekday() != 6 or local_now.hour != 19:
+                        continue
+                else:
+                    if local_now.weekday() != 0 or local_now.hour != 9:
+                        continue
 
                 state_result = await db.execute(
                     select(UserCoachingState).where(UserCoachingState.user_id == user.id)
@@ -311,7 +340,7 @@ async def send_weekly_resets():
                     continue
 
                 msg_text = await coaching_service.generate_check_in_message(
-                    str(user.id), db, None, "weekly", 0
+                    str(user.id), db, None, "weekly_fitmax_summary" if has_fitmax else "weekly", 0
                 )
 
                 if user.phone_number:
