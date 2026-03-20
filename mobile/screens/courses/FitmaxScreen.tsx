@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
 import { FITMAX_MODULES, fitmaxPhaseProgress } from '../../features/fitmax/modules';
-import { fitmaxAccent } from '../../features/fitmax/fitmax';
+import { defaultFitmaxMacroSummary, deriveCalorieLogFromMessages, fitmaxAccent } from '../../features/fitmax/fitmax';
 
 const MODULE_PHASE_ACCENTS: Record<string, string> = {
   Foundation: '#0ea5e9',
@@ -32,13 +32,47 @@ export default function FitmaxScreen() {
   const progress = useMemo(() => fitmaxPhaseProgress(modules), [modules]);
   const [loadingSchedule, setLoadingSchedule] = useState(true);
   const [activeSchedule, setActiveSchedule] = useState<any>(null);
+  const [macroSnapshot, setMacroSnapshot] = useState({
+    caloriesTarget: defaultFitmaxMacroSummary().calories,
+    caloriesConsumed: 0,
+    proteinTarget: defaultFitmaxMacroSummary().protein,
+    proteinConsumed: 0,
+    carbsTarget: defaultFitmaxMacroSummary().carbs,
+    carbsConsumed: 0,
+    fatTarget: defaultFitmaxMacroSummary().fat,
+    fatConsumed: 0,
+  });
 
   useEffect(() => {
     let mounted = true;
     const loadSchedule = async () => {
       try {
-        const scheduleRes = await api.getMaxxSchedule('fitmax');
+        const [scheduleRes, chatRes] = await Promise.all([
+          api.getMaxxSchedule('fitmax'),
+          api.getChatHistory(),
+        ]);
+
         if (mounted) setActiveSchedule(scheduleRes?.schedule || null);
+
+        const context = scheduleRes?.schedule?.schedule_context || {};
+        const targetCalories = Number(context.calories ?? context.calorie_target ?? context.target_calories ?? defaultFitmaxMacroSummary().calories);
+        const targetProtein = Number(context.protein_g ?? context.protein ?? defaultFitmaxMacroSummary().protein);
+        const targetCarbs = Number(context.carbs_g ?? context.carbs ?? defaultFitmaxMacroSummary().carbs);
+        const targetFat = Number(context.fat_g ?? context.fat ?? defaultFitmaxMacroSummary().fat);
+
+        const derived = deriveCalorieLogFromMessages(chatRes?.messages || []);
+        if (mounted) {
+          setMacroSnapshot({
+            caloriesTarget: Number.isFinite(targetCalories) ? targetCalories : defaultFitmaxMacroSummary().calories,
+            caloriesConsumed: derived.consumedCalories,
+            proteinTarget: Number.isFinite(targetProtein) ? targetProtein : defaultFitmaxMacroSummary().protein,
+            proteinConsumed: derived.protein,
+            carbsTarget: Number.isFinite(targetCarbs) ? targetCarbs : defaultFitmaxMacroSummary().carbs,
+            carbsConsumed: derived.carbs,
+            fatTarget: Number.isFinite(targetFat) ? targetFat : defaultFitmaxMacroSummary().fat,
+            fatConsumed: derived.fat,
+          });
+        }
       } catch (error) {
         console.error('Failed to load Fitmax schedule', error);
       } finally {
@@ -51,6 +85,11 @@ export default function FitmaxScreen() {
       mounted = false;
     };
   }, []);
+
+  const remainingCalories = Math.max(0, macroSnapshot.caloriesTarget - macroSnapshot.caloriesConsumed);
+  const proteinLeft = Math.max(0, macroSnapshot.proteinTarget - macroSnapshot.proteinConsumed);
+  const carbsLeft = Math.max(0, macroSnapshot.carbsTarget - macroSnapshot.carbsConsumed);
+  const fatLeft = Math.max(0, macroSnapshot.fatTarget - macroSnapshot.fatConsumed);
 
   return (
     <View style={styles.container}>
@@ -65,6 +104,12 @@ export default function FitmaxScreen() {
 
         <View style={styles.headerIcon}>
           <Ionicons name="barbell-outline" size={28} color={fitmaxAccent} />
+        </View>
+
+        <View style={styles.macroChip}>
+          <Text style={styles.macroChipTitle}>Today</Text>
+          <Text style={styles.macroChipCalories}>{remainingCalories} cal left</Text>
+          <Text style={styles.macroChipMacros}>P {proteinLeft}g · C {carbsLeft}g · F {fatLeft}g</Text>
         </View>
 
         <Text style={styles.headerTitle}>Fitmax</Text>
@@ -170,8 +215,23 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     backgroundColor: '#16a34a1f',
   },
-  headerTitle: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
-  headerDescription: { ...typography.bodySmall, marginTop: spacing.xs },
+  headerTitle: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5, paddingRight: 160 },
+  headerDescription: { ...typography.bodySmall, marginTop: spacing.xs, paddingRight: 160 },
+  macroChip: {
+    position: 'absolute',
+    right: spacing.lg,
+    top: 64,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    ...shadows.sm,
+  },
+  macroChipTitle: { ...typography.caption, color: colors.textMuted },
+  macroChipCalories: { fontSize: 12, fontWeight: '700', color: colors.foreground, marginTop: 2 },
+  macroChipMacros: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
   scroll: { flex: 1 },
   scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxxl },
   sectionLabel: { ...typography.label, marginBottom: spacing.xs },
