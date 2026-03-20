@@ -21,12 +21,396 @@ from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 from services.coaching_service import coaching_service
 from services.gemini_service import gemini_service
+from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+FITMAX_REQUIRED_FIELDS = [
+    "goal",
+    "experience_level",
+    "height_cm",
+    "weight_kg",
+    "age",
+    "biological_sex",
+    "equipment",
+    "days_per_week",
+    "session_minutes",
+    "daily_activity_level",
+    "dietary_restrictions",
+]
+
+FITMAX_FOOD_DB = {
+    "mcdonalds mcchicken": {"calories": 400, "protein_g": 14, "carbs_g": 39, "fat_g": 21},
+    "mcchicken": {"calories": 400, "protein_g": 14, "carbs_g": 39, "fat_g": 21},
+    "apple": {"calories": 95, "protein_g": 1, "carbs_g": 25, "fat_g": 0},
+    "banana": {"calories": 105, "protein_g": 1, "carbs_g": 27, "fat_g": 0},
+    "egg": {"calories": 78, "protein_g": 6, "carbs_g": 1, "fat_g": 5},
+    "eggs": {"calories": 78, "protein_g": 6, "carbs_g": 1, "fat_g": 5},
+    "oatmeal": {"calories": 150, "protein_g": 5, "carbs_g": 27, "fat_g": 3},
+    "chicken breast": {"calories": 165, "protein_g": 31, "carbs_g": 0, "fat_g": 4},
+    "greek yogurt": {"calories": 130, "protein_g": 17, "carbs_g": 6, "fat_g": 0},
+    "whey protein": {"calories": 120, "protein_g": 24, "carbs_g": 3, "fat_g": 2},
+}
+
+FITMAX_HEURISTIC_DISHES = {
+    "tomato soup": {"calories": 170, "protein_g": 4, "carbs_g": 27, "fat_g": 5},
+    "soup": {"calories": 190, "protein_g": 6, "carbs_g": 25, "fat_g": 7},
+    "salad": {"calories": 240, "protein_g": 8, "carbs_g": 18, "fat_g": 15},
+    "pasta": {"calories": 520, "protein_g": 18, "carbs_g": 78, "fat_g": 16},
+    "rice bowl": {"calories": 560, "protein_g": 24, "carbs_g": 72, "fat_g": 18},
+    "burrito": {"calories": 700, "protein_g": 30, "carbs_g": 74, "fat_g": 31},
+    "sandwich": {"calories": 430, "protein_g": 20, "carbs_g": 42, "fat_g": 19},
+    "burger": {"calories": 520, "protein_g": 26, "carbs_g": 41, "fat_g": 27},
+    "pizza": {"calories": 285, "protein_g": 12, "carbs_g": 36, "fat_g": 10},
+    "stir fry": {"calories": 480, "protein_g": 24, "carbs_g": 42, "fat_g": 23},
+    "curry": {"calories": 520, "protein_g": 20, "carbs_g": 46, "fat_g": 28},
+    "noodles": {"calories": 500, "protein_g": 16, "carbs_g": 78, "fat_g": 14},
+}
+
+
+def _fitmax_missing_fields(profile: dict) -> list[str]:
+    return [f for f in FITMAX_REQUIRED_FIELDS if profile.get(f) in (None, "", [])]
+
+
+def _fitmax_next_question(profile: dict) -> str:
+    missing = _fitmax_missing_fields(profile)
+    if not missing:
+        return ""
+    field = missing[0]
+    prompts = {
+        "goal": "what's your main goal right now — fat loss, muscle gain, recomp, maintenance, or performance?",
+        "experience_level": "what's your training experience level: beginner, intermediate, or advanced?",
+        "height_cm": "quick stats check — what's your height (cm or ft/in)?",
+        "weight_kg": "what's your current body weight?",
+        "age": "how old are you?",
+        "biological_sex": "what's your biological sex (male/female)?",
+        "equipment": "what do you have available to train with?",
+        "days_per_week": "how many days per week can you realistically train?",
+        "session_minutes": "what session length can you commit to most days (minutes)?",
+        "daily_activity_level": "outside the gym, what's your daily activity like: sedentary, lightly active, moderately active, or very active?",
+        "dietary_restrictions": "any dietary restrictions i should account for?",
+    }
+    return prompts[field]
+
+
+def _to_cm_from_text(text: str) -> Optional[float]:
+    s = (text or "").lower()
+    ft_in = re.search(r"(\d{1,2})\s*(?:ft|')\s*(\d{1,2})?\s*(?:in|\")?", s)
+    if ft_in:
+        ft = int(ft_in.group(1))
+        inches = int(ft_in.group(2) or 0)
+        return round((ft * 30.48) + (inches * 2.54), 1)
+    cm = re.search(r"(\d{3}(?:\.\d+)?)\s*cm", s)
+    if cm:
+        return float(cm.group(1))
+    if re.search(r"\b(1[4-9]\d|2[0-2]\d)\b", s):
+        value = float(re.search(r"\b(1[4-9]\d|2[0-2]\d)\b", s).group(1))
+        return value
+    return None
+
+
+def _to_kg_from_text(text: str) -> Optional[float]:
+    s = (text or "").lower()
+    lbs = re.search(r"(\d{2,3}(?:\.\d+)?)\s*(?:lb|lbs|pounds?)", s)
+    if lbs:
+        return round(float(lbs.group(1)) * 0.45359237, 1)
+    kg = re.search(r"(\d{2,3}(?:\.\d+)?)\s*kg", s)
+    if kg:
+        return float(kg.group(1))
+    plain = re.search(r"\b(\d{2,3}(?:\.\d+)?)\b", s)
+    if plain:
+        return float(plain.group(1))
+    return None
+
+
+def _extract_fitmax_updates(message: str, current: dict) -> dict:
+    s = (message or "").strip().lower()
+    updates = {}
+
+    if any(k in s for k in ["fat loss", "lose fat", "cut", "cutting"]):
+        updates["goal"] = "fat_loss"
+    elif any(k in s for k in ["build muscle", "bulk", "bulking", "hypertrophy"]):
+        updates["goal"] = "muscle_gain"
+    elif "recomp" in s:
+        updates["goal"] = "recomp"
+    elif "maintain" in s:
+        updates["goal"] = "maintenance"
+    elif "performance" in s:
+        updates["goal"] = "performance"
+
+    if "beginner" in s:
+        updates["experience_level"] = "beginner"
+    elif "intermediate" in s:
+        updates["experience_level"] = "intermediate"
+    elif "advanced" in s:
+        updates["experience_level"] = "advanced"
+
+    height_cm = _to_cm_from_text(s)
+    if height_cm:
+        updates["height_cm"] = height_cm
+
+    weight_kg = _to_kg_from_text(s)
+    if weight_kg:
+        updates["weight_kg"] = weight_kg
+
+    age_match = re.search(r"\b([1-9]\d)\b", s)
+    if age_match and 13 <= int(age_match.group(1)) <= 90:
+        updates["age"] = int(age_match.group(1))
+
+    if re.search(r"\bmale\b|\bman\b", s):
+        updates["biological_sex"] = "male"
+    elif re.search(r"\bfemale\b|\bwoman\b", s):
+        updates["biological_sex"] = "female"
+
+    if any(k in s for k in ["dumbbell", "barbell", "bench", "machine", "gym", "cable", "bands", "bodyweight", "home"]):
+        updates["equipment"] = s
+
+    days_match = re.search(r"(\d)\s*(?:days?|x)\s*(?:per week|/week|a week)?", s)
+    if days_match:
+        days = int(days_match.group(1))
+        if 1 <= days <= 7:
+            updates["days_per_week"] = days
+
+    mins_match = re.search(r"(\d{2,3})\s*(?:min|mins|minutes?)", s)
+    if mins_match:
+        mins = int(mins_match.group(1))
+        if 20 <= mins <= 180:
+            updates["session_minutes"] = mins
+
+    if any(k in s for k in ["sedentary", "desk job"]):
+        updates["daily_activity_level"] = "sedentary"
+    elif any(k in s for k in ["lightly active", "some walking"]):
+        updates["daily_activity_level"] = "lightly_active"
+    elif any(k in s for k in ["moderately active", "on my feet"]):
+        updates["daily_activity_level"] = "moderately_active"
+    elif any(k in s for k in ["very active", "physical job"]):
+        updates["daily_activity_level"] = "very_active"
+
+    if any(k in s for k in ["no restrictions", "none", "nothing"]):
+        updates["dietary_restrictions"] = "none"
+    elif any(k in s for k in ["vegan", "vegetarian", "halal", "kosher", "allergy", "lactose", "gluten"]):
+        updates["dietary_restrictions"] = s
+
+    # avoid accidentally overwriting existing high-confidence fields with weak text
+    return {k: v for k, v in updates.items() if v is not None and (not current.get(k) or current.get(k) != v)}
+
+
+def _fitmax_activity_multiplier(level: str) -> float:
+    return {
+        "sedentary": 1.2,
+        "lightly_active": 1.375,
+        "moderately_active": 1.55,
+        "very_active": 1.725,
+    }.get(level or "moderately_active", 1.55)
+
+
+def _fitmax_build_plan(profile: dict) -> dict:
+    weight_kg = float(profile.get("weight_kg") or 75)
+    height_cm = float(profile.get("height_cm") or 175)
+    age = int(profile.get("age") or 25)
+    sex = profile.get("biological_sex", "male")
+    goal = profile.get("goal", "recomp")
+    activity = profile.get("daily_activity_level", "moderately_active")
+    days = int(profile.get("days_per_week") or 4)
+
+    if sex == "female":
+        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) - 161
+    else:
+        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) + 5
+
+    tdee = int(round(bmr * _fitmax_activity_multiplier(activity)))
+    delta = 0
+    goal_label = "Recomp · Maintenance calories"
+    if goal == "fat_loss":
+        delta = -500
+        goal_label = "Fat Loss · 500 cal deficit"
+    elif goal == "muscle_gain":
+        delta = 300
+        goal_label = "Muscle Gain · Lean surplus"
+    elif goal == "maintenance":
+        delta = 0
+        goal_label = "Maintenance · Bodyweight stable"
+    elif goal == "performance":
+        delta = 200
+        goal_label = "Performance · Small surplus"
+
+    calories = max(1400, tdee + delta)
+    protein = int(round(weight_kg * 2.2 * (1.0 if goal in ("fat_loss", "muscle_gain") else 0.9)))
+    fat = int(round((calories * 0.27) / 9))
+    carbs = int(round((calories - (protein * 4 + fat * 9)) / 4))
+
+    if days >= 5:
+        split = "Push/Pull/Legs"
+    elif days == 4:
+        split = "Upper/Lower"
+    elif days == 3:
+        split = "Full Body 3x"
+    else:
+        split = "Full Body 2x"
+
+    return {
+        "bmr": int(round(bmr)),
+        "tdee": tdee,
+        "calories": int(round(calories)),
+        "protein_g": protein,
+        "carbs_g": carbs,
+        "fat_g": fat,
+        "goal_label": goal_label,
+        "split": split,
+        "days_per_week": days,
+    }
+
+
+def _fitmax_parse_quantity(text: str) -> tuple[float, str]:
+    s = (text or "").strip().lower()
+    qty = 1.0
+
+    if re.search(r"\bhalf\b|\b1/2\b", s):
+        qty = 0.5
+    elif re.search(r"\ban\b|\ba\b|\bone\b", s):
+        qty = 1.0
+
+    number_match = re.search(r"\b(\d+(?:\.\d+)?)\b", s)
+    if number_match:
+        try:
+            qty = float(number_match.group(1))
+        except ValueError:
+            qty = 1.0
+
+    cleaned = re.sub(r"\b(i|just|ate|had|a|an|one|serving|servings|x)\b", " ", s)
+    cleaned = re.sub(r"\b\d+(?:\.\d+)?\b", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return max(qty, 0.25), cleaned
+
+
+def _fitmax_portion_multiplier(text: str) -> float:
+    s = (text or "").lower()
+    mult = 1.0
+    if any(k in s for k in ["small", "kid size", "cup"]):
+        mult *= 0.8
+    if any(k in s for k in ["large", "big", "extra large"]):
+        mult *= 1.35
+    if "bowl" in s:
+        mult *= 1.2
+    if "plate" in s:
+        mult *= 1.3
+    if "slice" in s:
+        mult *= 0.75
+    return mult
+
+
+def _fitmax_heuristic_estimate(cleaned_item: str, qty: float) -> Optional[dict]:
+    s = (cleaned_item or "").strip().lower()
+    if not s:
+        return None
+
+    base = None
+    for key in sorted(FITMAX_HEURISTIC_DISHES.keys(), key=len, reverse=True):
+        if key in s:
+            base = FITMAX_HEURISTIC_DISHES[key]
+            break
+
+    if not base:
+        return None
+
+    factor = max(qty, 0.25) * _fitmax_portion_multiplier(s)
+    return {
+        "calories": int(round(base["calories"] * factor)),
+        "protein_g": int(round(base["protein_g"] * factor)),
+        "carbs_g": int(round(base["carbs_g"] * factor)),
+        "fat_g": int(round(base["fat_g"] * factor)),
+        "matched_name": s,
+        "source": "heuristic",
+    }
+
+
+async def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
+    s = (message or "").lower().strip()
+    if not s:
+        return None
+
+    trigger = re.search(r"\b(i just ate|i ate|i just had|i had)\b", s)
+    if not trigger:
+        return None
+
+    tail = s[trigger.end():].strip(" .,!?:;")
+    if not tail:
+        return None
+
+    segments = re.split(r",| and |\+", tail)
+    totals = {"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0}
+    matched_items: list[str] = []
+    used_heuristic = False
+
+    for seg in segments:
+        qty, cleaned = _fitmax_parse_quantity(seg)
+        if not cleaned:
+            continue
+
+        match_key = None
+        for key in sorted(FITMAX_FOOD_DB.keys(), key=len, reverse=True):
+            if key in cleaned:
+                match_key = key
+                break
+
+        lookup = await nutrition_service.lookup_food(cleaned, qty)
+        if lookup:
+            totals["calories"] += int(lookup["calories"])
+            totals["protein_g"] += int(lookup["protein_g"])
+            totals["carbs_g"] += int(lookup["carbs_g"])
+            totals["fat_g"] += int(lookup["fat_g"])
+            matched_items.append(lookup.get("matched_name") or cleaned)
+            if lookup.get("source") == "heuristic":
+                used_heuristic = True
+            continue
+
+        if match_key:
+            base = FITMAX_FOOD_DB[match_key]
+            totals["calories"] += int(round(base["calories"] * qty))
+            totals["protein_g"] += int(round(base["protein_g"] * qty))
+            totals["carbs_g"] += int(round(base["carbs_g"] * qty))
+            totals["fat_g"] += int(round(base["fat_g"] * qty))
+            matched_items.append(match_key)
+            continue
+
+        heuristic = _fitmax_heuristic_estimate(cleaned, qty)
+        if heuristic:
+            totals["calories"] += int(heuristic["calories"])
+            totals["protein_g"] += int(heuristic["protein_g"])
+            totals["carbs_g"] += int(heuristic["carbs_g"])
+            totals["fat_g"] += int(heuristic["fat_g"])
+            matched_items.append(heuristic.get("matched_name") or cleaned)
+            used_heuristic = True
+
+    if not matched_items or totals["calories"] <= 0:
+        return None
+
+    return {
+        "items": matched_items,
+        "calories": totals["calories"],
+        "protein_g": totals["protein_g"],
+        "carbs_g": totals["carbs_g"],
+        "fat_g": totals["fat_g"],
+        "used_heuristic": used_heuristic,
+    }
+
+
+def _fitmax_consumed_from_history(history: list[dict]) -> int:
+    consumed = 0
+    for m in history:
+        if m.get("role") != "assistant":
+            continue
+        text = (m.get("content") or "").lower()
+        if "logged." not in text:
+            continue
+        cals_match = re.search(r"(\d{2,4})\s*calories?", text)
+        if cals_match:
+            consumed += int(cals_match.group(1))
+    return consumed
 
 
 def _normalize_clock_hhmm(raw: Optional[str]) -> Optional[str]:
@@ -251,6 +635,7 @@ async def process_chat_message(
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     user = await db.get(User, user_uuid)
     onboarding = _merge_onboarding_with_schedule_prefs(user)
+    profile = (user.profile if user else {}) or {}
 
     user_context = {
         "coaching_context": coaching_context,
@@ -273,6 +658,134 @@ async def process_chat_message(
             maxx_id = "fitmax"
         elif "bonemax" in msg_lower or "bone max" in msg_lower or "bone maxx" in msg_lower:
             maxx_id = "bonemax"
+
+    # --- Fitmax chat onboarding (profile is populated conversationally) ---
+    if maxx_id == "fitmax" and user:
+        fitmax_profile = dict(profile.get("fitmax_profile") or {})
+        updates = _extract_fitmax_updates(message_text, fitmax_profile)
+        if updates:
+            fitmax_profile.update(updates)
+            profile["fitmax_profile"] = fitmax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+
+        fitmax_schedule = await schedule_service.get_maxx_schedule(user_id, "fitmax", db=db)
+        missing = _fitmax_missing_fields(fitmax_profile)
+
+        # Onboarding incomplete -> ask exactly one next question in chat
+        if not fitmax_schedule and missing:
+            if not any(fitmax_profile.values()):
+                response_text = "hey, welcome to fitmax. before we build your plan, i need to know a bit about you — this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, maintain, or performance?"
+            else:
+                response_text = _fitmax_next_question(fitmax_profile)
+
+            user_message = ChatHistory(
+                user_id=user_uuid,
+                role="user",
+                content=message_text,
+                created_at=datetime.utcnow(),
+            )
+            assistant_message = ChatHistory(
+                user_id=user_uuid,
+                role="assistant",
+                content=response_text,
+                created_at=datetime.utcnow(),
+            )
+            db.add(user_message)
+            db.add(assistant_message)
+            await db.commit()
+            return response_text
+
+        # Onboarding complete and no fitmax schedule yet -> generate + summarize
+        if not fitmax_schedule and not missing:
+            plan = _fitmax_build_plan(fitmax_profile)
+            profile["fitmax_plan"] = plan
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+
+            schedule = await schedule_service.generate_maxx_schedule(
+                user_id=user_id,
+                maxx_id="fitmax",
+                db=db,
+                rds_db=rds_db if rds_db else None,
+                wake_time="07:00",
+                sleep_time="23:00",
+                skin_concern=plan["goal_label"],
+                outside_today=False,
+                num_days=7,
+            )
+            user_context["active_maxx_schedule"] = schedule
+
+            response_text = (
+                "got everything i need. here's what i've built for you:\n\n"
+                "view your fitmax plan ->\n\n"
+                f"your daily calorie target is {plan['calories']} calories with {plan['protein_g']}g protein. "
+                f"your split is {plan['split']}, {plan['days_per_week']} days a week. "
+                "i'll text you each morning with what's on deck. want to start with module 1, or do you want any plan tweaks first?"
+            )
+
+            user_message = ChatHistory(
+                user_id=user_uuid,
+                role="user",
+                content=message_text,
+                created_at=datetime.utcnow(),
+            )
+            assistant_message = ChatHistory(
+                user_id=user_uuid,
+                role="assistant",
+                content=response_text,
+                created_at=datetime.utcnow(),
+            )
+            db.add(user_message)
+            db.add(assistant_message)
+            await db.commit()
+            return response_text
+
+    # --- Fitmax meal logging from natural language (average macro lookup) ---
+    if user:
+        is_fitmax_context = (
+            maxx_id == "fitmax"
+            or bool((profile or {}).get("fitmax_plan"))
+            or (active_schedule and str(active_schedule.get("maxx_id", "")).lower() == "fitmax")
+        )
+        food_log = await _fitmax_estimate_food_log(message_text) if is_fitmax_context else None
+        if food_log:
+            plan = (profile or {}).get("fitmax_plan") or {}
+            calorie_target = int(plan.get("calories") or 2340)
+            consumed_before = _fitmax_consumed_from_history(history)
+            consumed_now = consumed_before + int(food_log["calories"])
+            remaining = max(0, calorie_target - consumed_now)
+            heuristic_note = (
+                " i estimated this from a typical dish portion since exact product data wasn't available."
+                if food_log.get("used_heuristic")
+                else ""
+            )
+
+            response_text = (
+                f"logged. that's roughly {food_log['calories']} calories and {food_log['protein_g']}g protein "
+                f"({food_log['carbs_g']}g carbs, {food_log['fat_g']}g fat). "
+                f"you've got {remaining} calories left today.{heuristic_note}"
+            )
+
+            user_message = ChatHistory(
+                user_id=user_uuid,
+                role="user",
+                content=message_text,
+                created_at=datetime.utcnow(),
+            )
+            assistant_message = ChatHistory(
+                user_id=user_uuid,
+                role="assistant",
+                content=response_text,
+                created_at=datetime.utcnow(),
+            )
+            db.add(user_message)
+            db.add(assistant_message)
+            await db.commit()
+            return response_text
 
     if maxx_id:
         try:
@@ -682,7 +1195,6 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                 response_text = (response_text + "\n\n" + summ).strip() if response_text else summ
         except Exception as e:
             logger.exception("Forced schedule adaptation failed: %s", e)
-
     # --- Enforce lowercase on all AI responses ---
     response_text = response_text.lower()
 

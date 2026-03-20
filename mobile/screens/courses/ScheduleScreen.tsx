@@ -297,6 +297,28 @@ export default function ScheduleScreen() {
   const selectedDay = schedule?.days?.[selectedDayIndex];
   const completedCount = selectedDay?.tasks?.filter(t => t.status === 'completed').length || 0;
   const totalCount = selectedDay?.tasks?.length || 0;
+  const isFitmaxSchedule = (schedule?.maxx_id || '').toLowerCase() === 'fitmax' || (schedule?.course_title || '').toLowerCase().includes('fitmax');
+
+  const fitmaxIndicators = (() => {
+    if (!isFitmaxSchedule) return [] as Array<{ label: string; value: string }>;
+
+    const context = schedule?.schedule_context || {};
+    const calories = context.calories ?? context.calorie_target ?? context.target_calories;
+    const protein = context.protein_g ?? context.protein;
+    const carbs = context.carbs_g ?? context.carbs;
+    const fat = context.fat_g ?? context.fat;
+    const split = context.split ?? context.training_split;
+    const days = context.weekly_training_days ?? context.training_days;
+
+    const items: Array<{ label: string; value: string }> = [];
+    if (calories !== undefined && calories !== null) items.push({ label: 'Calories', value: `${calories}` });
+    if (protein !== undefined && protein !== null) items.push({ label: 'Protein', value: `${protein}g` });
+    if (carbs !== undefined && carbs !== null) items.push({ label: 'Carbs', value: `${carbs}g` });
+    if (fat !== undefined && fat !== null) items.push({ label: 'Fat', value: `${fat}g` });
+    if (split) items.push({ label: 'Split', value: `${split}` });
+    if (days !== undefined && days !== null) items.push({ label: 'Days/Week', value: `${days}` });
+    return items;
+  })();
 
   const getTaskIcon = (type: string) => {
     switch (type) {
@@ -411,6 +433,20 @@ export default function ScheduleScreen() {
             <View style={[styles.progressFill, { width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` }]} />
           </View>
         </View>
+
+        {fitmaxIndicators.length > 0 && (
+          <View style={styles.fitmaxIndicatorCard}>
+            <Text style={styles.fitmaxIndicatorTitle}>Fitmax Targets</Text>
+            <View style={styles.fitmaxIndicatorWrap}>
+              {fitmaxIndicators.map((item) => (
+                <View key={item.label} style={styles.fitmaxIndicatorChip}>
+                  <Text style={styles.fitmaxIndicatorLabel}>{item.label}</Text>
+                  <Text style={styles.fitmaxIndicatorValue}>{item.value}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Task cards */}
         {selectedDay?.tasks?.map((task) => {
@@ -590,6 +626,31 @@ const styles = StyleSheet.create({
     flex: 1, height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden',
   },
   progressFill: { height: '100%', backgroundColor: colors.success, borderRadius: 2 },
+  fitmaxIndicatorCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.lg,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    ...shadows.sm,
+  },
+  fitmaxIndicatorTitle: {
+    ...typography.label,
+    marginBottom: spacing.sm,
+  },
+  fitmaxIndicatorWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  fitmaxIndicatorChip: {
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    minWidth: 96,
+  },
+  fitmaxIndicatorLabel: { ...typography.caption, color: colors.textMuted },
+  fitmaxIndicatorValue: { fontSize: 13, fontWeight: '700', color: colors.foreground, marginTop: 2 },
 
   taskCard: {
     flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md,

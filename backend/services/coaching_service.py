@@ -355,6 +355,48 @@ CONVERSATION:
         user = await db.get(User, UUID(user_id))
         name = (user.first_name or user.email.split("@")[0]) if user else "there"
 
+        fitmax_result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == UUID(user_id))
+                & (UserSchedule.maxx_id == "fitmax")
+                & (UserSchedule.is_active == True)
+            ).order_by(UserSchedule.created_at.desc()).limit(1)
+        )
+        fitmax_schedule = fitmax_result.scalar_one_or_none()
+
+        if fitmax_schedule:
+            fitmax_prompt = f"""You are the Fitmax SMS coach. Write one SMS only.
+
+Tone: direct, knowledgeable, personal. Never generic.
+Max length: 3 sentences.
+Exactly one actionable point.
+
+User name: {name}
+Check-in type: {check_in_type}
+Missed tasks today: {missed_today}
+
+Week state context:
+{context_str}
+
+If check_in_type is one of:
+- morning_training_day: mention today's session focus and one execution cue.
+- morning_rest_day: reinforce recovery + protein target.
+- preworkout: remind session start and one cue.
+- postworkout: reinforce protein + current calorie position.
+- evening_nutrition: mention calories left and one practical food option.
+- weekly_fitmax_summary: summarize week with one key priority for next week.
+- milestone_pr: celebrate PR and compare to prior trend.
+
+Return only the message text, no labels."""
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=settings.gemini_api_key)
+                model = genai.GenerativeModel(settings.gemini_model)
+                resp = model.generate_content(fitmax_prompt)
+                return resp.text.strip()
+            except Exception as e:
+                logger.error(f"Fitmax check-in generation failed: {e}")
+
         prompt = f"""You are Max, a lookmaxxing coach. Generate a short check-in message for {name}.
 
 User context:

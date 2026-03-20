@@ -28,6 +28,11 @@ import ChapterViewScreen from '../screens/courses/ChapterViewScreen';
 import ScheduleScreen from '../screens/courses/ScheduleScreen';
 import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
 import MaxxDetailScreen from '../screens/courses/MaxxDetailScreen';
+import FitmaxPlanScreen from '../screens/courses/FitmaxPlanScreen';
+import FitmaxWorkoutTrackerScreen from '../screens/courses/FitmaxWorkoutTrackerScreen';
+import FitmaxCalorieLogScreen from '../screens/courses/FitmaxCalorieLogScreen';
+import FitmaxProgressScreen from '../screens/courses/FitmaxProgressScreen';
+import FitmaxModuleScreen from '../screens/courses/FitmaxModuleScreen';
 import TabNavigator from './TabNavigator';
 import LandingScreen from '../screens/onboarding/LandingScreen';
 import AdminNavigator from './AdminNavigator';
@@ -106,6 +111,11 @@ export function RootNavigator() {
                     <Stack.Screen name="ChapterView" component={ChapterViewScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="Schedule" component={ScheduleScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="MaxxDetail" component={MaxxDetailScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="FitmaxPlan" component={FitmaxPlanScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="FitmaxWorkoutTracker" component={FitmaxWorkoutTrackerScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="FitmaxCalorieLog" component={FitmaxCalorieLogScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="FitmaxProgress" component={FitmaxProgressScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="FitmaxModule" component={FitmaxModuleScreen} options={{ headerShown: false }} />
                 </>
             )}
         </Stack.Navigator>

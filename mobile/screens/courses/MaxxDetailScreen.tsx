@@ -4,6 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import FitmaxScreen from './FitmaxScreen';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'];
 
@@ -67,6 +68,10 @@ export default function MaxxDetailScreen() {
                 </TouchableOpacity>
             </View>
         );
+    }
+
+    if (maxxId === 'fitmax') {
+        return <FitmaxScreen />;
     }
 
     const modules = maxx.modules || [];

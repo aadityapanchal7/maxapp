@@ -336,6 +336,20 @@ class ScheduleService:
     ) -> dict:
         """Generate a personalised recurring schedule for a maxx module."""
         guideline = await get_maxx_guideline_async(maxx_id, rds_db)
+        if not guideline and maxx_id == "fitmax":
+            guideline = {
+                "label": "Fitmax",
+                "protocols": {
+                    "recomp": {
+                        "label": "Recomposition",
+                        "cadence": "3-5 weekly sessions",
+                        "how_to": "Lift with progressive overload, keep protein high, and hold calories near maintenance.",
+                        "notification": "execute the session and close daily protein gap.",
+                        "blackpill": "consistency > perfect macros for one day.",
+                    }
+                },
+                "concern_mapping": {},
+            }
         if not guideline:
             raise ValueError(f"Unknown maxx: {maxx_id}")
 
@@ -504,6 +518,8 @@ class ScheduleService:
             return self._generate_heightmax_fallback(num_days, wake_time, sleep_time)
         if maxx_id == "bonemax":
             return self._generate_bonemax_fallback(num_days, wake_time, sleep_time)
+        if maxx_id == "fitmax":
+            return self._generate_fitmax_fallback(num_days, wake_time, sleep_time)
 
         days = []
         wh, wm = map(int, wake_time.split(":"))
@@ -543,6 +559,66 @@ class ScheduleService:
                 "motivation_message": f"Day {day_num} — consistency is everything!",
             })
 
+        return {"days": days}
+
+    def _generate_fitmax_fallback(self, num_days: int, wake_time: str, sleep_time: str) -> dict:
+        days = []
+        wh, wm = map(int, wake_time.split(":"))
+        preworkout_h = 17
+        postworkout_h = 20
+        evening_h = 20
+        split = ["Push", "Pull", "Legs", "Rest", "Upper", "Lower", "Rest"]
+
+        for day_num in range(1, num_days + 1):
+            workout = split[(day_num - 1) % len(split)]
+            tasks = [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{wh:02d}:{wm:02d}",
+                    "title": "Morning check-in",
+                    "description": f"{workout} day. confirm today's plan in chat and lock protein early.",
+                    "task_type": "reminder",
+                    "duration_minutes": 2,
+                },
+            ]
+            if workout != "Rest":
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{preworkout_h:02d}:15",
+                        "title": "Pre-workout nudge",
+                        "description": f"{workout} session soon. open the live tracker and hit your top lift while fresh.",
+                        "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{postworkout_h:02d}:00",
+                        "title": "Post-workout recovery",
+                        "description": "Log your session, rate how it felt, and get protein in within the next hour.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
+            tasks.append(
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{evening_h:02d}:00",
+                    "title": "Nutrition check",
+                    "description": "Review calories and remaining protein in chat. close the gap with a high-protein meal.",
+                    "task_type": "reminder",
+                    "duration_minutes": 3,
+                }
+            )
+            days.append(
+                {
+                    "day_number": day_num,
+                    "tasks": tasks,
+                    "motivation_message": f"day {day_num}: consistency beats intensity spikes. execute the basics.",
+                }
+            )
         return {"days": days}
 
     def _generate_heightmax_fallback(self, num_days: int, wake_time: str, sleep_time: str) -> dict:
