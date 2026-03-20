@@ -1,4 +1,4 @@
-﻿import React, { useMemo } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +20,12 @@ type ContentBlock =
 type ParsedGridTable = {
   columns: string[];
   rows: string[][];
+};
+
+type ModuleSection = {
+  id: string;
+  title: string;
+  blocks: ContentBlock[];
 };
 
 const TABLE_HINTS = [
@@ -66,18 +72,9 @@ function parseCallout(text: string): ContentBlock {
   const trimmed = text.trim();
   const body = trimmed.replace(CALLOUT_ICON_REGEX, '');
 
-  if (trimmed.startsWith('\u{1F535}')) {
-    return { type: 'callout', tone: 'key', label: 'Key Concept', text: body.replace(/^Key Concept:?\s*/i, '') };
-  }
-
-  if (trimmed.startsWith('\u{1F7E1}')) {
-    return { type: 'callout', tone: 'tip', label: 'Coach Tip', text: body.replace(/^Coach Tip:?\s*/i, '') };
-  }
-
-  if (trimmed.startsWith('\u{1F534}')) {
-    return { type: 'callout', tone: 'mistake', label: 'Common Mistake', text: body.replace(/^Common Mistake:?\s*/i, '') };
-  }
-
+  if (trimmed.startsWith('\u{1F535}')) return { type: 'callout', tone: 'key', label: 'Key Concept', text: body.replace(/^Key Concept:?\s*/i, '') };
+  if (trimmed.startsWith('\u{1F7E1}')) return { type: 'callout', tone: 'tip', label: 'Coach Tip', text: body.replace(/^Coach Tip:?\s*/i, '') };
+  if (trimmed.startsWith('\u{1F534}')) return { type: 'callout', tone: 'mistake', label: 'Common Mistake', text: body.replace(/^Common Mistake:?\s*/i, '') };
   return { type: 'callout', tone: 'research', label: 'Research Note', text: body.replace(/^Research Note:?\s*/i, '') };
 }
 
@@ -113,13 +110,8 @@ function parseBlocks(content: string): ContentBlock[] {
           continue;
         }
 
-        if (isCalloutLine(next) || /^\[.+\]$/.test(next)) {
-          break;
-        }
-
-        if (blanks > 0 && /^[A-Z]/.test(next) && !/[★☆]/.test(next) && next.length > 70) {
-          break;
-        }
+        if (isCalloutLine(next) || /^\[.+\]$/.test(next)) break;
+        if (blanks > 0 && /^[A-Z]/.test(next) && !/[★☆]/.test(next) && next.length > 70) break;
 
         blanks = 0;
         tableLines.push(next);
@@ -183,34 +175,8 @@ function parseBlocks(content: string): ContentBlock[] {
   return blocks;
 }
 
-function calloutColors(tone: CalloutTone) {
-  if (tone === 'key') return { border: '#0ea5e9', bg: '#0ea5e914' };
-  if (tone === 'tip') return { border: '#f59e0b', bg: '#f59e0b16' };
-  if (tone === 'mistake') return { border: '#ef4444', bg: '#ef444416' };
-  return { border: '#22c55e', bg: '#22c55e16' };
-}
-
-function splitReadingChunks(text: string) {
-  const sentences = text
-    .split(/(?<=[.!?])\s+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-
-  if (sentences.length <= 2) return [text];
-
-  const chunks: string[] = [];
-  for (let i = 0; i < sentences.length; i += 2) {
-    chunks.push(sentences.slice(i, i + 2).join(' '));
-  }
-  return chunks;
-}
-
 function normalizeTableRows(rawText: string) {
-  const lines = rawText
-    .split('\n')
-    .map(line => line.trim())
-    .filter(Boolean);
-
+  const lines = rawText.split('\n').map(line => line.trim()).filter(Boolean);
   if (lines.length <= 1) return lines;
 
   const mergedRows: string[] = [lines[0]];
@@ -262,10 +228,7 @@ function parseRecoveryTable(lines: string[]): ParsedGridTable | null {
   }
 
   if (!rows.length) return null;
-  return {
-    columns: ['Protocol', 'Evidence Level', 'Effect', 'Notes'],
-    rows,
-  };
+  return { columns: ['Protocol', 'Evidence Level', 'Effect', 'Notes'], rows };
 }
 
 function parseMethodTable(lines: string[]): ParsedGridTable | null {
@@ -288,25 +251,63 @@ function parseMethodTable(lines: string[]): ParsedGridTable | null {
   }
 
   if (!rows.length) return null;
-  return {
-    columns: ['Method', 'Accuracy', 'Cost', 'Best For'],
-    rows,
-  };
+  return { columns: ['Method', 'Accuracy', 'Cost', 'Best For'], rows };
 }
 
 function parseTableGrid(rawText: string): ParsedGridTable | null {
   const rows = normalizeTableRows(rawText);
   const header = rows[0]?.replace(/\s+/g, ' ').trim() || '';
 
-  if (header.includes('ProtocolEvidence LevelEffectNotes')) {
-    return parseRecoveryTable(rows);
-  }
-
-  if (header.includes('Method Accuracy Cost Best For')) {
-    return parseMethodTable(rows);
-  }
-
+  if (header.includes('ProtocolEvidence LevelEffectNotes')) return parseRecoveryTable(rows);
+  if (header.includes('Method Accuracy Cost Best For')) return parseMethodTable(rows);
   return null;
+}
+
+function calloutColors(tone: CalloutTone) {
+  if (tone === 'key') return { border: '#0ea5e9', bg: '#0ea5e914' };
+  if (tone === 'tip') return { border: '#f59e0b', bg: '#f59e0b16' };
+  if (tone === 'mistake') return { border: '#ef4444', bg: '#ef444416' };
+  return { border: '#22c55e', bg: '#22c55e16' };
+}
+
+function splitReadingChunks(text: string) {
+  const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean);
+  if (sentences.length <= 2) return [text];
+
+  const chunks: string[] = [];
+  for (let i = 0; i < sentences.length; i += 2) {
+    chunks.push(sentences.slice(i, i + 2).join(' '));
+  }
+  return chunks;
+}
+
+function splitSections(blocks: ContentBlock[]) {
+  const leadBlocks: ContentBlock[] = [];
+  const sections: ModuleSection[] = [];
+  let current: ModuleSection | null = null;
+
+  blocks.forEach((block, idx) => {
+    if (block.type === 'heading') {
+      if (current && current.blocks.length) sections.push(current);
+      current = { id: `section-${idx}`, title: block.text, blocks: [] };
+      return;
+    }
+
+    if (!current) {
+      leadBlocks.push(block);
+      return;
+    }
+
+    current.blocks.push(block);
+  });
+
+  if (current) sections.push(current);
+
+  if (!sections.length && leadBlocks.length) {
+    return { leadBlocks: [] as ContentBlock[], sections: [{ id: 'section-content', title: 'Content', blocks: leadBlocks }] };
+  }
+
+  return { leadBlocks, sections };
 }
 
 export default function FitmaxModuleScreen() {
@@ -325,6 +326,108 @@ export default function FitmaxModuleScreen() {
   }, [content]);
 
   const blocks = useMemo(() => (parsedExercises ? [] : parseBlocks(content)), [content, parsedExercises]);
+  const { leadBlocks, sections } = useMemo(() => splitSections(blocks), [blocks]);
+  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (!sections.length) return;
+    setExpandedSections(prev => {
+      const next: Record<string, boolean> = {};
+      sections.forEach((section, idx) => {
+        next[section.id] = prev[section.id] ?? idx === 0;
+      });
+      return next;
+    });
+  }, [sections]);
+
+  const renderBlock = (block: ContentBlock, idxKey: string) => {
+    if (block.type === 'title') return <Text key={idxKey} style={styles.moduleTitle}>{block.text}</Text>;
+    if (block.type === 'meta') return <Text key={idxKey} style={styles.metaText}>{block.text}</Text>;
+
+    if (block.type === 'paragraph') {
+      const chunks = splitReadingChunks(block.text);
+      return (
+        <View key={idxKey} style={styles.paragraphGroup}>
+          {chunks.map((chunk, chunkIdx) => (
+            <Text key={`${idxKey}-${chunkIdx}`} style={styles.bodyText}>{chunk}</Text>
+          ))}
+        </View>
+      );
+    }
+
+    if (block.type === 'list') return <Text key={idxKey} style={styles.listText}>{block.text}</Text>;
+
+    if (block.type === 'check') {
+      return (
+        <View key={idxKey} style={styles.checkRow}>
+          <Ionicons name="checkmark-circle-outline" size={18} color={colors.accent} />
+          <Text style={styles.checkText}>{block.text}</Text>
+        </View>
+      );
+    }
+
+    if (block.type === 'visual') {
+      return (
+        <View key={idxKey} style={styles.visualCard}>
+          <Ionicons name="images-outline" size={16} color={colors.textMuted} />
+          <Text style={styles.visualText}>{block.text}</Text>
+        </View>
+      );
+    }
+
+    if (block.type === 'table') {
+      const parsedTable = parseTableGrid(block.text);
+
+      if (parsedTable) {
+        return (
+          <View key={idxKey} style={styles.tableCard}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.tableGridWrap}>
+                <View style={styles.tableRow}>
+                  {parsedTable.columns.map((column, columnIdx) => (
+                    <View key={`${idxKey}-header-${columnIdx}`} style={[styles.tableCell, styles.tableHeaderCell]}>
+                      <Text style={styles.tableHeaderText}>{column}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                {parsedTable.rows.map((row, rowIdx) => (
+                  <View key={`${idxKey}-row-${rowIdx}`} style={styles.tableRow}>
+                    {row.map((cell, cellIdx) => (
+                      <View key={`${idxKey}-row-${rowIdx}-cell-${cellIdx}`} style={styles.tableCell}>
+                        <Text style={styles.tableCellText}>{cell}</Text>
+                      </View>
+                    ))}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        );
+      }
+
+      return (
+        <View key={idxKey} style={styles.tableCard}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <Text style={styles.tableText}>{block.text}</Text>
+          </ScrollView>
+        </View>
+      );
+    }
+
+    if (block.type === 'heading') return null;
+
+    const palette = calloutColors(block.tone);
+    const calloutChunks = splitReadingChunks(block.text);
+    return (
+      <View key={idxKey} style={[styles.callout, { borderColor: palette.border, backgroundColor: palette.bg }]}>
+        <Text style={styles.calloutLabel}>{block.label}</Text>
+        {calloutChunks.map((chunk, chunkIdx) => (
+          <Text key={`${idxKey}-callout-${chunkIdx}`} style={styles.calloutText}>{chunk}</Text>
+        ))}
+      </View>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -350,88 +453,26 @@ export default function FitmaxModuleScreen() {
           </View>
         ) : (
           <View style={styles.card}>
-            {blocks.map((block, idx) => {
-              if (block.type === 'title') return <Text key={idx} style={styles.moduleTitle}>{block.text}</Text>;
-              if (block.type === 'meta') return <Text key={idx} style={styles.metaText}>{block.text}</Text>;
-              if (block.type === 'heading') return <Text key={idx} style={styles.headingText}>{block.text}</Text>;
-              if (block.type === 'paragraph') {
-                const chunks = splitReadingChunks(block.text);
-                return (
-                  <View key={idx} style={styles.paragraphGroup}>
-                    {chunks.map((chunk, chunkIdx) => (
-                      <Text key={`${idx}-${chunkIdx}`} style={styles.bodyText}>{chunk}</Text>
-                    ))}
-                  </View>
-                );
-              }
-              if (block.type === 'list') return <Text key={idx} style={styles.listText}>{block.text}</Text>;
+            {leadBlocks.map((block, idx) => renderBlock(block, `lead-${idx}`))}
 
-              if (block.type === 'check') {
-                return (
-                  <View key={idx} style={styles.checkRow}>
-                    <Ionicons name="checkmark-circle-outline" size={18} color={colors.accent} />
-                    <Text style={styles.checkText}>{block.text}</Text>
-                  </View>
-                );
-              }
-
-              if (block.type === 'visual') {
-                return (
-                  <View key={idx} style={styles.visualCard}>
-                    <Ionicons name="images-outline" size={16} color={colors.textMuted} />
-                    <Text style={styles.visualText}>{block.text}</Text>
-                  </View>
-                );
-              }
-
-              if (block.type === 'table') {
-                const parsedTable = parseTableGrid(block.text);
-
-                if (parsedTable) {
-                  return (
-                    <View key={idx} style={styles.tableCard}>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                        <View style={styles.tableGridWrap}>
-                          <View style={styles.tableRow}>
-                            {parsedTable.columns.map((column, columnIdx) => (
-                              <View key={`${idx}-header-${columnIdx}`} style={[styles.tableCell, styles.tableHeaderCell]}>
-                                <Text style={styles.tableHeaderText}>{column}</Text>
-                              </View>
-                            ))}
-                          </View>
-
-                          {parsedTable.rows.map((row, rowIdx) => (
-                            <View key={`${idx}-row-${rowIdx}`} style={styles.tableRow}>
-                              {row.map((cell, cellIdx) => (
-                                <View key={`${idx}-row-${rowIdx}-cell-${cellIdx}`} style={styles.tableCell}>
-                                  <Text style={styles.tableCellText}>{cell}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          ))}
-                        </View>
-                      </ScrollView>
-                    </View>
-                  );
-                }
-
-                return (
-                  <View key={idx} style={styles.tableCard}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                      <Text style={styles.tableText}>{block.text}</Text>
-                    </ScrollView>
-                  </View>
-                );
-              }
-
-              const palette = calloutColors(block.tone);
-              const calloutChunks = splitReadingChunks(block.text);
+            {sections.map(section => {
+              const isExpanded = expandedSections[section.id] ?? true;
               return (
-                <View key={idx} style={[styles.callout, { borderColor: palette.border, backgroundColor: palette.bg }]}>
-                  <Text style={styles.calloutLabel}>{block.label}</Text>
-                  {calloutChunks.map((chunk, chunkIdx) => (
-                    <Text key={`${idx}-callout-${chunkIdx}`} style={styles.calloutText}>{chunk}</Text>
-                  ))}
+                <View key={section.id} style={styles.sectionCard}>
+                  <TouchableOpacity
+                    style={styles.sectionHeader}
+                    activeOpacity={0.85}
+                    onPress={() => setExpandedSections(prev => ({ ...prev, [section.id]: !isExpanded }))}
+                  >
+                    <Text style={styles.headingText}>{section.title}</Text>
+                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+                  </TouchableOpacity>
+
+                  {isExpanded && (
+                    <View style={styles.sectionBody}>
+                      {section.blocks.map((block, idx) => renderBlock(block, `${section.id}-${idx}`))}
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -451,17 +492,10 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.xl, ...shadows.md },
   moduleTitle: { fontSize: 24, lineHeight: 30, fontWeight: '700', color: colors.foreground, marginBottom: spacing.md },
   metaText: { ...typography.bodySmall, color: colors.textMuted, marginBottom: spacing.lg },
-  headingText: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '700',
-    color: colors.foreground,
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
-    paddingBottom: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
+  headingText: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: colors.foreground, flex: 1, paddingRight: spacing.sm },
+  sectionCard: { borderWidth: 1, borderColor: colors.border, borderRadius: borderRadius.md, marginBottom: spacing.md, overflow: 'hidden', backgroundColor: colors.background },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: spacing.md, backgroundColor: colors.surface },
+  sectionBody: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, paddingBottom: spacing.sm },
   paragraphGroup: { marginBottom: spacing.md },
   bodyText: { ...typography.body, color: colors.textSecondary, lineHeight: 26, marginBottom: spacing.sm },
   listText: { ...typography.body, color: colors.textSecondary, lineHeight: 26, marginBottom: spacing.md },
@@ -473,40 +507,12 @@ const styles = StyleSheet.create({
   visualCard: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
   visualText: { ...typography.bodySmall, color: colors.textSecondary, flex: 1, lineHeight: 20 },
   tableCard: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
-  tableGridWrap: {
-    minWidth: 700,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.sm,
-    overflow: 'hidden',
-    backgroundColor: colors.card,
-  },
-  tableRow: {
-    flexDirection: 'row',
-  },
-  tableCell: {
-    flex: 1,
-    minWidth: 170,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
-  },
-  tableHeaderCell: {
-    backgroundColor: colors.surface,
-  },
-  tableHeaderText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.foreground,
-    lineHeight: 18,
-  },
-  tableCellText: {
-    ...typography.bodySmall,
-    color: colors.textSecondary,
-    lineHeight: 20,
-  },
+  tableGridWrap: { minWidth: 700, borderWidth: 1, borderColor: colors.border, borderRadius: borderRadius.sm, overflow: 'hidden', backgroundColor: colors.card },
+  tableRow: { flexDirection: 'row' },
+  tableCell: { flex: 1, minWidth: 170, paddingHorizontal: 10, paddingVertical: 10, borderRightWidth: 1, borderBottomWidth: 1, borderColor: colors.border },
+  tableHeaderCell: { backgroundColor: colors.surface },
+  tableHeaderText: { fontSize: 13, fontWeight: '700', color: colors.foreground, lineHeight: 18 },
+  tableCellText: { ...typography.bodySmall, color: colors.textSecondary, lineHeight: 20 },
   tableText: {
     color: colors.foreground,
     fontSize: 12,
