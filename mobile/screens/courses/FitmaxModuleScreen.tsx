@@ -17,6 +17,11 @@ type ContentBlock =
   | { type: 'visual'; text: string }
   | { type: 'table'; text: string };
 
+type ParsedGridTable = {
+  columns: string[];
+  rows: string[][];
+};
+
 const TABLE_HINTS = [
   'Method Accuracy Cost Best For',
   'Activity LevelMultiplier',
@@ -200,6 +205,110 @@ function splitReadingChunks(text: string) {
   return chunks;
 }
 
+function normalizeTableRows(rawText: string) {
+  const lines = rawText
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  if (lines.length <= 1) return lines;
+
+  const mergedRows: string[] = [lines[0]];
+  let current = '';
+
+  for (const line of lines.slice(1)) {
+    if (!current) {
+      current = line;
+      continue;
+    }
+
+    const isStandaloneStars = /^[★☆]+$/.test(line);
+    const looksLikeNewRow = /[★☆]{2,}/.test(line) || /^([A-Za-z][A-Za-z\s/()\-+%]{2,40})\s+[×x]\s*\d/.test(line);
+
+    if (isStandaloneStars) {
+      current = `${current} ${line}`.trim();
+      continue;
+    }
+
+    if (looksLikeNewRow) {
+      mergedRows.push(current);
+      current = line;
+      continue;
+    }
+
+    current = `${current} ${line}`.trim();
+  }
+
+  if (current) mergedRows.push(current);
+  return mergedRows;
+}
+
+function parseRecoveryTable(lines: string[]): ParsedGridTable | null {
+  const rows: string[][] = [];
+  const effects = ['Significant for DOMS', 'Significant', 'Massive', 'Moderate', 'Small'];
+
+  for (const rowText of lines.slice(1)) {
+    const starMatch = rowText.match(/([★☆]{2,})/);
+    if (!starMatch || starMatch.index === undefined) continue;
+
+    const protocol = rowText.slice(0, starMatch.index).trim();
+    const evidence = starMatch[1].trim();
+    const afterStars = rowText.slice(starMatch.index + starMatch[1].length).trim();
+    const effect = effects.find(item => afterStars.startsWith(item));
+    if (!effect) continue;
+
+    const notes = afterStars.slice(effect.length).trim();
+    rows.push([protocol, evidence, effect, notes]);
+  }
+
+  if (!rows.length) return null;
+  return {
+    columns: ['Protocol', 'Evidence Level', 'Effect', 'Notes'],
+    rows,
+  };
+}
+
+function parseMethodTable(lines: string[]): ParsedGridTable | null {
+  const rows: string[][] = [];
+  const costTokens = ['$50–150 per scan', 'Free at many gyms', 'Cheap', 'Free'];
+
+  for (const rowText of lines.slice(1)) {
+    const starMatch = rowText.match(/([★☆]{2,})/);
+    if (!starMatch || starMatch.index === undefined) continue;
+
+    const method = rowText.slice(0, starMatch.index).trim();
+    const accuracy = starMatch[1].trim();
+    const afterStars = rowText.slice(starMatch.index + starMatch[1].length).trim();
+    const cost = costTokens.find(token => afterStars.includes(token));
+    if (!cost) continue;
+
+    const costIndex = afterStars.indexOf(cost);
+    const bestFor = afterStars.slice(costIndex + cost.length).trim();
+    rows.push([method, accuracy, cost, bestFor]);
+  }
+
+  if (!rows.length) return null;
+  return {
+    columns: ['Method', 'Accuracy', 'Cost', 'Best For'],
+    rows,
+  };
+}
+
+function parseTableGrid(rawText: string): ParsedGridTable | null {
+  const rows = normalizeTableRows(rawText);
+  const header = rows[0]?.replace(/\s+/g, ' ').trim() || '';
+
+  if (header.includes('ProtocolEvidence LevelEffectNotes')) {
+    return parseRecoveryTable(rows);
+  }
+
+  if (header.includes('Method Accuracy Cost Best For')) {
+    return parseMethodTable(rows);
+  }
+
+  return null;
+}
+
 export default function FitmaxModuleScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -276,6 +385,36 @@ export default function FitmaxModuleScreen() {
               }
 
               if (block.type === 'table') {
+                const parsedTable = parseTableGrid(block.text);
+
+                if (parsedTable) {
+                  return (
+                    <View key={idx} style={styles.tableCard}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={styles.tableGridWrap}>
+                          <View style={styles.tableRow}>
+                            {parsedTable.columns.map((column, columnIdx) => (
+                              <View key={`${idx}-header-${columnIdx}`} style={[styles.tableCell, styles.tableHeaderCell]}>
+                                <Text style={styles.tableHeaderText}>{column}</Text>
+                              </View>
+                            ))}
+                          </View>
+
+                          {parsedTable.rows.map((row, rowIdx) => (
+                            <View key={`${idx}-row-${rowIdx}`} style={styles.tableRow}>
+                              {row.map((cell, cellIdx) => (
+                                <View key={`${idx}-row-${rowIdx}-cell-${cellIdx}`} style={styles.tableCell}>
+                                  <Text style={styles.tableCellText}>{cell}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    </View>
+                  );
+                }
+
                 return (
                   <View key={idx} style={styles.tableCard}>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -334,6 +473,40 @@ const styles = StyleSheet.create({
   visualCard: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
   visualText: { ...typography.bodySmall, color: colors.textSecondary, flex: 1, lineHeight: 20 },
   tableCard: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
+  tableGridWrap: {
+    minWidth: 700,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.sm,
+    overflow: 'hidden',
+    backgroundColor: colors.card,
+  },
+  tableRow: {
+    flexDirection: 'row',
+  },
+  tableCell: {
+    flex: 1,
+    minWidth: 170,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+  tableHeaderCell: {
+    backgroundColor: colors.surface,
+  },
+  tableHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.foreground,
+    lineHeight: 18,
+  },
+  tableCellText: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
   tableText: {
     color: colors.foreground,
     fontSize: 12,
