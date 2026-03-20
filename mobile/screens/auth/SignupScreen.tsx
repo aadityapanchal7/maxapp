@@ -1,11 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, Image, ScrollView, Animated } from 'react-native';
+import {
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    StyleSheet,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    Image,
+    ScrollView,
+    Animated,
+    Modal,
+    FlatList,
+    Pressable,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { PHONE_COUNTRIES, type PhoneCountry } from '../../constants/phoneCountryCodes';
 
 export default function SignupScreen() {
     const navigation = useNavigation<any>();
@@ -16,7 +32,9 @@ export default function SignupScreen() {
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
     const [username, setUsername] = useState('');
-    const [phone, setPhone] = useState('');
+    const [phoneNational, setPhoneNational] = useState('');
+    const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>(PHONE_COUNTRIES[0]);
+    const [countryModalVisible, setCountryModalVisible] = useState(false);
     const [avatarUri, setAvatarUri] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
@@ -54,7 +72,8 @@ export default function SignupScreen() {
         if (!confirmPassword) err.confirmPassword = true;
         const pwdMismatch = !!(password && confirmPassword && password !== confirmPassword);
         if (pwdMismatch) { err.password = true; err.confirmPassword = true; }
-        if (!phone.trim()) err.phone = true;
+        const nationalDigits = phoneNational.replace(/\D/g, '');
+        if (!nationalDigits || nationalDigits.length < 7) err.phone = true;
 
         setFieldErrors(err);
         setApiError(null);
@@ -66,7 +85,9 @@ export default function SignupScreen() {
         setApiError(null);
         setFieldErrorMessages({});
         try {
-            await signup(email, password, firstName, lastName, username, phone || undefined);
+            const fullPhone =
+                phoneCountry.dialCode + phoneNational.replace(/\D/g, '');
+            await signup(email, password, firstName, lastName, username, fullPhone);
             if (avatarUri) {
                 try {
                     await api.uploadAvatar(avatarUri);
@@ -149,8 +170,75 @@ export default function SignupScreen() {
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>PHONE NUMBER (SMS) · Required</Text>
-                                <TextInput style={[styles.input, fieldErrors.phone && styles.inputError]} placeholder="+1 555 123 4567" placeholderTextColor={colors.textMuted} value={phone} onChangeText={(t) => { setPhone(t); setFieldErrors((p) => ({ ...p, phone: false })); setApiError(null); }} keyboardType="phone-pad" />
+                                <View style={[styles.phoneRow, fieldErrors.phone && styles.inputError]}>
+                                    <TouchableOpacity
+                                        style={styles.countryCodeButton}
+                                        onPress={() => setCountryModalVisible(true)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={styles.countryCodeFlag}>{phoneCountry.flag}</Text>
+                                        <Text style={styles.countryCodeText} numberOfLines={1}>
+                                            {phoneCountry.dialCode}
+                                        </Text>
+                                        <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                    <TextInput
+                                        style={styles.phoneNationalInput}
+                                        placeholder="555 123 4567"
+                                        placeholderTextColor={colors.textMuted}
+                                        value={phoneNational}
+                                        onChangeText={(t) => {
+                                            setPhoneNational(t);
+                                            setFieldErrors((p) => ({ ...p, phone: false }));
+                                            setApiError(null);
+                                        }}
+                                        keyboardType="phone-pad"
+                                    />
+                                </View>
+                                <Text style={styles.phoneHint}>We&apos;ll text you for account &amp; coaching updates.</Text>
                             </View>
+
+                            <Modal
+                                visible={countryModalVisible}
+                                animationType="slide"
+                                transparent
+                                onRequestClose={() => setCountryModalVisible(false)}
+                            >
+                                <Pressable style={styles.modalBackdrop} onPress={() => setCountryModalVisible(false)}>
+                                    <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+                                        <View style={styles.modalHeader}>
+                                            <Text style={styles.modalTitle}>Country code</Text>
+                                            <TouchableOpacity onPress={() => setCountryModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                                                <Ionicons name="close" size={24} color={colors.foreground} />
+                                            </TouchableOpacity>
+                                        </View>
+                                        <FlatList
+                                            data={PHONE_COUNTRIES}
+                                            keyExtractor={(item) => `${item.dialCode}-${item.name}`}
+                                            keyboardShouldPersistTaps="handled"
+                                            renderItem={({ item }) => (
+                                                <TouchableOpacity
+                                                    style={[
+                                                        styles.countryRow,
+                                                        item.dialCode === phoneCountry.dialCode && item.name === phoneCountry.name && styles.countryRowSelected,
+                                                    ]}
+                                                    onPress={() => {
+                                                        setPhoneCountry(item);
+                                                        setCountryModalVisible(false);
+                                                    }}
+                                                    activeOpacity={0.65}
+                                                >
+                                                    <Text style={styles.countryRowFlag}>{item.flag}</Text>
+                                                    <Text style={styles.countryRowName} numberOfLines={2}>
+                                                        {item.name}
+                                                    </Text>
+                                                    <Text style={styles.countryRowDial}>{item.dialCode}</Text>
+                                                </TouchableOpacity>
+                                            )}
+                                        />
+                                    </Pressable>
+                                </Pressable>
+                            </Modal>
 
                             {apiError && (
                                 <View style={styles.apiErrorBox}>
@@ -230,4 +318,78 @@ const styles = StyleSheet.create({
     linkContainer: { marginTop: spacing.xl, alignItems: 'center' },
     linkText: { fontSize: 13, color: colors.textSecondary },
     linkBold: { color: colors.foreground, fontWeight: '600' },
+    phoneRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        overflow: 'hidden',
+    },
+    countryCodeButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingVertical: 15,
+        paddingLeft: spacing.md,
+        paddingRight: spacing.sm,
+        borderRightWidth: 1,
+        borderRightColor: colors.border,
+        maxWidth: '42%',
+    },
+    countryCodeFlag: { fontSize: 18 },
+    countryCodeText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.textPrimary,
+        flexShrink: 1,
+    },
+    phoneNationalInput: {
+        flex: 1,
+        paddingVertical: 15,
+        paddingHorizontal: spacing.md,
+        color: colors.textPrimary,
+        fontSize: 15,
+        minWidth: 0,
+    },
+    phoneHint: {
+        fontSize: 11,
+        color: colors.textMuted,
+        marginTop: 4,
+        marginLeft: 2,
+    },
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalSheet: {
+        backgroundColor: colors.card,
+        borderTopLeftRadius: borderRadius.xl,
+        borderTopRightRadius: borderRadius.xl,
+        maxHeight: '72%',
+        paddingBottom: Platform.OS === 'ios' ? 34 : spacing.lg,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    modalTitle: { fontSize: 17, fontWeight: '700', color: colors.foreground },
+    countryRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: spacing.lg,
+        gap: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.borderLight,
+    },
+    countryRowSelected: { backgroundColor: colors.surface },
+    countryRowFlag: { fontSize: 22, width: 32 },
+    countryRowName: { flex: 1, fontSize: 15, color: colors.textPrimary },
+    countryRowDial: { fontSize: 15, fontWeight: '600', color: colors.textSecondary, minWidth: 56, textAlign: 'right' },
 });

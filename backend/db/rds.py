@@ -41,6 +41,12 @@ async def get_rds_db() -> AsyncGenerator[AsyncSession, None]:
     async with RDSSessionLocal() as session:
         try:
             yield session
+        except BaseException:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            raise
         finally:
             await session.close()
 
@@ -52,7 +58,14 @@ async def get_rds_db_optional() -> AsyncGenerator["AsyncSession | None", None]:
     """
     try:
         async with RDSSessionLocal() as session:
-            yield session
+            try:
+                yield session
+            except BaseException:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+                raise
     except Exception:
         yield None
 

@@ -4,6 +4,7 @@ Uses Gemini 2.5 Flash with structured outputs
 """
 
 # TODO: Migrate to google-genai as google.generativeai is deprecated
+import asyncio
 import google.generativeai as genai
 from typing import Optional, List
 from config import settings
@@ -186,6 +187,10 @@ MAX_CHAT_SYSTEM_PROMPT = """You are Max — the AI lookmaxxing coach. You talk l
 Follow the [SYSTEM] message flow if provided. Otherwise: ask the maxx-specific concern/focus first when relevant, then wake time, sleep time, outside today. ONE question at a time.
 IMPORTANT: For HeightMax, NEVER ask about outside today — that is only for SkinMax.
 
+## WAKE / SLEEP TIMES (CRITICAL)
+- Never ask users to use 24-hour or "military" time. Keep questions natural: e.g. "what time do you usually wake up?" / "what time do you go to bed?" — they can answer "7:30am", "11pm", "quarter past six", etc.
+- You convert what they said into HH:MM (24h) internally when calling tools; don't tell them to format it that way.
+
 ## WAKE-UP DETECTION
 If user says "im awake" / "just woke up" — acknowledge briefly, remind AM routine. For SkinMax only: ask if going outside today. For HeightMax/FitMax/etc: do NOT ask outside today.
 outside_today is refreshed daily for SkinMax. When context shows "outside_today: unknown" for a SkinMax schedule, ask the user each morning and use update_schedule_context(key="outside_today", value="true"/"false").
@@ -219,15 +224,19 @@ def generate_maxx_schedule(
     scalp_state: str = None,
     daily_styling: str = None,
     thinning: str = None,
+    workout_frequency: str = None,
+    tmj_history: str = None,
+    mastic_gum_regular: str = None,
+    heavy_screen_time: str = None,
 ):
     """
     Generates a personalised maxx schedule for the user based on their preferences.
     Call this after asking the user for their selected concern or focus area (if applicable), wake time, sleep time, and whether they'll be outside.
 
     Args:
-        maxx_id: The maxx type ID, e.g. 'skinmax', 'heightmax', 'hairmax', 'fitmax'.
-        wake_time: User's wake time in HH:MM 24-hour format, e.g. '07:00'.
-        sleep_time: User's sleep time in HH:MM 24-hour format, e.g. '23:00'.
+        maxx_id: The maxx type ID, e.g. 'skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'.
+        wake_time: Wake time as HH:MM 24h for the tool (you convert from what the user said — e.g. '7am' -> '07:00'). Do not ask the user to use 24-hour format in chat.
+        sleep_time: Sleep time as HH:MM 24h for the tool (you convert from natural phrasing). Do not ask the user to use 24-hour format in chat.
         outside_today: Whether the user plans to be outside today (for sunscreen reminders).
         skin_concern: User's chosen concern or focus area. For SkinMax this is the skin concern; for other maxxes reuse this field for the selected focus area.
         age: User's age (for HeightMax). Pass if learned from conversation.
@@ -237,6 +246,10 @@ def generate_maxx_schedule(
         scalp_state: For HairMax: normal, dry/flaky, oily/greasy, itchy.
         daily_styling: For HairMax: yes or no — uses products/styling most days.
         thinning: For HairMax: yes or no — thinning or receding hairline.
+        workout_frequency: For BoneMax: e.g. '0', '1-2', '3-4', '5+'.
+        tmj_history: For BoneMax: 'yes' or 'no' — TMJ/jaw pain/clicking history.
+        mastic_gum_regular: For BoneMax: 'yes' or 'no' — already uses mastic/hard gum regularly.
+        heavy_screen_time: For BoneMax: 'yes' or 'no' — many hours on computer/phone.
     """
     return {
         "status": "success",
@@ -248,10 +261,11 @@ def update_schedule_context(key: str, value: str):
     """
     Updates a piece of context about the user's schedule patterns.
     Use this to store information the user tells you about their habits.
+    For wake_time / sleep_time (or preferred_wake_time / preferred_sleep_time), values are also saved globally on the user profile for future maxx schedules.
     
     Args:
-        key: The context key, e.g. 'actual_wake_time', 'outside_today', 'skin_concern'.
-        value: The value to store.
+        key: The context key, e.g. 'wake_time', 'sleep_time', 'outside_today', 'skin_concern'.
+        value: The value to store. For times, pass what the user said or your normalized HH:MM — do not instruct users to use 24-hour format when asking.
     """
     return {"status": "success", "message": f"Context updated: {key}={value}"}
 
@@ -504,28 +518,29 @@ class GeminiService:
             new_message_parts.append({"mime_type": "image/jpeg", "data": image_data})
         
         new_message_parts.append(message if message else "Look at this image.")
-        
-        # Generate response
-        chat = self.model.start_chat(history=history_for_gemini)
-        response = chat.send_message(new_message_parts)
-        
-        # Handle tool calls
-        tool_calls = []
-        response_text = ""
-        
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, 'function_call') and part.function_call:
-                tool_calls.append({
-                    "name": part.function_call.name,
-                    "args": dict(part.function_call.args)
-                })
-            elif hasattr(part, 'text') and part.text:
-                response_text += part.text
-        
-        return {
-            "text": response_text.strip() or "done. check your schedule.",
-            "tool_calls": tool_calls
-        }
+
+        def _sync_send() -> dict:
+            chat = self.model.start_chat(history=history_for_gemini)
+            response = chat.send_message(new_message_parts)
+            tool_calls = []
+            response_text = ""
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "function_call") and part.function_call:
+                    tool_calls.append(
+                        {
+                            "name": part.function_call.name,
+                            "args": dict(part.function_call.args),
+                        }
+                    )
+                elif hasattr(part, "text") and part.text:
+                    response_text += part.text
+            return {
+                "text": response_text.strip() or "done. check your schedule.",
+                "tool_calls": tool_calls,
+            }
+
+        # Run sync SDK in a thread so the event loop stays responsive (Twilio SMS webhook ~15s limit).
+        return await asyncio.to_thread(_sync_send)
 
 
 # Singleton instance

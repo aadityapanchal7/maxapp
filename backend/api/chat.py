@@ -13,6 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from db import get_db, get_rds_db_optional
 from middleware.auth_middleware import require_paid_user
@@ -21,10 +22,87 @@ from models.sqlalchemy_models import ChatHistory, Scan, User
 from services.coaching_service import coaching_service
 from services.gemini_service import gemini_service
 from services.storage_service import storage_service
+from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+
+def _normalize_clock_hhmm(raw: Optional[str]) -> Optional[str]:
+    """Best-effort normalize to HH:MM (24h). Accepts 24h clock or 12h with am/pm."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    # 12-hour with optional minutes, e.g. 7am, 7:30 pm, 11:59PM
+    m12 = re.match(r"^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)\s*$", s, re.I)
+    if m12:
+        h = int(m12.group(1))
+        mn = int(m12.group(2) or 0)
+        ap = m12.group(3).lower().replace(".", "")
+        if mn > 59 or h < 1 or h > 12:
+            return s[:32]
+        if ap.startswith("a"):
+            h24 = 0 if h == 12 else h
+        else:
+            h24 = 12 if h == 12 else h + 12
+        return f"{h24:02d}:{mn:02d}"
+    # Already 24h H:MM or HH:MM
+    m = re.match(r"^(\d{1,2}):(\d{2})$", s)
+    if not m:
+        return s[:32]
+    h, mn = int(m.group(1)), int(m.group(2))
+    if h > 23 or mn > 59:
+        return s[:32]
+    return f"{h:02d}:{mn:02d}"
+
+
+def _merge_onboarding_with_schedule_prefs(user: Optional[User]) -> dict:
+    """Expose wake/sleep from onboarding, backfilled from schedule_preferences for older users."""
+    if not user:
+        return {}
+    ob = dict(user.onboarding or {})
+    sp = user.schedule_preferences or {}
+    if not ob.get("wake_time") and sp.get("wake_time"):
+        ob["wake_time"] = str(sp["wake_time"]).strip()
+    if not ob.get("sleep_time") and sp.get("sleep_time"):
+        ob["sleep_time"] = str(sp["sleep_time"]).strip()
+    return ob
+
+
+async def _persist_user_wake_sleep(
+    user: Optional[User],
+    db: AsyncSession,
+    wake_time: Optional[str],
+    sleep_time: Optional[str],
+) -> None:
+    """Store global wake/sleep on User.onboarding (+ mirror on schedule_preferences)."""
+    if not user:
+        return
+    ob = dict(user.onboarding or {})
+    changed = False
+    w = _normalize_clock_hhmm(wake_time) if wake_time and str(wake_time).strip() else None
+    s = _normalize_clock_hhmm(sleep_time) if sleep_time and str(sleep_time).strip() else None
+    if w:
+        ob["wake_time"] = w
+        changed = True
+    if s:
+        ob["sleep_time"] = s
+        changed = True
+    if not changed:
+        return
+    user.onboarding = ob
+    flag_modified(user, "onboarding")
+    sp = dict(user.schedule_preferences or {})
+    if w:
+        sp["wake_time"] = w
+    if s:
+        sp["sleep_time"] = s
+    user.schedule_preferences = sp
+    flag_modified(user, "schedule_preferences")
+    await db.flush()
 
 
 def _looks_like_informational_question(text: str) -> bool:
@@ -172,7 +250,7 @@ async def process_chat_message(
     coaching_context = await coaching_service.build_full_context(user_id, db, rds_db)
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     user = await db.get(User, user_uuid)
-    onboarding = (user.onboarding if user else {}) or {}
+    onboarding = _merge_onboarding_with_schedule_prefs(user)
 
     user_context = {
         "coaching_context": coaching_context,
@@ -193,6 +271,8 @@ async def process_chat_message(
             maxx_id = "hairmax"
         elif "fitmax" in msg_lower or "fit max" in msg_lower:
             maxx_id = "fitmax"
+        elif "bonemax" in msg_lower or "bone max" in msg_lower or "bone maxx" in msg_lower:
+            maxx_id = "bonemax"
 
     if maxx_id:
         try:
@@ -214,6 +294,7 @@ MAIN RULES FOR HEIGHTMAX
 - do NOT ask "what is your main concern?" or any generic concern questions.
 - height is already the focus. don't ask what area they want to work on.
 - your job is just to grab missing info, then call generate_maxx_schedule and let the backend build the schedule.
+- NEVER ask the user to enter wake/sleep times in 24-hour or "military" format. ask naturally ("what time do you usually wake up?"); accept answers like "7am" or "11:30pm" and convert to HH:MM in the tool call.
 
 WHAT YOU'RE ALLOWED TO ASK FOR (ONLY IF MISSING)
 - age
@@ -368,9 +449,10 @@ your first response in this hairmax start flow should:
 4. Then ask: "What time do you usually go to sleep?" — wait for answer.
 5. Then ask: "Are you planning to be outside much today?" — wait for answer.
 6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern ({concern_ids}), wake_time, sleep_time, outside_today.
+Never ask users to use 24-hour/military time for wake or sleep — convert natural answers (e.g. 7am, 11pm) to HH:MM in the tool.
 Ask ONE question at a time. Your very first response must ask the concern question.]\n\n{message}"""
             else:
-                message = f"[SYSTEM: User wants to start {maxx_id} schedule. Ask wake time, sleep time, outside today. One at a time.]\n\n{message}"
+                message = f"[SYSTEM: User wants to start {maxx_id} schedule. Ask wake time, sleep time, outside today. One at a time. Never ask for 24-hour format for times — convert natural answers to HH:MM in the tool.]\n\n{message}"
 
     # --- Image handling ---
     image_data = None
@@ -413,6 +495,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             try:
                 args = tool["args"]
                 req_maxx = str(args.get("maxx_id", "skinmax"))
+                wf = None
+                tmj_raw = None
+                gum_raw = None
+                scr_raw = None
                 skin_concern = args.get("skin_concern") or onboarding.get("skin_type")
                 # For HeightMax, allow AI to pass age/sex/height from conversation
                 age_raw = args.get("age")
@@ -456,13 +542,50 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                         else:
                             response_text = "you notice thinning or a receding hairline? yes or no."
                         continue
+                if req_maxx == "bonemax":
+                    wf = (args.get("workout_frequency") or onboarding.get("bonemax_workout_frequency") or "").strip()
+                    tmj_raw = args.get("tmj_history")
+                    if tmj_raw is None:
+                        tmj_raw = onboarding.get("bonemax_tmj_history")
+                    gum_raw = args.get("mastic_gum_regular")
+                    if gum_raw is None:
+                        gum_raw = onboarding.get("bonemax_mastic_gum_regular")
+                    scr_raw = args.get("heavy_screen_time")
+                    if scr_raw is None:
+                        scr_raw = onboarding.get("bonemax_heavy_screen_time")
+                    has_wf = bool(wf)
+                    has_tmj = _yes_no_answered(tmj_raw)
+                    has_gum = _yes_no_answered(gum_raw)
+                    has_scr = _yes_no_answered(scr_raw)
+                    if not has_wf or not has_tmj or not has_gum or not has_scr:
+                        if not has_wf:
+                            response_text = (
+                                "quick one — how many days per week do you usually work out? "
+                                "say 0, 1-2, 3-4, or 5+."
+                            )
+                        elif not has_tmj:
+                            response_text = "ever had tmj, jaw pain, or clicking? yes or no."
+                        elif not has_gum:
+                            response_text = "you already chewing mastic or hard gum regularly? yes or no."
+                        else:
+                            response_text = "you on a computer or phone many hours most days? yes or no."
+                        continue
+                # Prefer tool args, then global onboarding (any prior maxx / app), then defaults
+                aw = args.get("wake_time")
+                asl = args.get("sleep_time")
+                final_wake = _normalize_clock_hhmm(str(aw).strip()) if aw is not None and str(aw).strip() else None
+                final_sleep = _normalize_clock_hhmm(str(asl).strip()) if asl is not None and str(asl).strip() else None
+                if not final_wake:
+                    final_wake = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
+                if not final_sleep:
+                    final_sleep = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
                 schedule = await schedule_service.generate_maxx_schedule(
                     user_id=user_id,
                     maxx_id=req_maxx,
                     db=db,
                     rds_db=rds_db if rds_db else None,
-                    wake_time=str(args.get("wake_time", "07:00")),
-                    sleep_time=str(args.get("sleep_time", "23:00")),
+                    wake_time=str(final_wake),
+                    sleep_time=str(final_sleep),
                     skin_concern=skin_concern,
                     outside_today=bool(args.get("outside_today", False)),
                     override_age=age,
@@ -476,7 +599,13 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     override_thinning=_normalize_hair_yes_no(
                         args.get("thinning") or args.get("hair_thinning") or onboarding.get("hair_thinning") or onboarding.get("thinning")
                     ),
+                    override_workout_frequency=wf,
+                    override_tmj_history=_normalize_hair_yes_no(tmj_raw),
+                    override_mastic_gum_regular=_normalize_hair_yes_no(gum_raw),
+                    override_heavy_screen_time=_normalize_hair_yes_no(scr_raw),
                 )
+                await _persist_user_wake_sleep(user, db, str(final_wake), str(final_sleep))
+                onboarding = _merge_onboarding_with_schedule_prefs(user)
                 schedule_summary = _summarise_schedule(schedule)
                 if not response_text.strip():
                     response_text = schedule_summary
@@ -490,6 +619,16 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             try:
                 args = tool["args"]
                 key, value = str(args.get("key", "")), str(args.get("value", ""))
+                lk = key.lower().replace("-", "_")
+                if lk in ("wake_time", "sleep_time", "preferred_wake_time", "preferred_sleep_time"):
+                    wk = None
+                    sk = None
+                    if lk in ("wake_time", "preferred_wake_time"):
+                        wk = value
+                    else:
+                        sk = value
+                    await _persist_user_wake_sleep(user, db, wk, sk)
+                    onboarding = _merge_onboarding_with_schedule_prefs(user)
                 if active_schedule and key:
                     await schedule_service.update_schedule_context(
                         user_id=user_id,

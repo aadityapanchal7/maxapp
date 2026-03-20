@@ -415,6 +415,44 @@ HAIRMAX_MODULES = [
     },
 ]
 
+# Expandable cards for Bonemax detail UI (same shape as SKINMAX_MODULES / HEIGHTMAX_MODULES)
+BONEMAX_MODULES = [
+    {
+        "title": "Mewing & oral posture",
+        "description": "All-day tongue posture, resets, and optional hard mewing caps — backend turns this into timed cues.",
+        "steps": [
+            {"title": "Baseline", "content": "Tongue up, lips sealed, nasal breathing, teeth light touch, jaw relaxed."},
+            {"title": "Resets", "content": "Morning 30–60s; midday after screens; night 30s check before sleep."},
+            {"title": "Hard mewing", "content": "1–2x/day max, short holds, stop if tension builds."},
+        ],
+    },
+    {
+        "title": "Chewing posture",
+        "description": "Meal-time form: symmetrical load, premolar bias, no clench — reminders only; schedule has the cadence.",
+        "steps": [
+            {"title": "During meals", "content": "Head upright, lips sealed when possible, slow deliberate chews, alternate sides."},
+            {"title": "Non-negotiables", "content": "No one-side-only chewing, no forward-head gnawing, no sloppy open-mouth chewing."},
+        ],
+    },
+    {
+        "title": "Fascia / lymph",
+        "description": "Light drainage and optional contrast — timed in your schedule, not invented in chat.",
+        "steps": [
+            {"title": "AM", "content": "Short tapping + drainage paths after cleansing; feather-light pressure."},
+            {"title": "PM", "content": "Evening sessions a few nights/week; skip on harsh actives nights."},
+        ],
+    },
+    {
+        "title": "Bone nutrition · neck · masseter",
+        "description": "Stack with meals, neck work after training days, mastic gum volume with rest logic — all encoded as tasks.",
+        "steps": [
+            {"title": "Nutrition", "content": "Bone-support stack concept with meals (e.g. D3, K2, magnesium, zinc, boron) — follow your own products."},
+            {"title": "Neck", "content": "Chin tucks + accessory work; scaled if TMJ-sensitive."},
+            {"title": "Mastic gum", "content": "One main session/day max, form-first, stop if clicking or pain."},
+        ],
+    },
+]
+
 MAXX_GUIDELINES = {
     "skinmax": {
         "label": "SkinMax",
@@ -523,6 +561,56 @@ Blackpilled truth: {blackpill}
 - Prioritize highest ROI actions
 - Do NOT spam repeated reminders for the same task
 """,
+    },
+    "bonemax": {
+        "label": "Bonemax",
+        "description": "Facial bone / jawline stack: mewing, chewing form, fascia, bone nutrition, neck training, masseter gum.",
+        "schedule_rules": {
+            "mewing_cues": "All-day soft oral posture reminders; morning/midday/night resets; optional hard mewing caps.",
+            "chewing_form": "Meal-time chewing posture cues; symmetrical, premolar-biased, closed mouth.",
+            "fascia_lymph": "Morning drainage; midday if puffy; evening sessions 4–5x/week.",
+            "bone_nutrition": "Stack with meals daily (concept: D3, K2, magnesium, zinc, boron).",
+            "neck_training": "After workouts / posture days; scale down if TMJ issues.",
+            "masseter_gum": "One main session/day max, volume caps; rest if jaw pain or clicking.",
+            "learn_patterns": True,
+        },
+        "protocols": {
+            "bonemax_stack": {
+                "label": "BoneMax / jawline stack",
+                "task_families": (
+                    "Encode: oral posture/mewing resets; chewing-form meal cues; fascia/lymph blocks; "
+                    "bone-support nutrition with meals; neck training (chin tucks + accessory work); "
+                    "mastic gum / masseter sessions with recovery logic."
+                ),
+            },
+        },
+        "concern_mapping": {},
+        "concern_question": None,
+        "concerns": [],
+        "recurring": True,
+        "daily_tasks": True,
+        "weekly_tasks": True,
+        "protocol_prompt_template": """## BONEMAX PROTOCOL — {label}
+
+{task_families}
+
+## SCHEDULE RULES
+- Anchor tasks to wake_time and sleep_time; use exact HH:MM.
+- Spread mewing/oral posture cues across the day; add extra midday resets if user has heavy screen time.
+- Schedule chewing-form reminders at meal windows (infer from wake/sleep or generic lunch/dinner bands).
+- Fascia/lymph: morning block; optional midday; evening 4–5x/week not nightly.
+- Bone nutrition reminders: with breakfast/lunch/dinner as appropriate.
+- Neck training: 2–3x/week for most; daily chin tucks as short reminders; place after workout days if workout_frequency is high; reduce if tmj_history is yes.
+- Masseter/mastic: 0–1 main session per day max; shorter duration if mastic_gum_regular is no or tmj_history is yes; never stack multiple hard jaw sessions same day.
+- No sunscreen/outside-today-only tasks. No skin or hair protocols.
+
+## USER BONEMAX CONTEXT (must personalize task text and intensity)
+Use the profile line that lists: workout frequency, TMJ history, mastic gum experience, heavy screen time.
+
+## OUTPUT
+Return JSON schedule only; motivational lines short and on-brand (casual, direct).
+""",
+        "modules": BONEMAX_MODULES,
     },
 }
 

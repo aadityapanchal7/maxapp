@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import select
 from models.rds_models import Maxx
 from db.rds import init_rds_db, close_rds_db, RDSSessionLocal
-from services.maxx_guidelines import SKINMAX_MODULES
+from services.maxx_guidelines import BONEMAX_MODULES, SKINMAX_MODULES
 
 
 SKINMAX_PROTOCOLS = {
@@ -288,7 +288,7 @@ MAXX_SEEDS = [
     # Placeholder maxxes — add protocols, concerns, etc. when you have rules
     {"id": "hairmax", "label": "Hairmax", "description": "Hair growth and scalp health.", "icon": "cut-outline", "color": "#3B82F6", "modules": [], "protocols": {}, "schedule_rules": {}, "concern_mapping": {}, "concern_question": None, "concerns": [], "protocol_prompt_template": None},
     {"id": "fitmax", "label": "Fitmax", "description": "Training and physique.", "icon": "fitness-outline", "color": "#10B981", "modules": [], "protocols": {}, "schedule_rules": {}, "concern_mapping": {}, "concern_question": None, "concerns": [], "protocol_prompt_template": None},
-    {"id": "bonemax", "label": "Bonemax", "description": "Facial structure optimization.", "icon": "body-outline", "color": "#F59E0B", "modules": [], "protocols": {}, "schedule_rules": {}, "concern_mapping": {}, "concern_question": None, "concerns": [], "protocol_prompt_template": None},
+    {"id": "bonemax", "label": "Bonemax", "description": "Facial bone / jawline stack — mewing, chewing form, fascia, nutrition, neck, masseter.", "icon": "body-outline", "color": "#F59E0B", "modules": BONEMAX_MODULES, "protocols": {}, "schedule_rules": {}, "concern_mapping": {}, "concern_question": None, "concerns": [], "protocol_prompt_template": None},
     {
         "id": "heightmax",
         "label": "Heightmax",

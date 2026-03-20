@@ -41,6 +41,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         try:
             yield session
+        except BaseException:
+            # Failed flush/commit leaves session in "needs rollback" state; clear before close.
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            raise
         finally:
             await session.close()
 

@@ -132,6 +132,13 @@ When building a HeightMax schedule, USE the user's age, sex, and height from USE
 - Height: affects baseline and goal framing
 Personalize task types, timing, and messaging accordingly.
 
+## PERSONALIZATION (BoneMax)
+When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT (workout frequency, TMJ history, mastic gum experience, heavy screen time):
+- TMJ / jaw issues → conservative masseter and neck intensity; avoid stacking hard jaw work
+- Heavy screen time → extra midday oral-posture / neck resets
+- Higher workout days/week → place neck training after training days where possible
+- Gum beginners → shorter mastic sessions with same form rules
+
 ## INSTRUCTIONS
 1. Create a schedule for {num_days} days.
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
@@ -322,6 +329,10 @@ class ScheduleService:
         override_scalp_state: Optional[str] = None,
         override_daily_styling: Optional[str] = None,
         override_thinning: Optional[str] = None,
+        override_workout_frequency: Optional[str] = None,
+        override_tmj_history: Optional[str] = None,
+        override_mastic_gum_regular: Optional[str] = None,
+        override_heavy_screen_time: Optional[str] = None,
     ) -> dict:
         """Generate a personalised recurring schedule for a maxx module."""
         guideline = await get_maxx_guideline_async(maxx_id, rds_db)
@@ -333,9 +344,17 @@ class ScheduleService:
         onboarding = (user.onboarding if user else {}) or {}
 
         skin_type = onboarding.get("skin_type", "normal")
-        concern = resolve_concern(guideline, skin_type, skin_concern)
+        if maxx_id == "bonemax":
+            concern = "bonemax_stack"
+        else:
+            concern = resolve_concern(guideline, skin_type, skin_concern)
         protocol_section = build_protocol_prompt_section(guideline, concern)
-        profile_hint = skin_type if maxx_id == "skinmax" else onboarding.get("goal", "none")
+        if maxx_id == "skinmax":
+            profile_hint = skin_type
+        elif maxx_id == "bonemax":
+            profile_hint = "bonemax"
+        else:
+            profile_hint = onboarding.get("goal", "none")
 
         profile_parts = []
         gender_val = override_sex or onboarding.get("gender")
@@ -347,6 +366,19 @@ class ScheduleService:
         height_val = override_height or onboarding.get("height")
         if height_val:
             profile_parts.append(f"Height: {height_val}")
+        if maxx_id == "bonemax":
+            wf = (override_workout_frequency or onboarding.get("bonemax_workout_frequency") or "").strip()
+            tmj = (override_tmj_history or onboarding.get("bonemax_tmj_history") or "").strip()
+            gum = (override_mastic_gum_regular or onboarding.get("bonemax_mastic_gum_regular") or "").strip()
+            scr = (override_heavy_screen_time or onboarding.get("bonemax_heavy_screen_time") or "").strip()
+            if wf:
+                profile_parts.append(f"Workout days/week (band): {wf}")
+            if tmj:
+                profile_parts.append(f"TMJ / jaw pain / clicking history: {tmj}")
+            if gum:
+                profile_parts.append(f"Mastic or hard gum regularly: {gum}")
+            if scr:
+                profile_parts.append(f"Heavy computer/phone screen time: {scr}")
         if maxx_id == "hairmax":
             ht = override_hair_type or onboarding.get("hair_type")
             ss = override_scalp_state or onboarding.get("scalp_state")
@@ -386,7 +418,9 @@ class ScheduleService:
             schedule_data = json.loads(response.text)
         except Exception as e:
             logger.error(f"Gemini maxx schedule generation failed: {e}")
-            schedule_data = self._generate_maxx_fallback(maxx_id, num_days, wake_time, sleep_time)
+            schedule_data = self._generate_maxx_fallback(
+                maxx_id, num_days, wake_time, sleep_time
+            )
 
         tz_name = onboarding.get("timezone", "UTC")
         try:
@@ -424,6 +458,25 @@ class ScheduleService:
         }
 
         start_date_iso = datetime.now(user_tz).date().isoformat()
+        sched_ctx = {
+            "selected_concern": concern,
+            "skin_concern": concern,
+            "skin_type": skin_type,
+            "outside_today": outside_today,
+            "outside_today_date": start_date_iso,
+            "wake_time": wake_time,
+            "sleep_time": sleep_time,
+        }
+        if maxx_id == "bonemax":
+            sched_ctx.update(
+                {
+                    "bonemax_workout_frequency": (override_workout_frequency or onboarding.get("bonemax_workout_frequency") or ""),
+                    "bonemax_tmj_history": (override_tmj_history or onboarding.get("bonemax_tmj_history") or ""),
+                    "bonemax_mastic_gum_regular": (override_mastic_gum_regular or onboarding.get("bonemax_mastic_gum_regular") or ""),
+                    "bonemax_heavy_screen_time": (override_heavy_screen_time or onboarding.get("bonemax_heavy_screen_time") or ""),
+                }
+            )
+
         schedule_row = UserSchedule(
             user_id=user_uuid,
             schedule_type="maxx",
@@ -431,15 +484,7 @@ class ScheduleService:
             course_title=guideline["label"],
             days=schedule_data.get("days", []),
             preferences=prefs,
-            schedule_context={
-                "selected_concern": concern,
-                "skin_concern": concern,
-                "skin_type": skin_type,
-                "outside_today": outside_today,
-                "outside_today_date": start_date_iso,
-                "wake_time": wake_time,
-                "sleep_time": sleep_time,
-            },
+            schedule_context=sched_ctx,
             is_active=True,
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
@@ -457,6 +502,8 @@ class ScheduleService:
         """Fallback schedule when Gemini fails for maxx schedules."""
         if maxx_id == "heightmax":
             return self._generate_heightmax_fallback(num_days, wake_time, sleep_time)
+        if maxx_id == "bonemax":
+            return self._generate_bonemax_fallback(num_days, wake_time, sleep_time)
 
         days = []
         wh, wm = map(int, wake_time.split(":"))
@@ -581,6 +628,118 @@ class ScheduleService:
                     "day_number": day_num,
                     "tasks": tasks,
                     "motivation_message": f"Day {day_num} — stop leaking inches and make your frame read the way it should.",
+                }
+            )
+
+        return {"days": days}
+
+    def _generate_bonemax_fallback(self, num_days: int, wake_time: str, sleep_time: str) -> dict:
+        """Fallback BoneMax schedule when Gemini fails — jaw/oral posture stack (no custom essays)."""
+        days = []
+        wh, wm = map(int, wake_time.split(":"))
+        sh, sm = map(int, sleep_time.split(":"))
+        midday_h = min(wh + 5, sh - 1) if sh > wh + 5 else max(wh + 2, min(12, sh - 1))
+        lunch_h = min(wh + 6, sh - 2) if sh > wh + 7 else max(wh + 3, min(13, sh - 2))
+        pm_h = max(wh + 1, min(sh - 2, wh + 8))
+        night_h = max(wh, sh - 1)
+
+        for day_num in range(1, num_days + 1):
+            tasks = [
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{wh:02d}:{wm:02d}",
+                    "title": "Morning Check-in",
+                    "description": "You're up. Lock tongue up, lips sealed, nasal breathing before the day wrecks your oral posture.",
+                    "task_type": "reminder",
+                    "duration_minutes": 1,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{wh:02d}:{min(59, wm + 8):02d}",
+                    "title": "Mewing Reset (30–60s)",
+                    "description": "Tongue flat on palate, light suction, chin slightly tucked, no mouth breathing. Passive, not max strain.",
+                    "task_type": "routine",
+                    "duration_minutes": 2,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{midday_h:02d}:30",
+                    "title": "Midday Oral Posture Reset",
+                    "description": "30s: tongue up, lips sealed, head stacked, jaw unclenched — especially after screens.",
+                    "task_type": "reminder",
+                    "duration_minutes": 1,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{lunch_h:02d}:00",
+                    "title": "Chewing Posture Cue",
+                    "description": "Meal: lips sealed, nasal breathing, slow chews, alternate sides, premolar bias. No clenching.",
+                    "task_type": "reminder",
+                    "duration_minutes": 2,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{min(wh + 1, sh - 1):02d}:15",
+                    "title": "Fascia / Lymph (AM)",
+                    "description": "Tapping jaw→cheeks→temples; drainage behind ears→neck→collarbone. Feather-light, neck upright.",
+                    "task_type": "routine",
+                    "duration_minutes": 4,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{min(wh + 1, sh - 1):02d}:45",
+                    "title": "Bone Support Stack (with food)",
+                    "description": "Take bone-support stack with breakfast (D3/K2/mag/zinc/boron concept — follow your actual supplement plan).",
+                    "task_type": "routine",
+                    "duration_minutes": 2,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{pm_h:02d}:00",
+                    "title": "Chin Tucks",
+                    "description": "2 sets of 10–15: chin straight back, no tilt. Fix forward-head look that hides the jaw.",
+                    "task_type": "routine",
+                    "duration_minutes": 6,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": f"{night_h:02d}:{sm:02d}",
+                    "title": "Night Oral Posture Check",
+                    "description": "30s: tongue up, lips closed, nasal route. Back sleep or at least not mouth-breathing open.",
+                    "task_type": "reminder",
+                    "duration_minutes": 1,
+                },
+            ]
+            if day_num % 2 == 1:
+                tasks.insert(
+                    -1,
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": "15:30",
+                        "title": "Mastic / Masseter Session",
+                        "description": "Medium mastic, slow reps, lips sealed, split both sides, cap before form gets sloppy. Skip if jaw hurts or clicks.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 20,
+                    },
+                )
+            if day_num % 3 == 0:
+                nt_h = min(sh - 1, wh + 9)
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{nt_h:02d}:00",
+                        "title": "Neck Training Block",
+                        "description": "Light neck curls / extensions / side raises — controlled reps, no yanking. Stop if TMJ or neck pain spikes.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 15,
+                    }
+                )
+            tasks.sort(key=lambda t: t["time"])
+            days.append(
+                {
+                    "day_number": day_num,
+                    "tasks": tasks,
+                    "motivation_message": f"Day {day_num} — bonemax is consistency: tongue, teeth, neck, chew volume.",
                 }
             )
 

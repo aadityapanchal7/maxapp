@@ -22,6 +22,30 @@ def normalize_phone(phone: str) -> str:
     return digits
 
 
+def phone_lookup_candidates(raw_from: str) -> list[str]:
+    """
+    Build possible DB values Twilio might match. Twilio sends e.g. +15551234567;
+    users may have stored spaces, missing +1, or 10-digit local only.
+    """
+    raw = (raw_from or "").strip()
+    if not raw:
+        return []
+    n = normalize_phone(raw)
+    digits = re.sub(r"\D", "", raw)
+    candidates = [n, raw]
+    if len(digits) == 11 and digits.startswith("1"):
+        candidates.extend(["+" + digits, digits[1:]])
+    if len(digits) == 10:
+        candidates.extend(["+1" + digits, digits])
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 class TwilioService:
     """Handles SMS messaging via Twilio"""
 

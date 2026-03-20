@@ -53,6 +53,82 @@ const SKIN_TYPES = [
 
 const REQUIRED = ' · Required';
 
+/** Physical profile — sensible bounds while typing & on submit */
+const AGE_MIN = 13;
+const AGE_MAX = 120;
+const HEIGHT_CM_MIN = 50;
+const HEIGHT_CM_MAX = 272; // ~8'11"
+const WEIGHT_KG_MIN = 20;
+const WEIGHT_KG_MAX = 300;
+const WEIGHT_LBS_MIN = 44;
+const WEIGHT_LBS_MAX = 660;
+const HEIGHT_FT_MAX = 8;
+const HEIGHT_IN_MAX = 11;
+
+function sanitizeAgeInput(raw: string): string {
+    const d = raw.replace(/\D/g, '').slice(0, 3);
+    if (!d) return '';
+    let n = parseInt(d, 10);
+    if (Number.isNaN(n)) return '';
+    if (n > AGE_MAX) n = AGE_MAX;
+    return String(n);
+}
+
+/** Feet: 0–8 (typical human range for ft + in UI) */
+function sanitizeFeetInput(raw: string): string {
+    const d = raw.replace(/\D/g, '').slice(0, 2);
+    if (!d) return '';
+    let n = parseInt(d, 10);
+    if (Number.isNaN(n)) return '';
+    if (n > HEIGHT_FT_MAX) n = HEIGHT_FT_MAX;
+    return String(n);
+}
+
+/** Inches: 0–11 only */
+function sanitizeInchesInput(raw: string): string {
+    const d = raw.replace(/\D/g, '').slice(0, 2);
+    if (!d) return '';
+    let n = parseInt(d, 10);
+    if (Number.isNaN(n)) return '';
+    if (n > HEIGHT_IN_MAX) n = HEIGHT_IN_MAX;
+    return String(n);
+}
+
+/** Height cm: one optional decimal, cap at max */
+function sanitizeHeightCmInput(raw: string): string {
+    let s = raw.replace(/[^\d.]/g, '');
+    const firstDot = s.indexOf('.');
+    if (firstDot !== -1) {
+        s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, '');
+    }
+    const parts = s.split('.');
+    let intPart = (parts[0] || '').slice(0, 3);
+    let dec = parts.length > 1 ? parts[1].slice(0, 1) : '';
+    let out = dec !== '' ? `${intPart}.${dec}` : intPart;
+    if (out === '.' || out.endsWith('.')) return out;
+    const n = parseFloat(out);
+    if (!Number.isNaN(n) && n > HEIGHT_CM_MAX) return String(HEIGHT_CM_MAX);
+    return out;
+}
+
+function sanitizeWeightInput(raw: string, metric: boolean): string {
+    let s = raw.replace(/[^\d.]/g, '');
+    const firstDot = s.indexOf('.');
+    if (firstDot !== -1) {
+        s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, '');
+    }
+    const parts = s.split('.');
+    const intPart = (parts[0] || '').slice(0, 3);
+    const decPart = parts.length > 1 ? parts[1].slice(0, 2) : '';
+    let out = decPart !== '' ? `${intPart}.${decPart}` : intPart;
+    if (out === '.' || out.endsWith('.')) return out;
+    const n = parseFloat(out);
+    if (Number.isNaN(n)) return out;
+    const max = metric ? WEIGHT_KG_MAX : WEIGHT_LBS_MAX;
+    if (n > max) return String(max);
+    return out;
+}
+
 export default function OnboardingScreen() {
     const navigation = useNavigation<any>();
     const { user, refreshUser, isAuthenticated } = useAuth() as any;
@@ -96,8 +172,8 @@ export default function OnboardingScreen() {
             showError('Please enter your age.');
             return false;
         }
-        if (ageNum < 13 || ageNum > 120) {
-            showError('Please enter an age between 13 and 120.');
+        if (ageNum < AGE_MIN || ageNum > AGE_MAX) {
+            showError(`Please enter an age between ${AGE_MIN} and ${AGE_MAX}.`);
             return false;
         }
         const weightNum = parseFloat(weight);
@@ -106,16 +182,46 @@ export default function OnboardingScreen() {
             return false;
         }
         if (unitSystem === 'metric') {
+            if (weightNum < WEIGHT_KG_MIN || weightNum > WEIGHT_KG_MAX) {
+                showError(`Weight must be between ${WEIGHT_KG_MIN} and ${WEIGHT_KG_MAX} kg.`);
+                return false;
+            }
             const heightNum = parseFloat(height);
             if (!height.trim() || isNaN(heightNum) || heightNum <= 0) {
                 showError('Please enter a valid height in cm.');
                 return false;
             }
+            if (heightNum < HEIGHT_CM_MIN || heightNum > HEIGHT_CM_MAX) {
+                showError(`Height must be between ${HEIGHT_CM_MIN} and ${HEIGHT_CM_MAX} cm.`);
+                return false;
+            }
         } else {
+            if (weightNum < WEIGHT_LBS_MIN || weightNum > WEIGHT_LBS_MAX) {
+                showError(`Weight must be between ${WEIGHT_LBS_MIN} and ${WEIGHT_LBS_MAX} lbs.`);
+                return false;
+            }
             const ft = parseInt(heightFt, 10) || 0;
             const inch = parseInt(heightIn, 10) || 0;
             if (ft <= 0 && inch <= 0) {
                 showError('Please enter your height in feet and inches.');
+                return false;
+            }
+            if (inch > HEIGHT_IN_MAX) {
+                showError('Inches must be between 0 and 11.');
+                return false;
+            }
+            if (ft > HEIGHT_FT_MAX) {
+                showError(`Feet must be between 0 and ${HEIGHT_FT_MAX}.`);
+                return false;
+            }
+            const totalInches = ft * 12 + inch;
+            // ~50 cm min, ~272 cm max (8′11″)
+            if (totalInches < 20) {
+                showError('Height is too short. Please enter a realistic height.');
+                return false;
+            }
+            if (totalInches > HEIGHT_FT_MAX * 12 + HEIGHT_IN_MAX) {
+                showError(`Maximum height is ${HEIGHT_FT_MAX}′${HEIGHT_IN_MAX}″.`);
                 return false;
             }
         }
@@ -181,8 +287,8 @@ export default function OnboardingScreen() {
         let finalWeight = parseFloat(weight) || 0;
 
         if (unitSystem === 'imperial') {
-            const ft = parseInt(heightFt, 10) || 0;
-            const inch = parseInt(heightIn, 10) || 0;
+            const ft = Math.min(HEIGHT_FT_MAX, parseInt(heightFt, 10) || 0);
+            const inch = Math.min(HEIGHT_IN_MAX, parseInt(heightIn, 10) || 0);
             finalHeight = ft * 30.48 + inch * 2.54;
             finalWeight = finalWeight * 0.453592;
         }
@@ -282,8 +388,12 @@ export default function OnboardingScreen() {
                             placeholder="e.g. 25"
                             placeholderTextColor={colors.textMuted}
                             keyboardType="numeric"
+                            maxLength={3}
                             value={age}
-                            onChangeText={(t) => { setAge(t); setFieldError(null); }}
+                            onChangeText={(t) => {
+                                setAge(sanitizeAgeInput(t));
+                                setFieldError(null);
+                            }}
                         />
 
                         <Text style={styles.requiredLabel}>Weight ({unitSystem === 'metric' ? 'kg' : 'lbs'}){REQUIRED}</Text>
@@ -303,8 +413,12 @@ export default function OnboardingScreen() {
                                 placeholder="e.g. 175"
                                 placeholderTextColor={colors.textMuted}
                                 keyboardType="decimal-pad"
+                                maxLength={6}
                                 value={height}
-                                onChangeText={(t) => { setHeight(t); setFieldError(null); }}
+                                onChangeText={(t) => {
+                                    setHeight(sanitizeHeightCmInput(t));
+                                    setFieldError(null);
+                                }}
                             />
                         ) : (
                             <View style={styles.inputRow}>
@@ -325,6 +439,13 @@ export default function OnboardingScreen() {
                                     onChangeText={(t) => { setHeightIn(t); setFieldError(null); }}
                                 />
                             </View>
+                        )}
+                        {unitSystem === 'metric' ? (
+                            <Text style={[styles.hint, styles.hintAfterPhysical]}>Height: {HEIGHT_CM_MIN}–{HEIGHT_CM_MAX} cm · Weight: {WEIGHT_KG_MIN}–{WEIGHT_KG_MAX} kg</Text>
+                        ) : (
+                            <Text style={[styles.hint, styles.hintAfterPhysical]}>
+                                Height: feet 0–{HEIGHT_FT_MAX}, inches 0–11 · Weight: {WEIGHT_LBS_MIN}–{WEIGHT_LBS_MAX} lbs
+                            </Text>
                         )}
                         {fieldError && step === 2 ? <Text style={styles.inlineError}>{fieldError}</Text> : null}
                     </View>
@@ -478,6 +599,7 @@ const styles = StyleSheet.create({
         marginTop: spacing.lg,
     },
     hint: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.sm },
+    hintAfterPhysical: { marginTop: spacing.xs, marginBottom: 0, lineHeight: 16 },
     inlineError: { fontSize: 13, color: colors.error, marginTop: spacing.sm },
     goalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     goalCard: {

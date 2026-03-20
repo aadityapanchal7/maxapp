@@ -20,6 +20,7 @@ from models.user import (
 )
 from models.sqlalchemy_models import User
 from middleware import get_current_user
+from services.twilio_service import normalize_phone
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -98,7 +99,7 @@ async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
         onboarding=OnboardingData().model_dump(),
         profile=UserProfile(bio=user_data.bio).model_dump() if user_data.bio else UserProfile().model_dump(),
         first_scan_completed=False,
-        phone_number=user_data.phone_number
+        phone_number=normalize_phone(user_data.phone_number.strip()),
     )
     db.add(user)
     await db.commit()

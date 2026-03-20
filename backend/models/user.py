@@ -45,6 +45,9 @@ class OnboardingData(BaseModel):
     equipment: List[str] = Field(default_factory=list)
     unit_system: str = Field(default="imperial", description="metric or imperial")
     timezone: str = Field(default="UTC", description="IANA timezone name, e.g. America/New_York")
+    # Global schedule anchors — reused when starting any maxx module if already collected
+    wake_time: Optional[str] = Field(default=None, description="Usual wake time HH:MM (24h), e.g. 07:00")
+    sleep_time: Optional[str] = Field(default=None, description="Usual sleep time HH:MM (24h), e.g. 23:00")
     completed: bool = False
 
 

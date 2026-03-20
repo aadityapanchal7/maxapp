@@ -222,6 +222,19 @@ CONVERSATION:
             if v:
                 val = ", ".join(v) if isinstance(v, list) else str(v)
                 profile_bits.append(f"{k}: {val}")
+        wt = onboarding.get("wake_time")
+        st = onboarding.get("sleep_time")
+        sp = user.schedule_preferences or {}
+        if not wt and sp.get("wake_time"):
+            wt = sp.get("wake_time")
+        if not st and sp.get("sleep_time"):
+            st = sp.get("sleep_time")
+        if wt or st:
+            profile_bits.append(
+                f"saved wake/sleep (reuse for new schedules — do not re-ask unless user wants to change; "
+                f"never prompt for 24-hour format): "
+                f"wake_time={wt or 'unknown'}, sleep_time={st or 'unknown'}"
+            )
         if profile_bits:
             parts.append(f"PROFILE: {' | '.join(profile_bits)}")
 

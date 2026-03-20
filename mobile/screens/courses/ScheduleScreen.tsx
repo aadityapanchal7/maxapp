@@ -27,6 +27,34 @@ type Day = {
   motivation_message: string;
 };
 
+/** Accepts 24h HH:MM or common 12h forms (e.g. 7:30am, 2 pm). */
+function parseTimeTo24h(input: string): string | null {
+  const s = input.trim();
+  if (!s) return null;
+  const m24 = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (m24) {
+    const h = parseInt(m24[1], 10);
+    const mn = parseInt(m24[2], 10);
+    if (h > 23 || mn > 59) return null;
+    return `${String(h).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
+  }
+  const m12 = /^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?|am|pm)\s*$/i.exec(s);
+  if (m12) {
+    let h = parseInt(m12[1], 10);
+    const mn = m12[2] ? parseInt(m12[2], 10) : 0;
+    const ap = m12[3].toLowerCase().replace(/\./g, '');
+    if (mn > 59 || h < 1 || h > 12) return null;
+    let h24: number;
+    if (ap.startsWith('a')) {
+      h24 = h === 12 ? 0 : h;
+    } else {
+      h24 = h === 12 ? 12 : h + 12;
+    }
+    return `${String(h24).padStart(2, '0')}:${String(mn).padStart(2, '0')}`;
+  }
+  return null;
+}
+
 type Schedule = {
   id: string;
   user_id: string;
@@ -172,16 +200,15 @@ export default function ScheduleScreen() {
     try {
       const updates: any = {};
 
-      // Basic time validation
+      // Basic time validation (24h or 12h natural)
       if (editTime !== editingTask.time) {
-        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-        if (!timeRegex.test(editTime)) {
-          // Check if it's potentially 12-hour and try to convert or just Alert
-          Alert.alert('Invalid Format', 'Please use 24-hour format (HH:MM), e.g. 14:30');
+        const normalized = parseTimeTo24h(editTime);
+        if (!normalized) {
+          Alert.alert('Invalid time', 'Try something like 7:30am, 2:15pm, or 14:30');
           setSaving(false);
           return;
         }
-        updates.time = editTime;
+        updates.time = normalized;
       }
 
       if (editTitle !== editingTask.title) updates.title = editTitle;
