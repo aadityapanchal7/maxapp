@@ -36,6 +36,19 @@ FITMAX_REQUIRED_FIELDS = [
     "dietary_restrictions",
 ]
 
+FITMAX_FOOD_DB = {
+    "mcdonalds mcchicken": {"calories": 400, "protein_g": 14, "carbs_g": 39, "fat_g": 21},
+    "mcchicken": {"calories": 400, "protein_g": 14, "carbs_g": 39, "fat_g": 21},
+    "apple": {"calories": 95, "protein_g": 1, "carbs_g": 25, "fat_g": 0},
+    "banana": {"calories": 105, "protein_g": 1, "carbs_g": 27, "fat_g": 0},
+    "egg": {"calories": 78, "protein_g": 6, "carbs_g": 1, "fat_g": 5},
+    "eggs": {"calories": 78, "protein_g": 6, "carbs_g": 1, "fat_g": 5},
+    "oatmeal": {"calories": 150, "protein_g": 5, "carbs_g": 27, "fat_g": 3},
+    "chicken breast": {"calories": 165, "protein_g": 31, "carbs_g": 0, "fat_g": 4},
+    "greek yogurt": {"calories": 130, "protein_g": 17, "carbs_g": 6, "fat_g": 0},
+    "whey protein": {"calories": 120, "protein_g": 24, "carbs_g": 3, "fat_g": 2},
+}
+
 
 def _fitmax_missing_fields(profile: dict) -> list[str]:
     return [f for f in FITMAX_REQUIRED_FIELDS if profile.get(f) in (None, "", [])]
@@ -230,6 +243,92 @@ def _fitmax_build_plan(profile: dict) -> dict:
     }
 
 
+def _fitmax_parse_quantity(text: str) -> tuple[float, str]:
+    s = (text or "").strip().lower()
+    qty = 1.0
+
+    if re.search(r"\bhalf\b|\b1/2\b", s):
+        qty = 0.5
+    elif re.search(r"\ban\b|\ba\b|\bone\b", s):
+        qty = 1.0
+
+    number_match = re.search(r"\b(\d+(?:\.\d+)?)\b", s)
+    if number_match:
+        try:
+            qty = float(number_match.group(1))
+        except ValueError:
+            qty = 1.0
+
+    cleaned = re.sub(r"\b(i|just|ate|had|a|an|one|serving|servings|x)\b", " ", s)
+    cleaned = re.sub(r"\b\d+(?:\.\d+)?\b", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return max(qty, 0.25), cleaned
+
+
+def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
+    s = (message or "").lower().strip()
+    if not s:
+        return None
+
+    trigger = re.search(r"\b(i just ate|i ate|i just had|i had)\b", s)
+    if not trigger:
+        return None
+
+    tail = s[trigger.end():].strip(" .,!?:;")
+    if not tail:
+        return None
+
+    segments = re.split(r",| and |\+", tail)
+    totals = {"calories": 0, "protein_g": 0, "carbs_g": 0, "fat_g": 0}
+    matched_items: list[str] = []
+
+    for seg in segments:
+        qty, cleaned = _fitmax_parse_quantity(seg)
+        if not cleaned:
+            continue
+
+        match_key = None
+        for key in sorted(FITMAX_FOOD_DB.keys(), key=len, reverse=True):
+            if key in cleaned:
+                match_key = key
+                break
+
+        if not match_key:
+            continue
+
+        base = FITMAX_FOOD_DB[match_key]
+        totals["calories"] += int(round(base["calories"] * qty))
+        totals["protein_g"] += int(round(base["protein_g"] * qty))
+        totals["carbs_g"] += int(round(base["carbs_g"] * qty))
+        totals["fat_g"] += int(round(base["fat_g"] * qty))
+        matched_items.append(match_key)
+
+    if not matched_items or totals["calories"] <= 0:
+        return None
+
+    return {
+        "items": matched_items,
+        "calories": totals["calories"],
+        "protein_g": totals["protein_g"],
+        "carbs_g": totals["carbs_g"],
+        "fat_g": totals["fat_g"],
+    }
+
+
+def _fitmax_consumed_from_history(history: list[dict]) -> int:
+    consumed = 0
+    for m in history:
+        if m.get("role") != "assistant":
+            continue
+        text = (m.get("content") or "").lower()
+        if "logged." not in text:
+            continue
+        cals_match = re.search(r"(\d{2,4})\s*calories?", text)
+        if cals_match:
+            consumed += int(cals_match.group(1))
+    return consumed
+
+
 async def process_chat_message(
     user_id: str,
     message_text: str,
@@ -351,6 +450,44 @@ async def process_chat_message(
                 f"your daily calorie target is {plan['calories']} calories with {plan['protein_g']}g protein. "
                 f"your split is {plan['split']}, {plan['days_per_week']} days a week. "
                 "i'll text you each morning with what's on deck. want to start with module 1, or do you want any plan tweaks first?"
+            )
+
+            user_message = ChatHistory(
+                user_id=user_uuid,
+                role="user",
+                content=message_text,
+                created_at=datetime.utcnow(),
+            )
+            assistant_message = ChatHistory(
+                user_id=user_uuid,
+                role="assistant",
+                content=response_text,
+                created_at=datetime.utcnow(),
+            )
+            db.add(user_message)
+            db.add(assistant_message)
+            await db.commit()
+            return response_text
+
+    # --- Fitmax meal logging from natural language (average macro lookup) ---
+    if user:
+        is_fitmax_context = (
+            maxx_id == "fitmax"
+            or bool((profile or {}).get("fitmax_plan"))
+            or (active_schedule and str(active_schedule.get("maxx_id", "")).lower() == "fitmax")
+        )
+        food_log = _fitmax_estimate_food_log(message_text) if is_fitmax_context else None
+        if food_log:
+            plan = (profile or {}).get("fitmax_plan") or {}
+            calorie_target = int(plan.get("calories") or 2340)
+            consumed_before = _fitmax_consumed_from_history(history)
+            consumed_now = consumed_before + int(food_log["calories"])
+            remaining = max(0, calorie_target - consumed_now)
+
+            response_text = (
+                f"logged. that's roughly {food_log['calories']} calories and {food_log['protein_g']}g protein "
+                f"({food_log['carbs_g']}g carbs, {food_log['fat_g']}g fat). "
+                f"you've got {remaining} calories left today."
             )
 
             user_message = ChatHistory(
