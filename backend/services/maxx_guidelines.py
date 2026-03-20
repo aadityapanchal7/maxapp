@@ -60,6 +60,60 @@ SKINMAX_PROTOCOLS = {
     },
 }
 
+# Expandable module cards (Maxx detail UI) — same shape as HEIGHTMAX_MODULES
+SKINMAX_MODULES = [
+    {
+        "title": "Acne / Congestion",
+        "description": "Oil control, actives that work, and a barrier that doesn't bail on you.",
+        "steps": [
+            {"title": "AM routine", "content": SKINMAX_PROTOCOLS["acne"]["am"]},
+            {"title": "PM routine", "content": SKINMAX_PROTOCOLS["acne"]["pm"]},
+            {"title": "Weekly", "content": SKINMAX_PROTOCOLS["acne"]["weekly"]},
+            {"title": "Sunscreen", "content": SKINMAX_PROTOCOLS["acne"]["sunscreen"]},
+        ],
+    },
+    {
+        "title": "Pigmentation / Uneven Tone",
+        "description": "Brighten, fade spots, and block UV — SPF is non-negotiable.",
+        "steps": [
+            {"title": "AM routine", "content": SKINMAX_PROTOCOLS["pigmentation"]["am"]},
+            {"title": "PM routine", "content": SKINMAX_PROTOCOLS["pigmentation"]["pm"]},
+            {"title": "Weekly", "content": SKINMAX_PROTOCOLS["pigmentation"]["weekly"]},
+            {"title": "Sunscreen", "content": SKINMAX_PROTOCOLS["pigmentation"]["sunscreen"]},
+        ],
+    },
+    {
+        "title": "Texture / Scarring",
+        "description": "Smooth surface, support collagen, and protect healing skin from UV.",
+        "steps": [
+            {"title": "AM routine", "content": SKINMAX_PROTOCOLS["texture"]["am"]},
+            {"title": "PM routine", "content": SKINMAX_PROTOCOLS["texture"]["pm"]},
+            {"title": "Weekly", "content": SKINMAX_PROTOCOLS["texture"]["weekly"]},
+            {"title": "Sunscreen", "content": SKINMAX_PROTOCOLS["texture"]["sunscreen"]},
+        ],
+    },
+    {
+        "title": "Redness / Sensitivity",
+        "description": "Barrier first, gentle actives, no unnecessary irritation.",
+        "steps": [
+            {"title": "AM routine", "content": SKINMAX_PROTOCOLS["redness"]["am"]},
+            {"title": "PM routine", "content": SKINMAX_PROTOCOLS["redness"]["pm"]},
+            {"title": "Weekly", "content": SKINMAX_PROTOCOLS["redness"]["weekly"]},
+            {"title": "Sunscreen", "content": SKINMAX_PROTOCOLS["redness"]["sunscreen"]},
+        ],
+    },
+    {
+        "title": "Aging / Skin Quality",
+        "description": "Retinoids, antioxidants, daily SPF — aging is a long game.",
+        "steps": [
+            {"title": "AM routine", "content": SKINMAX_PROTOCOLS["aging"]["am"]},
+            {"title": "PM routine", "content": SKINMAX_PROTOCOLS["aging"]["pm"]},
+            {"title": "Weekly", "content": SKINMAX_PROTOCOLS["aging"]["weekly"]},
+            {"title": "Sunscreen", "content": SKINMAX_PROTOCOLS["aging"]["sunscreen"]},
+        ],
+    },
+]
+
 # ---------------------------------------------------------------------------
 # Generic guidelines dict (future maxxes plug in here)
 # ---------------------------------------------------------------------------
@@ -379,6 +433,7 @@ MAXX_GUIDELINES = {
         "concern_mapping": SKIN_TYPE_TO_CONCERN,
         "concern_question": "What's your ONE main skin concern? Pick one: Acne, Pigmentation, Texture, Redness, or Aging.",
         "concerns": SKINMAX_CONCERNS,
+        "modules": SKINMAX_MODULES,
         "recurring": True,
         "daily_tasks": True,
         "weekly_tasks": True,

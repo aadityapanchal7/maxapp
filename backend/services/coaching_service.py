@@ -217,7 +217,7 @@ CONVERSATION:
 
         # --- User profile ---
         profile_bits = []
-        for k in ["gender", "age", "skin_type", "goals"]:
+        for k in ["gender", "age", "skin_type", "goals", "height"]:
             v = onboarding.get(k)
             if v:
                 val = ", ".join(v) if isinstance(v, list) else str(v)

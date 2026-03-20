@@ -8,6 +8,16 @@ import FitmaxScreen from './FitmaxScreen';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax'];
 
+/** Same as HomeScreen: module titles if present, else concern labels (e.g. SkinMax). */
+function getMaxxTagLabels(maxx: any): string[] {
+    const modules = maxx.modules || [];
+    if (modules.length > 0) {
+        return modules.map((m: any) => m.title).filter(Boolean);
+    }
+    const concerns = maxx.concerns || [];
+    return concerns.map((c: any) => c.label || c.id).filter(Boolean);
+}
+
 export default function MaxxDetailScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
@@ -15,6 +25,7 @@ export default function MaxxDetailScreen() {
     const [maxx, setMaxx] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [expandedModule, setExpandedModule] = useState<number | null>(0);
+    const [showAllModules, setShowAllModules] = useState(false);
     const [activeSchedule, setActiveSchedule] = useState<any>(null);
     const [scheduleLoading, setScheduleLoading] = useState(false);
 
@@ -28,6 +39,7 @@ export default function MaxxDetailScreen() {
             const data = await api.getMaxx(maxxId);
             setMaxx(data);
             setExpandedModule(0);
+            setShowAllModules(false);
             if (SCHEDULE_CAPABLE_MAXXES.includes(maxxId)) {
                 const schedRes = await api.getMaxxSchedule(maxxId);
                 if (schedRes?.schedule) setActiveSchedule(schedRes.schedule);
@@ -63,6 +75,15 @@ export default function MaxxDetailScreen() {
     }
 
     const modules = maxx.modules || [];
+    const tagLabels = getMaxxTagLabels(maxx);
+    const MAX_PILLS = 8;
+    const previewPills = tagLabels.slice(0, MAX_PILLS);
+    const morePillCount = tagLabels.length - previewPills.length;
+    const MODULE_PREVIEW = 3;
+    const isModulePreview =
+        modules.length > MODULE_PREVIEW && !showAllModules;
+    const modulesToRender = isModulePreview ? modules.slice(0, MODULE_PREVIEW) : modules;
+    const hiddenModuleCount = Math.max(0, modules.length - MODULE_PREVIEW);
 
     return (
         <View style={styles.container}>
@@ -111,7 +132,22 @@ export default function MaxxDetailScreen() {
 
                 <Text style={styles.sectionLabel}>MODULES</Text>
 
-                {modules.map((mod: any, idx: number) => {
+                {modules.length === 0 && previewPills.length > 0 && (
+                    <View style={styles.pillWrap}>
+                        {previewPills.map((label, i) => (
+                            <View key={`pill-${maxx.id}-${i}`} style={styles.pillSmall}>
+                                <Text style={styles.pillSmallText} numberOfLines={2}>
+                                    {label}
+                                </Text>
+                            </View>
+                        ))}
+                        {morePillCount > 0 && (
+                            <Text style={styles.pillMoreText}>+{morePillCount} more…</Text>
+                        )}
+                    </View>
+                )}
+
+                {modulesToRender.map((mod: any, idx: number) => {
                     const isExpanded = expandedModule === idx;
                     const steps = mod.steps || [];
                     return (
@@ -141,6 +177,18 @@ export default function MaxxDetailScreen() {
                         </View>
                     );
                 })}
+
+                {isModulePreview && hiddenModuleCount > 0 && (
+                    <TouchableOpacity
+                        style={styles.showMoreModules}
+                        onPress={() => setShowAllModules(true)}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.showMoreModulesText}>
+                            and {hiddenModuleCount} more…
+                        </Text>
+                    </TouchableOpacity>
+                )}
             </ScrollView>
         </View>
     );
@@ -173,6 +221,44 @@ const styles = StyleSheet.create({
     scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxxl },
     description: { fontSize: 15, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.xl },
     sectionLabel: { ...typography.label, marginBottom: spacing.md },
+    pillWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 6,
+        marginBottom: spacing.lg,
+    },
+    pillSmall: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 999,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
+        maxWidth: 200,
+    },
+    pillSmallText: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: colors.textSecondary,
+        lineHeight: 13,
+    },
+    pillMoreText: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: colors.textMuted,
+    },
+    showMoreModules: {
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+        marginBottom: spacing.md,
+        alignSelf: 'flex-start',
+    },
+    showMoreModulesText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.textMuted,
+    },
     moduleCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius.xl,

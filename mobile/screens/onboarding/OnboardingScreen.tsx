@@ -64,7 +64,7 @@ export default function OnboardingScreen() {
     const [selectedGoals, setSelectedGoals] = useState<string[]>([]);
     const [gender, setGender] = useState('');
     const [age, setAge] = useState('');
-    const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric');
+    const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('imperial');
     const [height, setHeight] = useState('');
     const [heightFt, setHeightFt] = useState('');
     const [heightIn, setHeightIn] = useState('');

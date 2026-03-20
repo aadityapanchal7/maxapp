@@ -52,7 +52,7 @@ export default function EditPersonalScreen() {
   const onlyGoals = route.params?.onlyGoals === true;
 
   // Initial Unit System
-  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>((user?.onboarding?.unit_system as any) || 'metric');
+  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>((user?.onboarding?.unit_system as any) || 'imperial');
 
   // Form State
   const [selectedGoals, setSelectedGoals] = useState<string[]>(user?.onboarding?.goals || []);
@@ -94,7 +94,7 @@ export default function EditPersonalScreen() {
   useEffect(() => {
     if (user?.onboarding) {
       const ob = user.onboarding;
-      setUnitSystem((ob.unit_system as any) || 'metric');
+      setUnitSystem((ob.unit_system as any) || 'imperial');
       setSelectedGoals(ob.goals || []);
       setGender(ob.gender || '');
       setAge(ob.age?.toString() || '');
@@ -104,7 +104,7 @@ export default function EditPersonalScreen() {
       setSkinType(ob.skin_type || '');
       
       // Update height and weight based on current unit system
-      const currentUnitSystem = (ob.unit_system as any) || 'metric';
+      const currentUnitSystem = (ob.unit_system as any) || 'imperial';
       if (currentUnitSystem === 'imperial') {
         if (ob.weight) {
           setWeight((ob.weight * 2.20462).toFixed(1));

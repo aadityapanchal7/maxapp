@@ -3,6 +3,7 @@ Schedule Service - AI-powered personalised schedule generation using Gemini
 Generates, adapts, and manages user schedules for course modules.
 """
 
+import copy
 import json
 import logging
 import uuid
@@ -99,8 +100,13 @@ Modify the remaining days of the schedule based on the feedback and completion d
 - If "too easy", increase it.
 - If they skip morning tasks, move them later.
 - Keep the same JSON structure as the input.
+- Preserve task_id for existing tasks so notifications work. For new tasks, generate a uuid string.
 
-Return ONLY valid JSON with the updated "days" array.
+Return ONLY valid JSON with this structure (no markdown fences):
+{{
+  "days": [ ... ],
+  "changes_summary": "REQUIRED. 1-3 lines, each starts with •. Facts only: what moved/added/removed. No filler, no 'i updated' or 'hope this helps'."
+}}
 """
 
 
@@ -118,6 +124,13 @@ Profile hint: {profile_hint}
 Selected concern: {selected_concern}
 Outside today: {outside_today}
 {user_profile_context}
+
+## PERSONALIZATION (HeightMax)
+When building a HeightMax schedule, USE the user's age, sex, and height from USER CONTEXT:
+- Age: affects growth-plate status (adults vs teens), recovery needs, and intensity
+- Sex: affects typical frame, hormone context, and protocol emphasis
+- Height: affects baseline and goal framing
+Personalize task types, timing, and messaging accordingly.
 
 ## INSTRUCTIONS
 1. Create a schedule for {num_days} days.
@@ -302,6 +315,13 @@ class ScheduleService:
         skin_concern: Optional[str] = None,
         outside_today: bool = False,
         num_days: int = 7,
+        override_age: Optional[int] = None,
+        override_sex: Optional[str] = None,
+        override_height: Optional[str] = None,
+        override_hair_type: Optional[str] = None,
+        override_scalp_state: Optional[str] = None,
+        override_daily_styling: Optional[str] = None,
+        override_thinning: Optional[str] = None,
     ) -> dict:
         """Generate a personalised recurring schedule for a maxx module."""
         guideline = await get_maxx_guideline_async(maxx_id, rds_db)
@@ -332,10 +352,30 @@ class ScheduleService:
         profile_hint = skin_type if maxx_id == "skinmax" else onboarding.get("goal", "none")
 
         profile_parts = []
-        if onboarding.get("gender"):
-            profile_parts.append(f"Gender: {onboarding['gender']}")
-        if onboarding.get("age"):
-            profile_parts.append(f"Age: {onboarding['age']}")
+        gender_val = override_sex or onboarding.get("gender")
+        if gender_val:
+            profile_parts.append(f"Gender: {gender_val}")
+        age_val = override_age if override_age is not None else onboarding.get("age")
+        if age_val is not None:
+            profile_parts.append(f"Age: {age_val}")
+        height_val = override_height or onboarding.get("height")
+        if height_val:
+            profile_parts.append(f"Height: {height_val}")
+        if maxx_id == "hairmax":
+            ht = override_hair_type or onboarding.get("hair_type")
+            ss = override_scalp_state or onboarding.get("scalp_state")
+            ds = override_daily_styling if override_daily_styling is not None else onboarding.get("daily_styling")
+            th = override_thinning if override_thinning is not None else (
+                onboarding.get("hair_thinning") if onboarding.get("hair_thinning") is not None else onboarding.get("thinning")
+            )
+            if ht:
+                profile_parts.append(f"Hair type: {ht}")
+            if ss:
+                profile_parts.append(f"Scalp: {ss}")
+            if ds is not None and str(ds).strip() != "":
+                profile_parts.append(f"Daily styling/products most days: {ds}")
+            if th is not None and str(th).strip() != "":
+                profile_parts.append(f"Thinning/receding: {th}")
         user_profile_context = ", ".join(profile_parts) if profile_parts else "No profile data yet."
 
         prompt = MAXX_SCHEDULE_PROMPT.format(
@@ -697,10 +737,41 @@ class ScheduleService:
         await db.commit()
         return {"status": "completed", "completion_stats": stats}
 
+    def _fallback_adapt_changes_summary(
+        self, old_days: list, new_days: list, feedback: str
+    ) -> str:
+        """Deterministic summary when the LLM omits changes_summary. Short, no fluff."""
+        lines = []
+        try:
+            ot = (old_days or [{}])[0].get("tasks", []) if old_days else []
+            nt = (new_days or [{}])[0].get("tasks", []) if new_days else []
+            n = min(len(ot), len(nt), 4)
+            shown = 0
+            for i in range(n):
+                t0, t1 = ot[i], nt[i]
+                if t0.get("time") != t1.get("time") or t0.get("title") != t1.get("title"):
+                    title = (t1.get("title") or "task").split("—")[0].strip()[:32]
+                    lines.append(f"• {title} {t0.get('time', '?')} → {t1.get('time', '?')}")
+                    shown += 1
+                    if shown >= 3:
+                        break
+            if len(nt) != len(ot) and old_days and new_days and shown < 3:
+                lines.append(f"• day 1 tasks: {len(ot)} → {len(nt)}")
+        except Exception:
+            pass
+
+        fb = (feedback or "").strip()
+        if not lines and fb:
+            lines.append(f"• {fb[:90]}{'…' if len(fb) > 90 else ''}")
+        lines.append("• reminders reset")
+        return "\n".join(lines)
+
     async def adapt_schedule(self, user_id: str, schedule_id: str, db: AsyncSession, feedback: str) -> dict:
         schedule = await self._load_schedule(schedule_id, user_id, db)
         if not schedule:
             raise ValueError("Schedule not found")
+
+        old_days_snapshot = copy.deepcopy(schedule.days or [])
 
         stats = schedule.completion_stats or {}
         total = stats.get("total", 1)
@@ -734,7 +805,25 @@ class ScheduleService:
             logger.error(f"Schedule adaptation failed: {e}")
             raise ValueError(f"Failed to adapt schedule: {e}")
 
-        schedule.days = adapted.get("days", schedule.days)
+        adapted_days = adapted.get("days", schedule.days)
+        changes_summary = (adapted.get("changes_summary") or "").strip()
+        if changes_summary:
+            # Keep concise: up to 4 lines, ~100 chars each, no rambling
+            tight = [ln.strip()[:100] for ln in changes_summary.split("\n") if ln.strip()][:4]
+            changes_summary = "\n".join(tight)
+        if not changes_summary:
+            changes_summary = self._fallback_adapt_changes_summary(
+                old_days_snapshot, adapted_days, feedback
+            )
+
+        # Reset notification_sent so reminders fire for updated tasks
+        for day in adapted_days:
+            for task in day.get("tasks", []):
+                task["notification_sent"] = False
+                if not task.get("task_id"):
+                    task["task_id"] = str(uuid.uuid4())
+
+        schedule.days = adapted_days
         flag_modified(schedule, "days")
         schedule.updated_at = datetime.utcnow()
         schedule.adapted_count = (schedule.adapted_count or 0) + 1
@@ -748,7 +837,9 @@ class ScheduleService:
         schedule.user_feedback = user_feedback
         await db.commit()
 
-        return self._schedule_to_dict(schedule)
+        result = self._schedule_to_dict(schedule)
+        result["changes_summary"] = changes_summary
+        return result
 
     async def edit_task(
         self, user_id: str, schedule_id: str, task_id: str, db: AsyncSession, updates: dict

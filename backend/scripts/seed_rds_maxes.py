@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sqlalchemy import select
 from models.rds_models import Maxx
 from db.rds import init_rds_db, close_rds_db, RDSSessionLocal
+from services.maxx_guidelines import SKINMAX_MODULES
 
 
 SKINMAX_PROTOCOLS = {
@@ -276,7 +277,7 @@ MAXX_SEEDS = [
         "description": "AI-personalised skincare schedule based on your skin type and concerns.",
         "icon": "sparkles-outline",
         "color": "#8B5CF6",
-        "modules": [],
+        "modules": SKINMAX_MODULES,
         "protocols": SKINMAX_PROTOCOLS,
         "schedule_rules": SKINMAX_SCHEDULE_RULES,
         "concern_mapping": SKIN_TYPE_TO_CONCERN,

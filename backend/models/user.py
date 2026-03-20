@@ -43,7 +43,7 @@ class OnboardingData(BaseModel):
     activity_level: Optional[str] = None
     skin_type: Optional[str] = None
     equipment: List[str] = Field(default_factory=list)
-    unit_system: str = Field(default="metric", description="metric or imperial")
+    unit_system: str = Field(default="imperial", description="metric or imperial")
     timezone: str = Field(default="UTC", description="IANA timezone name, e.g. America/New_York")
     completed: bool = False
 
