@@ -17,6 +17,7 @@ from middleware.auth_middleware import require_paid_user
 from services.gemini_service import gemini_service
 from services.storage_service import storage_service
 from services.coaching_service import coaching_service
+from services.nutrition_service import nutrition_service
 from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 
@@ -265,7 +266,7 @@ def _fitmax_parse_quantity(text: str) -> tuple[float, str]:
     return max(qty, 0.25), cleaned
 
 
-def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
+async def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
     s = (message or "").lower().strip()
     if not s:
         return None
@@ -292,6 +293,15 @@ def _fitmax_estimate_food_log(message: str) -> Optional[dict]:
             if key in cleaned:
                 match_key = key
                 break
+
+        lookup = await nutrition_service.lookup_food(cleaned, qty)
+        if lookup:
+            totals["calories"] += int(lookup["calories"])
+            totals["protein_g"] += int(lookup["protein_g"])
+            totals["carbs_g"] += int(lookup["carbs_g"])
+            totals["fat_g"] += int(lookup["fat_g"])
+            matched_items.append(lookup.get("matched_name") or cleaned)
+            continue
 
         if not match_key:
             continue
@@ -476,7 +486,7 @@ async def process_chat_message(
             or bool((profile or {}).get("fitmax_plan"))
             or (active_schedule and str(active_schedule.get("maxx_id", "")).lower() == "fitmax")
         )
-        food_log = _fitmax_estimate_food_log(message_text) if is_fitmax_context else None
+        food_log = await _fitmax_estimate_food_log(message_text) if is_fitmax_context else None
         if food_log:
             plan = (profile or {}).get("fitmax_plan") or {}
             calorie_target = int(plan.get("calories") or 2340)
