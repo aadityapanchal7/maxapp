@@ -443,6 +443,36 @@ def _normalize_clock_hhmm(raw: Optional[str]) -> Optional[str]:
     return f"{h:02d}:{mn:02d}"
 
 
+def _heightmax_global_profile_hint(onboarding: dict) -> str:
+    """Tell the model what is already stored from signup / global onboarding."""
+    if not onboarding:
+        return ""
+    bits = []
+    a = _safe_int_age(onboarding.get("age"))
+    if a is not None:
+        bits.append(f"age={a}")
+    g = str(onboarding.get("gender") or onboarding.get("sex") or "").strip()
+    if g:
+        bits.append(f"gender={g}")
+    h = onboarding.get("height")
+    if h is not None and str(h).strip():
+        bits.append(f"height={h}")
+    wt = onboarding.get("wake_time")
+    st = onboarding.get("sleep_time")
+    if wt:
+        bits.append(f"wake_time={wt}")
+    if st:
+        bits.append(f"sleep_time={st}")
+    if not bits:
+        return ""
+    return (
+        "KNOWN FROM GLOBAL ONBOARDING (user_context.onboarding — signup / profile; "
+        "treat as source of truth; DO NOT re-ask age, gender, or height unless user asks to change): "
+        + ", ".join(bits)
+        + "\n\n"
+    )
+
+
 def _merge_onboarding_with_schedule_prefs(user: Optional[User]) -> dict:
     """Expose wake/sleep from onboarding, backfilled from schedule_preferences for older users."""
     if not user:
@@ -487,6 +517,45 @@ async def _persist_user_wake_sleep(
     user.schedule_preferences = sp
     flag_modified(user, "schedule_preferences")
     await db.flush()
+
+
+def _safe_int_age(val) -> Optional[int]:
+    if val is None:
+        return None
+    if isinstance(val, int) and 8 <= val <= 100:
+        return val
+    s = str(val).strip()
+    if s.isdigit():
+        n = int(s)
+        if 8 <= n <= 100:
+            return n
+    return None
+
+
+async def _persist_heightmax_onboarding_from_chat(
+    user: Optional[User],
+    db: AsyncSession,
+    *,
+    resolved_age: Optional[int],
+    resolved_sex: str,
+    resolved_height: str,
+    final_wake: str,
+    final_sleep: str,
+) -> None:
+    """Save HeightMax intake from chat tool + persist wake/sleep for the components screen + API."""
+    if not user:
+        return
+    ob = dict(user.onboarding or {})
+    if resolved_age is not None:
+        ob["age"] = resolved_age
+    if resolved_sex:
+        ob["gender"] = resolved_sex
+    if resolved_height:
+        ob["height"] = resolved_height
+    user.onboarding = ob
+    flag_modified(user, "onboarding")
+    await db.flush()
+    await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
 
 
 def _looks_like_informational_question(text: str) -> bool:
@@ -796,9 +865,10 @@ async def process_chat_message(
             user_context["active_maxx_schedule"] = existing_maxx
             message = f"[SYSTEM: User opened {maxx_id} and already has an active schedule.]\n\n{message}"
         elif maxx_id == "heightmax":
+            _hp = _heightmax_global_profile_hint(onboarding)
             message = f"""[SYSTEM: you are running the HEIGHTMAX schedule setup.
 
-the user just opened heightmax to start a new schedule. follow the same tone and style you use for other maxx modules: short, casual, direct, and focused on getting their schedule locked in.
+{_hp}the user just opened heightmax to start a new schedule. follow the same tone and style you use for other maxx modules: short, casual, direct, and focused on getting their schedule locked in.
 
 CRITICAL — FORBIDDEN FOR HEIGHTMAX
 - NEVER ask "outside today" or "you gonna be outside today" or "will you be outside" — that is ONLY for SkinMax. HeightMax does NOT use outside_today. If you ask this, you have failed.
@@ -806,29 +876,30 @@ CRITICAL — FORBIDDEN FOR HEIGHTMAX
 MAIN RULES FOR HEIGHTMAX
 - do NOT ask "what is your main concern?" or any generic concern questions.
 - height is already the focus. don't ask what area they want to work on.
-- your job is just to grab missing info, then call generate_maxx_schedule and let the backend build the schedule.
+- GLOBAL ONBOARDING: age, gender, and height are usually already in user_context.onboarding from app signup. NEVER ask for age, sex/gender, or height if they already appear there. only ask for wake_time and/or sleep_time if those are missing.
+- your job is to grab any missing info, then call generate_maxx_schedule so the app can save their answers. the actual calendar is NOT built in chat — after this tool runs, the user picks schedule parts in the app (toggles) and taps create.
 - NEVER ask the user to enter wake/sleep times in 24-hour or "military" format. ask naturally ("what time do you usually wake up?"); accept answers like "7am" or "11:30pm" and convert to HH:MM in the tool call.
 
-WHAT YOU'RE ALLOWED TO ASK FOR (ONLY IF MISSING)
-- age
-- sex / gender
-- current height
-- wake time
-- sleep time
+WHAT YOU'RE ALLOWED TO ASK FOR (ONLY IF MISSING FROM user_context.onboarding)
+- age — ONLY if not already in onboarding
+- sex / gender — ONLY if not already in onboarding (field may be "gender")
+- current height — ONLY if not already in onboarding
+- wake time — if missing
+- sleep time — if missing
 
 HOW TO RUN THE FLOW
 1) greet very briefly, in your usual style, and say you're going to set up their heightmax schedule.
 
-2) check what info is already known in user_context. ONLY ask for what's missing. ORDER: age first, then sex, then height, then wake time, then sleep time.
-   - if age is missing: ask "how old are you?"
-   - if sex / gender is missing: ask "what's your sex or gender?"
-   - if height is missing: ask "what's your current height?" (any format is fine)
+2) read user_context.onboarding first. ONLY ask for fields that are missing. typical signup users already have age, gender, height — go straight to wake/sleep if those are the only gaps.
+   - if age is missing from onboarding: ask "how old are you?"
+   - if sex / gender is missing from onboarding: ask "what's your sex or gender?"
+   - if height is missing from onboarding: ask "what's your current height?" (any format is fine)
    - if wake_time is missing: ask "what time do you usually wake up?"
    - if sleep_time is missing: ask "what time do you usually go to sleep?"
 
-   ask ONE question at a time. do NOT skip to wake/sleep before you have age, sex, and height. do NOT ask about outside today.
+   ask ONE question at a time. if age, gender, and height are already in onboarding, do NOT ask them again. do NOT ask about outside today.
 
-3) once you have age, sex, height, wake_time, and sleep_time available (from context + answers), you must call the tool generate_maxx_schedule exactly once with:
+3) once you have age, sex, height, wake_time, and sleep_time available (from onboarding context and/or user answers), you must call the tool generate_maxx_schedule exactly once with:
    - maxx_id = "heightmax"
    - wake_time = the user's wake time
    - sleep_time = the user's sleep time
@@ -838,12 +909,11 @@ HOW TO RUN THE FLOW
    - sex = their sex/gender (if known)
    - height = their current height in any format, e.g. "5'10" or "178cm" (if known)
 
-   the backend will use their age, sex, and height to decide how the heightmax schedule looks. you don't need to explain that logic in detail.
+   this saves their profile for the app. it does NOT finish the schedule in chat.
 
-4) after generate_maxx_schedule runs and the backend attaches a schedule summary, stay in your normal style:
-   - confirm the schedule is locked in.
-   - tell them to check the schedule tab for full details.
-   - keep it short, e.g. "your heightmax schedule is locked in. check your schedule tab."
+4) after that tool runs, the user will see a message telling them to tap **choose height schedule parts** under the chat. your reply should:
+   - keep it short: e.g. "sweet — tap choose height schedule parts below, pick what you want in your plan, then hit create."
+   - do NOT say the schedule is already locked in or tell them to open the schedule tab yet — they still have one in-app step.
 
 STYLE
 - same tone as skinmax/fitmax: friendly, casual, not overly motivational.
@@ -852,7 +922,7 @@ STYLE
 
 your first response in this heightmax start flow should:
 - briefly acknowledge they're starting heightmax, and
-- immediately ask for the first missing piece of required info (age → sex → height → wake time → sleep time).]\n\n{message}"""
+- immediately ask for the first missing piece of required info — skipping age/sex/height if already present in onboarding (usually only wake/sleep left).]\n\n{message}"""
         elif maxx_id == "hairmax":
             message = f"""[SYSTEM: you are running the HAIRMAX schedule setup.
 
@@ -1020,9 +1090,14 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                 height = args.get("height")
                 # HeightMax REQUIRES age, sex, height — reject if missing
                 if req_maxx == "heightmax":
-                    has_age = age is not None or onboarding.get("age") is not None
-                    has_sex = bool(sex or onboarding.get("gender"))
-                    has_height = bool(height or onboarding.get("height"))
+                    has_age = age is not None or _safe_int_age(onboarding.get("age")) is not None
+                    ob_gender = str(onboarding.get("gender") or onboarding.get("sex") or "").strip()
+                    has_sex = bool((sex and str(sex).strip()) or ob_gender)
+                    ob_h = onboarding.get("height")
+                    has_height = bool(
+                        (height is not None and str(height).strip())
+                        or (ob_h is not None and str(ob_h).strip())
+                    )
                     if not has_age or not has_sex or not has_height:
                         if not has_age:
                             response_text = "hold up — i need your age, sex, and height before i can build your schedule. how old are you?"
@@ -1092,6 +1167,36 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     final_wake = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
                 if not final_sleep:
                     final_sleep = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
+
+                if req_maxx == "heightmax":
+                    ra = _safe_int_age(age) or _safe_int_age(onboarding.get("age"))
+                    rs = (str(sex).strip() if sex else "") or (str(onboarding.get("gender") or "").strip())
+                    rh = (str(height).strip() if height is not None and str(height).strip() else "") or (
+                        str(onboarding.get("height") or "").strip()
+                    )
+                    try:
+                        await _persist_heightmax_onboarding_from_chat(
+                            user,
+                            db,
+                            resolved_age=ra,
+                            resolved_sex=rs,
+                            resolved_height=rh,
+                            final_wake=str(final_wake),
+                            final_sleep=str(final_sleep),
+                        )
+                    except Exception as persist_err:
+                        logger.warning("heightmax onboarding persist failed: %s", persist_err)
+                    onboarding = _merge_onboarding_with_schedule_prefs(user)
+                    extra = (
+                        "sweet — tap **choose height schedule parts** below, toggle what you want in your plan, "
+                        "then hit create schedule."
+                    )
+                    if not response_text.strip():
+                        response_text = extra
+                    else:
+                        response_text = f"{response_text.strip()}\n\n{extra}"
+                    continue
+
                 schedule = await schedule_service.generate_maxx_schedule(
                     user_id=user_id,
                     maxx_id=req_maxx,

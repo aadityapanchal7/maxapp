@@ -4,6 +4,7 @@ Handles the full coaching loop: context gathering, check-in parsing, memory
 updates, tone detection, and proactive outbound messages.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -19,6 +20,17 @@ from config import settings
 from models.sqlalchemy_models import User, UserCoachingState, UserSchedule, ChatHistory, Scan
 
 logger = logging.getLogger(__name__)
+
+
+def _sync_gemini_plain_text(prompt: str) -> str:
+    """Blocking Gemini call — run via asyncio.to_thread so the event loop is not frozen."""
+    import google.generativeai as genai
+
+    genai.configure(api_key=settings.gemini_api_key)
+    model = genai.GenerativeModel(settings.gemini_model)
+    resp = model.generate_content(prompt)
+    return (resp.text or "").strip()
+
 
 # ---------------------------------------------------------------------------
 # Config — only behavioral thresholds, no message/tone hardcoding
@@ -155,10 +167,7 @@ CONVERSATION:
 
 SUMMARY:"""
         try:
-            import google.generativeai as genai
-            model = genai.GenerativeModel(settings.gemini_model)
-            resp = model.generate_content(prompt)
-            return resp.text.strip()
+            return await asyncio.to_thread(_sync_gemini_plain_text, prompt)
         except Exception as e:
             logger.error(f"Summary generation failed: {e}")
             return ""
@@ -188,10 +197,8 @@ Reply with ONLY one word: direct, aggressive, or chill
 CONVERSATION:
 {convo}"""
         try:
-            import google.generativeai as genai
-            model = genai.GenerativeModel(settings.gemini_model)
-            resp = model.generate_content(prompt)
-            tone = resp.text.strip().lower()
+            text = await asyncio.to_thread(_sync_gemini_plain_text, prompt)
+            tone = text.lower()
             if tone in ("direct", "aggressive", "chill"):
                 await self.update_state(user_id, db, preferred_tone=tone)
         except Exception as e:
@@ -215,13 +222,19 @@ CONVERSATION:
         onboarding = user.onboarding or {}
         state = await self.get_or_create_state(user_id, db)
 
-        # --- User profile ---
+        # --- User profile (signup / global onboarding — always surface for schedule + chat flows) ---
         profile_bits = []
-        for k in ["gender", "age", "skin_type", "goals", "height"]:
+        global_bits = []
+        for k in ["age", "gender", "sex", "height", "weight", "skin_type", "goals", "experience_level", "activity_level", "equipment"]:
             v = onboarding.get(k)
-            if v:
-                val = ", ".join(v) if isinstance(v, list) else str(v)
-                profile_bits.append(f"{k}: {val}")
+            if v is not None and v != "" and v != []:
+                val = ", ".join(str(x) for x in v) if isinstance(v, list) else str(v)
+                global_bits.append(f"{k}={val}")
+        if global_bits:
+            parts.append(
+                "GLOBAL ONBOARDING (from app signup — use as source of truth; do not re-ask unless user wants to change): "
+                + " | ".join(global_bits)
+            )
         wt = onboarding.get("wake_time")
         st = onboarding.get("sleep_time")
         sp = user.schedule_preferences or {}
@@ -389,11 +402,7 @@ If check_in_type is one of:
 
 Return only the message text, no labels."""
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=settings.gemini_api_key)
-                model = genai.GenerativeModel(settings.gemini_model)
-                resp = model.generate_content(fitmax_prompt)
-                return resp.text.strip()
+                return await asyncio.to_thread(_sync_gemini_plain_text, fitmax_prompt)
             except Exception as e:
                 logger.error(f"Fitmax check-in generation failed: {e}")
 
@@ -414,14 +423,53 @@ Generate ONE short message (1-2 sentences max). Be casual, direct, no fluff. Mat
 Message:"""
 
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=settings.gemini_api_key)
-            model = genai.GenerativeModel(settings.gemini_model)
-            resp = model.generate_content(prompt)
-            return resp.text.strip()
+            return await asyncio.to_thread(_sync_gemini_plain_text, prompt)
         except Exception as e:
             logger.error(f"Check-in generation failed: {e}")
             return "yo, checking in — how you doing today?"
+
+    async def generate_bedtime_progress_picture_prompt(
+        self,
+        user_id: str,
+        db: AsyncSession,
+        rds_db=None,
+    ) -> str:
+        """
+        Short SMS before bedtime: casual Max voice + explicit instruction to reply with a photo via MMS.
+        """
+        context_str = await self.build_full_context(user_id, db, rds_db)
+        if not context_str:
+            context_str = "No context yet."
+        user = await db.get(User, UUID(user_id))
+        name = (user.first_name or user.email.split("@")[0]) if user else "there"
+
+        prompt = f"""You are Max — the user's lookmaxxing coach. Send ONE SMS before their bedtime.
+
+User first name or handle: {name}
+
+Context (trim mentally — stay brief):
+{context_str[:2500]}
+
+Rules:
+- 1–3 short sentences max. Casual, direct, lowercase ok — like other Max check-ins. No corporate tone.
+- Say it's almost bedtime / wind-down in a natural way.
+- You MUST clearly tell them they can reply to THIS SAME TEXT THREAD with a selfie or progress picture to log today's progress (MMS). Do not say "only in the app" — SMS photo reply is the main CTA.
+- Do not analyze or judge their face; you're just collecting for their private archive.
+- Under 300 characters if you can.
+
+Output ONLY the SMS body, no quotes."""
+
+        try:
+            text = await asyncio.to_thread(_sync_gemini_plain_text, prompt)
+            if text:
+                return text
+        except Exception as e:
+            logger.error("Bedtime progress prompt generation failed: %s", e)
+
+        return (
+            f"hey {name} — almost bedtime. if you want to log today's progress, just reply to this text "
+            "with a selfie or progress pic and i'll drop it in your archive."
+        )
 
 
 coaching_service = CoachingService()

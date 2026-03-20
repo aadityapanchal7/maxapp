@@ -436,14 +436,25 @@ class ApiService {
         return response.data;
     }
 
-    async generateMaxxSchedule(maxxId: string, wakeTime: string, sleepTime: string, outsideToday: boolean = false, numDays: number = 7) {
-        const response = await this.client.post('schedules/generate-maxx', {
+    async generateMaxxSchedule(
+        maxxId: string,
+        wakeTime: string,
+        sleepTime: string,
+        outsideToday: boolean = false,
+        numDays: number = 7,
+        heightComponents?: Record<string, boolean>,
+    ) {
+        const body: Record<string, unknown> = {
             maxx_id: maxxId,
             wake_time: wakeTime,
             sleep_time: sleepTime,
             outside_today: outsideToday,
             num_days: numDays,
-        });
+        };
+        if (maxxId === 'heightmax' && heightComponents && Object.keys(heightComponents).length > 0) {
+            body.height_components = heightComponents;
+        }
+        const response = await this.client.post('schedules/generate-maxx', body);
         return response.data;
     }
 

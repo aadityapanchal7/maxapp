@@ -63,6 +63,7 @@ async def generate_maxx_schedule(
             skin_concern=data.skin_concern,
             outside_today=data.outside_today,
             num_days=data.num_days,
+            height_components=data.height_components,
         )
         return {"schedule": schedule}
     except ValueError as e:

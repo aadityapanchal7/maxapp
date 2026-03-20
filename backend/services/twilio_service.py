@@ -112,13 +112,6 @@ class TwilioService:
         message = "open the max app to check your schedule and mark tasks done."
         return bool(await self.send_sms(phone, message))
 
-    async def send_daily_progress_prompt(self, phone: str, name: str | None = None) -> bool:
-        """Send an SMS prompt asking the user for a daily progress picture"""
-        display_name = (name or "").split("@")[0].capitalize() if name else ""
-        greeting = f"hey {display_name}," if display_name else "hey,"
-        message = f"{greeting} time for your daily progress check-in. open the max app to upload a pic."
-        return bool(await self.send_sms(phone, message))
-
     async def send_coaching_sms(self, phone: str, message: str) -> bool:
         """Send an AI-generated coaching check-in via SMS"""
         return bool(await self.send_sms(phone, message))

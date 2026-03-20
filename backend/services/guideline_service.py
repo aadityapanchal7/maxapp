@@ -55,6 +55,34 @@ def resolve_concern(guideline: dict, skin_type: Optional[str] = None, explicit_c
     return concern_mapping.get(skin_type or "normal", fallback)
 
 
+def build_heightmax_protocol_section(guideline: dict, enabled: Optional[dict[str, bool]] = None) -> str:
+    """
+    Concatenate HeightMax protocol blocks for Gemini. If `enabled` is None or empty,
+    all protocols in the guideline are included. Otherwise only keys with True are included.
+    """
+    protocols = guideline.get("protocols") or {}
+    template = guideline.get("protocol_prompt_template")
+    if not template or not protocols:
+        return ""
+    keys = list(protocols.keys())
+    if enabled:
+        active = [k for k in keys if enabled.get(k, True)]
+    else:
+        active = keys
+    if not active:
+        active = keys
+    parts: list[str] = []
+    for key in active:
+        p = protocols.get(key)
+        if not isinstance(p, dict):
+            continue
+        try:
+            parts.append(template.format(**p))
+        except KeyError:
+            parts.append(f"## {p.get('label', key)}\n{p.get('how_to', '')}\n")
+    return "\n\n".join(parts)
+
+
 def build_protocol_prompt_section(guideline: dict, concern: str) -> str:
     """
     Build protocol text for the Gemini prompt using guideline's template and protocols.

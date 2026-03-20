@@ -3,6 +3,7 @@ Schedule Service - AI-powered personalised schedule generation using Gemini
 Generates, adapts, and manages user schedules for course modules.
 """
 
+import asyncio
 import copy
 import json
 import logging
@@ -22,11 +23,25 @@ from services.guideline_service import (
     get_maxx_guideline_async,
     resolve_concern,
     build_protocol_prompt_section,
+    build_heightmax_protocol_section,
 )
 from models.sqlalchemy_models import User, UserSchedule, Scan
 from models.rds_models import Course
 
 logger = logging.getLogger(__name__)
+
+
+def _sync_gemini_json_response(prompt: str) -> str:
+    """Run blocking Gemini SDK in a worker thread (must not block asyncio event loop)."""
+    import google.generativeai as genai
+
+    model = genai.GenerativeModel(settings.gemini_model)
+    response = model.generate_content(
+        prompt,
+        generation_config=genai.GenerationConfig(response_mime_type="application/json"),
+    )
+    return response.text
+
 
 SCHEDULE_GENERATION_PROMPT = """You are an expert fitness and self-improvement coach specialising in lookmaxxing.
 Your job is to create a PERSONALISED daily schedule for a user working on a specific module.
@@ -116,6 +131,7 @@ Your job is to create a PERSONALISED recurring daily/weekly schedule for a user.
 ## MAXX TYPE: {maxx_label}
 
 {protocol_section}
+{height_track_footer}
 
 ## USER CONTEXT
 Wake time: {wake_time}
@@ -253,13 +269,8 @@ class ScheduleService:
         )
 
         try:
-            import google.generativeai as genai
-            model = genai.GenerativeModel(settings.gemini_model)
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(response_mime_type="application/json"),
-            )
-            schedule_data = json.loads(response.text)
+            raw = await asyncio.to_thread(_sync_gemini_json_response, prompt)
+            schedule_data = json.loads(raw)
         except Exception as e:
             logger.error(f"Gemini schedule generation failed: {e}")
             schedule_data = self._generate_fallback_schedule(module, num_days, wake_time)
@@ -333,8 +344,13 @@ class ScheduleService:
         override_tmj_history: Optional[str] = None,
         override_mastic_gum_regular: Optional[str] = None,
         override_heavy_screen_time: Optional[str] = None,
+        height_components: Optional[dict] = None,
     ) -> dict:
         """Generate a personalised recurring schedule for a maxx module."""
+        if maxx_id == "heightmax" and height_components is not None and len(height_components) > 0:
+            if not any(bool(v) for v in height_components.values()):
+                raise ValueError("Select at least one height schedule component")
+
         guideline = await get_maxx_guideline_async(maxx_id, rds_db)
         if not guideline and maxx_id == "fitmax":
             guideline = {
@@ -358,11 +374,37 @@ class ScheduleService:
         onboarding = (user.onboarding if user else {}) or {}
 
         skin_type = onboarding.get("skin_type", "normal")
+        protos = guideline.get("protocols") or {}
         if maxx_id == "bonemax":
             concern = "bonemax_stack"
+        elif maxx_id == "heightmax":
+            concern = "heightmax_multi"
         else:
             concern = resolve_concern(guideline, skin_type, skin_concern)
-        protocol_section = build_protocol_prompt_section(guideline, concern)
+
+        if maxx_id == "heightmax":
+            protocol_section = build_heightmax_protocol_section(guideline, height_components)
+            active_labels: List[str] = []
+            if height_components:
+                for k, p in protos.items():
+                    if height_components.get(k, True) and isinstance(p, dict):
+                        active_labels.append(p.get("label", k))
+            else:
+                for k, p in protos.items():
+                    if isinstance(p, dict):
+                        active_labels.append(p.get("label", k))
+            if active_labels:
+                height_track_footer = (
+                    "\n## HEIGHTMAX — ENABLED TRACKS ONLY\n"
+                    "Only schedule tasks, reminders, and checkpoints that belong to these user-selected tracks. "
+                    "Do not add tasks for tracks the user did not select.\n"
+                    f"Enabled tracks: {', '.join(active_labels)}.\n"
+                )
+            else:
+                height_track_footer = ""
+        else:
+            protocol_section = build_protocol_prompt_section(guideline, concern)
+            height_track_footer = ""
         if maxx_id == "skinmax":
             profile_hint = skin_type
         elif maxx_id == "bonemax":
@@ -413,6 +455,7 @@ class ScheduleService:
         prompt = MAXX_SCHEDULE_PROMPT.format(
             maxx_label=guideline["label"],
             protocol_section=protocol_section,
+            height_track_footer=height_track_footer,
             wake_time=wake_time,
             sleep_time=sleep_time,
             profile_hint=profile_hint,
@@ -423,17 +466,12 @@ class ScheduleService:
         )
 
         try:
-            import google.generativeai as genai
-            model = genai.GenerativeModel(settings.gemini_model)
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(response_mime_type="application/json"),
-            )
-            schedule_data = json.loads(response.text)
+            raw = await asyncio.to_thread(_sync_gemini_json_response, prompt)
+            schedule_data = json.loads(raw)
         except Exception as e:
             logger.error(f"Gemini maxx schedule generation failed: {e}")
             schedule_data = self._generate_maxx_fallback(
-                maxx_id, num_days, wake_time, sleep_time
+                maxx_id, num_days, wake_time, sleep_time, height_components
             )
 
         tz_name = onboarding.get("timezone", "UTC")
@@ -490,6 +528,8 @@ class ScheduleService:
                     "bonemax_heavy_screen_time": (override_heavy_screen_time or onboarding.get("bonemax_heavy_screen_time") or ""),
                 }
             )
+        if maxx_id == "heightmax" and height_components is not None:
+            sched_ctx["height_components"] = {str(k): bool(v) for k, v in height_components.items()}
 
         schedule_row = UserSchedule(
             user_id=user_uuid,
@@ -512,10 +552,17 @@ class ScheduleService:
 
         return self._schedule_to_dict(schedule_row)
 
-    def _generate_maxx_fallback(self, maxx_id: str, num_days: int, wake_time: str, sleep_time: str) -> dict:
+    def _generate_maxx_fallback(
+        self,
+        maxx_id: str,
+        num_days: int,
+        wake_time: str,
+        sleep_time: str,
+        height_components: Optional[dict] = None,
+    ) -> dict:
         """Fallback schedule when Gemini fails for maxx schedules."""
         if maxx_id == "heightmax":
-            return self._generate_heightmax_fallback(num_days, wake_time, sleep_time)
+            return self._generate_heightmax_fallback(num_days, wake_time, sleep_time, height_components)
         if maxx_id == "bonemax":
             return self._generate_bonemax_fallback(num_days, wake_time, sleep_time)
         if maxx_id == "fitmax":
@@ -621,7 +668,32 @@ class ScheduleService:
             )
         return {"days": days}
 
-    def _generate_heightmax_fallback(self, num_days: int, wake_time: str, sleep_time: str) -> dict:
+    def _generate_heightmax_fallback(
+        self,
+        num_days: int,
+        wake_time: str,
+        sleep_time: str,
+        height_components: Optional[dict] = None,
+    ) -> dict:
+        """Fallback HeightMax schedule; optional height_components filters tracks (same keys as app toggles)."""
+
+        def _on(key: str) -> bool:
+            if not height_components:
+                return True
+            return bool(height_components.get(key, True))
+
+        track_keys = (
+            "posturemaxxing",
+            "sprintmaxxing",
+            "deep_sleep_routine",
+            "decompress_lengthen",
+            "height_killers",
+            "look_taller_instantly",
+        )
+        any_selected = any(_on(k) for k in track_keys) if height_components else True
+        if height_components and not any_selected:
+            any_selected = True  # safety: behave like all on
+
         days = []
         wh, wm = map(int, wake_time.split(":"))
         sh, sm = map(int, sleep_time.split(":"))
@@ -633,50 +705,75 @@ class ScheduleService:
         sprint_days = {2, 4, 6}
 
         for day_num in range(1, num_days + 1):
-            tasks = [
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{wh:02d}:{wm:02d}",
-                    "title": "Morning Check-in",
-                    "description": "You're up. Own posture early and stop donating height to bad mechanics.",
-                    "task_type": "reminder",
-                    "duration_minutes": 1,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{morning_hour:02d}:{morning_minute:02d}",
-                    "title": "Dead Hang + Decompress",
-                    "description": "Dead hang 2 x 20-30 sec, then open hips and hamstrings before desk posture crushes you.",
-                    "task_type": "routine",
-                    "duration_minutes": 8,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": posture_times[(day_num - 1) % len(posture_times)],
-                    "title": "Posture Reset",
-                    "description": "Chin back x 10, ribs stacked over pelvis, shoulder blades down and back, then walk tall for 60 sec.",
-                    "task_type": "reminder",
-                    "duration_minutes": 3,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{wind_down_hour:02d}:{sm:02d}",
-                    "title": "Sleep Protection",
-                    "description": "No caffeine from here, stop the late sugar spiral, and set up the same bedtime again tonight.",
-                    "task_type": "reminder",
-                    "duration_minutes": 5,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{evening_hour:02d}:{sm:02d}",
-                    "title": "Night Height Routine",
-                    "description": "Screens off, posture relaxed, and get to bed on time so recovery isn't fake.",
-                    "task_type": "routine",
-                    "duration_minutes": 15,
-                },
-            ]
+            tasks: List[dict] = []
 
-            if day_num in sprint_days and day_num <= num_days:
+            if any_selected:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{wh:02d}:{wm:02d}",
+                        "title": "Morning Check-in",
+                        "description": "You're up. Own posture early and stop donating height to bad mechanics.",
+                        "task_type": "reminder",
+                        "duration_minutes": 1,
+                    }
+                )
+            if _on("decompress_lengthen"):
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{morning_hour:02d}:{morning_minute:02d}",
+                        "title": "Dead Hang + Decompress",
+                        "description": "Dead hang 2 x 20-30 sec, then open hips and hamstrings before desk posture crushes you.",
+                        "task_type": "routine",
+                        "duration_minutes": 8,
+                    }
+                )
+            if _on("posturemaxxing"):
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": posture_times[(day_num - 1) % len(posture_times)],
+                        "title": "Posture Reset",
+                        "description": "Chin back x 10, ribs stacked over pelvis, shoulder blades down and back, then walk tall for 60 sec.",
+                        "task_type": "reminder",
+                        "duration_minutes": 3,
+                    }
+                )
+            if _on("deep_sleep_routine"):
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{wind_down_hour:02d}:{sm:02d}",
+                        "title": "Sleep Protection",
+                        "description": "No caffeine from here, stop the late sugar spiral, and set up the same bedtime again tonight.",
+                        "task_type": "reminder",
+                        "duration_minutes": 5,
+                    }
+                )
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{evening_hour:02d}:{sm:02d}",
+                        "title": "Night Height Routine",
+                        "description": "Screens off, posture relaxed, and get to bed on time so recovery isn't fake.",
+                        "task_type": "routine",
+                        "duration_minutes": 15,
+                    }
+                )
+            if _on("look_taller_instantly"):
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": "13:00",
+                        "title": "Look Taller — Presentation",
+                        "description": "Quick mirror check: posture, outfit proportions, and how your frame reads. Presentation beats cope.",
+                        "task_type": "reminder",
+                        "duration_minutes": 3,
+                    }
+                )
+
+            if day_num in sprint_days and day_num <= num_days and _on("sprintmaxxing"):
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
@@ -687,7 +784,7 @@ class ScheduleService:
                         "duration_minutes": 20,
                     }
                 )
-            else:
+            elif _on("height_killers"):
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
@@ -698,6 +795,8 @@ class ScheduleService:
                         "duration_minutes": 2,
                     }
                 )
+
+            tasks.sort(key=lambda t: t["time"])
 
             days.append(
                 {
@@ -953,13 +1052,8 @@ class ScheduleService:
         )
 
         try:
-            import google.generativeai as genai
-            model = genai.GenerativeModel(settings.gemini_model)
-            response = model.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(response_mime_type="application/json"),
-            )
-            adapted = json.loads(response.text)
+            raw = await asyncio.to_thread(_sync_gemini_json_response, prompt)
+            adapted = json.loads(raw)
         except Exception as e:
             logger.error(f"Schedule adaptation failed: {e}")
             raise ValueError(f"Failed to adapt schedule: {e}")

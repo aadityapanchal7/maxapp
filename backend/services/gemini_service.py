@@ -235,6 +235,7 @@ def generate_maxx_schedule(
 
     Args:
         maxx_id: The maxx type ID, e.g. 'skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'.
+            For heightmax, calling this tool only saves intake in the backend; the user finishes by choosing tracks in the app (toggles) then create schedule.
         wake_time: Wake time as HH:MM 24h for the tool (you convert from what the user said — e.g. '7am' -> '07:00'). Do not ask the user to use 24-hour format in chat.
         sleep_time: Sleep time as HH:MM 24h for the tool (you convert from natural phrasing). Do not ask the user to use 24-hour format in chat.
         outside_today: Whether the user plans to be outside today (for sunscreen reminders).
@@ -348,30 +349,32 @@ class GeminiService:
             response_mime_type="application/json",
             response_schema=ScanAnalysis
         )
-        
-        response = self.vision_model.generate_content(
-            prompt_parts,
-            generation_config=generation_config
-        )
-        
-        return response.text
-    
+
+        def _sync() -> str:
+            response = self.vision_model.generate_content(
+                prompt_parts,
+                generation_config=generation_config,
+            )
+            return response.text
+
+        return await asyncio.to_thread(_sync)
+
     async def _analyze_face_fallback(self, prompt_parts: list) -> ScanAnalysis:
         """Fallback method without strict schema enforcement"""
         # Add explicit JSON instruction
         fallback_prompt = prompt_parts + [
             "\n\nIMPORTANT: Return ONLY valid JSON. No markdown, no explanations."
         ]
-        
-        response = self.vision_model.generate_content(fallback_prompt)
-        
-        # Try to parse the response
-        text = response.text.strip()
+
+        def _sync() -> str:
+            response = self.vision_model.generate_content(fallback_prompt)
+            return response.text.strip()
+
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
-        
+
         return ScanAnalysis.model_validate_json(text)
     
     def _get_default_analysis(self) -> ScanAnalysis:

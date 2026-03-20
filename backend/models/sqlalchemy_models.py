@@ -240,6 +240,8 @@ class UserProgressPhoto(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
     image_url = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    # app = in-app upload; sms = Twilio MMS webhook
+    source = Column(String, default="app")
 
     __table_args__ = (
         Index("idx_progress_photos_user_id", user_id),

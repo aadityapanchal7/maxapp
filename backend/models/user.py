@@ -2,10 +2,33 @@
 User Models - Pydantic schemas for user data
 """
 
-from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+import re
+from pydantic import BaseModel, EmailStr, Field, field_validator
+from typing import Optional, List, Any
 from datetime import datetime
 from enum import Enum
+
+
+def _coerce_optional_body_metric(value: Any) -> Optional[float]:
+    """Parse height/weight from float/int or strings like '180.3cm', '75 kg' (onboarding / DB legacy)."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        m = re.search(r"[\d.]+", s.replace(",", "."))
+        if not m:
+            return None
+        try:
+            return float(m.group(0))
+        except ValueError:
+            return None
+    return None
 
 
 class ExperienceLevel(str, Enum):
@@ -49,6 +72,11 @@ class OnboardingData(BaseModel):
     wake_time: Optional[str] = Field(default=None, description="Usual wake time HH:MM (24h), e.g. 07:00")
     sleep_time: Optional[str] = Field(default=None, description="Usual sleep time HH:MM (24h), e.g. 23:00")
     completed: bool = False
+
+    @field_validator("height", "weight", mode="before")
+    @classmethod
+    def parse_height_weight(cls, v: Any) -> Optional[float]:
+        return _coerce_optional_body_metric(v)
 
 
 class UserProfile(BaseModel):

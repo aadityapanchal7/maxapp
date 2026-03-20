@@ -1,7 +1,7 @@
 """
-Scheduler Job - Background tasks: SMS reminders, coaching check-ins,
-daily progress prompts, weekly resets.
-All notifications route to SMS (not in-app chat).
+Scheduler Job - Background tasks: SMS schedule reminders, coaching check-ins,
+bedtime progress-picture prompts (SMS/MMS), weekly resets.
+Outbound check-ins route to SMS (and are mirrored to in-app chat history).
 """
 
 import logging
@@ -100,51 +100,118 @@ async def send_due_notifications():
         logger.error(f"Scheduler job error: {e}", exc_info=True)
 
 
-async def send_daily_progress_prompts():
-    """Once-per-day WhatsApp prompts asking users for a progress picture."""
+def _parse_sleep_hh_mm(raw: str | None) -> tuple[int, int] | None:
+    """Parse sleep time like 23:00 or 11:30 from stored strings."""
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
     try:
+        parts = s.replace(".", ":").split(":")
+        if len(parts) < 2:
+            return None
+        h, m = int(parts[0]), int(parts[1][:2])
+        if 0 <= h <= 23 and 0 <= m <= 59:
+            return h, m
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _resolve_user_sleep_time(user, schedules: list) -> tuple[int, int] | None:
+    """sleep_time from onboarding, schedule_preferences, or active schedule preferences."""
+    ob = user.onboarding or {}
+    sp = user.schedule_preferences or {}
+    for src in (ob.get("sleep_time"), sp.get("sleep_time")):
+        p = _parse_sleep_hh_mm(src)
+        if p:
+            return p
+    for sched in schedules:
+        prefs = sched.preferences or {}
+        p = _parse_sleep_hh_mm(prefs.get("sleep_time"))
+        if p:
+            return p
+    return None
+
+
+async def send_bedtime_progress_picture_prompts():
+    """
+    Once per local night: SMS ~30–60 min before the user's saved sleep_time.
+    Only for paid users with a phone + at least one active schedule.
+    AI-generated copy + explicit MMS reply CTA. Same SMS channel as coaching check-ins.
+    """
+    try:
+        from services.coaching_service import coaching_service
+
+        # Minutes before bedtime to start / end the send window (job runs every 10 min)
+        WINDOW_START_BEFORE_SLEEP_MIN = 60
+        WINDOW_END_BEFORE_SLEEP_MIN = 30
+
         async with AsyncSessionLocal() as db:
-            now_utc = datetime.utcnow()
+            now_utc = datetime.now(ZoneInfo("UTC"))
 
-            result = await db.execute(select(User).where(User.phone_number.isnot(None)))
-            users = result.scalars().all()
+            sched_result = await db.execute(
+                select(UserSchedule).where(UserSchedule.is_active == True)
+            )
+            by_user: dict = {}
+            for row in sched_result.scalars().all():
+                by_user.setdefault(row.user_id, []).append(row)
 
-            for user in users:
+            for user_id, schedules in by_user.items():
+                user = await db.get(User, user_id)
+                if not user or not user.is_paid or not user.phone_number:
+                    continue
+
+                sleep_hm = _resolve_user_sleep_time(user, schedules)
+                if not sleep_hm:
+                    continue
+
                 tz_name = (user.onboarding or {}).get("timezone", "UTC")
                 try:
                     user_tz = ZoneInfo(tz_name)
                 except Exception:
                     user_tz = ZoneInfo("UTC")
 
-                local_now = now_utc.replace(tzinfo=ZoneInfo("UTC")).astimezone(user_tz)
+                local_now = now_utc.astimezone(user_tz)
                 today_iso = local_now.date().isoformat()
-                hour = local_now.hour
-
-                if hour < 21:
-                    continue
 
                 if user.last_progress_prompt_date == today_iso:
                     continue
 
-                if not user.phone_number:
+                sh, sm = sleep_hm
+                sleep_dt = local_now.replace(hour=sh, minute=sm, second=0, microsecond=0)
+                if sleep_dt <= local_now:
+                    sleep_dt = sleep_dt + timedelta(days=1)
+
+                window_start = sleep_dt - timedelta(minutes=WINDOW_START_BEFORE_SLEEP_MIN)
+                window_end = sleep_dt - timedelta(minutes=WINDOW_END_BEFORE_SLEEP_MIN)
+                if not (window_start <= local_now < window_end):
                     continue
 
                 try:
-                    success = await twilio_service.send_daily_progress_prompt(
-                        phone=user.phone_number,
-                        name=user.first_name or user.email,
+                    msg = await coaching_service.generate_bedtime_progress_picture_prompt(
+                        str(user.id), db, None
                     )
-                    if success:
+                    ok = await twilio_service.send_coaching_sms(user.phone_number, msg)
+                    if ok:
                         user.last_progress_prompt_date = today_iso
                         user.updated_at = datetime.utcnow()
-                        logger.info(f"Sent daily progress prompt to user {user.id}")
+                        chat_msg = ChatHistory(
+                            user_id=user.id,
+                            role="assistant",
+                            content=msg,
+                            created_at=datetime.utcnow(),
+                        )
+                        db.add(chat_msg)
+                        logger.info("Sent bedtime progress picture prompt to user %s", user.id)
                 except Exception as e:
-                    logger.warning(f"Failed to send daily progress prompt to {user.id}: {e}")
+                    logger.warning("Bedtime progress prompt failed for %s: %s", user.id, e)
 
             await db.commit()
 
     except Exception as e:
-        logger.error(f"Daily progress prompts job error: {e}", exc_info=True)
+        logger.error("Bedtime progress picture prompts job error: %s", e, exc_info=True)
 
 
 async def send_coaching_check_ins():
@@ -378,10 +445,10 @@ def start_scheduler(app):
             replace_existing=True,
         )
         scheduler.add_job(
-            send_daily_progress_prompts,
+            send_bedtime_progress_picture_prompts,
             "interval",
-            minutes=60,
-            id="daily_progress_prompts",
+            minutes=10,
+            id="bedtime_progress_picture_prompts",
             replace_existing=True,
         )
         scheduler.add_job(
@@ -399,7 +466,9 @@ def start_scheduler(app):
             replace_existing=True,
         )
         scheduler.start()
-        logger.info("APScheduler started — SMS notifications 5min, coaching 30min, weekly 60min")
+        logger.info(
+            "APScheduler started — schedule SMS 5min, bedtime progress pics 10min, coaching 30min, weekly 60min"
+        )
         return scheduler
     except ImportError:
         logger.warning("APScheduler not installed — background notifications disabled. Run: pip install apscheduler")

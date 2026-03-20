@@ -10,6 +10,7 @@ export default function LoginScreen() {
     const { login } = useAuth();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
     const [apiError, setApiError] = useState<string | null>(null);
 
@@ -51,7 +52,31 @@ export default function LoginScreen() {
                         </View>
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>PASSWORD</Text>
-                            <TextInput style={styles.input} placeholder="Enter your password" placeholderTextColor={colors.textMuted} value={password} onChangeText={(t) => { setPassword(t); setApiError(null); }} secureTextEntry />
+                            <View style={styles.passwordRow}>
+                                <TextInput
+                                    style={styles.passwordInput}
+                                    placeholder="Enter your password"
+                                    placeholderTextColor={colors.textMuted}
+                                    value={password}
+                                    onChangeText={(t) => { setPassword(t); setApiError(null); }}
+                                    secureTextEntry={!showPassword}
+                                    autoCapitalize="none"
+                                    autoCorrect={false}
+                                />
+                                <TouchableOpacity
+                                    style={styles.viewPasswordBtn}
+                                    onPress={() => setShowPassword((v) => !v)}
+                                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                                >
+                                    <Ionicons
+                                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                                        size={22}
+                                        color={colors.textMuted}
+                                    />
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
                         {apiError && (
@@ -109,6 +134,25 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.md,
         color: colors.textPrimary,
         fontSize: 15,
+    },
+    passwordRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+    },
+    passwordInput: {
+        flex: 1,
+        paddingVertical: 15,
+        paddingLeft: spacing.md,
+        paddingRight: 8,
+        color: colors.textPrimary,
+        fontSize: 15,
+    },
+    viewPasswordBtn: {
+        paddingVertical: 12,
+        paddingHorizontal: spacing.sm,
+        marginRight: spacing.xs,
     },
     apiErrorBox: {
         flexDirection: 'row',

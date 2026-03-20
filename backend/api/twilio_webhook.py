@@ -1,6 +1,5 @@
 """
-Twilio SMS Webhook — Receives incoming SMS messages and routes them through the Max AI chatbot.
-Users can text the Twilio number and get AI replies via SMS.
+Twilio SMS/MMS Webhook — Incoming SMS routes through Max AI; MMS images save as progress pictures.
 """
 
 import logging
@@ -11,6 +10,7 @@ from sqlalchemy import select
 from db import get_db, get_rds_db_optional
 from models.sqlalchemy_models import User
 from services.twilio_service import phone_lookup_candidates
+from services.sms_mms_ingest import ingest_mms_progress_photos_from_form
 from api.chat import process_chat_message
 
 logger = logging.getLogger(__name__)
@@ -32,20 +32,31 @@ async def sms_webhook(
     rds_db: AsyncSession | None = Depends(get_rds_db_optional),
 ):
     """
-    Twilio calls this when an SMS arrives at our number.
-    We look up the user by phone, run the message through Max AI, and reply via SMS.
+    Twilio calls this for inbound SMS and MMS.
+    - MMS with image(s): each image is stored as a progress picture (S3/local) for the matched user.
+    - Text (with or without prior images): runs Max chat when Body is non-empty.
     """
     form = await request.form()
     from_phone = str(form.get("From", ""))
     body = str(form.get("Body", "")).strip()
 
-    if not from_phone or not body:
+    try:
+        num_media = int(form.get("NumMedia") or 0)
+    except (TypeError, ValueError):
+        num_media = 0
+
+    if not from_phone:
         return Response(content=TWIML_EMPTY, media_type="application/xml")
 
     candidates = phone_lookup_candidates(from_phone)
-    logger.info("Twilio SMS from=%s candidates=%s body_len=%s", from_phone, candidates, len(body))
+    logger.info(
+        "Twilio inbound from=%s candidates=%s body_len=%s num_media=%s",
+        from_phone,
+        candidates,
+        len(body),
+        num_media,
+    )
 
-    # Look up user by any common phone format
     result = await db.execute(
         select(User).where(User.phone_number.in_(candidates)).limit(1)
     )
@@ -55,36 +66,61 @@ async def sms_webhook(
         reply = "hey, you're not signed up for max yet. download the app to get started."
         return Response(content=_twiml_reply(reply), media_type="application/xml")
 
-    # Snapshot before any long-running work — avoids lazy-load / expired ORM state in except blocks.
     user_id_str = str(user.id)
 
-    # Do NOT wrap in asyncio.wait_for(): cancelling mid-request aborts DB commits (adapt_schedule etc.),
-    # leaving the session in PendingRollbackError and breaking the next request.
-    try:
-        response_text = await process_chat_message(
-            user_id=user_id_str,
-            message_text=body,
-            db=db,
-            rds_db=rds_db,
-        )
-    except Exception as e:
-        logger.error("SMS chat processing failed for user %s: %s", user_id_str, e, exc_info=True)
+    parts: list[str] = []
+    mms_stored = 0
+
+    if num_media > 0:
         try:
-            await db.rollback()
-        except Exception:
-            pass
-        if rds_db is not None:
+            mms_stored = await ingest_mms_progress_photos_from_form(db, user, form)
+            if mms_stored > 0:
+                parts.append(
+                    f"got {'those pics' if mms_stored > 1 else 'it'} — saved to your progress archive in the app."
+                )
+            await db.commit()
+        except Exception as e:
+            logger.error("MMS progress ingest failed for user %s: %s", user_id_str, e, exc_info=True)
             try:
-                await rds_db.rollback()
+                await db.rollback()
             except Exception:
                 pass
-        response_text = "my bad, hit a snag. try again."
+            parts.append("couldn't save the image that time — try again or upload from the app.")
+        if mms_stored == 0 and not parts:
+            parts.append("couldn't read that image — try again or upload from the app.")
 
-    if not (response_text or "").strip():
-        response_text = "got it. open the app if you need more detail."
+    if not body and not parts:
+        return Response(content=TWIML_EMPTY, media_type="application/xml")
 
-    # Truncate to SMS limit (~1550 chars to leave room for encoding)
-    if len(response_text) > 1550:
-        response_text = response_text[:1547] + "..."
+    response_text = ""
+    if body:
+        try:
+            response_text = await process_chat_message(
+                user_id=user_id_str,
+                message_text=body,
+                db=db,
+                rds_db=rds_db,
+            )
+        except Exception as e:
+            logger.error("SMS chat processing failed for user %s: %s", user_id_str, e, exc_info=True)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            if rds_db is not None:
+                try:
+                    await rds_db.rollback()
+                except Exception:
+                    pass
+            response_text = "my bad, hit a snag. try again."
+        if not (response_text or "").strip():
+            response_text = "got it. open the app if you need more detail."
 
-    return Response(content=_twiml_reply(response_text), media_type="application/xml")
+    combined = " ".join(p for p in [*parts, response_text.strip()] if p).strip()
+    if not combined:
+        combined = "got it."
+
+    if len(combined) > 1550:
+        combined = combined[:1547] + "..."
+
+    return Response(content=_twiml_reply(combined), media_type="application/xml")

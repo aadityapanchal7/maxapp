@@ -1,15 +1,29 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
 interface Message { role: 'user' | 'assistant'; content: string; attachment_url?: string; attachment_type?: string; isTyping?: boolean; }
 
+/** Walk up to the root navigator (stack) so we can open screens registered as stack siblings of Main. */
+function navigateFromNestedToRoot(navigation: { getParent?: () => any }, routeName: string, params?: object) {
+    let nav: any = navigation;
+    for (let i = 0; i < 6; i++) {
+        const parent = nav?.getParent?.();
+        if (!parent) break;
+        nav = parent;
+    }
+    if (nav?.navigate) {
+        nav.navigate(routeName, params);
+    }
+}
+
 export default function MaxChatScreen() {
     const route = useRoute<any>();
+    const navigation = useNavigation<any>();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -17,11 +31,35 @@ export default function MaxChatScreen() {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const flatListRef = useRef<FlatList>(null);
     const initScheduleHandled = useRef(false);
+    /** Heightmax: hide "choose parts" CTA after user created schedule from HeightScheduleComponents (API has active schedule). */
+    const [heightmaxScheduleExists, setHeightmaxScheduleExists] = useState(false);
 
     const addTyping = () => setMessages(prev => [...prev.filter(m => !m.isTyping), { role: 'assistant', content: '', isTyping: true }]);
     const removeTyping = () => setMessages(prev => prev.filter(m => !m.isTyping));
 
     useEffect(() => { loadHistory(); }, []);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (route.params?.initSchedule !== 'heightmax') {
+                setHeightmaxScheduleExists(false);
+                return;
+            }
+            let cancelled = false;
+            (async () => {
+                try {
+                    const res = await api.getMaxxSchedule('heightmax');
+                    const has = Boolean(res?.schedule?.id);
+                    if (!cancelled) setHeightmaxScheduleExists(has);
+                } catch {
+                    if (!cancelled) setHeightmaxScheduleExists(false);
+                }
+            })();
+            return () => {
+                cancelled = true;
+            };
+        }, [route.params?.initSchedule]),
+    );
 
     useEffect(() => {
         const initSchedule = route.params?.initSchedule;
@@ -149,6 +187,18 @@ export default function MaxChatScreen() {
                     ListEmptyComponent={ListEmpty}
                 />
 
+                {route.params?.initSchedule === 'heightmax' && !heightmaxScheduleExists && (
+                    <TouchableOpacity
+                        style={styles.heightPartsCta}
+                        activeOpacity={0.85}
+                        onPress={() => navigateFromNestedToRoot(navigation, 'HeightScheduleComponents')}
+                    >
+                        <Ionicons name="options-outline" size={20} color={colors.buttonText} />
+                        <Text style={styles.heightPartsCtaText}>choose height schedule parts</Text>
+                        <Ionicons name="chevron-forward" size={18} color={colors.buttonText} />
+                    </TouchableOpacity>
+                )}
+
                 <View style={styles.outerInputContainer}>
                     {selectedImage && (
                         <View style={styles.imagePreviewContainer}>
@@ -263,4 +313,23 @@ const styles = StyleSheet.create({
     input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 10, paddingHorizontal: 8, maxHeight: 100 },
     sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center', marginLeft: 8, ...shadows.sm },
     disabledButton: { opacity: 0.35 },
+    heightPartsCta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        marginHorizontal: spacing.md,
+        marginBottom: spacing.sm,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.lg,
+        backgroundColor: colors.foreground,
+        borderRadius: borderRadius.lg,
+        ...shadows.md,
+    },
+    heightPartsCtaText: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.buttonText,
+    },
 });

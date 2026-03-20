@@ -45,6 +45,36 @@ class LocalStorageService:
             print(f"Local storage error: {e}")
             return None
 
+    async def upload_progress_picture(
+        self,
+        image_data: bytes,
+        user_id: str,
+        content_type: str = "image/jpeg",
+    ) -> Optional[str]:
+        """Save a progress picture under progress_pics/{user_id}/ with ISO-ish timestamp in filename."""
+        try:
+            ext = ".jpg"
+            ct = (content_type or "").lower()
+            if "png" in ct:
+                ext = ".png"
+            elif "gif" in ct:
+                ext = ".gif"
+            elif "webp" in ct:
+                ext = ".webp"
+            iso = datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+            unique = str(uuid.uuid4())[:8]
+            subdir = os.path.join(self.storage_dir, "progress_pics", user_id)
+            os.makedirs(subdir, exist_ok=True)
+            filename = f"{iso}_{unique}{ext}"
+            filepath = os.path.join(subdir, filename)
+            with open(filepath, "wb") as f:
+                f.write(image_data)
+            rel = f"/uploads/progress_pics/{user_id}/{filename}"
+            return rel
+        except Exception as e:
+            print(f"Local progress picture error: {e}")
+            return None
+
     async def upload_video(
         self,
         video_data: bytes,
@@ -142,6 +172,37 @@ class S3StorageService:
             
         except self.ClientError as e:
             print(f"S3 upload error: {e}")
+            return None
+
+    async def upload_progress_picture(
+        self,
+        image_data: bytes,
+        user_id: str,
+        content_type: str = "image/jpeg",
+    ) -> Optional[str]:
+        """Upload progress picture to S3: progress_pics/{user_id}/{iso_timestamp}_{id}.ext"""
+        try:
+            ext = ".jpg"
+            ct = (content_type or "").lower()
+            if "png" in ct:
+                ext = ".png"
+            elif "gif" in ct:
+                ext = ".gif"
+            elif "webp" in ct:
+                ext = ".webp"
+            iso = datetime.utcnow().strftime("%Y-%m-%dT%H%M%SZ")
+            unique = str(uuid.uuid4())[:8]
+            key = f"progress_pics/{user_id}/{iso}_{unique}{ext}"
+            extra = {"ContentType": content_type or "image/jpeg"}
+            self.s3_client.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=image_data,
+                **extra,
+            )
+            return f"https://{self.bucket}.s3.{settings.aws_s3_region}.amazonaws.com/{key}"
+        except self.ClientError as e:
+            print(f"S3 progress picture upload error: {e}")
             return None
 
     async def upload_video(

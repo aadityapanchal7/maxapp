@@ -95,6 +95,7 @@ async def _run_rds_column_migrations():
     ]
     try:
         async with rds_engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '5s'"))
             for sql in migrations:
                 await conn.execute(text(sql))
         print("[OK] RDS column migrations applied")

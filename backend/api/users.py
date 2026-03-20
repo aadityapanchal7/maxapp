@@ -202,11 +202,12 @@ async def upload_progress_photo(
         user_id=UUID(current_user["id"]),
         image_url=image_url,
         created_at=datetime.utcnow(),
+        source="app",
     )
     db.add(photo)
     await db.commit()
     await db.refresh(photo)
-    return {"photo": {"id": str(photo.id), "user_id": current_user["id"], "image_url": image_url, "created_at": photo.created_at}}
+    return {"photo": {"id": str(photo.id), "user_id": current_user["id"], "image_url": image_url, "created_at": photo.created_at, "source": "app"}}
 
 
 @router.post("/me/progress-photo/base64")
@@ -270,7 +271,13 @@ async def list_progress_photos(
     )
     photos = result.scalars().all()
     return {"photos": [
-        {"id": str(p.id), "user_id": current_user["id"], "image_url": p.image_url, "created_at": p.created_at}
+        {
+            "id": str(p.id),
+            "user_id": current_user["id"],
+            "image_url": p.image_url,
+            "created_at": p.created_at,
+            "source": getattr(p, "source", None) or "app",
+        }
         for p in photos
     ]}
 
