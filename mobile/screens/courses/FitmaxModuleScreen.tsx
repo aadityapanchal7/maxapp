@@ -185,6 +185,21 @@ function calloutColors(tone: CalloutTone) {
   return { border: '#22c55e', bg: '#22c55e16' };
 }
 
+function splitReadingChunks(text: string) {
+  const sentences = text
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  if (sentences.length <= 2) return [text];
+
+  const chunks: string[] = [];
+  for (let i = 0; i < sentences.length; i += 2) {
+    chunks.push(sentences.slice(i, i + 2).join(' '));
+  }
+  return chunks;
+}
+
 export default function FitmaxModuleScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -230,7 +245,16 @@ export default function FitmaxModuleScreen() {
               if (block.type === 'title') return <Text key={idx} style={styles.moduleTitle}>{block.text}</Text>;
               if (block.type === 'meta') return <Text key={idx} style={styles.metaText}>{block.text}</Text>;
               if (block.type === 'heading') return <Text key={idx} style={styles.headingText}>{block.text}</Text>;
-              if (block.type === 'paragraph') return <Text key={idx} style={styles.bodyText}>{block.text}</Text>;
+              if (block.type === 'paragraph') {
+                const chunks = splitReadingChunks(block.text);
+                return (
+                  <View key={idx} style={styles.paragraphGroup}>
+                    {chunks.map((chunk, chunkIdx) => (
+                      <Text key={`${idx}-${chunkIdx}`} style={styles.bodyText}>{chunk}</Text>
+                    ))}
+                  </View>
+                );
+              }
               if (block.type === 'list') return <Text key={idx} style={styles.listText}>{block.text}</Text>;
 
               if (block.type === 'check') {
@@ -262,10 +286,13 @@ export default function FitmaxModuleScreen() {
               }
 
               const palette = calloutColors(block.tone);
+              const calloutChunks = splitReadingChunks(block.text);
               return (
                 <View key={idx} style={[styles.callout, { borderColor: palette.border, backgroundColor: palette.bg }]}>
                   <Text style={styles.calloutLabel}>{block.label}</Text>
-                  <Text style={styles.calloutText}>{block.text}</Text>
+                  {calloutChunks.map((chunk, chunkIdx) => (
+                    <Text key={`${idx}-callout-${chunkIdx}`} style={styles.calloutText}>{chunk}</Text>
+                  ))}
                 </View>
               );
             })}
@@ -282,17 +309,28 @@ const styles = StyleSheet.create({
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
   headerTitle: { ...typography.h3, flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  card: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.lg, ...shadows.md },
+  card: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.xl, ...shadows.md },
   moduleTitle: { fontSize: 24, lineHeight: 30, fontWeight: '700', color: colors.foreground, marginBottom: spacing.md },
-  metaText: { ...typography.bodySmall, color: colors.textMuted, marginBottom: spacing.md },
-  headingText: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: colors.foreground, marginTop: spacing.sm, marginBottom: spacing.sm },
-  bodyText: { ...typography.body, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.md },
-  listText: { ...typography.body, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.sm },
+  metaText: { ...typography.bodySmall, color: colors.textMuted, marginBottom: spacing.lg },
+  headingText: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: colors.foreground,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    paddingBottom: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  paragraphGroup: { marginBottom: spacing.md },
+  bodyText: { ...typography.body, color: colors.textSecondary, lineHeight: 26, marginBottom: spacing.sm },
+  listText: { ...typography.body, color: colors.textSecondary, lineHeight: 26, marginBottom: spacing.md },
   checkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: spacing.sm },
   checkText: { ...typography.body, color: colors.textSecondary, flex: 1 },
-  callout: { borderLeftWidth: 4, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
+  callout: { borderLeftWidth: 4, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.lg },
   calloutLabel: { fontSize: 12, lineHeight: 18, fontWeight: '700', color: colors.foreground, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: 4 },
-  calloutText: { ...typography.bodySmall, color: colors.textSecondary, lineHeight: 21 },
+  calloutText: { ...typography.bodySmall, color: colors.textSecondary, lineHeight: 22, marginBottom: 6 },
   visualCard: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
   visualText: { ...typography.bodySmall, color: colors.textSecondary, flex: 1, lineHeight: 20 },
   tableCard: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, marginBottom: spacing.md },
