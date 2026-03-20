@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useMemo } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -327,18 +327,6 @@ export default function FitmaxModuleScreen() {
 
   const blocks = useMemo(() => (parsedExercises ? [] : parseBlocks(content)), [content, parsedExercises]);
   const { leadBlocks, sections } = useMemo(() => splitSections(blocks), [blocks]);
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    if (!sections.length) return;
-    setExpandedSections(prev => {
-      const next: Record<string, boolean> = {};
-      sections.forEach((section, idx) => {
-        next[section.id] = prev[section.id] ?? idx === 0;
-      });
-      return next;
-    });
-  }, [sections]);
 
   const renderBlock = (block: ContentBlock, idxKey: string) => {
     if (block.type === 'title') return <Text key={idxKey} style={styles.moduleTitle}>{block.text}</Text>;
@@ -456,23 +444,15 @@ export default function FitmaxModuleScreen() {
             {leadBlocks.map((block, idx) => renderBlock(block, `lead-${idx}`))}
 
             {sections.map(section => {
-              const isExpanded = expandedSections[section.id] ?? true;
               return (
                 <View key={section.id} style={styles.sectionCard}>
-                  <TouchableOpacity
-                    style={styles.sectionHeader}
-                    activeOpacity={0.85}
-                    onPress={() => setExpandedSections(prev => ({ ...prev, [section.id]: !isExpanded }))}
-                  >
+                  <View style={styles.sectionHeader}>
                     <Text style={styles.headingText}>{section.title}</Text>
-                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
-                  </TouchableOpacity>
+                  </View>
 
-                  {isExpanded && (
-                    <View style={styles.sectionBody}>
-                      {section.blocks.map((block, idx) => renderBlock(block, `${section.id}-${idx}`))}
-                    </View>
-                  )}
+                  <View style={styles.sectionBody}>
+                    {section.blocks.map((block, idx) => renderBlock(block, `${section.id}-${idx}`))}
+                  </View>
                 </View>
               );
             })}
@@ -527,3 +507,5 @@ const styles = StyleSheet.create({
   tag: { marginTop: 8, alignSelf: 'flex-start', backgroundColor: colors.surface, borderRadius: borderRadius.full, paddingHorizontal: 10, paddingVertical: 4 },
   tagText: { ...typography.caption },
 });
+
+
