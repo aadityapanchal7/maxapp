@@ -1,0 +1,12 @@
+# Root build context — keep image small
+.git
+.github
+mobile
+web
+cannon_facial_analysis
+**/node_modules
+**/.venv
+**/venv
+**/__pycache__
+*.md
+DEPLOY.md

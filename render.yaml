@@ -10,8 +10,9 @@ services:
     runtime: docker
     region: oregon
     plan: starter
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    # Repo-root Dockerfile + context `.` — Render often looks for ./Dockerfile only
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
     healthCheckPath: /health
     envVars:
       - key: PYTHONUNBUFFERED
