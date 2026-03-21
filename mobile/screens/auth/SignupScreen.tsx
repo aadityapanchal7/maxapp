@@ -23,6 +23,18 @@ import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { PHONE_COUNTRIES, type PhoneCountry } from '../../constants/phoneCountryCodes';
 
+function signupErrorMessage(error: any): string {
+    const d = error?.response?.data?.detail;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d)) {
+        return d
+            .map((x: { msg?: string }) => x?.msg)
+            .filter(Boolean)
+            .join(' ') || 'Could not create account';
+    }
+    return 'Could not create account';
+}
+
 export default function SignupScreen() {
     const navigation = useNavigation<any>();
     const { signup, refreshUser } = useAuth();
@@ -97,14 +109,18 @@ export default function SignupScreen() {
                 }
             }
         } catch (error: any) {
-            const msg = (typeof error.response?.data?.detail === 'string' ? error.response.data.detail : 'Could not create account') as string;
+            const msg = signupErrorMessage(error);
+            const lower = msg.toLowerCase();
             setFieldErrorMessages({});
-            if (msg.toLowerCase().includes('username') && msg.toLowerCase().includes('taken')) {
+            if (lower.includes('username') && lower.includes('taken')) {
                 setFieldErrors((p) => ({ ...p, username: true }));
                 setFieldErrorMessages((p) => ({ ...p, username: 'Username already taken' }));
-            } else if (msg.toLowerCase().includes('email') && msg.toLowerCase().includes('registered')) {
+            } else if (lower.includes('email') && lower.includes('registered')) {
                 setFieldErrors((p) => ({ ...p, email: true }));
                 setFieldErrorMessages((p) => ({ ...p, email: 'Email already registered' }));
+            } else if (lower.includes('phone') && lower.includes('registered')) {
+                setFieldErrors((p) => ({ ...p, phone: true }));
+                setFieldErrorMessages((p) => ({ ...p, phone: 'Phone number already registered' }));
             } else {
                 setApiError(msg);
             }
@@ -195,7 +211,11 @@ export default function SignupScreen() {
                                         keyboardType="phone-pad"
                                     />
                                 </View>
-                                <Text style={styles.phoneHint}>We&apos;ll text you for account &amp; coaching updates.</Text>
+                                {fieldErrorMessages.phone ? (
+                                    <Text style={styles.helperError}>{fieldErrorMessages.phone}</Text>
+                                ) : (
+                                    <Text style={styles.phoneHint}>We&apos;ll text you for account &amp; coaching updates.</Text>
+                                )}
                             </View>
 
                             <Modal
@@ -225,6 +245,9 @@ export default function SignupScreen() {
                                                     onPress={() => {
                                                         setPhoneCountry(item);
                                                         setCountryModalVisible(false);
+                                                        setFieldErrors((p) => ({ ...p, phone: false }));
+                                                        setFieldErrorMessages((p) => ({ ...p, phone: '' }));
+                                                        setApiError(null);
                                                     }}
                                                     activeOpacity={0.65}
                                                 >

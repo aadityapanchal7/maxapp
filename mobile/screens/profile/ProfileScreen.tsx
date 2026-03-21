@@ -299,12 +299,12 @@ export default function ProfileScreen() {
                     <View style={styles.section}>
                         <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('PersonalInfo')} activeOpacity={0.7}>
                             <Ionicons name="id-card-outline" size={22} color={colors.foreground} />
-                            <Text style={styles.menuRowText}>Personal info</Text>
+                            <Text style={styles.menuRowText}>Edit personal info</Text>
                             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                         </TouchableOpacity>
                         <TouchableOpacity style={[styles.menuRow, { marginTop: spacing.sm }]} onPress={() => navigation.navigate('EditPersonal')} activeOpacity={0.7}>
-                            <Ionicons name="create-outline" size={22} color={colors.foreground} />
-                            <Text style={styles.menuRowText}>Edit personal info</Text>
+                            <Ionicons name="leaf-outline" size={22} color={colors.foreground} />
+                            <Text style={styles.menuRowText}>Edit lifestyle</Text>
                             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                         </TouchableOpacity>
                     </View>

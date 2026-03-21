@@ -120,7 +120,7 @@ export default function PersonalInfoScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Personal Info</Text>
+        <Text style={styles.headerTitle}>Edit personal info</Text>
         <View style={{ width: 40 }} />
       </View>
 

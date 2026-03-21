@@ -220,7 +220,7 @@ export default function EditPersonalScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{onlyGoals ? 'Your Maxxes' : 'Edit Personal Info'}</Text>
+        <Text style={styles.headerTitle}>{onlyGoals ? 'Your Maxxes' : 'Edit lifestyle'}</Text>
         <View style={{ width: 40 }} />
       </View>
 
