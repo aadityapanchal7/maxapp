@@ -1,0 +1,22 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+# Deploy: Dashboard → New → Blueprint → connect this repo.
+#
+# Free web services spin down after idle → APScheduler SMS jobs pause until the next request.
+# Use at least Starter for a 24/7 API + scheduler.
+
+services:
+  - type: web
+    name: maxapp-api
+    runtime: docker
+    region: oregon
+    plan: starter
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # Set the rest in the Render dashboard (or link a secret group):
+      # DEBUG=false, APP_ENV=production
+      # CORS_ORIGINS=https://your-app.vercel.app
+      # SUPABASE_*, AWS_*, JWT_SECRET_KEY, GEMINI_API_KEY, STRIPE_*, TWILIO_*, etc.
