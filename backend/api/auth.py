@@ -201,16 +201,14 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
 @router.post("/login/json", response_model=TokenResponse)
 async def login_json(user_data: UserLogin, db: AsyncSession = Depends(get_db)):
     """
-    Login with JSON body (for mobile app)
+    Login with JSON — `identifier` (or legacy `email`): email, username, or phone.
     """
-    # Find user by email
-    result = await db.execute(select(User).where(User.email == user_data.email.lower()))
-    user = result.scalar_one_or_none()
+    user = await resolve_user_by_login_identifier(db, user_data.identifier)
 
     if not user or not verify_password(user_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
+            detail="Incorrect login or password",
         )
     user_id = str(user.id)
     
