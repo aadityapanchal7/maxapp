@@ -21,6 +21,15 @@ Use at least **Starter** on Render (or any paid/always-on tier) for production.
 
 **Health check:** `GET https://<your-service>/health`
 
+### Supabase: `MaxClientsInSessionMode` / max pool size
+
+Supabase’s **Session** pooler (port **5432**) allows very few simultaneous clients. On Render, set:
+
+1. **Prefer Transaction pooler:** In Supabase → **Project Settings** → **Database** → **Connection string** → choose **Transaction** (port **6543**). In Render set **`SUPABASE_DB_PORT=6543`** (same host/user/password as before). The app disables asyncpg’s statement cache on 6543 automatically.
+2. **Tighten pool (optional):** `SUPABASE_DB_POOL_SIZE=1`, `SUPABASE_DB_MAX_OVERFLOW=0` (defaults in code are already conservative).
+
+Do **not** point multiple deployed APIs at the same Session pooler with large pools.
+
 **Uploads:** `backend/uploads` on Render is ephemeral. Production should use **S3** (already supported in config).
 
 ## 2. Deploy Expo web (Vercel)

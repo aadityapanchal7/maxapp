@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     supabase_db_user: str = Field(default="postgres")
     supabase_db_password: str = Field(default="")
     supabase_db_name: str = Field(default="postgres")
+    # Keep small on Session pooler (5432). If you see MaxClientsInSessionMode:
+    # - Switch SUPABASE_DB_PORT to 6543 (Transaction pooler in Supabase Dashboard), and/or
+    # - Set SUPABASE_DB_POOL_SIZE=1 and SUPABASE_DB_MAX_OVERFLOW=0 on Render.
+    supabase_db_pool_size: int = Field(default=1)
+    supabase_db_max_overflow: int = Field(default=0)
 
     # AWS RDS (shared data)
     aws_rds_host: str = Field(default="localhost")
@@ -59,6 +64,9 @@ class Settings(BaseSettings):
     twilio_auth_token: str = Field(default="")
     twilio_sms_from: str = Field(default="")
     twilio_whatsapp_from: str = Field(default="whatsapp:+14155238886")  # Sandbox default
+    # DEV ONLY: set SMS_SCHEDULER_TEST_FAST_MODE=true — 1-min scheduler ticks, bypass clock windows so SMS
+    # fires immediately; coaching + weekly send at most once per user until you restart the API process.
+    sms_scheduler_test_fast_mode: bool = Field(default=False)
     
     # AWS S3
     aws_access_key_id: str = Field(default="")

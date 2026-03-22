@@ -9,18 +9,33 @@ from typing import AsyncGenerator
 from config import settings
 
 
-# Create async engine for Supabase
-engine = create_async_engine(
-    settings.supabase_db_url,
-    echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
-    pool_pre_ping=True,
-    connect_args={
+def _supabase_connect_args() -> dict:
+    """
+    Supabase Session pooler (5432) allows very few client slots → MaxClientsInSessionMode.
+    Prefer Transaction pooler (6543) in Supabase Dashboard → Connect → Transaction mode.
+    asyncpg must disable statement cache when using PgBouncer transaction mode.
+    """
+    args: dict = {
         "timeout": 30,
         "ssl": "require",
         "server_settings": {"application_name": "maxapp_backend"},
-    },
+    }
+    if getattr(settings, "supabase_db_port", 5432) == 6543:
+        args["statement_cache_size"] = 0
+    return args
+
+
+# Create async engine for Supabase
+# Session-mode pooler: total concurrent server connections are capped — use small pool + short sessions.
+engine = create_async_engine(
+    settings.supabase_db_url,
+    echo=settings.debug,
+    pool_size=settings.supabase_db_pool_size,
+    max_overflow=settings.supabase_db_max_overflow,
+    pool_recycle=300,
+    pool_timeout=60,
+    pool_pre_ping=True,
+    connect_args=_supabase_connect_args(),
 )
 
 # Session factory
@@ -109,6 +124,7 @@ async def _run_app_users_column_migrations():
 async def _run_column_migrations():
     """Add missing columns to existing tables (safe to run repeatedly)."""
     migrations = [
+        "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS channel VARCHAR DEFAULT 'app'",
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'app'",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS maxx_id VARCHAR",
