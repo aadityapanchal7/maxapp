@@ -11,6 +11,7 @@ import { colors } from '../theme/dark';
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
 import SignupScreen from '../screens/auth/SignupScreen';
+import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 import FeaturesIntroScreen from '../screens/onboarding/FeaturesIntroScreen';
 import FaceScanScreen from '../screens/scan/FaceScanScreen';
@@ -75,6 +76,7 @@ export function RootNavigator() {
                     <Stack.Screen name="Landing" component={LandingScreen} />
                     <Stack.Screen name="Login" component={LoginScreen} />
                     <Stack.Screen name="Signup" component={SignupScreen} />
+                    <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
                 </>
             ) : !onboardingCompleted ? (
                 // Post-auth: onboarding (goals, profile, face scan) -> payment -> main

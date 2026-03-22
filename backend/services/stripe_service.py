@@ -25,32 +25,34 @@ class StripeService:
     async def create_checkout_session(
         self,
         customer_id: str,
-        success_url: str,
-        cancel_url: str,
+        return_url: str,
         user_id: str
     ) -> Tuple[str, str]:
         """
-        Create a Stripe Checkout session for subscription
-        Returns: (session_id, checkout_url)
+        Create an embedded Stripe Checkout session for subscription.
+        return_url must include the literal {CHECKOUT_SESSION_ID} (Stripe replaces it after payment).
+        Returns: (session_id, client_secret)
         """
         session = stripe.checkout.Session.create(
             customer=customer_id,
-            payment_method_types=["card"],
             mode="subscription",
+            ui_mode="embedded",
+            return_url=return_url,
             line_items=[
                 {
                     "price": settings.stripe_price_id,
                     "quantity": 1,
                 }
             ],
-            success_url=success_url,
-            cancel_url=cancel_url,
             metadata={"user_id": user_id},
             subscription_data={
                 "metadata": {"user_id": user_id}
-            }
+            },
         )
-        return session.id, session.url
+        client_secret = getattr(session, "client_secret", None) or ""
+        if not client_secret:
+            raise RuntimeError("Stripe did not return client_secret for embedded checkout session")
+        return session.id, client_secret
     
     async def get_subscription(self, subscription_id: str) -> Optional[dict]:
         """Get subscription details"""

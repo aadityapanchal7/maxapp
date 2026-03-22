@@ -86,10 +86,25 @@ class ApiService {
         return response.data;
     }
 
-    async login(email: string, password: string) {
-        const response = await this.client.post('auth/login/json', { email, password });
+    /** `identifier` = email, username, or phone (matches account on file). */
+    async login(identifier: string, password: string) {
+        const response = await this.client.post('auth/login/json', { identifier, password });
         await this.setTokens(response.data.access_token, response.data.refresh_token);
         return response.data;
+    }
+
+    async requestPasswordResetSms(phone_number: string) {
+        const response = await this.client.post('auth/forgot-password/sms', { phone_number });
+        return response.data as { message: string };
+    }
+
+    async confirmPasswordResetSms(phone_number: string, code: string, new_password: string) {
+        const response = await this.client.post('auth/forgot-password/sms/confirm', {
+            phone_number,
+            code,
+            new_password,
+        });
+        return response.data as { message: string };
     }
 
     async getMe() {

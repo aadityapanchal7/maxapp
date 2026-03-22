@@ -3,7 +3,7 @@ User Models - Pydantic schemas for user data
 """
 
 import re
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
 from enum import Enum
@@ -114,9 +114,28 @@ class UserCreate(BaseModel):
 
 
 class UserLogin(BaseModel):
-    """Schema for user login"""
-    email: EmailStr
+    """Login with email, username, or phone (JSON: `identifier` or legacy `email`)."""
+
+    identifier: str = Field(..., validation_alias=AliasChoices("identifier", "email"))
     password: str
+
+
+class ForgotPasswordSmsRequest(BaseModel):
+    """Request SMS reset code — must match account phone on file."""
+
+    phone_number: str = Field(..., min_length=7, description="E.164 or local with country code")
+
+
+class ForgotPasswordSmsConfirm(BaseModel):
+    """Complete reset after receiving SMS code."""
+
+    phone_number: str = Field(..., min_length=7)
+    code: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
+    new_password: str = Field(..., min_length=8, max_length=100)
+
+
+class AuthMessageResponse(BaseModel):
+    message: str
 
 
 class UserResponse(BaseModel):

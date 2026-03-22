@@ -13,8 +13,10 @@ from config import settings
 rds_engine = create_async_engine(
     settings.aws_rds_db_url,
     echo=settings.debug,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=5,
+    pool_recycle=300,
+    pool_timeout=30,
     pool_pre_ping=True,
     connect_args={
         "timeout": 30,

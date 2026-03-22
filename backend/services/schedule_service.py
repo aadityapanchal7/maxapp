@@ -128,6 +128,7 @@ Modify the remaining days of the schedule based on the feedback and completion d
 - If the user says "too hard", reduce intensity/duration.
 - If "too easy", increase it.
 - If they skip morning tasks, move them later.
+- If the user runs multiple active modules, avoid adding duplicate generic morning/midday wake-style tasks at the same clock time as before; stagger or merge intent into concrete tasks.
 - Keep the same JSON structure as the input.
 - Preserve task_id for existing tasks so notifications work. For new tasks, generate a uuid string.
 
@@ -155,6 +156,8 @@ Selected concern: {selected_concern}
 Outside today: {outside_today}
 {user_profile_context}
 
+{multi_module_instruction}
+
 ## PERSONALIZATION (HeightMax)
 When building a HeightMax schedule, USE the user's age, sex, and height from USER CONTEXT:
 - Age: affects growth-plate status (adults vs teens), recovery needs, and intensity
@@ -175,11 +178,12 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 3. Schedule morning tasks shortly after wake time and evening tasks with enough runway before sleep to actually get done.
 4. Spread weekly or higher-intensity tasks across different days.
 5. If the protocol involves outside exposure reminders, only add them when outside_today is true.
-6. Include a short morning check-in task at wake time.
+6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only.
 7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
 8. task_type "routine" = core habit block, "reminder" = cue or anti-habit push, "checkpoint" = weekly treatment, harder session, or review.
 9. Keep daily routines consistent but vary weekly treatments, sprint sessions, and review tasks across days.
-10. Include brief motivational messages for each day.
+10. Avoid stacking duplicate notification intent at the same clock time as generic pings the user may already get from another module (the system dedupes SMS, but schedules should still be sensible).
+11. Include brief motivational messages for each day.
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON matching this structure (no markdown fences):
@@ -546,6 +550,26 @@ class ScheduleService:
                 profile_parts.append(f"Thinning/receding: {th}")
         user_profile_context = ", ".join(profile_parts) if profile_parts else "No profile data yet."
 
+        other_active_result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == user_uuid)
+                & (UserSchedule.is_active == True)
+                & (UserSchedule.maxx_id != maxx_id)
+            )
+        )
+        other_active = list(other_active_result.scalars().all())
+        if other_active:
+            labels = [str(o.maxx_id or o.course_title or "module") for o in other_active]
+            multi_module_instruction = (
+                "## MULTI-ACTIVE-MODULES\n"
+                f"The user already has other active module(s): {', '.join(labels)}.\n"
+                "- Do NOT add another generic \"morning check-in\", \"good morning\", or \"let me know you're awake\" SMS in the same wake-time window — omit it or stagger at least 45 minutes from wake.\n"
+                "- Prefer starting with this module's first concrete actionable habit so the user does not get redundant wake pings from two modules.\n"
+                "- Avoid duplicate generic midday or evening check-in reminders; use task-specific copy instead.\n"
+            )
+        else:
+            multi_module_instruction = ""
+
         prompt = MAXX_SCHEDULE_PROMPT.format(
             maxx_label=guideline["label"],
             protocol_section=protocol_section,
@@ -557,6 +581,7 @@ class ScheduleService:
             outside_today="Yes" if outside_today else "No",
             user_profile_context=user_profile_context,
             num_days=num_days,
+            multi_module_instruction=multi_module_instruction,
         )
 
         try:

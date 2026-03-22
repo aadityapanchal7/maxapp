@@ -11,7 +11,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -671,6 +671,18 @@ def _normalize_hair_yes_no(val) -> Optional[str]:
     return None
 
 
+def _chat_history_channel_clause(channel: str):
+    """Filter chat_history rows: app UI only sees 'app' (and legacy NULL); SMS uses its own thread."""
+    if channel == "sms":
+        return ChatHistory.channel == "sms"
+    return or_(ChatHistory.channel == "app", ChatHistory.channel.is_(None))
+
+
+def _persist_chat_history(channel: str) -> bool:
+    """SMS conversations are not stored in chat_history (SMS-only surface)."""
+    return channel != "sms"
+
+
 async def process_chat_message(
     user_id: str,
     message_text: str,
@@ -683,15 +695,18 @@ async def process_chat_message(
 ) -> str:
     """
     Core chat logic shared by the HTTP endpoint and the SMS webhook.
-    Returns the AI response text. Saves both user + assistant messages to ChatHistory.
+    Persists app turns to ChatHistory (channel=app). SMS turns are not persisted.
+    In-app GET /history shows app (and legacy NULL channel) only.
     """
     from services.schedule_service import schedule_service, ScheduleLimitError
     user_uuid = UUID(user_id)
 
-    # Load chat history
+    # SMS is not persisted; use in-app thread as read-only context for the model.
+    history_channel_for_load = "app" if channel == "sms" else channel
     history_result = await db.execute(
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
+        .where(_chat_history_channel_clause(history_channel_for_load))
         .order_by(ChatHistory.created_at.desc())
         .limit(50)
     )
@@ -700,13 +715,13 @@ async def process_chat_message(
         {"role": h.role, "content": h.content, "created_at": h.created_at}
         for h in history_rows
     ]
-
+    
     coaching_context = await coaching_service.build_full_context(user_id, db, rds_db)
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     user = await db.get(User, user_uuid)
     onboarding = _merge_onboarding_with_schedule_prefs(user)
     profile = (user.profile if user else {}) or {}
-
+    
     user_context = {
         "coaching_context": coaching_context,
         "active_schedule": active_schedule,
@@ -755,12 +770,14 @@ async def process_chat_message(
                 user_id=user_uuid,
                 role="user",
                 content=message_text,
+                channel=channel,
                 created_at=datetime.utcnow(),
             )
             assistant_message = ChatHistory(
                 user_id=user_uuid,
                 role="assistant",
                 content=response_text,
+                channel=channel,
                 created_at=datetime.utcnow(),
             )
             db.add(user_message)
@@ -804,20 +821,23 @@ async def process_chat_message(
                     "stop one of them first and then come back to start fitmax."
                 )
 
-            user_message = ChatHistory(
-                user_id=user_uuid,
-                role="user",
-                content=message_text,
-                created_at=datetime.utcnow(),
-            )
-            assistant_message = ChatHistory(
-                user_id=user_uuid,
-                role="assistant",
-                content=response_text,
-                created_at=datetime.utcnow(),
-            )
-            db.add(user_message)
-            db.add(assistant_message)
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
             await db.commit()
             return response_text
 
@@ -847,20 +867,23 @@ async def process_chat_message(
                 f"you've got {remaining} calories left today.{heuristic_note}"
             )
 
-            user_message = ChatHistory(
-                user_id=user_uuid,
-                role="user",
-                content=message_text,
-                created_at=datetime.utcnow(),
-            )
-            assistant_message = ChatHistory(
-                user_id=user_uuid,
-                role="assistant",
-                content=response_text,
-                created_at=datetime.utcnow(),
-            )
-            db.add(user_message)
-            db.add(assistant_message)
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
             await db.commit()
             return response_text
 
@@ -1049,12 +1072,12 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     image_data = None
     if attachment_url and attachment_type == "image":
         image_data = await storage_service.get_image(attachment_url)
-
+    
     # --- LLM call ---
     result = await gemini_service.chat(message, history, user_context, image_data)
     response_text = result.get("text", "")
     tool_calls = result.get("tool_calls", [])
-
+    
     # --- Process tool calls ---
     modify_schedule_ran = False
     for tool in tool_calls:
@@ -1340,26 +1363,29 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     # --- Enforce lowercase on all AI responses ---
     response_text = response_text.lower()
 
-    # --- Save messages ---
-    user_message = ChatHistory(
-        user_id=user_uuid,
-        role="user",
-        content=message_text,
-        created_at=datetime.utcnow(),
-    )
-    assistant_message = ChatHistory(
-        user_id=user_uuid,
-        role="assistant",
-        content=response_text,
-        created_at=datetime.utcnow(),
-    )
-    db.add(user_message)
-    db.add(assistant_message)
+    # --- Save messages (app only; SMS is not stored) ---
+    if _persist_chat_history(channel):
+        user_message = ChatHistory(
+            user_id=user_uuid,
+            role="user",
+            content=message_text,
+            channel=channel,
+            created_at=datetime.utcnow(),
+        )
+        assistant_message = ChatHistory(
+            user_id=user_uuid,
+            role="assistant",
+            content=response_text,
+            channel=channel,
+            created_at=datetime.utcnow(),
+        )
+        db.add(user_message)
+        db.add(assistant_message)
     await db.commit()
 
-    # --- Background: update AI memory every ~10 messages ---
+    # --- Background: update AI memory every ~10 messages (app thread only) ---
     total_msgs = len(history) + 2
-    if total_msgs % 10 == 0:
+    if _persist_chat_history(channel) and total_msgs % 10 == 0:
         try:
             summary = await coaching_service.generate_conversation_summary(history[-20:])
             if summary:
@@ -1367,7 +1393,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         except Exception as e:
             print(f"AI memory update failed: {e}")
 
-    if total_msgs % 20 == 0:
+    if _persist_chat_history(channel) and total_msgs % 20 == 0:
         try:
             await coaching_service.detect_tone_preference(user_id, db, history[-30:])
         except Exception as e:
@@ -1420,6 +1446,7 @@ async def trigger_check_in(
         user_id=user_uuid,
         role="assistant",
         content=msg_text,
+        channel="app",
         created_at=datetime.utcnow(),
     )
     db.add(chat_msg)
@@ -1434,19 +1461,20 @@ async def get_chat_history(
     current_user: dict = Depends(require_paid_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get chat history"""
+    """Get in-app chat history only (SMS thread is excluded)."""
     user_uuid = UUID(current_user["id"])
     result = await db.execute(
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
+        .where(or_(ChatHistory.channel == "app", ChatHistory.channel.is_(None)))
         .order_by(ChatHistory.created_at.desc())
         .limit(limit)
     )
     rows = list(reversed(result.scalars().all()))
     return {
         "messages": [
-            {"role": r.role, "content": r.content, "created_at": r.created_at}
-            for r in rows
+        {"role": r.role, "content": r.content, "created_at": r.created_at}
+        for r in rows
         ]
     }
 

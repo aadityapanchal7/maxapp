@@ -110,6 +110,7 @@ async def broadcast_message(
             user_id=user_id,
             role="assistant",
             content=f"[BROADCAST] {data.content}",
+            channel="app",
             created_at=datetime.utcnow()
         ))
         count += 1
@@ -138,6 +139,7 @@ async def direct_message(
         user_id=user_uuid,
         role="assistant",
         content=data.content,
+        channel="app",
         created_at=datetime.utcnow()
     ))
     await db.commit()
@@ -176,7 +178,12 @@ async def get_user_chat(
         "user_id": user_id,
         "email": user.email,
         "messages": [
-            {"role": m.role, "content": m.content, "created_at": m.created_at}
+            {
+                "role": m.role,
+                "content": m.content,
+                "created_at": m.created_at,
+                "channel": getattr(m, "channel", None) or "app",
+            }
             for m in reversed(messages)
         ]
     }
@@ -203,6 +210,7 @@ async def send_user_chat(
         user_id=user_uuid,
         role="assistant",
         content=data.message,
+        channel="app",
         created_at=datetime.utcnow()
     )
     db.add(new_msg)

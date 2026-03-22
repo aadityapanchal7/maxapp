@@ -101,16 +101,86 @@ class TwilioService:
         )
         return bool(await self.send_sms(phone, message))
 
+    def _format_schedule_reminder_sms(
+        self,
+        task_title: str,
+        task_description: str,
+        task_time: str,
+    ) -> str:
+        """Plain reminder text from the schedule only — no app/module branding."""
+        title = (task_title or "").strip()
+        desc = (task_description or "").strip()
+        when = (task_time or "").strip()
+
+        if title:
+            body = title
+        elif desc:
+            body = desc.split("\n")[0].split(".")[0].strip()
+        elif when:
+            body = when
+        else:
+            body = "Something you put on today's list."
+
+        if when and when.lower() not in body.lower():
+            body = f"{body} — {when}"
+
+        # Add a short detail from the description when it's not just repeating the title
+        if title and desc:
+            first = desc.split(".")[0].strip()
+            if (
+                first
+                and first.lower() != title.lower()
+                and not first.lower().startswith(title.lower()[: min(15, len(title))])
+            ):
+                if len(body) + len(first) + 2 <= 300:
+                    body = f"{body}. {first}"
+
+        if len(body) > 300:
+            body = body[:297] + "…"
+        return body
+
     async def send_schedule_reminder(
-        self, phone: str, task_title: str, task_description: str, task_time: str
+        self,
+        phone: str,
+        task_title: str,
+        task_description: str,
+        task_time: str,
+    ) -> bool:
+        """SMS that reads like a simple schedule reminder — task copy only."""
+        message = self._format_schedule_reminder_sms(task_title, task_description, task_time)
+        return bool(await self.send_sms(phone, message))
+
+    async def send_schedule_reminder_group(
+        self,
+        phone: str,
+        tasks: list[tuple[dict, str]],
     ) -> bool:
         """
-        Send an SMS nudge that a schedule item is due.
-        Body is intentionally generic: no "max reminder" label, no clock time, no task/module title
-        (caller's task_* args are ignored for message copy).
+        One SMS for multiple schedule tasks (deduped across active modules).
+        tasks: list of (task dict with title/description, original time string).
         """
-        message = "open the max app to check your schedule and mark tasks done."
-        return bool(await self.send_sms(phone, message))
+        if not tasks:
+            return False
+        if len(tasks) == 1:
+            task, ttime = tasks[0]
+            return await self.send_schedule_reminder(
+                phone,
+                task.get("title", "Task"),
+                task.get("description", ""),
+                ttime,
+            )
+        lines: list[str] = []
+        for task, ttime in tasks:
+            line = self._format_schedule_reminder_sms(
+                task.get("title", "Task"),
+                task.get("description", ""),
+                ttime,
+            )
+            lines.append(line)
+        body = f"{len(tasks)} reminders: " + " | ".join(lines)
+        if len(body) > 320:
+            body = body[:317] + "…"
+        return bool(await self.send_sms(phone, body))
 
     async def send_coaching_sms(self, phone: str, message: str) -> bool:
         """Send an AI-generated coaching check-in via SMS"""

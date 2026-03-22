@@ -67,6 +67,23 @@ class User(Base):
     )
 
 
+class PasswordResetOTP(Base):
+    """SMS OTP for password reset — short-lived, single-use."""
+
+    __tablename__ = "password_reset_otps"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
+    phone_normalized = Column(String, nullable=False, index=True)
+    code_hash = Column(String, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    attempts = Column(Integer, default=0)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (Index("idx_password_reset_user_active", "user_id", "consumed_at"),)
+
+
 class UserCoachingState(Base):
     """Structured coaching state per user — queryable fields for rules engine"""
     __tablename__ = "user_coaching_state"
@@ -224,6 +241,8 @@ class ChatHistory(Base):
 
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
+    # "app" = in-app chat UI; "sms" = Twilio SMS thread (not shown in app history)
+    channel = Column(String, default="app")
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 

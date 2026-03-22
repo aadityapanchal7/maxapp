@@ -8,7 +8,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 export default function LoginScreen() {
     const navigation = useNavigation<any>();
     const { login } = useAuth();
-    const [email, setEmail] = useState('');
+    const [identifier, setIdentifier] = useState('');
     const [password, setPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -24,13 +24,13 @@ export default function LoginScreen() {
     }, []);
 
     const handleLogin = async () => {
-        if (!email.trim() || !password) {
+        if (!identifier.trim() || !password) {
             setApiError('Please fill in all fields');
             return;
         }
         setLoading(true);
         setApiError(null);
-        try { await login(email, password); }
+        try { await login(identifier.trim(), password); }
         catch (error: any) {
             const msg = error.response?.data?.detail || 'Invalid credentials';
             setApiError(typeof msg === 'string' ? msg : 'Invalid credentials');
@@ -47,8 +47,20 @@ export default function LoginScreen() {
 
                     <View style={styles.form}>
                         <View style={styles.inputGroup}>
-                            <Text style={styles.label}>EMAIL</Text>
-                            <TextInput style={styles.input} placeholder="you@example.com" placeholderTextColor={colors.textMuted} value={email} onChangeText={(t) => { setEmail(t); setApiError(null); }} keyboardType="email-address" autoCapitalize="none" />
+                            <Text style={styles.label}>EMAIL, USERNAME, OR PHONE</Text>
+                            <TextInput
+                                style={styles.input}
+                                placeholder="you@example.com or @user or +1…"
+                                placeholderTextColor={colors.textMuted}
+                                value={identifier}
+                                onChangeText={(t) => {
+                                    setIdentifier(t);
+                                    setApiError(null);
+                                }}
+                                keyboardType="default"
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                            />
                         </View>
                         <View style={styles.inputGroup}>
                             <Text style={styles.label}>PASSWORD</Text>
@@ -88,6 +100,10 @@ export default function LoginScreen() {
 
                         <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading} activeOpacity={0.7}>
                             <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')} activeOpacity={0.6} style={styles.forgotLink}>
+                            <Text style={styles.forgotText}>Forgot password?</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -176,6 +192,8 @@ const styles = StyleSheet.create({
     },
     buttonDisabled: { opacity: 0.5 },
     buttonText: { ...typography.button },
+    forgotLink: { marginTop: spacing.md, alignItems: 'center' },
+    forgotText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
     linkContainer: { marginTop: spacing.xl, alignItems: 'center' },
     linkText: { fontSize: 13, color: colors.textSecondary },
     linkBold: { color: colors.foreground, fontWeight: '600' },

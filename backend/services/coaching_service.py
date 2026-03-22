@@ -18,6 +18,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
 from models.sqlalchemy_models import User, UserCoachingState, UserSchedule, ChatHistory, Scan
+from db.sqlalchemy import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -349,18 +350,15 @@ CONVERSATION:
     # Check-in message generation — fully AI-driven, no hardcoded tone
     # ------------------------------------------------------------------
 
-    async def generate_check_in_message(
+    async def _prepare_check_in_prompts(
         self,
         user_id: str,
         db: AsyncSession,
-        rds_db=None,
-        check_in_type: str = "midday",
-        missed_today: int = 0,
-    ) -> str:
-        """
-        Generate a check-in message using AI. Passes full context; AI decides tone and content.
-        check_in_type: morning, midday, night, missed_task, weekly
-        """
+        rds_db,
+        check_in_type: str,
+        missed_today: int,
+    ) -> tuple[str | None, str]:
+        """DB-only: Fitmax-specific prompt if applicable, plus general fallback prompt."""
         context_str = await self.build_full_context(user_id, db, rds_db)
         if not context_str:
             context_str = "No context yet."
@@ -377,6 +375,20 @@ CONVERSATION:
         )
         fitmax_schedule = fitmax_result.scalar_one_or_none()
 
+        n_active_result = await db.execute(
+            select(UserSchedule).where(
+                (UserSchedule.user_id == UUID(user_id)) & (UserSchedule.is_active == True)
+            )
+        )
+        n_active_schedules = len(list(n_active_result.scalars().all()))
+        multi_module_sms_hint = ""
+        if n_active_schedules > 1:
+            multi_module_sms_hint = (
+                "\n\nThey have multiple active modules and get schedule task SMS. "
+                "Do not duplicate generic good-morning or vague check-in copy — one specific, additive angle only."
+            )
+
+        fitmax_prompt = None
         if fitmax_schedule:
             fitmax_prompt = f"""You are the Fitmax SMS coach. Write one SMS only.
 
@@ -389,7 +401,7 @@ Check-in type: {check_in_type}
 Missed tasks today: {missed_today}
 
 Week state context:
-{context_str}
+{context_str}{multi_module_sms_hint}
 
 If check_in_type is one of:
 - morning_training_day: mention today's session focus and one execution cue.
@@ -401,15 +413,11 @@ If check_in_type is one of:
 - milestone_pr: celebrate PR and compare to prior trend.
 
 Return only the message text, no labels."""
-            try:
-                return await asyncio.to_thread(_sync_gemini_plain_text, fitmax_prompt)
-            except Exception as e:
-                logger.error(f"Fitmax check-in generation failed: {e}")
 
         prompt = f"""You are Max, a lookmaxxing coach. Generate a short check-in message for {name}.
 
 User context:
-{context_str}
+{context_str}{multi_module_sms_hint}
 
 Check-in type: {check_in_type}
 """
@@ -422,21 +430,49 @@ Generate ONE short message (1-2 sentences max). Be casual, direct, no fluff. Mat
 
 Message:"""
 
+        return fitmax_prompt, prompt
+
+    async def generate_check_in_message(
+        self,
+        user_id: str,
+        db: Optional[AsyncSession] = None,
+        rds_db=None,
+        check_in_type: str = "midday",
+        missed_today: int = 0,
+    ) -> str:
+        """
+        Generate a check-in message using AI. Passes full context; AI decides tone and content.
+        check_in_type: morning, midday, night, missed_task, weekly
+
+        Pass db=None from background jobs so the DB connection is released before Gemini runs
+        (avoids exhausting Supabase Session pooler slots).
+        """
+        if db is not None:
+            fitmax_prompt, general_prompt = await self._prepare_check_in_prompts(
+                user_id, db, rds_db, check_in_type, missed_today
+            )
+        else:
+            async with AsyncSessionLocal() as inner:
+                fitmax_prompt, general_prompt = await self._prepare_check_in_prompts(
+                    user_id, inner, rds_db, check_in_type, missed_today
+                )
+
+        if fitmax_prompt:
+            try:
+                return await asyncio.to_thread(_sync_gemini_plain_text, fitmax_prompt)
+            except Exception as e:
+                logger.error(f"Fitmax check-in generation failed: {e}")
+
         try:
-            return await asyncio.to_thread(_sync_gemini_plain_text, prompt)
+            return await asyncio.to_thread(_sync_gemini_plain_text, general_prompt)
         except Exception as e:
             logger.error(f"Check-in generation failed: {e}")
             return "yo, checking in — how you doing today?"
 
-    async def generate_bedtime_progress_picture_prompt(
-        self,
-        user_id: str,
-        db: AsyncSession,
-        rds_db=None,
-    ) -> str:
-        """
-        Short SMS before bedtime: casual Max voice + explicit instruction to reply with a photo via MMS.
-        """
+    async def _prepare_bedtime_prompt(
+        self, user_id: str, db: AsyncSession, rds_db
+    ) -> tuple[str, str]:
+        """Returns (gemini_prompt, fallback_sms_with_name_placeholder filled)."""
         context_str = await self.build_full_context(user_id, db, rds_db)
         if not context_str:
             context_str = "No context yet."
@@ -459,6 +495,28 @@ Rules:
 
 Output ONLY the SMS body, no quotes."""
 
+        fallback = (
+            f"hey {name} — almost bedtime. if you want to log today's progress, just reply to this text "
+            "with a selfie or progress pic and i'll drop it in your archive."
+        )
+        return prompt, fallback
+
+    async def generate_bedtime_progress_picture_prompt(
+        self,
+        user_id: str,
+        db: Optional[AsyncSession] = None,
+        rds_db=None,
+    ) -> str:
+        """
+        Short SMS before bedtime: casual Max voice + explicit instruction to reply with a photo via MMS.
+        Use db=None from the scheduler so connections are not held during Gemini.
+        """
+        if db is not None:
+            prompt, fallback = await self._prepare_bedtime_prompt(user_id, db, rds_db)
+        else:
+            async with AsyncSessionLocal() as inner:
+                prompt, fallback = await self._prepare_bedtime_prompt(user_id, inner, rds_db)
+
         try:
             text = await asyncio.to_thread(_sync_gemini_plain_text, prompt)
             if text:
@@ -466,10 +524,7 @@ Output ONLY the SMS body, no quotes."""
         except Exception as e:
             logger.error("Bedtime progress prompt generation failed: %s", e)
 
-        return (
-            f"hey {name} — almost bedtime. if you want to log today's progress, just reply to this text "
-            "with a selfie or progress pic and i'll drop it in your archive."
-        )
+        return fallback
 
 
 coaching_service = CoachingService()
