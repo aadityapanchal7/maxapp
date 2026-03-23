@@ -9,9 +9,9 @@ interface Props {
 }
 
 const ANALYSIS_STEPS = [
-    'Analysing your features',
-    'Calculating looksmax potential',
-    'Generating your transformation',
+    'Uploading your photos',
+    'Scoring your facial metrics',
+    'Preparing your scan summary',
 ];
 
 export default function AnalyzingScreen({ currentStep = 0, onComplete }: Props) {

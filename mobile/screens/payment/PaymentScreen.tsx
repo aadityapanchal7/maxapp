@@ -46,7 +46,7 @@ const FULL_ACCESS_FEATURES = [
 
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
-    const { refreshUser } = useAuth();
+    const { user, refreshUser } = useAuth();
     const [checkoutLoading, setCheckoutLoading] = useState(false);
     const [devLoading, setDevLoading] = useState(false);
 
@@ -78,6 +78,13 @@ export default function PaymentScreen() {
     }, [finishAfterPayment]);
 
     const openStripeCheckout = async () => {
+        if (user && !user.first_scan_completed) {
+            Alert.alert('Face scan first', 'Complete your AI face scan to see your preview score, then you can subscribe.', [
+                { text: 'Start scan', onPress: () => navigation.navigate('FaceScan') },
+                { text: 'Cancel', style: 'cancel' },
+            ]);
+            return;
+        }
         if (!STRIPE_CHECKOUT_URL) {
             Alert.alert(
                 'Stripe link not set yet',

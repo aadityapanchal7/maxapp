@@ -21,3 +21,4 @@ services:
       # DEBUG=false, APP_ENV=production
       # CORS_ORIGINS=https://your-app.vercel.app
       # SUPABASE_*, AWS_*, JWT_SECRET_KEY, GEMINI_API_KEY, STRIPE_*, TWILIO_*, etc.
+      # GEMINI_API_KEY=...  (face scan = 3 photos + Gemini; no Cannon URL required)

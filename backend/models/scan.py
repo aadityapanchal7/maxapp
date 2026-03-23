@@ -313,6 +313,32 @@ class ScanAnalysis(BaseModel):
 
 
 # ============================================
+# UMAX-STYLE TRIPLE PHOTO (Gemini 6 metrics)
+# ============================================
+
+
+class UmaxMetricRow(BaseModel):
+    """One row on the pre-pay UMax-style results screen.
+
+    Note: No Field(ge/le/max_length) — Gemini response_schema rejects JSON-Schema
+    maximum/minimum for some types. Clamp scores in code after parse.
+    """
+
+    id: str
+    label: str
+    score: float
+    summary: str = ""
+
+
+class UmaxTripleScanResult(BaseModel):
+    """Structured Gemini output for front + left + right photos."""
+
+    overall_score: float
+    metrics: List[UmaxMetricRow] = Field(default_factory=list)
+    preview_blurb: str = ""
+
+
+# ============================================
 # SCAN REQUEST/RESPONSE MODELS
 # ============================================
 

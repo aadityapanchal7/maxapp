@@ -1,299 +1,282 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
+import { CommonActions, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import AnalyzingScreen from './AnalyzingScreen';
-import FaceGuide3D from '../../components/FaceGuide3D';
 
-const VIDEO_DURATION = 15;
-
-const SCAN_PHASES = [
-    { time: 0, label: 'Front View', instruction: 'Look straight at the camera' },
-    { time: 4, label: 'Left Profile', instruction: 'Slowly turn your head to the left' },
-    { time: 8, label: 'Back to Front', instruction: 'Turn back to the front' },
-    { time: 11, label: 'Right Profile', instruction: 'Slowly turn your head to the right' },
-];
-
-function WebCameraView({ onReady }: { onReady: (api: any) => void }) {
-    const videoRef = useRef<any>(null);
-    const mediaRecorderRef = useRef<any>(null);
-    const chunksRef = useRef<any[]>([]);
-    const streamRef = useRef<any>(null);
-    const resolveRecording = useRef<((blob: Blob) => void) | null>(null);
-    const mountedRef = useRef(true);
-    const onReadyRef = useRef(onReady);
-    onReadyRef.current = onReady;
-    const [cameraError, setCameraError] = useState<string | null>(null);
-
-    const containerCallbackRef = useCallback((node: any) => {
-        if (!node || videoRef.current) return;
-        mountedRef.current = true;
-        const initCamera = async () => {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-                    audio: true,
-                });
-                if (!mountedRef.current) { stream.getTracks().forEach((t: any) => t.stop()); return; }
-                streamRef.current = stream;
-                const video = document.createElement('video');
-                video.srcObject = stream;
-                video.autoplay = true;
-                video.playsInline = true;
-                video.muted = true;
-                video.style.cssText = 'width:100%;height:100%;object-fit:cover;transform:scaleX(-1);position:absolute;top:0;left:0;';
-                node.style.position = 'relative';
-                node.appendChild(video);
-                videoRef.current = video;
-                onReadyRef.current({
-                    startRecording: () => {
-                        if (!streamRef.current) return;
-                        chunksRef.current = [];
-                        const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-                            ? 'video/webm;codecs=vp9' : 'video/webm';
-                        const recorder = new MediaRecorder(streamRef.current, { mimeType });
-                        recorder.ondataavailable = (e: any) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-                        recorder.onstop = () => {
-                            const blob = new Blob(chunksRef.current, { type: mimeType });
-                            if (resolveRecording.current) { resolveRecording.current(blob); resolveRecording.current = null; }
-                        };
-                        mediaRecorderRef.current = recorder;
-                        recorder.start(500);
-                    },
-                    stopRecording: (): Promise<Blob> => new Promise((resolve) => {
-                        resolveRecording.current = resolve;
-                        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') mediaRecorderRef.current.stop();
-                    }),
-                });
-            } catch (err: any) {
-                console.error('Camera access error:', err);
-                setCameraError(err?.message || 'Camera access denied');
-            }
-        };
-        initCamera();
-    }, []);
-
-    useEffect(() => {
-        return () => {
-            mountedRef.current = false;
-            streamRef.current?.getTracks().forEach((t: any) => t.stop());
-            if (videoRef.current?.parentNode) videoRef.current.parentNode.removeChild(videoRef.current);
-        };
-    }, []);
-
-    return (
-        <View style={styles.camera} ref={containerCallbackRef as any}>
-            {cameraError && (
-                <View style={styles.cameraErrorContainer}>
-                    <Text style={styles.cameraErrorText}>Camera error: {cameraError}</Text>
-                    <Text style={styles.cameraErrorText}>Please allow camera access and reload.</Text>
-                </View>
-            )}
-        </View>
-    );
-}
+const STEPS = [
+    {
+        key: 'front',
+        title: 'Front',
+        instruction: 'Face the camera straight on. Neutral expression, good lighting.',
+    },
+    {
+        key: 'left',
+        title: 'Left profile',
+        instruction: 'Turn so your LEFT cheek and jaw face the camera (about 90°).',
+    },
+    {
+        key: 'right',
+        title: 'Right profile',
+        instruction: 'Turn so your RIGHT cheek and jaw face the camera (about 90°).',
+    },
+] as const;
 
 export default function FaceScanScreen() {
     const navigation = useNavigation<any>();
-    const { isPaid, refreshUser } = useAuth();
-    const cameraApiRef = useRef<any>(null);
-    const [isRecording, setIsRecording] = useState(false);
-    const [timer, setTimer] = useState(0);
+    const { user, isPaid, refreshUser } = useAuth();
+    const [permission, requestPermission] = useCameraPermissions();
+    const cameraRef = useRef<CameraView>(null);
+
+    const [stepIndex, setStepIndex] = useState(0);
+    const [uris, setUris] = useState<(string | null)[]>([null, null, null]);
     const [analyzing, setAnalyzing] = useState(false);
     const [analysisStep, setAnalysisStep] = useState(0);
-    const [cameraReady, setCameraReady] = useState(false);
+
+    const step = STEPS[stepIndex];
+    const currentUri = uris[stepIndex];
+    const hasCurrent = !!currentUri;
 
     useEffect(() => {
-        let interval: NodeJS.Timeout;
-        if (isRecording && timer < VIDEO_DURATION) {
-            interval = setInterval(() => setTimer((prev) => prev + 1), 1000);
-        } else if (timer >= VIDEO_DURATION && isRecording) {
-            handleStopRecording();
+        if (!permission?.granted && permission?.canAskAgain !== false) {
+            requestPermission();
         }
-        return () => clearInterval(interval);
-    }, [isRecording, timer]);
+    }, [permission?.granted, permission?.canAskAgain, requestPermission]);
 
-    const handleCameraReady = useCallback((api: any) => {
-        cameraApiRef.current = api;
-        setCameraReady(true);
-    }, []);
+    /** One face scan per account — block repeat visits to this screen. */
+    useLayoutEffect(() => {
+        if (user?.first_scan_completed) {
+            const target = isPaid ? 'FullResult' : 'BlurredResult';
+            navigation.dispatch(
+                CommonActions.reset({
+                    index: 0,
+                    routes: [{ name: target }],
+                }),
+            );
+        }
+    }, [user?.first_scan_completed, isPaid, navigation]);
 
-    const startRecording = async () => {
-        if (!cameraApiRef.current || isRecording) return;
+    const capture = async () => {
         try {
-            setIsRecording(true);
-            setTimer(0);
-            if (Platform.OS === 'web') {
-                cameraApiRef.current.startRecording();
-            } else {
-                const video = await cameraApiRef.current.recordAsync({ maxDuration: VIDEO_DURATION });
-                if (video) await uploadNativeVideo(video.uri);
+            const photo = await cameraRef.current?.takePictureAsync({
+                quality: 0.85,
+                skipProcessing: true,
+            });
+            if (!photo?.uri) {
+                Alert.alert('Error', 'Could not capture photo');
+                return;
             }
-        } catch (error) {
-            console.error('Recording error:', error);
-            setIsRecording(false);
-            Alert.alert('Error', 'Failed to start recording');
+            setUris((prev) => {
+                const next = [...prev];
+                next[stepIndex] = photo.uri;
+                return next;
+            });
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Error', 'Capture failed');
         }
     };
 
-    const handleStopRecording = async () => {
-        if (!cameraApiRef.current) return;
-        setIsRecording(false);
-        if (Platform.OS === 'web') {
-            try {
-                const blob = await cameraApiRef.current.stopRecording();
-                await uploadWebVideo(blob);
-            } catch (error) {
-                console.error('Stop recording error:', error);
-                Alert.alert('Error', 'Failed to process recording');
-            }
-        } else {
-            cameraApiRef.current.stopRecording();
-        }
+    const retake = () => {
+        setUris((prev) => {
+            const next = [...prev];
+            next[stepIndex] = null;
+            return next;
+        });
     };
 
-    const uploadWebVideo = async (blob: Blob) => {
-        setAnalyzing(true); setAnalysisStep(0);
+    const goNext = () => {
+        if (stepIndex < STEPS.length - 1) setStepIndex((s) => s + 1);
+    };
+
+    const goBackStep = () => {
+        if (stepIndex > 0) setStepIndex((s) => s - 1);
+    };
+
+    const submitScans = async () => {
+        const f = uris[0];
+        const l = uris[1];
+        const r = uris[2];
+        if (!f || !l || !r) {
+            Alert.alert('Missing photos', 'Capture all three angles first.');
+            return;
+        }
+        setAnalyzing(true);
+        setAnalysisStep(0);
+        let didLeaveScan = false;
         try {
-            const uploadResult = await api.uploadScanVideoBlob(blob);
             setAnalysisStep(1);
-            await api.analyzeScan(uploadResult.scan_id);
+            await api.uploadScanTriple(f, l, r);
             setAnalysisStep(2);
             await refreshUser();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            navigation.navigate(isPaid ? 'FullResult' : 'BlurredResult');
-        } catch (error) {
-            console.error('Upload error:', error);
-            Alert.alert('Error', 'Failed to analyze video. Please try again.');
-            setAnalyzing(false);
+            const target = isPaid ? 'FullResult' : 'BlurredResult';
+            // Reset stack so a stable initial route + auth refresh can't pop us back to FaceScan.
+            navigation.dispatch(
+                CommonActions.reset({
+                    index: 1,
+                    routes: [{ name: 'FeaturesIntro' }, { name: target }],
+                }),
+            );
+            didLeaveScan = true;
+        } catch (err) {
+            console.error(err);
+            Alert.alert('Error', 'Could not analyze photos. Check connection and try again.');
+        } finally {
+            if (!didLeaveScan) setAnalyzing(false);
         }
     };
 
-    const uploadNativeVideo = async (videoUri: string) => {
-        setAnalyzing(true); setAnalysisStep(0);
-        try {
-            const uploadResult = await api.uploadScanVideo(videoUri);
-            setAnalysisStep(1);
-            await api.analyzeScan(uploadResult.scan_id);
-            setAnalysisStep(2);
-            await refreshUser();
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            navigation.navigate(isPaid ? 'FullResult' : 'BlurredResult');
-        } catch (error) {
-            console.error('Upload error:', error);
-            Alert.alert('Error', 'Failed to analyze video. Please try again.');
-            setAnalyzing(false);
-        }
-    };
+    if (analyzing) {
+        return <AnalyzingScreen currentStep={analysisStep} />;
+    }
 
-    if (analyzing) return <AnalyzingScreen currentStep={analysisStep} />;
-
-    const currentPhase = [...SCAN_PHASES].reverse().find(p => timer >= p.time) || SCAN_PHASES[0];
+    if (!permission?.granted) {
+        return (
+            <View style={[styles.container, styles.permWrap]}>
+                <Text style={styles.permText}>Camera access is needed for your face scan.</Text>
+                <TouchableOpacity style={styles.permBtn} onPress={() => requestPermission()}>
+                    <Text style={styles.permBtnText}>Allow camera</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.title}>{currentPhase.label}</Text>
-                <Text style={styles.instruction}>
-                    {isRecording ? currentPhase.instruction : 'Prepare for a 15-second scan'}
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIcon} hitSlop={12}>
+                    <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+                </TouchableOpacity>
+                <Text style={styles.progressLabel}>
+                    Photo {stepIndex + 1} of {STEPS.length}
                 </Text>
-                {isRecording && (
-                    <View style={styles.timerContainer}>
-                        <View style={[styles.timerBar, { width: `${(timer / VIDEO_DURATION) * 100}%` }]} />
-                        <Text style={styles.timerText}>{VIDEO_DURATION - timer}s remaining</Text>
-                    </View>
-                )}
+                <View style={styles.headerIcon} />
             </View>
+
+            <Text style={styles.title}>{step.title}</Text>
+            <Text style={styles.instruction}>{step.instruction}</Text>
 
             <View style={styles.cameraContainer}>
-                {Platform.OS === 'web' ? (
-                    <WebCameraView onReady={handleCameraReady} />
+                {hasCurrent ? (
+                    <Image source={{ uri: currentUri }} style={styles.preview} resizeMode="cover" />
                 ) : (
-                    <NativeCameraWrapper cameraApiRef={cameraApiRef} onReady={() => setCameraReady(true)} />
-                )}
-
-                <View style={styles.overlayAbsolute} pointerEvents="none">
-                    <FaceGuide3D timer={timer} active={isRecording} />
-                </View>
-            </View>
-
-            <View style={styles.controls}>
-                {!cameraReady ? (
-                    <Text style={styles.loadingText}>Starting camera...</Text>
-                ) : !isRecording ? (
-                    <TouchableOpacity style={styles.recordButton} onPress={startRecording}>
-                        <View style={styles.recordButtonInner} />
-                    </TouchableOpacity>
-                ) : (
-                    <TouchableOpacity style={styles.stopButton} onPress={handleStopRecording}>
-                        <Ionicons name="stop" size={28} color={colors.error} />
-                    </TouchableOpacity>
+                    <CameraView ref={cameraRef} style={styles.camera} facing="front" mode="picture" />
                 )}
             </View>
+
+            <View style={styles.actions}>
+                {!hasCurrent && (
+                    <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.85}>
+                        <Ionicons name="camera" size={22} color={colors.background} style={{ marginRight: 8 }} />
+                        <Text style={styles.primaryBtnText}>Capture</Text>
+                    </TouchableOpacity>
+                )}
+
+                {hasCurrent && (
+                    <View style={styles.row}>
+                        <TouchableOpacity style={styles.secondaryBtn} onPress={retake}>
+                            <Text style={styles.secondaryBtnText}>Retake</Text>
+                        </TouchableOpacity>
+                        {stepIndex < STEPS.length - 1 ? (
+                            <TouchableOpacity style={styles.primaryBtn} onPress={goNext}>
+                                <Text style={styles.primaryBtnText}>Next angle</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <TouchableOpacity style={styles.primaryBtn} onPress={submitScans}>
+                                <Text style={styles.primaryBtnText}>Analyze</Text>
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                )}
+
+                {stepIndex > 0 && !hasCurrent && (
+                    <TouchableOpacity style={styles.linkBack} onPress={goBackStep}>
+                        <Text style={styles.linkBackText}>← Previous angle</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
+
             <Text style={styles.hint}>
-                {!cameraReady ? 'Initializing camera...' : !isRecording ? 'Tap to start 15s scan' : 'Keep your face within the guide'}
+                We use three photos once to build your facial rating and breakdown. You can’t submit a second scan.
             </Text>
         </View>
     );
 }
 
-function NativeCameraWrapper({ cameraApiRef, onReady }: any) {
-    const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-    const localRef = useRef<any>(null);
-    const onReadyCalledRef = useRef(false);
-
-    useEffect(() => {
-        (async () => {
-            const { Camera } = require('expo-camera');
-            const { status } = await Camera.requestCameraPermissionsAsync();
-            const { status: audioStatus } = await Camera.requestMicrophonePermissionsAsync();
-            const granted = status === 'granted' && audioStatus === 'granted';
-            setHasPermission(granted);
-            if (granted) {
-                cameraApiRef.current = {
-                    recordAsync: (opts: any) => localRef.current?.recordAsync(opts),
-                    stopRecording: () => localRef.current?.stopRecording(),
-                };
-            }
-        })();
-    }, []);
-
-    const handleCameraReady = useCallback(() => {
-        if (!onReadyCalledRef.current) {
-            onReadyCalledRef.current = true;
-            onReady();
-        }
-    }, [onReady]);
-
-    if (hasPermission === null) return <View style={styles.camera}><Text style={styles.centerText}>Requesting permissions...</Text></View>;
-    if (hasPermission === false) return <View style={styles.camera}><Text style={styles.centerText}>Camera and Audio permissions required</Text></View>;
-    const { CameraView } = require('expo-camera');
-    return (
-        <CameraView ref={localRef} style={styles.camera} facing="front" mode="video" onCameraReady={handleCameraReady} />
-    );
-}
-
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { paddingTop: 64, paddingHorizontal: spacing.lg, alignItems: 'center', height: 180 },
-    title: { ...typography.h2 },
-    instruction: { fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' },
-    timerContainer: { marginTop: spacing.md, width: '100%', alignItems: 'center' },
-    timerBar: { height: 3, backgroundColor: colors.foreground, position: 'absolute', bottom: -10, left: 0, borderRadius: 2 },
-    timerText: { fontSize: 13, color: colors.foreground, fontWeight: '600' },
-    cameraContainer: { flex: 1, margin: spacing.lg, borderRadius: borderRadius['2xl'], overflow: 'hidden', backgroundColor: '#000', position: 'relative', ...shadows.lg },
-    camera: { flex: 1, zIndex: 0, elevation: 0 },
-    overlayAbsolute: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 10, elevation: 10 },
-    controls: { paddingBottom: spacing.xl, alignItems: 'center', minHeight: 100, justifyContent: 'center' },
-    recordButton: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center', ...shadows.md },
-    recordButtonInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.error, ...shadows.sm },
-    stopButton: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.card, justifyContent: 'center', alignItems: 'center', ...shadows.md },
-    hint: { fontSize: 13, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl },
-    centerText: { fontSize: 14, textAlign: 'center', color: colors.buttonText, padding: 20 },
-    cameraErrorContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 10, backgroundColor: 'rgba(0,0,0,0.7)' },
-    cameraErrorText: { fontSize: 14, textAlign: 'center', color: colors.buttonText, padding: 8 },
-    loadingText: { fontSize: 14, color: colors.textMuted },
+    permWrap: { justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+    permText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg },
+    permBtn: {
+        backgroundColor: colors.foreground,
+        paddingHorizontal: spacing.xl,
+        paddingVertical: spacing.md,
+        borderRadius: borderRadius.full,
+    },
+    permBtnText: { ...typography.button, color: colors.background },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingTop: 56,
+        paddingHorizontal: spacing.md,
+    },
+    headerIcon: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
+    progressLabel: { ...typography.label, color: colors.textMuted },
+    title: { ...typography.h2, textAlign: 'center', marginTop: spacing.md },
+    instruction: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        marginHorizontal: spacing.lg,
+        marginTop: spacing.sm,
+        lineHeight: 21,
+    },
+    cameraContainer: {
+        flex: 1,
+        margin: spacing.lg,
+        borderRadius: borderRadius['2xl'],
+        overflow: 'hidden',
+        backgroundColor: '#000',
+        minHeight: 360,
+        ...shadows.lg,
+    },
+    camera: { flex: 1, width: '100%', minHeight: 360 },
+    preview: { flex: 1, width: '100%', minHeight: 360 },
+    actions: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
+    row: { flexDirection: 'row', gap: spacing.md, justifyContent: 'center', flexWrap: 'wrap' },
+    primaryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.foreground,
+        paddingVertical: 14,
+        paddingHorizontal: spacing.xl,
+        borderRadius: borderRadius.full,
+        flexGrow: 1,
+        minWidth: 140,
+    },
+    primaryBtnText: { ...typography.button, color: colors.background },
+    secondaryBtn: {
+        paddingVertical: 14,
+        paddingHorizontal: spacing.xl,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
+        justifyContent: 'center',
+    },
+    secondaryBtnText: { ...typography.button, color: colors.foreground },
+    linkBack: { alignItems: 'center', paddingVertical: spacing.sm },
+    linkBackText: { color: colors.textMuted, fontSize: 14 },
+    hint: {
+        fontSize: 12,
+        color: colors.textMuted,
+        textAlign: 'center',
+        paddingHorizontal: spacing.lg,
+        marginBottom: spacing.md,
+    },
 });

@@ -12,6 +12,15 @@ Use at least **Starter** on Render (or any paid/always-on tier) for production.
 2. [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**.
 3. Connect the repo; Render reads [`render.yaml`](./render.yaml).
 4. In the **maxapp-api** service → **Environment**, add every variable from `backend/.env` (Supabase, JWT, Gemini, Stripe, Twilio, AWS, etc.).
+
+### Face scan (Gemini — three photos)
+
+The app collects **three still photos** (front, left profile, right profile). The API runs a **Gemini** vision model to produce an overall score plus **six metric rows** (UMax-style breakdown). Legacy **video** uploads and the external **Cannon** service are **not** used for new scans.
+
+- **Required for real ratings:** `GEMINI_API_KEY` (same key as Max chat). If missing, the API still completes the scan with neutral placeholder scores and a short message.
+- **Optional:** `GEMINI_MODEL` (see `backend/config.py`).
+- **Not needed** for this flow: `FACIAL_ANALYSIS_API_URL`.
+
 5. Set at least:
    - `DEBUG=false`
    - `APP_ENV=production`

@@ -16,7 +16,12 @@ export default function FullResultScreen() {
     const loadScan = async () => { try { setScan(await api.getLatestScan()); } catch (e) { console.error(e); } finally { setLoading(false); } };
 
     const a = scan?.analysis || {};
-    const overallScore = parseFloat(a.scan_summary?.overall_score) || parseFloat(a.metrics?.overall_score) || parseFloat(a.overall_score) || 0;
+    const overallScore =
+        parseFloat(a.scan_summary?.overall_score) ||
+        parseFloat(a.metrics?.overall_score) ||
+        parseFloat(a.overall_score) ||
+        0;
+    const umaxRows: any[] | null = Array.isArray(a.umax_metrics) && a.umax_metrics.length > 0 ? a.umax_metrics : null;
 
     let recommendations: Recommendation[] = [];
     if (a.ai_recommendations?.recommendations) {
@@ -88,25 +93,59 @@ export default function FullResultScreen() {
                 <Text style={styles.scoreMax}>/10</Text>
             </View>
 
-            <Text style={styles.sectionLabel}>DETAILED ANALYSIS</Text>
+            <Text style={styles.sectionLabel}>{umaxRows ? 'FACIAL RATING (6 METRICS)' : 'DETAILED ANALYSIS'}</Text>
             <View style={styles.metricsCard}>
-                {metricItems.map((item) => {
-                    const value = getMetricValue(item.key);
-                    return (
-                        <View key={item.key} style={styles.metricItem}>
-                            <View style={styles.metricLeft}>
-                                <Ionicons name={item.icon as any} size={18} color={colors.textSecondary} />
-                                <Text style={styles.metricLabel}>{item.label}</Text>
-                            </View>
-                            <View style={styles.metricRight}>
-                                <View style={styles.metricBar}>
-                                    <View style={[styles.metricFill, { width: `${value * 10}%`, backgroundColor: getScoreColor(value) }]} />
-                                </View>
-                                <Text style={[styles.metricValue, { color: getScoreColor(value) }]}>{safeToFixed(value)}</Text>
-                            </View>
-                        </View>
-                    );
-                })}
+                {umaxRows
+                    ? umaxRows.map((row: any) => {
+                          const value = parseFloat(String(row.score));
+                          const v = Number.isNaN(value) ? 0 : Math.max(0, Math.min(10, value));
+                          return (
+                              <View key={row.id} style={styles.metricItem}>
+                                  <View style={styles.metricLeft}>
+                                      <Ionicons name="pulse" size={18} color={colors.textSecondary} />
+                                      <View style={{ flex: 1 }}>
+                                          <Text style={styles.metricLabel}>{row.label}</Text>
+                                          {row.summary ? (
+                                              <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{row.summary}</Text>
+                                          ) : null}
+                                      </View>
+                                  </View>
+                                  <View style={styles.metricRight}>
+                                      <View style={styles.metricBar}>
+                                          <View
+                                              style={[
+                                                  styles.metricFill,
+                                                  { width: `${v * 10}%`, backgroundColor: getScoreColor(v) },
+                                              ]}
+                                          />
+                                      </View>
+                                      <Text style={[styles.metricValue, { color: getScoreColor(v) }]}>{safeToFixed(v)}</Text>
+                                  </View>
+                              </View>
+                          );
+                      })
+                    : metricItems.map((item) => {
+                          const value = getMetricValue(item.key);
+                          return (
+                              <View key={item.key} style={styles.metricItem}>
+                                  <View style={styles.metricLeft}>
+                                      <Ionicons name={item.icon as any} size={18} color={colors.textSecondary} />
+                                      <Text style={styles.metricLabel}>{item.label}</Text>
+                                  </View>
+                                  <View style={styles.metricRight}>
+                                      <View style={styles.metricBar}>
+                                          <View
+                                              style={[
+                                                  styles.metricFill,
+                                                  { width: `${value * 10}%`, backgroundColor: getScoreColor(value) },
+                                              ]}
+                                          />
+                                      </View>
+                                      <Text style={[styles.metricValue, { color: getScoreColor(value) }]}>{safeToFixed(value)}</Text>
+                                  </View>
+                              </View>
+                          );
+                      })}
             </View>
 
             <Text style={styles.sectionLabel}>RECOMMENDATIONS</Text>
@@ -132,9 +171,6 @@ export default function FullResultScreen() {
             <View style={styles.actions}>
                 <TouchableOpacity style={styles.primaryButton} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
                     <Text style={styles.primaryButtonText}>View Courses</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.navigate('FaceScan')} activeOpacity={0.7}>
-                    <Text style={styles.secondaryButtonText}>New Scan</Text>
                 </TouchableOpacity>
             </View>
         </ScrollView>

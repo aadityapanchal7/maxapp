@@ -700,7 +700,7 @@ async def process_chat_message(
     """
     from services.schedule_service import schedule_service, ScheduleLimitError
     user_uuid = UUID(user_id)
-
+    
     # SMS is not persisted; use in-app thread as read-only context for the model.
     history_channel_for_load = "app" if channel == "sms" else channel
     history_result = await db.execute(
@@ -1381,7 +1381,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         )
         db.add(user_message)
         db.add(assistant_message)
-    await db.commit()
+        await db.commit()
 
     # --- Background: update AI memory every ~10 messages (app thread only) ---
     total_msgs = len(history) + 2

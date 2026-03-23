@@ -26,6 +26,18 @@ class ApiService {
             if (token) {
                 config.headers.Authorization = `Bearer ${token}`;
             }
+            // RN FormData often fails `instanceof FormData` — detect append + name
+            const d = config.data;
+            const looksMultipart =
+                (typeof FormData !== 'undefined' && d instanceof FormData) ||
+                (!!d &&
+                    typeof (d as any).append === 'function' &&
+                    String((d as any).constructor?.name || '').toLowerCase().includes('formdata'));
+            if (looksMultipart) {
+                const h = config.headers as any;
+                if (h?.delete) h.delete('Content-Type');
+                else if (h) delete h['Content-Type'];
+            }
             return config;
         });
 
@@ -214,7 +226,94 @@ class ApiService {
         return response.data;
     }
 
-    // Scans
+    /** Base URL without trailing slash, for fetch() (avoids RN axios + multipart 422). */
+    private scansTripleUploadUrl() {
+        return `${API_BASE_URL.replace(/\/?$/, '')}/scans/upload-triple`;
+    }
+
+    /**
+     * Three-photo scan — uses fetch() so React Native sets multipart boundary correctly.
+     * Axios + default JSON Content-Type often yields FastAPI 422 even with interceptors.
+     */
+    async uploadScanTriple(frontUri: string, leftUri: string, rightUri: string) {
+        const url = this.scansTripleUploadUrl();
+        const buildForm = () => {
+            const formData = new FormData();
+            if (Platform.OS === 'web') {
+                return (async () => {
+                    const fd = new FormData();
+                    fd.append('front', await fetch(frontUri).then((r) => r.blob()), 'front.jpg');
+                    fd.append('left', await fetch(leftUri).then((r) => r.blob()), 'left.jpg');
+                    fd.append('right', await fetch(rightUri).then((r) => r.blob()), 'right.jpg');
+                    return fd;
+                })();
+            }
+            // @ts-ignore RN file shape
+            formData.append('front', { uri: frontUri, type: 'image/jpeg', name: 'front.jpg' });
+            // @ts-ignore
+            formData.append('left', { uri: leftUri, type: 'image/jpeg', name: 'left.jpg' });
+            // @ts-ignore
+            formData.append('right', { uri: rightUri, type: 'image/jpeg', name: 'right.jpg' });
+            return Promise.resolve(formData);
+        };
+
+        const doFetch = async (formData: FormData) => {
+            const token = await this.getToken();
+            const headers: Record<string, string> = {};
+            if (token) headers.Authorization = `Bearer ${token}`;
+            return fetch(url, { method: 'POST', headers, body: formData });
+        };
+
+        let form = await buildForm();
+        let res = await doFetch(form);
+        if (res.status === 401) {
+            await this.refreshToken();
+            form = await buildForm();
+            res = await doFetch(form);
+        }
+        if (!res.ok) {
+            const text = await res.text();
+            let msg = text;
+            try {
+                const j = JSON.parse(text);
+                msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail ?? j);
+            } catch {
+                /* keep text */
+            }
+            throw new Error(`Upload failed (${res.status}): ${msg}`);
+        }
+        return res.json() as Promise<unknown>;
+    }
+
+    async uploadScanTripleBlobs(front: Blob, left: Blob, right: Blob) {
+        const url = this.scansTripleUploadUrl();
+        const buildForm = () => {
+            const fd = new FormData();
+            fd.append('front', front, 'front.jpg');
+            fd.append('left', left, 'left.jpg');
+            fd.append('right', right, 'right.jpg');
+            return fd;
+        };
+        const doFetch = async (formData: FormData) => {
+            const token = await this.getToken();
+            const headers: Record<string, string> = {};
+            if (token) headers.Authorization = `Bearer ${token}`;
+            return fetch(url, { method: 'POST', headers, body: formData });
+        };
+        let form = buildForm();
+        let res = await doFetch(form);
+        if (res.status === 401) {
+            await this.refreshToken();
+            form = buildForm();
+            res = await doFetch(form);
+        }
+        if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Upload failed (${res.status}): ${text}`);
+        }
+        return res.json() as Promise<unknown>;
+    }
+
     async uploadScanVideo(videoUri: string) {
         const formData = new FormData();
         // @ts-ignore
@@ -224,18 +323,14 @@ class ApiService {
             name: 'scan.mp4',
         });
 
-        const response = await this.client.post('scans/upload-video', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        const response = await this.client.post('scans/upload-video', formData);
         return response.data;
     }
 
     async uploadScanVideoBlob(blob: Blob) {
         const formData = new FormData();
         formData.append('video', blob, 'scan.webm');
-        const response = await this.client.post('scans/upload-video', formData, {
-            headers: { 'Content-Type': 'multipart/form-data' },
-        });
+        const response = await this.client.post('scans/upload-video', formData);
         return response.data;
     }
 

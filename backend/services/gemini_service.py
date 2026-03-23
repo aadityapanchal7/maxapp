@@ -6,9 +6,9 @@ Uses Gemini 2.5 Flash with structured outputs
 # TODO: Migrate to google-genai as google.generativeai is deprecated
 import asyncio
 import google.generativeai as genai
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Tuple
 from config import settings
-from models.scan import FaceMetrics, ScanAnalysis
+from models.scan import FaceMetrics, ScanAnalysis, UmaxTripleScanResult, UmaxMetricRow
 
 
 # Exhaustive system prompt for face analysis
@@ -140,6 +140,28 @@ Include:
 - Confidence score for your analysis
 
 Be thorough but honest. Do not make medical claims. Focus on actionable improvements.
+"""
+
+# Compact UMax-style rating from three still photos (Gemini only — no external geometry engine)
+UMAX_TRIPLE_SYSTEM_PROMPT = """You are an expert facial aesthetics rater (similar spirit to UMax-style cumulative face ratings).
+You receive THREE photos of the same person in order:
+1) FRONT — neutral expression, camera straight on
+2) LEFT PROFILE — head turned so the person's LEFT cheek/jaw faces the camera (left side profile)
+3) RIGHT PROFILE — head turned so the person's RIGHT cheek/jaw faces the camera
+
+From these images only, output a cumulative facial rating using six metric categories plus one overall score.
+Use decimals (e.g. 7.2) where helpful. Be honest; use the full 0–10 range when justified. No medical or surgical advice.
+
+Return JSON matching the schema exactly. The metrics array must contain EXACTLY 6 items in this order:
+1) id "jawline", label "Jawline & chin"
+2) id "cheekbones", label "Cheekbones"
+3) id "eyes", label "Eye area"
+4) id "nose", label "Nose"
+5) id "skin", label "Skin"
+6) id "symmetry", label "Symmetry"
+
+Each metric needs: id, label, score (0-10), summary (short phrase, max ~15 words).
+Also set preview_blurb: one engaging sentence for the user (no medical claims).
 """
 
 # Chat system prompt for Max persona
@@ -305,6 +327,70 @@ def log_check_in(workout_done: bool = False, missed: bool = False, sleep_hours: 
     return {"status": "success", "message": "Check-in logged"}
 
 
+_UMAX_EXPECTED: List[Tuple[str, str]] = [
+    ("jawline", "Jawline & chin"),
+    ("cheekbones", "Cheekbones"),
+    ("eyes", "Eye area"),
+    ("nose", "Nose"),
+    ("skin", "Skin"),
+    ("symmetry", "Symmetry"),
+]
+
+
+def default_umax_triple_dict(reason: str = "Analysis unavailable.") -> Dict[str, Any]:
+    metrics = [{"id": mid, "label": lab, "score": 5.0, "summary": reason[:120]} for mid, lab in _UMAX_EXPECTED]
+    return {
+        "source": "fallback",
+        "overall_score": 5.0,
+        "scan_summary": {"overall_score": 5.0},
+        "umax_metrics": metrics,
+        "preview_blurb": reason[:600],
+        "ai_recommendations": {"summary": reason[:600], "recommendations": []},
+    }
+
+
+def _mime_for_image_bytes(data: bytes) -> str:
+    if not data:
+        return "image/jpeg"
+    if data[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if len(data) > 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
+def _normalize_umax_result(parsed: UmaxTripleScanResult) -> Dict[str, Any]:
+    by_id = {m.id: m for m in parsed.metrics}
+    metrics_out: List[Dict[str, Any]] = []
+    for mid, default_label in _UMAX_EXPECTED:
+        row = by_id.get(mid)
+        if row:
+            metrics_out.append(
+                {
+                    "id": mid,
+                    "label": row.label or default_label,
+                    "score": max(0.0, min(10.0, float(row.score))),
+                    "summary": (row.summary or "")[:280],
+                }
+            )
+        else:
+            metrics_out.append(
+                {"id": mid, "label": default_label, "score": 5.0, "summary": "Not rated"}
+            )
+    overall = max(0.0, min(10.0, float(parsed.overall_score)))
+    blurb = (parsed.preview_blurb or "").strip()[:600]
+    return {
+        "source": "gemini_triple",
+        "overall_score": overall,
+        "scan_summary": {"overall_score": overall},
+        "umax_metrics": metrics_out,
+        "preview_blurb": blurb,
+        "ai_recommendations": {"summary": blurb, "recommendations": []},
+    }
+
+
 class GeminiService:
     """Gemini LLM service for face analysis and chat"""
     
@@ -387,12 +473,67 @@ class GeminiService:
             response = self.vision_model.generate_content(fallback_prompt)
             return response.text.strip()
 
+        text = await asyncio.to_thread(_sync)
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
 
         return ScanAnalysis.model_validate_json(text)
+
+    async def analyze_triple_umax(self, front: bytes, left: bytes, right: bytes) -> Dict[str, Any]:
+        """
+        UMax-style 6-metric + overall rating from three still photos (Gemini vision).
+        Returns a dict stored on Scan.analysis (no Cannon / external geometry API).
+        """
+        if not front or not left or not right:
+            return default_umax_triple_dict("Missing one or more photos.")
+        if not settings.gemini_api_key or not str(settings.gemini_api_key).strip():
+            return default_umax_triple_dict("Set GEMINI_API_KEY on the API server for AI ratings.")
+
+        parts: List[Any] = [
+            UMAX_TRIPLE_SYSTEM_PROMPT,
+            "FRONT:",
+            {"mime_type": _mime_for_image_bytes(front), "data": front},
+            "LEFT PROFILE:",
+            {"mime_type": _mime_for_image_bytes(left), "data": left},
+            "RIGHT PROFILE:",
+            {"mime_type": _mime_for_image_bytes(right), "data": right},
+        ]
+        try:
+            generation_config = genai.GenerationConfig(
+                response_mime_type="application/json",
+                response_schema=UmaxTripleScanResult,
+            )
+
+            def _sync() -> str:
+                response = self.vision_model.generate_content(parts, generation_config=generation_config)
+                return response.text
+
+            raw = await asyncio.to_thread(_sync)
+            parsed = UmaxTripleScanResult.model_validate_json(raw)
+            return _normalize_umax_result(parsed)
+        except Exception as e:
+            print(f"[Gemini] analyze_triple_umax structured failed: {e}")
+            try:
+
+                def _plain() -> str:
+                    response = self.vision_model.generate_content(
+                        parts + ["\n\nReturn ONLY valid JSON matching the same schema. No markdown."]
+                    )
+                    return (response.text or "").strip()
+
+                raw2 = await asyncio.to_thread(_plain)
+                if raw2.startswith("```"):
+                    raw2 = raw2.split("```", 2)[1]
+                    if raw2.lstrip().startswith("json"):
+                        raw2 = raw2.lstrip()[4:]
+                parsed2 = UmaxTripleScanResult.model_validate_json(raw2)
+                return _normalize_umax_result(parsed2)
+            except Exception as e2:
+                print(f"[Gemini] analyze_triple_umax fallback failed: {e2}")
+                err = str(e2)[:120]
+                return default_umax_triple_dict(f"Could not complete AI rating. ({err})")
     
     def _get_default_analysis(self) -> ScanAnalysis:
         """Return a default analysis when all methods fail"""

@@ -54,15 +54,23 @@ export function RootNavigator() {
     }
 
     const onboardingCompleted = user?.onboarding?.completed === true;
+    const firstScanDone = user?.first_scan_completed === true;
+
+    /**
+     * Pre-pay: Onboarding → FeaturesIntro → FaceScan → BlurredResult (UMax results) → Payment (from results only).
+     * If they already have a scan but aren’t paid, open on BlurredResult — never skip straight to Payment.
+     */
     const initialRoute = !isAuthenticated
         ? 'Landing'
         : user?.is_admin
             ? 'Admin'
-            : !onboardingCompleted
-                ? 'Onboarding'
-                : !isPaid
-                    ? 'Payment'
-                    : 'Main';
+            : !isPaid
+                ? !onboardingCompleted
+                    ? 'Onboarding'
+                    : firstScanDone
+                        ? 'BlurredResult'
+                        : 'FeaturesIntro'
+                : 'Main';
 
     return (
         <Stack.Navigator
@@ -81,8 +89,13 @@ export function RootNavigator() {
                     <Stack.Screen name="Signup" component={SignupScreen} />
                     <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
                 </>
-            ) : !onboardingCompleted ? (
-                // Post-auth: onboarding (goals, profile, face scan) -> payment -> main
+            ) : user?.is_admin ? (
+                // Admin Portal
+                <>
+                    <Stack.Screen name="Admin" component={AdminNavigator} />
+                </>
+            ) : !isPaid ? (
+                // Authenticated, unpaid: one stack — onboarding → intro → Cannon face scan → payment (no unmount on onboarding complete)
                 <>
                     <Stack.Screen name="Onboarding" component={OnboardingScreen} />
                     <Stack.Screen name="FeaturesIntro" component={FeaturesIntroScreen} />
@@ -90,17 +103,6 @@ export function RootNavigator() {
                     <Stack.Screen name="BlurredResult" component={BlurredResultScreen} />
                     <Stack.Screen name="FullResult" component={FullResultScreen} />
                     <Stack.Screen name="ScanDetail" component={ScanDetailScreen} />
-                    <Stack.Screen name="Payment" component={PaymentScreen} />
-                    <Stack.Screen name="PaymentThankYou" component={PaymentThankYouScreen} options={{ headerShown: false }} />
-                </>
-            ) : user?.is_admin ? (
-                // Admin Portal
-                <>
-                    <Stack.Screen name="Admin" component={AdminNavigator} />
-                </>
-            ) : !isPaid ? (
-                // Blocked until payment (no onboarding after sign-in)
-                <>
                     <Stack.Screen name="Payment" component={PaymentScreen} />
                     <Stack.Screen name="PaymentThankYou" component={PaymentThankYouScreen} options={{ headerShown: false }} />
                 </>
