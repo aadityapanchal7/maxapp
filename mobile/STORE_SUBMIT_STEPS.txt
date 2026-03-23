@@ -1,0 +1,46 @@
+Production API (channel_message_reports)
+----------------------------------------
+Your FastAPI app already runs await init_db() on startup (main.py lifespan). Deploying the current backend image/code to production is enough for SQLAlchemy to create missing tables on the Supabase DB.
+
+If the API never reaches Supabase or you need a one-off fix:
+  1. Open Supabase Dashboard → SQL Editor
+  2. Run: backend/scripts/sql/channel_message_reports.sql
+
+Docker deploy (example): build and push backend/docker/Dockerfile, set env (SUPABASE_DB_URL, etc.), run the container. First request / startup creates tables.
+
+
+iOS build — EXPO_PUBLIC_* (EAS Secrets)
+----------------------------------------
+From the mobile/ directory, with EAS CLI logged in (eas login):
+
+  cd mobile
+
+  eas secret:create --scope project --name EXPO_PUBLIC_SUPPORT_EMAIL --value "support@yourdomain.com" --type string
+  eas secret:create --scope project --name EXPO_PUBLIC_PRIVACY_POLICY_URL --value "https://yourdomain.com/privacy" --type string
+  eas secret:create --scope project --name EXPO_PUBLIC_TERMS_URL --value "https://yourdomain.com/terms" --type string
+
+List secrets:
+  eas secret:list
+
+Production iOS build (env is injected for EAS builds):
+  eas build --platform ios --profile production
+
+app.config.js reads those variables at build time and puts them in expo.extra (Legal & safety screen).
+
+Alternative: put the same strings in app.json → expo.extra (no secrets in git if the repo is public — prefer EAS Secrets).
+
+
+App Store Connect
+----------------------------------------
+1. App Information / App Privacy: Privacy Policy URL = same URL as EXPO_PUBLIC_PRIVACY_POLICY_URL (and in-app Legal & safety).
+
+2. App Privacy questionnaire: use mobile/app-store-privacy-questionnaire.txt as a guide; answer each category in Connect to match your policy.
+
+3. App Review Information:
+   - Notes: edit mobile/app-store-review-notes.txt and paste into Connect (demo login, UGC moderation, API reachability).
+   - Demo account: email + password fields — use a real test user that can reach paid features if reviewers need them.
+
+Reference files in repo:
+  - mobile/expo-public.env.example (variable names)
+  - mobile/app-store-review-notes.txt
+  - mobile/app-store-privacy-questionnaire.txt
