@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from db import get_db, get_rds_db
 from middleware.auth_middleware import get_current_admin_user
 from models.user import UserResponse, OnboardingData, UserProfile
-from models.sqlalchemy_models import User, ChatHistory
+from models.sqlalchemy_models import User, ChatHistory, ChannelMessageReport
 from models.rds_models import Forum, ChannelMessage
 
 
@@ -85,12 +85,14 @@ async def get_stats(
     )).scalar() or 0
     channel_count = (await rds_db.execute(select(func.count(Forum.id)))).scalar() or 0
     message_count = (await rds_db.execute(select(func.count(ChannelMessage.id)))).scalar() or 0
+    reports_count = (await db.execute(select(func.count(ChannelMessageReport.id)))).scalar() or 0
 
     return {
         "total_users": user_count,
         "paid_users": paid_count,
         "total_channels": channel_count,
-        "total_messages": message_count
+        "total_messages": message_count,
+        "channel_reports_total": reports_count,
     }
 
 
@@ -216,3 +218,65 @@ async def send_user_chat(
             "created_at": new_msg.created_at
         }
     }
+
+
+@router.get("/channel-reports")
+async def list_channel_reports(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    admin: dict = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+    rds_db: AsyncSession = Depends(get_rds_db),
+):
+    """
+    UGC reports from community channels (App Review 1.2 — moderation queue).
+    """
+    total = (await db.execute(select(func.count(ChannelMessageReport.id)))).scalar() or 0
+    q = (
+        select(ChannelMessageReport)
+        .order_by(ChannelMessageReport.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    rows = (await db.execute(q)).scalars().all()
+    if not rows:
+        return {"total": total, "reports": [], "skip": skip, "limit": limit}
+
+    msg_ids = list({r.channel_message_id for r in rows})
+    ch_ids = list({r.channel_id for r in rows})
+    uids = list({r.reporter_user_id for r in rows} | {r.reported_user_id for r in rows})
+
+    msgs_result = await rds_db.execute(select(ChannelMessage).where(ChannelMessage.id.in_(msg_ids)))
+    msgs_map = {m.id: m for m in msgs_result.scalars().all()}
+
+    forums_result = await rds_db.execute(select(Forum).where(Forum.id.in_(ch_ids)))
+    forums_map = {f.id: f for f in forums_result.scalars().all()}
+
+    users_result = await db.execute(select(User).where(User.id.in_(uids)))
+    users_map = {u.id: u for u in users_result.scalars().all()}
+
+    reports = []
+    for r in rows:
+        msg = msgs_map.get(r.channel_message_id)
+        forum = forums_map.get(r.channel_id)
+        rep = users_map.get(r.reporter_user_id)
+        tgt = users_map.get(r.reported_user_id)
+        preview = (msg.content or "")[:500] if msg else ""
+        reports.append(
+            {
+                "id": str(r.id),
+                "created_at": r.created_at,
+                "reason": r.reason or "",
+                "channel_id": str(r.channel_id),
+                "channel_name": forum.name if forum else None,
+                "message_id": str(r.channel_message_id),
+                "message_preview": preview or None,
+                "message_has_attachment": bool(msg and msg.attachment_url),
+                "reporter_user_id": str(r.reporter_user_id),
+                "reporter_email": rep.email if rep else None,
+                "reported_user_id": str(r.reported_user_id),
+                "reported_email": tgt.email if tgt else None,
+            }
+        )
+
+    return {"total": total, "reports": reports, "skip": skip, "limit": limit}

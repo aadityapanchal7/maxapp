@@ -1,0 +1,23 @@
+Paste into App Store Connect → App Review Information → Notes (edit for your build).
+
+---
+Demo account (if login is required for paid areas):
+- Email: (fill)
+- Password: (fill)
+- Note: Unpaid path includes onboarding, face scan, blurred results, payment; paid path unlocks forums, full scan, courses.
+
+Community (UGC):
+- Channels support Report (message ··· menu) and Block user. Admin queue: Admin Portal → UGC reports (drawer).
+
+Face scan:
+- Wellness / appearance insights only; not medical diagnosis. Disclaimers on scan and result screens.
+
+Support:
+- Legal & safety screen: mailto support + privacy/terms links (from app config).
+
+Backend:
+- API base URL is configured via EXPO_PUBLIC_API_BASE_URL (or your build’s env). Ensure production API is reachable during review.
+
+Store URLs / support email at build time:
+- See expo-public.env.example and mobile/app.config.js (EXPO_PUBLIC_SUPPORT_EMAIL, EXPO_PUBLIC_PRIVACY_POLICY_URL, EXPO_PUBLIC_TERMS_URL).
+---

@@ -23,6 +23,7 @@ export default function AdminDashboard() {
         { title: 'Paid Users', value: stats?.paid_users || 0, icon: 'card' },
         { title: 'Channels', value: stats?.total_channels || 0, icon: 'chatbubbles' },
         { title: 'Messages', value: stats?.total_messages || 0, icon: 'mail' },
+        { title: 'UGC Reports', value: stats?.channel_reports_total || 0, icon: 'flag-outline' },
     ];
 
     return (

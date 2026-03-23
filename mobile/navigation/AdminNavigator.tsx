@@ -10,6 +10,7 @@ import UserManageScreen from '../screens/admin/UserManageScreen';
 import ForumManageScreen from '../screens/admin/ForumManageScreen';
 import LeaderboardManageScreen from '../screens/admin/LeaderboardManageScreen';
 import AdminSupportScreen from '../screens/admin/AdminSupportScreen';
+import AdminChannelReportsScreen from '../screens/admin/AdminChannelReportsScreen';
 import AdminUserChatScreen from '../screens/admin/AdminUserChatScreen';
 import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
 
@@ -58,6 +59,11 @@ export default function AdminNavigator() {
             <Drawer.Screen name="Dashboard" component={AdminDashboard} options={{ drawerIcon: ({ color }) => <Ionicons name="grid-outline" size={22} color={color} /> }} />
             <Drawer.Screen name="Users" component={UserManageScreen} options={{ drawerIcon: ({ color }) => <Ionicons name="people-outline" size={22} color={color} /> }} />
             <Drawer.Screen name="Forums" component={ForumManageScreen} options={{ drawerIcon: ({ color }) => <Ionicons name="chatbubbles-outline" size={22} color={color} /> }} />
+            <Drawer.Screen
+                name="ChannelReports"
+                component={AdminChannelReportsScreen}
+                options={{ title: 'UGC reports', drawerIcon: ({ color }) => <Ionicons name="flag-outline" size={22} color={color} /> }}
+            />
             <Drawer.Screen name="Leaderboard" component={LeaderboardManageScreen} options={{ drawerIcon: ({ color }) => <Ionicons name="trophy-outline" size={22} color={color} /> }} />
             <Drawer.Screen name="Support" component={AdminSupportScreen} options={{ drawerIcon: ({ color }) => <Ionicons name="headset-outline" size={22} color={color} /> }} />
             <Drawer.Screen name="AdminUserChat" component={AdminUserChatScreen} options={{ drawerItemStyle: { display: 'none' }, headerShown: false }} />

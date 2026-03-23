@@ -431,6 +431,27 @@ class ApiService {
         return response.data;
     }
 
+    async getAdminChannelReports(skip: number = 0, limit: number = 50) {
+        const response = await this.client.get('admin/channel-reports', { params: { skip, limit } });
+        return response.data as {
+            total: number;
+            reports: Array<{
+                id: string;
+                created_at: string;
+                reason: string;
+                channel_id: string;
+                channel_name: string | null;
+                message_id: string;
+                message_preview: string | null;
+                message_has_attachment: boolean;
+                reporter_email: string | null;
+                reported_email: string | null;
+            }>;
+            skip: number;
+            limit: number;
+        };
+    }
+
     async sendAdminBroadcast(content: string) {
         const response = await this.client.post('admin/broadcast', { content });
         return response.data;
