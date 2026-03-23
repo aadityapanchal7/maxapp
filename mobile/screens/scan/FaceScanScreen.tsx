@@ -200,6 +200,9 @@ export default function FaceScanScreen() {
                 <Text style={styles.instruction}>
                     {isRecording ? currentPhase.instruction : 'Prepare for a 15-second scan'}
                 </Text>
+                <Text style={styles.medicalDisclaimer}>
+                    Not medical advice. For general wellness insights only—not for diagnosis or treatment. See a qualified professional for medical decisions.
+                </Text>
                 {isRecording && (
                     <View style={styles.timerContainer}>
                         <View style={[styles.timerBar, { width: `${(timer / VIDEO_DURATION) * 100}%` }]} />
@@ -278,9 +281,17 @@ function NativeCameraWrapper({ cameraApiRef, onReady }: any) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { paddingTop: 64, paddingHorizontal: spacing.lg, alignItems: 'center', height: 180 },
+    header: { paddingTop: 64, paddingHorizontal: spacing.lg, alignItems: 'center', minHeight: 200 },
     title: { ...typography.h2 },
     instruction: { fontSize: 13, color: colors.textSecondary, marginTop: spacing.xs, textAlign: 'center' },
+    medicalDisclaimer: {
+        fontSize: 10,
+        color: colors.textMuted,
+        textAlign: 'center',
+        marginTop: spacing.sm,
+        marginHorizontal: spacing.sm,
+        lineHeight: 15,
+    },
     timerContainer: { marginTop: spacing.md, width: '100%', alignItems: 'center' },
     timerBar: { height: 3, backgroundColor: colors.foreground, position: 'absolute', bottom: -10, left: 0, borderRadius: 2 },
     timerText: { fontSize: 13, color: colors.foreground, fontWeight: '600' },

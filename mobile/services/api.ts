@@ -154,6 +154,33 @@ class ApiService {
         return response.data;
     }
 
+    async deleteAccount(password: string) {
+        const response = await this.client.delete('users/me', { data: { password } });
+        return response.data;
+    }
+
+    async getBlockedUserIds() {
+        const response = await this.client.get('users/me/blocks');
+        return response.data as { blocked_user_ids: string[] };
+    }
+
+    async blockUser(userId: string) {
+        const response = await this.client.post('users/me/blocks', { blocked_user_id: userId });
+        return response.data as { blocked_user_ids: string[] };
+    }
+
+    async unblockUser(userId: string) {
+        const response = await this.client.delete(`users/me/blocks/${userId}`);
+        return response.data as { blocked_user_ids: string[] };
+    }
+
+    async reportChannelMessage(channelId: string, messageId: string, reason?: string) {
+        const response = await this.client.post(`forums/${channelId}/messages/${messageId}/report`, {
+            reason: reason || '',
+        });
+        return response.data as { status: string; message?: string };
+    }
+
     async updateAccount(data: { first_name?: string; last_name?: string; username?: string }) {
         const response = await this.client.put('users/account', data);
         return response.data;

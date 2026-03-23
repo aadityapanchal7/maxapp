@@ -82,6 +82,10 @@ export default function FullResultScreen() {
                 <View style={{ width: 40 }} />
             </View>
 
+            <Text style={styles.medicalDisclaimer}>
+                For general wellness only—not a medical device or diagnosis. Consult a professional for health concerns.
+            </Text>
+
             <View style={styles.scoreCard}>
                 <Text style={styles.scoreLabel}>YOUR OVERALL SCORE</Text>
                 <Text style={[styles.score, { color: getScoreColor(overallScore) }]}>{safeToFixed(overallScore)}</Text>
@@ -147,6 +151,13 @@ const styles = StyleSheet.create({
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 64, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
     backButton: { width: 40, height: 40, justifyContent: 'center' },
     title: { ...typography.h2 },
+    medicalDisclaimer: {
+        fontSize: 11,
+        color: colors.textMuted,
+        marginHorizontal: spacing.lg,
+        marginBottom: spacing.sm,
+        lineHeight: 16,
+    },
     scoreCard: {
         margin: spacing.lg, backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'], padding: spacing.xl,

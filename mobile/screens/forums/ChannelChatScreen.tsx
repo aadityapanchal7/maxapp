@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, NativeSyntheticEvent, TextInputKeyPressEventData } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, NativeSyntheticEvent, TextInputKeyPressEventData, Alert } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,7 +13,8 @@ interface Message {
     channel_id: string;
     user_id: string;
     user_email: string;
-    username?: string;
+    /** Server may send display handle separately from email prefix. */
+    username?: string | null;
     user_avatar_url?: string;
     content: string;
     attachment_url?: string;
@@ -198,8 +199,58 @@ export default function ChannelChatScreen() {
     };
 
     const getDisplayName = (message: Message) => {
-        if (message.username && message.username.trim().length > 0) return message.username;
+        if (message.username && message.username.trim().length > 0) return message.username.trim();
         return message.user_email.split('@')[0];
+    };
+
+    const submitReport = async (item: Message, reason: string) => {
+        try {
+            const res = await api.reportChannelMessage(channelId, item.id, reason);
+            Alert.alert('Report sent', res.message || 'Thank you. Our team will review this.');
+        } catch {
+            Alert.alert('Error', 'Could not submit report. Try again later.');
+        }
+    };
+
+    const blockUserFromMessage = async (item: Message) => {
+        try {
+            await api.blockUser(item.user_id);
+            Alert.alert('Blocked', 'You will no longer see this user’s posts in channels.');
+            loadMessages();
+        } catch {
+            Alert.alert('Error', 'Could not block this user.');
+        }
+    };
+
+    const openMessageMenu = (item: Message) => {
+        if (!currentUserId || item.user_id === currentUserId) return;
+        Alert.alert('Message options', undefined, [
+            {
+                text: 'Report',
+                onPress: () =>
+                    Alert.alert('Report this message', 'Why are you reporting it?', [
+                        { text: 'Spam or scam', onPress: () => submitReport(item, 'Spam or scam') },
+                        { text: 'Harassment or hate', onPress: () => submitReport(item, 'Harassment or hate') },
+                        { text: 'Nudity or sexual content', onPress: () => submitReport(item, 'Nudity or sexual content') },
+                        { text: 'Something else', onPress: () => submitReport(item, 'Other') },
+                        { text: 'Cancel', style: 'cancel' },
+                    ]),
+            },
+            {
+                text: 'Block user',
+                style: 'destructive',
+                onPress: () =>
+                    Alert.alert(
+                        'Block this user?',
+                        'Their messages will be hidden for you in all channels. You can contact support if you need help.',
+                        [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Block', style: 'destructive', onPress: () => void blockUserFromMessage(item) },
+                        ]
+                    ),
+            },
+            { text: 'Cancel', style: 'cancel' },
+        ]);
     };
 
     const scrollToMessage = (messageId: string) => {
@@ -277,6 +328,11 @@ export default function ChannelChatScreen() {
                                 <Ionicons name="flash" size={14} color={colors.textMuted} />
                             </TouchableOpacity>
                         )}
+                        {item.user_id !== currentUserId && currentUserId ? (
+                            <TouchableOpacity onPress={() => openMessageMenu(item)} style={styles.actionBtn} activeOpacity={0.6}>
+                                <Ionicons name="ellipsis-horizontal" size={16} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        ) : null}
                     </View>
                 </View>
             </View>
@@ -352,6 +408,9 @@ export default function ChannelChatScreen() {
                                         ))}
                                     </View>
                                 )}
+                                <Text style={styles.ugcNotice}>
+                                    Be respectful. Use the ··· menu on a message to report content or block a user. For help, open Legal & safety from your profile.
+                                </Text>
                             </View>
                         ) : null
                     }
@@ -499,6 +558,7 @@ const styles = StyleSheet.create({
     tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm },
     tagPill: { backgroundColor: colors.surface, borderRadius: borderRadius.full, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
     tagText: { fontSize: 10, color: colors.textMuted, fontWeight: '600' },
+    ugcNotice: { fontSize: 12, color: colors.textMuted, lineHeight: 17, marginTop: spacing.md },
     inputWrapper: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.border },
     replyPreview: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, paddingVertical: 10, paddingHorizontal: spacing.md, borderRadius: 12, marginBottom: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.info },
     replyPreviewText: { color: colors.textSecondary, fontSize: 13, flex: 1 },

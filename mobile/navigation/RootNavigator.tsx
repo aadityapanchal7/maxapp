@@ -11,6 +11,7 @@ import { colors } from '../theme/dark';
 // Screens
 import LoginScreen from '../screens/auth/LoginScreen';
 import SignupScreen from '../screens/auth/SignupScreen';
+import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 import FeaturesIntroScreen from '../screens/onboarding/FeaturesIntroScreen';
 import FaceScanScreen from '../screens/scan/FaceScanScreen';
@@ -30,6 +31,7 @@ import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
 import MaxxDetailScreen from '../screens/courses/MaxxDetailScreen';
 import TabNavigator from './TabNavigator';
 import LandingScreen from '../screens/onboarding/LandingScreen';
+import LegalAndSafetyScreen from '../screens/legal/LegalAndSafetyScreen';
 import AdminNavigator from './AdminNavigator';
 
 const Stack = createNativeStackNavigator();
@@ -63,14 +65,14 @@ export function RootNavigator() {
             initialRouteName={initialRoute}
         >
             {!isAuthenticated ? (
-                // Pre-auth: landing -> sign in (login/signup)
                 <>
                     <Stack.Screen name="Landing" component={LandingScreen} />
                     <Stack.Screen name="Login" component={LoginScreen} />
                     <Stack.Screen name="Signup" component={SignupScreen} />
+                    <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
                 </>
             ) : !onboardingCompleted ? (
-                // Post-auth: onboarding (goals, profile, face scan) -> payment -> main
                 <>
                     <Stack.Screen name="Onboarding" component={OnboardingScreen} />
                     <Stack.Screen name="FeaturesIntro" component={FeaturesIntroScreen} />
@@ -80,32 +82,31 @@ export function RootNavigator() {
                     <Stack.Screen name="ScanDetail" component={ScanDetailScreen} />
                     <Stack.Screen name="Payment" component={PaymentScreen} />
                     <Stack.Screen name="PaymentThankYou" component={PaymentThankYouScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
                 </>
             ) : user?.is_admin ? (
-                // Admin Portal
                 <>
                     <Stack.Screen name="Admin" component={AdminNavigator} />
                 </>
             ) : !isPaid ? (
-                // Blocked until payment (no onboarding after sign-in)
                 <>
                     <Stack.Screen name="Payment" component={PaymentScreen} />
                     <Stack.Screen name="PaymentThankYou" component={PaymentThankYouScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
                 </>
             ) : (
-                // Main app (paid user) — no Onboarding screen so post-auth never shows it
                 <>
                     <Stack.Screen name="Main" component={TabNavigator} />
                     <Stack.Screen name="Profile" component={ProfileScreen} />
                     <Stack.Screen name="EditPersonal" component={EditPersonalScreen} />
                     <Stack.Screen name="ProgressArchive" component={ProgressArchiveScreen} options={{ headerShown: false }} />
 
-                    {/* Course Screens */}
                     <Stack.Screen name="CourseList" component={CourseListScreen} />
                     <Stack.Screen name="CourseDetail" component={CourseDetailScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="ChapterView" component={ChapterViewScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="Schedule" component={ScheduleScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="MaxxDetail" component={MaxxDetailScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
                 </>
             )}
         </Stack.Navigator>
@@ -113,4 +114,3 @@ export function RootNavigator() {
 }
 
 export default RootNavigator;
-

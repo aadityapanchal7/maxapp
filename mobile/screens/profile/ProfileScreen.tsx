@@ -302,6 +302,11 @@ export default function ProfileScreen() {
                             <Text style={styles.menuRowText}>Edit personal info</Text>
                             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                         </TouchableOpacity>
+                        <TouchableOpacity style={[styles.menuRow, { marginTop: spacing.sm }]} onPress={() => navigation.navigate('LegalAndSafety')} activeOpacity={0.7}>
+                            <Ionicons name="shield-checkmark-outline" size={22} color={colors.foreground} />
+                            <Text style={styles.menuRowText}>Legal & safety</Text>
+                            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
                     </View>
 
                     <TouchableOpacity style={styles.logoutButton} onPress={logout} activeOpacity={0.7}>

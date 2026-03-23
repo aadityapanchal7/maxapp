@@ -47,6 +47,8 @@ interface AuthContextType {
     signup: (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => Promise<void>;
     logout: () => Promise<void>;
     refreshUser: () => Promise<void>;
+    /** Permanently delete the signed-in account (App Store account-deletion requirement). */
+    deleteAccount: (password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -95,6 +97,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
     };
 
+    const deleteAccount = async (password: string) => {
+        await api.deleteAccount(password);
+        await api.clearTokens();
+        setUser(null);
+    };
+
     return (
         <AuthContext.Provider
             value={{
@@ -106,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 signup,
                 logout,
                 refreshUser,
+                deleteAccount,
             }}
         >
             {children}
