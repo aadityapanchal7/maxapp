@@ -67,7 +67,10 @@ export function RootNavigator() {
     return (
         <Stack.Navigator
             key={isAuthenticated ? 'auth' : 'guest'}
-            screenOptions={{ headerShown: false }}
+            screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: colors.background },
+            }}
             initialRouteName={initialRoute}
         >
             {!isAuthenticated ? (

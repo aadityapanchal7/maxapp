@@ -3,6 +3,7 @@ import { View, ActivityIndicator, Platform, type ViewStyle } from 'react-native'
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFonts } from 'expo-font';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { RootNavigator } from './navigation/RootNavigator';
@@ -33,17 +34,17 @@ export default function App() {
     }
 
     const webContainerStyle: ViewStyle =
-        Platform.OS === 'web'
-            ? { maxWidth: 1200, width: '100%', alignSelf: 'center', paddingTop: 24 }
-            : {};
+        Platform.OS === 'web' ? { maxWidth: 1200, width: '100%', alignSelf: 'center' } : {};
 
     return (
-        <GestureHandlerRootView style={{ flex: 1 }}>
-            <View style={[{ flex: 1 }, webContainerStyle]}>
-                <AuthProvider>
-                    <AppNavigator />
-                </AuthProvider>
-            </View>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
+            <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
+                <View style={[{ flex: 1, backgroundColor: colors.background }, webContainerStyle]}>
+                    <AuthProvider>
+                        <AppNavigator />
+                    </AuthProvider>
+                </View>
+            </SafeAreaProvider>
         </GestureHandlerRootView>
     );
 }

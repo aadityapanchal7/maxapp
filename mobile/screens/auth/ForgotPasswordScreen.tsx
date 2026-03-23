@@ -8,16 +8,25 @@ import {
     KeyboardAvoidingView,
     Platform,
     Animated,
+    Modal,
+    FlatList,
+    Pressable,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { PHONE_COUNTRIES, type PhoneCountry } from '../../constants/phoneCountryCodes';
+import { buildFullPhoneNational } from '../../utils/buildLoginIdentifier';
 
 export default function ForgotPasswordScreen() {
     const navigation = useNavigation<any>();
     const [step, setStep] = useState<1 | 2>(1);
-    const [phone, setPhone] = useState('');
+    const [phoneNational, setPhoneNational] = useState('');
+    const [phoneCountry, setPhoneCountry] = useState<PhoneCountry>(PHONE_COUNTRIES[0]);
+    const [countryModalVisible, setCountryModalVisible] = useState(false);
+    /** E.164 used for API after step 1 — must match confirm */
+    const [phoneE164, setPhoneE164] = useState('');
     const [code, setCode] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
@@ -35,15 +44,17 @@ export default function ForgotPasswordScreen() {
     }, []);
 
     const sendCode = async () => {
-        if (!phone.trim()) {
-            setApiError('Enter the phone number on your account');
+        const full = buildFullPhoneNational(phoneNational, phoneCountry);
+        if (!full) {
+            setApiError('Enter a valid phone number (national digits only)');
             return;
         }
         setLoading(true);
         setApiError(null);
         setInfo(null);
         try {
-            const res = await api.requestPasswordResetSms(phone.trim());
+            const res = await api.requestPasswordResetSms(full);
+            setPhoneE164(full);
             setInfo(res.message);
             setStep(2);
         } catch (error: any) {
@@ -63,11 +74,15 @@ export default function ForgotPasswordScreen() {
             setApiError('Password must be at least 8 characters');
             return;
         }
+        if (!phoneE164) {
+            setApiError('Session expired. Go back and request a code again.');
+            return;
+        }
         setLoading(true);
         setApiError(null);
         setInfo(null);
         try {
-            const res = await api.confirmPasswordResetSms(phone.trim(), code.trim(), newPassword);
+            const res = await api.confirmPasswordResetSms(phoneE164, code.trim(), newPassword);
             setInfo(res.message);
             setTimeout(() => navigation.navigate('Login'), 1500);
         } catch (error: any) {
@@ -98,18 +113,32 @@ export default function ForgotPasswordScreen() {
                         <View style={styles.form}>
                             <View style={styles.inputGroup}>
                                 <Text style={styles.label}>PHONE NUMBER</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="+1… or your saved number"
-                                    placeholderTextColor={colors.textMuted}
-                                    value={phone}
-                                    onChangeText={(t) => {
-                                        setPhone(t);
-                                        setApiError(null);
-                                    }}
-                                    keyboardType="phone-pad"
-                                    autoCapitalize="none"
-                                />
+                                <View style={styles.phoneRow}>
+                                    <TouchableOpacity
+                                        style={styles.countryCodeButton}
+                                        onPress={() => setCountryModalVisible(true)}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={styles.countryCodeFlag}>{phoneCountry.flag}</Text>
+                                        <Text style={styles.countryCodeText} numberOfLines={1}>
+                                            {phoneCountry.dialCode}
+                                        </Text>
+                                        <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                    <TextInput
+                                        style={styles.phoneNationalInput}
+                                        placeholder="National number"
+                                        placeholderTextColor={colors.textMuted}
+                                        value={phoneNational}
+                                        onChangeText={(t) => {
+                                            setPhoneNational(t);
+                                            setApiError(null);
+                                        }}
+                                        keyboardType="phone-pad"
+                                        autoCapitalize="none"
+                                    />
+                                </View>
+                                <Text style={styles.phoneHint}>Same format as when you signed up — country + number without the code prefix.</Text>
                             </View>
                         </View>
                     ) : (
@@ -160,6 +189,54 @@ export default function ForgotPasswordScreen() {
                             </View>
                         </View>
                     )}
+
+                    <Modal
+                        visible={countryModalVisible}
+                        animationType="slide"
+                        transparent
+                        onRequestClose={() => setCountryModalVisible(false)}
+                    >
+                        <Pressable style={styles.modalBackdrop} onPress={() => setCountryModalVisible(false)}>
+                            <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+                                <View style={styles.modalHeader}>
+                                    <Text style={styles.modalTitle}>Country code</Text>
+                                    <TouchableOpacity
+                                        onPress={() => setCountryModalVisible(false)}
+                                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                    >
+                                        <Ionicons name="close" size={24} color={colors.foreground} />
+                                    </TouchableOpacity>
+                                </View>
+                                <FlatList
+                                    data={PHONE_COUNTRIES}
+                                    keyExtractor={(item) => `${item.dialCode}-${item.name}`}
+                                    keyboardShouldPersistTaps="handled"
+                                    renderItem={({ item }) => (
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.countryRow,
+                                                item.dialCode === phoneCountry.dialCode &&
+                                                    item.name === phoneCountry.name &&
+                                                    styles.countryRowSelected,
+                                            ]}
+                                            onPress={() => {
+                                                setPhoneCountry(item);
+                                                setCountryModalVisible(false);
+                                                setApiError(null);
+                                            }}
+                                            activeOpacity={0.65}
+                                        >
+                                            <Text style={styles.countryRowFlag}>{item.flag}</Text>
+                                            <Text style={styles.countryRowName} numberOfLines={2}>
+                                                {item.name}
+                                            </Text>
+                                            <Text style={styles.countryRowDial}>{item.dialCode}</Text>
+                                        </TouchableOpacity>
+                                    )}
+                                />
+                            </Pressable>
+                        </Pressable>
+                    </Modal>
 
                     {apiError && (
                         <View style={styles.apiErrorBox}>
@@ -220,6 +297,45 @@ const styles = StyleSheet.create({
         color: colors.textPrimary,
         fontSize: 15,
     },
+    phoneRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        overflow: 'hidden',
+    },
+    countryCodeButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingVertical: 15,
+        paddingLeft: spacing.md,
+        paddingRight: spacing.sm,
+        borderRightWidth: 1,
+        borderRightColor: colors.border,
+        maxWidth: '42%',
+    },
+    countryCodeFlag: { fontSize: 18 },
+    countryCodeText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.textPrimary,
+        flexShrink: 1,
+    },
+    phoneNationalInput: {
+        flex: 1,
+        paddingVertical: 15,
+        paddingHorizontal: spacing.md,
+        color: colors.textPrimary,
+        fontSize: 15,
+        minWidth: 0,
+    },
+    phoneHint: {
+        fontSize: 11,
+        color: colors.textMuted,
+        marginTop: 4,
+        marginLeft: 2,
+    },
     passwordRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -239,6 +355,41 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.sm,
         marginRight: spacing.xs,
     },
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalSheet: {
+        backgroundColor: colors.card,
+        borderTopLeftRadius: borderRadius.xl,
+        borderTopRightRadius: borderRadius.xl,
+        maxHeight: '72%',
+        paddingBottom: Platform.OS === 'ios' ? 34 : spacing.lg,
+    },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+    },
+    modalTitle: { fontSize: 17, fontWeight: '700', color: colors.foreground },
+    countryRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: spacing.lg,
+        gap: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.borderLight,
+    },
+    countryRowSelected: { backgroundColor: colors.surface },
+    countryRowFlag: { fontSize: 22, width: 32 },
+    countryRowName: { flex: 1, fontSize: 15, color: colors.textPrimary },
+    countryRowDial: { fontSize: 15, fontWeight: '600', color: colors.textSecondary, minWidth: 56, textAlign: 'right' },
     apiErrorBox: {
         flexDirection: 'row',
         alignItems: 'center',

@@ -1,5 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Animated } from 'react-native';
+import {
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    StyleSheet,
+    KeyboardAvoidingView,
+    Platform,
+    Animated,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
@@ -30,17 +39,22 @@ export default function LoginScreen() {
         }
         setLoading(true);
         setApiError(null);
-        try { await login(identifier.trim(), password); }
-        catch (error: any) {
+        try {
+            await login(identifier.trim(), password);
+        } catch (error: any) {
             const msg = error.response?.data?.detail || 'Invalid credentials';
             setApiError(typeof msg === 'string' ? msg : 'Invalid credentials');
+        } finally {
+            setLoading(false);
         }
-        finally { setLoading(false); }
     };
 
     return (
-        <View style={styles.container}>
-            <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={styles.safe}>
+            <KeyboardAvoidingView
+                style={styles.keyboardView}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
                 <Animated.View style={[styles.card, { opacity: fadeCard, transform: [{ translateY: slideCard }] }]}>
                     <Text style={styles.wordmark}>max</Text>
                     <Text style={styles.tagline}>Your lookmaxxing journey</Text>
@@ -50,7 +64,7 @@ export default function LoginScreen() {
                             <Text style={styles.label}>EMAIL, USERNAME, OR PHONE</Text>
                             <TextInput
                                 style={styles.input}
-                                placeholder="you@example.com or @user or +1…"
+                                placeholder="you@example.com"
                                 placeholderTextColor={colors.textMuted}
                                 value={identifier}
                                 onChangeText={(t) => {
@@ -70,7 +84,10 @@ export default function LoginScreen() {
                                     placeholder="Enter your password"
                                     placeholderTextColor={colors.textMuted}
                                     value={password}
-                                    onChangeText={(t) => { setPassword(t); setApiError(null); }}
+                                    onChangeText={(t) => {
+                                        setPassword(t);
+                                        setApiError(null);
+                                    }}
                                     secureTextEntry={!showPassword}
                                     autoCapitalize="none"
                                     autoCorrect={false}
@@ -98,17 +115,28 @@ export default function LoginScreen() {
                             </View>
                         )}
 
-                        <TouchableOpacity style={[styles.button, loading && styles.buttonDisabled]} onPress={handleLogin} disabled={loading} activeOpacity={0.7}>
+                        <TouchableOpacity
+                            style={[styles.button, loading && styles.buttonDisabled]}
+                            onPress={handleLogin}
+                            disabled={loading}
+                            activeOpacity={0.7}
+                        >
                             <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')} activeOpacity={0.6} style={styles.forgotLink}>
+                        <TouchableOpacity
+                            onPress={() => navigation.navigate('ForgotPassword')}
+                            activeOpacity={0.6}
+                            style={styles.forgotLink}
+                        >
                             <Text style={styles.forgotText}>Forgot password?</Text>
                         </TouchableOpacity>
                     </View>
 
                     <TouchableOpacity onPress={() => navigation.navigate('Signup')} activeOpacity={0.6} style={styles.linkContainer}>
-                        <Text style={styles.linkText}>Don't have an account? <Text style={styles.linkBold}>Create one</Text></Text>
+                        <Text style={styles.linkText}>
+                            Don&apos;t have an account? <Text style={styles.linkBold}>Create one</Text>
+                        </Text>
                     </TouchableOpacity>
                 </Animated.View>
             </KeyboardAvoidingView>
@@ -117,8 +145,16 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    keyboardView: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg },
+    safe: {
+        flex: 1,
+        backgroundColor: colors.background,
+    },
+    keyboardView: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: spacing.lg,
+        backgroundColor: colors.background,
+    },
     card: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
