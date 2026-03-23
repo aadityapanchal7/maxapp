@@ -11,7 +11,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete, update
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +27,22 @@ def _as_utc_aware(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-from db import get_db
+from db import get_db, get_rds_db
 from middleware import get_current_user
 from services.storage_service import storage_service, delete_by_url
 from models.user import (
-    UserResponse, OnboardingData, UserProfile, GoalType, ExperienceLevel, AccountUpdateRequest
+    UserResponse,
+    OnboardingData,
+    UserProfile,
+    GoalType,
+    ExperienceLevel,
+    AccountUpdateRequest,
+    BlockUserRequest,
+    DeleteAccountRequest,
 )
 from models.sqlalchemy_models import User, UserProgressPhoto
+from models.rds_models import ChannelMessage
+from api.auth import verify_password
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -294,6 +303,109 @@ async def list_progress_photos(
         }
         for p in photos
     ]}
+
+
+def _blocked_ids_list(profile: dict | None) -> list[str]:
+    raw = (profile or {}).get("blocked_user_ids")
+    if not isinstance(raw, list):
+        return []
+    return [str(x) for x in raw if x]
+
+
+@router.get("/me/blocks")
+async def list_blocked_users(current_user: dict = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """User IDs the current user has blocked in community channels."""
+    user = await db.get(User, UUID(current_user["id"]))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"blocked_user_ids": _blocked_ids_list(user.profile)}
+
+
+@router.post("/me/blocks")
+async def block_user(
+    body: BlockUserRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Block a user so their channel messages are hidden for you (App Store Guideline 1.2)."""
+    uid = current_user["id"]
+    target = body.blocked_user_id.strip()
+    if target == uid:
+        raise HTTPException(status_code=400, detail="You cannot block yourself")
+    try:
+        UUID(target)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid user id")
+
+    target_user = await db.get(User, UUID(target))
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user = await db.get(User, UUID(uid))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    prof = dict(user.profile or {})
+    blocked = _blocked_ids_list(prof)
+    if target not in blocked:
+        blocked.append(target)
+    prof["blocked_user_ids"] = blocked
+    user.profile = prof
+    user.updated_at = _utcnow()
+    await db.commit()
+    return {"blocked_user_ids": blocked}
+
+
+@router.delete("/me/blocks/{blocked_user_id}")
+async def unblock_user(
+    blocked_user_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await db.get(User, UUID(current_user["id"]))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    prof = dict(user.profile or {})
+    blocked = [x for x in _blocked_ids_list(prof) if x != blocked_user_id]
+    prof["blocked_user_ids"] = blocked
+    user.profile = prof
+    user.updated_at = _utcnow()
+    await db.commit()
+    return {"blocked_user_ids": blocked}
+
+
+@router.delete("/me")
+async def delete_my_account(
+    body: DeleteAccountRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    rds_db: AsyncSession = Depends(get_rds_db),
+):
+    """Permanently delete the signed-in account (App Store Guideline 5.1.1)."""
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect password")
+
+    await rds_db.execute(
+        update(ChannelMessage)
+        .where(ChannelMessage.user_id == user_uuid)
+        .values(
+            content="[deleted]",
+            attachment_url=None,
+            attachment_type=None,
+            reactions={},
+        )
+    )
+    await rds_db.commit()
+
+    await db.execute(delete(User).where(User.id == user_uuid))
+    await db.commit()
+
+    return {"message": "Account deleted"}
 
 
 @router.put("/account")

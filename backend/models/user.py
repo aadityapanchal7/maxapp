@@ -203,3 +203,15 @@ class AccountUpdateRequest(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     username: Optional[str] = None
+
+
+class BlockUserRequest(BaseModel):
+    """Block another user from appearing in community channels for the current user."""
+
+    blocked_user_id: str = Field(..., min_length=1, max_length=64)
+
+
+class DeleteAccountRequest(BaseModel):
+    """Confirm account deletion with password (App Store Guideline 5.1.1)."""
+
+    password: str = Field(..., min_length=1, max_length=200)

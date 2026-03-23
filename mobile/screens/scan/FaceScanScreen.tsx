@@ -157,6 +157,10 @@ export default function FaceScanScreen() {
                 <View style={styles.headerIcon} />
             </View>
 
+            <Text style={styles.medicalDisclaimer}>
+                Not medical advice. For general wellness insights only—not for diagnosis or treatment. See a qualified professional for medical decisions.
+            </Text>
+
             <Text style={styles.title}>{step.title}</Text>
             <Text style={styles.instruction}>{step.instruction}</Text>
 
@@ -227,6 +231,14 @@ const styles = StyleSheet.create({
     },
     headerIcon: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
     progressLabel: { ...typography.label, color: colors.textMuted },
+    medicalDisclaimer: {
+        fontSize: 11,
+        color: colors.textMuted,
+        textAlign: 'center',
+        marginHorizontal: spacing.md,
+        marginTop: spacing.xs,
+        lineHeight: 16,
+    },
     title: { ...typography.h2, textAlign: 'center', marginTop: spacing.md },
     instruction: {
         fontSize: 14,

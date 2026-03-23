@@ -738,3 +738,83 @@ Rule: {protocol['rule']}"""
 - If consistent: 1 clean reminder/day
 - Prioritize highest ROI actions
 """
+
+
+def resolve_hair_concern(hair_type: Optional[str], explicit_concern: Optional[str] = None, has_thinning: bool = False) -> str:
+    """Resolve hair concern based on hair type and thinning status."""
+    if explicit_concern and explicit_concern in HAIRMAX_PROTOCOLS:
+        return explicit_concern
+    if has_thinning:
+        return "minoxidil"
+    return HAIR_TYPE_TO_CONCERN.get(hair_type or "normal", "wash_routine")
+
+
+def build_hairmax_prompt_section(concern: str) -> str:
+    """Build protocol text for the Gemini prompt."""
+    protocol = HAIRMAX_PROTOCOLS.get(concern)
+    if not protocol:
+        protocol = HAIRMAX_PROTOCOLS["wash_routine"]
+
+    # Build protocol details based on the concern type
+    if concern == "wash_routine":
+        details = f"""Shampoo: {protocol['shampoo']}
+Conditioner: {protocol['conditioner']}
+Straight/Wavy frequency: {protocol['frequency_straight_wavy']}
+Curly frequency: {protocol['frequency_curly']}
+Product users: {protocol['frequency_product_heavy']}
+Over-washed signs: {protocol['over_washed_signs']}
+Under-washed signs: {protocol['under_washed_signs']}
+Rule: {protocol['rule']}"""
+    elif concern == "minoxidil":
+        details = f"""Who needs it: {protocol['who_needs_it']}
+When to apply: {protocol['when_to_apply']}
+Frequency: {protocol['frequency']}
+How to apply: {protocol['how_to']}
+Notification (core): {protocol['notification_core']}
+Notification (pressure): {protocol['notification_pressure']}
+Notification (identity): {protocol['notification_identity']}
+If skipped: {protocol['notification_skip_escalate']}
+If consistent: {protocol['notification_consistent']}
+Rule: {protocol['rule']}"""
+    elif concern == "dermastamp":
+        details = f"""Who needs it: {protocol['who_needs_it']}
+When to use: {protocol['when_to_use']}
+Frequency: {protocol['frequency']}
+How to do it: {protocol['how_to']}
+Notification: {protocol['notification']}
+Rule: {protocol['rule']}"""
+    elif concern == "oils_masks":
+        details = f"""When to use: {protocol['when_to_use']}
+Frequency: {protocol['frequency']}
+How to apply: {protocol['how_to']}
+Best oils: {protocol['best_oils']}
+Masks: {protocol['masks']}
+Notification: {protocol['notification']}"""
+    elif concern == "anti_dandruff":
+        details = f"""When to use: {protocol['when_to_use']}
+Shampoo: {protocol['shampoo']}
+Frequency: {protocol['frequency']}
+Conditioner: {protocol['conditioner']}
+Rule: {protocol['rule']}"""
+    else:
+        details = str(protocol)
+
+    return f"""## HAIR PROTOCOL — {protocol['label']}
+{details}
+
+## SCHEDULE RULES
+- Wash frequency depends on hair type: straight/wavy 2-3x/week, curly less often with optional co-wash
+- Minoxidil is PM skincare time, daily, non-negotiable for thinning users
+- Dermastamp is 1x/week max, same day each week, never same night as minoxidil (wait 24h)
+- Oil treatments are 1-2x/week, evening before wash day as overnight treatment
+- Anti-dandruff shampoo only when clear fungal/seborrheic signs
+- Conditioner goes on strands only, never on scalp
+- Never push "no shampoo" as a lifestyle recommendation
+
+## NOTIFICATION RULES FOR THINNING USERS
+- Core: "Minoxidil. Thinning areas only."
+- Pressure: "Miss days = lose gains."
+- Identity: "You either maintain your hairline or watch it go."
+- If skip: escalate tone
+- If consistent: 1 clean reminder/day
+"""

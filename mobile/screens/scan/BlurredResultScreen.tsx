@@ -97,6 +97,10 @@ export default function BlurredResultScreen() {
 
                 <Text style={styles.umaxTag}>AI facial rating</Text>
 
+                <Text style={styles.medicalDisclaimer}>
+                    For general wellness only—not a medical device or diagnosis. Talk to a clinician about health concerns.
+                </Text>
+
                 <View style={styles.scoreRing}>
                     <Text style={styles.scoreLabel}>OVERALL</Text>
                     {isProcessing ? (
@@ -157,6 +161,10 @@ export default function BlurredResultScreen() {
                     </TouchableOpacity>
                     <Text style={styles.price}>$9.99/month</Text>
                 </View>
+
+                <TouchableOpacity onPress={() => navigation.navigate('LegalAndSafety')} style={styles.legalLink} activeOpacity={0.7}>
+                    <Text style={styles.legalLinkText}>Privacy, support & delete account</Text>
+                </TouchableOpacity>
             </ScrollView>
         </View>
     );
@@ -175,8 +183,18 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
         ...typography.label,
         color: colors.textMuted,
-        marginBottom: spacing.md,
+        marginBottom: spacing.sm,
     },
+    medicalDisclaimer: {
+        fontSize: 11,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 16,
+        marginBottom: spacing.md,
+        paddingHorizontal: spacing.sm,
+    },
+    legalLink: { alignItems: 'center', marginTop: spacing.lg, paddingVertical: spacing.md },
+    legalLinkText: { fontSize: 13, color: colors.info, fontWeight: '600' },
     scoreRing: {
         alignSelf: 'center',
         width: 200,

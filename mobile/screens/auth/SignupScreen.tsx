@@ -278,6 +278,10 @@ export default function SignupScreen() {
                         <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.6} style={styles.linkContainer}>
                             <Text style={styles.linkText}>Already have an account? <Text style={styles.linkBold}>Sign In</Text></Text>
                         </TouchableOpacity>
+
+                        <TouchableOpacity onPress={() => navigation.navigate('LegalAndSafety')} activeOpacity={0.6} style={styles.legalLink}>
+                            <Text style={styles.legalLinkText}>Privacy, support & safety</Text>
+                        </TouchableOpacity>
                     </Animated.View>
                 </ScrollView>
             </KeyboardAvoidingView>
@@ -339,6 +343,8 @@ const styles = StyleSheet.create({
     buttonDisabled: { opacity: 0.5 },
     buttonText: { ...typography.button },
     linkContainer: { marginTop: spacing.xl, alignItems: 'center' },
+    legalLink: { marginTop: spacing.md, alignItems: 'center', paddingVertical: spacing.sm },
+    legalLinkText: { fontSize: 12, color: colors.textMuted, fontWeight: '500' },
     linkText: { fontSize: 13, color: colors.textSecondary },
     linkBold: { color: colors.foreground, fontWeight: '600' },
     phoneRow: {

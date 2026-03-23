@@ -298,3 +298,21 @@ class UserSchedule(Base):
         Index("idx_user_schedules_active", is_active),
         Index("idx_user_schedules_maxx_id", maxx_id),
     )
+
+
+class ChannelMessageReport(Base):
+    """User reports on channel (forum) messages — App Review UGC moderation trail."""
+
+    __tablename__ = "channel_message_reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    channel_message_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    channel_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    reporter_user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
+    reported_user_id = Column(UUID(as_uuid=True), nullable=False)
+    reason = Column(Text, default="")
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("channel_message_id", "reporter_user_id", name="uq_channel_message_report_reporter"),
+    )

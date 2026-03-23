@@ -1,0 +1,22 @@
+App Store Connect → App Privacy: use this as a checklist. Adjust if your production stack differs (e.g. you add analytics SDKs).
+
+Data types you likely collect (verify against your privacy policy and backend):
+- Contact info: email, phone (signup / account).
+- User content: forum/channel messages, chat with Max (AI), profile bio, progress photos, face scan media.
+- Identifiers: account ID, auth tokens (device).
+- Usage: course progress, schedules, leaderboard if applicable.
+
+Sensitive:
+- Photos/video: face scan, profile avatar, progress archive, channel attachments.
+- If you store health/fitness onboarding (height, weight, goals), disclose Health & Fitness or similar as appropriate.
+
+Third-party SDKs (scan package.json / native projects before submitting):
+- This repo’s mobile app did not include a dedicated analytics SDK in the dependency list at time of writing; confirm before you declare “Data Not Collected” for analytics.
+
+Linked to user: typically Yes for account-backed data.
+
+Purposes: App functionality, customer support, compliance (moderation).
+
+Tracking (ATT): only declare tracking if you or an SDK use data for cross-app advertising; otherwise answer accordingly.
+
+Privacy Policy URL must match Legal & safety in-app and App Store Connect metadata.

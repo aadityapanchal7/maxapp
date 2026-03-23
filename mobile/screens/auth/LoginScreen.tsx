@@ -138,6 +138,10 @@ export default function LoginScreen() {
                             Don&apos;t have an account? <Text style={styles.linkBold}>Create one</Text>
                         </Text>
                     </TouchableOpacity>
+
+                    <TouchableOpacity onPress={() => navigation.navigate('LegalAndSafety')} activeOpacity={0.6} style={styles.legalLink}>
+                        <Text style={styles.legalLinkText}>Privacy, support & safety</Text>
+                    </TouchableOpacity>
                 </Animated.View>
             </KeyboardAvoidingView>
         </View>
@@ -233,4 +237,6 @@ const styles = StyleSheet.create({
     linkContainer: { marginTop: spacing.xl, alignItems: 'center' },
     linkText: { fontSize: 13, color: colors.textSecondary },
     linkBold: { color: colors.foreground, fontWeight: '600' },
+    legalLink: { marginTop: spacing.md, alignItems: 'center', paddingVertical: spacing.sm },
+    legalLinkText: { fontSize: 12, color: colors.textMuted, fontWeight: '500' },
 });

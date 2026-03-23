@@ -58,6 +58,12 @@ class MessageCreate(BaseModel):
     attachment_type: Optional[str] = None
 
 
+class MessageReportCreate(BaseModel):
+    """Report objectionable channel content (App Store Guideline 1.2)."""
+
+    reason: str = Field(default="", max_length=2000)
+
+
 class MessageResponse(BaseModel):
     """Message response for API"""
     id: str

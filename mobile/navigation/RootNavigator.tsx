@@ -38,6 +38,7 @@ import FitmaxProgressScreen from '../screens/courses/FitmaxProgressScreen';
 import FitmaxModuleScreen from '../screens/courses/FitmaxModuleScreen';
 import TabNavigator from './TabNavigator';
 import LandingScreen from '../screens/onboarding/LandingScreen';
+import LegalAndSafetyScreen from '../screens/legal/LegalAndSafetyScreen';
 import AdminNavigator from './AdminNavigator';
 
 const Stack = createNativeStackNavigator();
@@ -82,20 +83,18 @@ export function RootNavigator() {
             initialRouteName={initialRoute}
         >
             {!isAuthenticated ? (
-                // Pre-auth: landing -> sign in (login/signup)
                 <>
                     <Stack.Screen name="Landing" component={LandingScreen} />
                     <Stack.Screen name="Login" component={LoginScreen} />
                     <Stack.Screen name="Signup" component={SignupScreen} />
                     <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
                 </>
             ) : user?.is_admin ? (
-                // Admin Portal
                 <>
                     <Stack.Screen name="Admin" component={AdminNavigator} />
                 </>
             ) : !isPaid ? (
-                // Authenticated, unpaid: one stack — onboarding → intro → Cannon face scan → payment (no unmount on onboarding complete)
                 <>
                     <Stack.Screen name="Onboarding" component={OnboardingScreen} />
                     <Stack.Screen name="FeaturesIntro" component={FeaturesIntroScreen} />
@@ -105,9 +104,9 @@ export function RootNavigator() {
                     <Stack.Screen name="ScanDetail" component={ScanDetailScreen} />
                     <Stack.Screen name="Payment" component={PaymentScreen} />
                     <Stack.Screen name="PaymentThankYou" component={PaymentThankYouScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
                 </>
             ) : (
-                // Main app (paid user) — no Onboarding screen so post-auth never shows it
                 <>
                     <Stack.Screen name="Main" component={TabNavigator} />
                     <Stack.Screen name="Profile" component={ProfileScreen} />
@@ -115,7 +114,6 @@ export function RootNavigator() {
                     <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
                     <Stack.Screen name="ProgressArchive" component={ProgressArchiveScreen} options={{ headerShown: false }} />
 
-                    {/* Course Screens */}
                     <Stack.Screen name="CourseList" component={CourseListScreen} />
                     <Stack.Screen name="CourseDetail" component={CourseDetailScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="ChapterView" component={ChapterViewScreen} options={{ headerShown: false }} />
@@ -131,6 +129,7 @@ export function RootNavigator() {
                     <Stack.Screen name="FitmaxCalorieLog" component={FitmaxCalorieLogScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="FitmaxProgress" component={FitmaxProgressScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="FitmaxModule" component={FitmaxModuleScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
                 </>
             )}
         </Stack.Navigator>
@@ -138,4 +137,3 @@ export function RootNavigator() {
 }
 
 export default RootNavigator;
-

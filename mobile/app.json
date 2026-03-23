@@ -16,7 +16,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.cannon.mobile"
+      "bundleIdentifier": "com.cannon.mobile",
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "Max uses your photo library to attach images in community channels, chat, and profile or progress photos."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -55,7 +58,10 @@
     "extra": {
       "eas": {
         "projectId": "e88cbff0-beda-47c1-a763-5a81698030bd"
-      }
+      },
+      "supportEmail": "support@example.com",
+      "privacyPolicyUrl": "",
+      "termsOfServiceUrl": ""
     }
   }
 }
