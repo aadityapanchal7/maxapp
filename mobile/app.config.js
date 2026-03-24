@@ -11,6 +11,8 @@ module.exports = () => {
     const supportEmail = process.env.EXPO_PUBLIC_SUPPORT_EMAIL;
     const privacyPolicyUrl = process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL;
     const termsOfServiceUrl = process.env.EXPO_PUBLIC_TERMS_URL;
+    const communityGuidelinesUrl = process.env.EXPO_PUBLIC_COMMUNITY_GUIDELINES_URL;
+    const cookieNoticeUrl = process.env.EXPO_PUBLIC_COOKIE_NOTICE_URL;
 
     return {
         expo: {
@@ -20,6 +22,8 @@ module.exports = () => {
                 supportEmail: supportEmail || baseExtra.supportEmail,
                 privacyPolicyUrl: privacyPolicyUrl || baseExtra.privacyPolicyUrl,
                 termsOfServiceUrl: termsOfServiceUrl || baseExtra.termsOfServiceUrl,
+                communityGuidelinesUrl: communityGuidelinesUrl || baseExtra.communityGuidelinesUrl,
+                cookieNoticeUrl: cookieNoticeUrl || baseExtra.cookieNoticeUrl,
             },
         },
     };

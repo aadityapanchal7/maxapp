@@ -27,6 +27,8 @@ export default function LegalAndSafetyScreen() {
     const supportEmail = extra.supportEmail || 'support@example.com';
     const privacyUrl = extra.privacyPolicyUrl;
     const termsUrl = extra.termsOfServiceUrl;
+    const communityUrl = extra.communityGuidelinesUrl;
+    const cookieUrl = extra.cookieNoticeUrl;
     const [password, setPassword] = useState('');
     const [busy, setBusy] = useState(false);
 
@@ -120,6 +122,26 @@ export default function LegalAndSafetyScreen() {
                         <Ionicons name="reader-outline" size={22} color={colors.foreground} />
                         <View style={styles.rowTextWrap}>
                             <Text style={styles.rowTitle}>Terms of service</Text>
+                        </View>
+                        <Ionicons name="open-outline" size={18} color={colors.textMuted} />
+                    </TouchableOpacity>
+                ) : null}
+
+                {communityUrl ? (
+                    <TouchableOpacity style={styles.row} onPress={() => openUrl(communityUrl, 'Community guidelines')} activeOpacity={0.7}>
+                        <Ionicons name="people-outline" size={22} color={colors.foreground} />
+                        <View style={styles.rowTextWrap}>
+                            <Text style={styles.rowTitle}>Community guidelines</Text>
+                        </View>
+                        <Ionicons name="open-outline" size={18} color={colors.textMuted} />
+                    </TouchableOpacity>
+                ) : null}
+
+                {cookieUrl ? (
+                    <TouchableOpacity style={styles.row} onPress={() => openUrl(cookieUrl, 'Cookies')} activeOpacity={0.7}>
+                        <Ionicons name="information-circle-outline" size={22} color={colors.foreground} />
+                        <View style={styles.rowTextWrap}>
+                            <Text style={styles.rowTitle}>Cookie notice</Text>
                         </View>
                         <Ionicons name="open-outline" size={18} color={colors.textMuted} />
                     </TouchableOpacity>

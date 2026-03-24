@@ -61,7 +61,9 @@
       },
       "supportEmail": "support@example.com",
       "privacyPolicyUrl": "",
-      "termsOfServiceUrl": ""
+      "termsOfServiceUrl": "",
+      "communityGuidelinesUrl": "",
+      "cookieNoticeUrl": ""
     }
   }
 }
