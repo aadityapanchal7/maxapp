@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
     View,
     Text,
     StyleSheet,
     ScrollView,
     TouchableOpacity,
-    TextInput,
     Alert,
     Platform,
     Linking,
@@ -22,15 +21,13 @@ function getExtra(): Record<string, string | undefined> {
 
 export default function LegalAndSafetyScreen() {
     const navigation = useNavigation();
-    const { isAuthenticated, deleteAccount } = useAuth();
+    const { isAuthenticated } = useAuth();
     const extra = getExtra();
     const supportEmail = extra.supportEmail || 'support@example.com';
     const privacyUrl = extra.privacyPolicyUrl;
     const termsUrl = extra.termsOfServiceUrl;
     const communityUrl = extra.communityGuidelinesUrl;
     const cookieUrl = extra.cookieNoticeUrl;
-    const [password, setPassword] = useState('');
-    const [busy, setBusy] = useState(false);
 
     const openUrl = (url: string, label: string) => {
         Linking.openURL(url).catch(() => Alert.alert('Error', `Could not open ${label}.`));
@@ -40,37 +37,6 @@ export default function LegalAndSafetyScreen() {
         const subject = encodeURIComponent('Max app — support');
         Linking.openURL(`mailto:${supportEmail}?subject=${subject}`).catch(() =>
             Alert.alert('Contact', `Email us at ${supportEmail}`)
-        );
-    };
-
-    const confirmDelete = () => {
-        if (!password.trim()) {
-            Alert.alert('Password required', 'Enter your password to delete your account.');
-            return;
-        }
-        Alert.alert(
-            'Delete account?',
-            'This permanently removes your account and associated data. Channel posts will show as deleted. This cannot be undone.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Delete',
-                    style: 'destructive',
-                    onPress: async () => {
-                        setBusy(true);
-                        try {
-                            await deleteAccount(password.trim());
-                            setPassword('');
-                        } catch (e: any) {
-                            const d = e?.response?.data?.detail;
-                            const msg = typeof d === 'string' ? d : e?.message || 'Could not delete account';
-                            Alert.alert('Error', msg);
-                        } finally {
-                            setBusy(false);
-                        }
-                    },
-                },
-            ]
         );
     };
 
@@ -148,27 +114,10 @@ export default function LegalAndSafetyScreen() {
                 ) : null}
 
                 {isAuthenticated ? (
-                    <View style={styles.dangerZone}>
-                        <Text style={styles.dangerTitle}>Delete account</Text>
-                        <Text style={styles.dangerSub}>Removes your profile, chat history, and personal data from our systems.</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Confirm with your password"
-                            placeholderTextColor={colors.textMuted}
-                            secureTextEntry
-                            value={password}
-                            onChangeText={setPassword}
-                            autoCapitalize="none"
-                            editable={!busy}
-                        />
-                        <TouchableOpacity
-                            style={[styles.deleteBtn, busy && styles.deleteBtnDisabled]}
-                            onPress={confirmDelete}
-                            disabled={busy}
-                            activeOpacity={0.8}
-                        >
-                            <Text style={styles.deleteBtnText}>{busy ? 'Working…' : 'Delete my account'}</Text>
-                        </TouchableOpacity>
+                    <View style={styles.hintBox}>
+                        <Text style={styles.hintText}>
+                            Account deletion is available from your profile page under <Text style={styles.mono}>Delete account</Text>.
+                        </Text>
                     </View>
                 ) : null}
 
@@ -219,33 +168,4 @@ const styles = StyleSheet.create({
     },
     hintText: { fontSize: 13, color: colors.textSecondary, lineHeight: 20 },
     mono: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 12 },
-    dangerZone: {
-        marginTop: spacing.xl,
-        padding: spacing.lg,
-        borderRadius: borderRadius.md,
-        borderWidth: 1,
-        borderColor: colors.error,
-        backgroundColor: colors.card,
-    },
-    dangerTitle: { fontSize: 17, fontWeight: '700', color: colors.error },
-    dangerSub: { fontSize: 13, color: colors.textSecondary, marginTop: spacing.sm, lineHeight: 20 },
-    input: {
-        marginTop: spacing.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: borderRadius.sm,
-        paddingHorizontal: spacing.md,
-        paddingVertical: Platform.OS === 'ios' ? 12 : 8,
-        color: colors.foreground,
-        backgroundColor: colors.background,
-    },
-    deleteBtn: {
-        marginTop: spacing.md,
-        backgroundColor: colors.error,
-        paddingVertical: 14,
-        borderRadius: borderRadius.md,
-        alignItems: 'center',
-    },
-    deleteBtnDisabled: { opacity: 0.6 },
-    deleteBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });

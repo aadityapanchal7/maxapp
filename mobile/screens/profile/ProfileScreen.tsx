@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions, Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import Constants from 'expo-constants';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -27,7 +28,7 @@ export default function ProfileScreen() {
     const gridColumns = Platform.OS === 'web' ? (winWidth > 800 ? 3 : winWidth > 500 ? 2 : 3) : 3;
     const gridItemWidth = `${100 / gridColumns}%` as any;
     const imageModalWidth = getImageModalWidth(winWidth);
-    const { user, logout, refreshUser } = useAuth();
+    const { user, logout, refreshUser, deleteAccount } = useAuth();
     const [loading, setLoading] = useState(true);
     const [progressPhotos, setProgressPhotos] = useState<any[]>([]);
     const [progressModalVisible, setProgressModalVisible] = useState(false);
@@ -40,7 +41,14 @@ export default function ProfileScreen() {
     const [editUsername, setEditUsername] = useState('');
     const [editAvatarUri, setEditAvatarUri] = useState<string | null>(null);
     const [saveLoading, setSaveLoading] = useState(false);
+    const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+    const [deletePassword, setDeletePassword] = useState('');
+    const [deleteBusy, setDeleteBusy] = useState(false);
     const fadeAnim = useRef(new Animated.Value(0)).current;
+    const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
+    const supportEmail = extra.supportEmail || 'support@example.com';
+    const privacyUrl = extra.privacyPolicyUrl;
+    const termsUrl = extra.termsOfServiceUrl;
 
     useEffect(() => {
         loadData();
@@ -100,6 +108,43 @@ export default function ProfileScreen() {
     const openProgressArchiveAt = (index: number) => {
         setSelectedPhotoIndex(index);
         setProgressModalVisible(true);
+    };
+
+    const openUrl = async (url: string, label: string) => {
+        try {
+            await Linking.openURL(url);
+        } catch {
+            Alert.alert('Error', `Could not open ${label}.`);
+        }
+    };
+
+    const openSupport = async () => {
+        const subject = encodeURIComponent('Max app - support');
+        const mailto = `mailto:${supportEmail}?subject=${subject}`;
+        try {
+            await Linking.openURL(mailto);
+        } catch {
+            Alert.alert('Contact', `Email us at ${supportEmail}`);
+        }
+    };
+
+    const confirmDeleteAccount = async () => {
+        if (!deletePassword.trim()) {
+            Alert.alert('Password required', 'Enter your password to delete your account.');
+            return;
+        }
+        setDeleteBusy(true);
+        try {
+            await deleteAccount(deletePassword.trim());
+            setDeletePassword('');
+            setDeleteModalVisible(false);
+        } catch (e: any) {
+            const d = e?.response?.data?.detail;
+            const msg = typeof d === 'string' ? d : e?.message || 'Could not delete account';
+            Alert.alert('Error', msg);
+        } finally {
+            setDeleteBusy(false);
+        }
     };
 
     const saveProfile = async () => {
@@ -312,6 +357,34 @@ export default function ProfileScreen() {
                             <Text style={styles.menuRowText}>Legal & safety</Text>
                             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                         </TouchableOpacity>
+                        <TouchableOpacity style={[styles.menuRow, { marginTop: spacing.sm }]} onPress={openSupport} activeOpacity={0.7}>
+                            <Ionicons name="mail-outline" size={22} color={colors.foreground} />
+                            <Text style={styles.menuRowText}>Contact support</Text>
+                            <Ionicons name="open-outline" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.menuRow, { marginTop: spacing.sm }]}
+                            onPress={() => privacyUrl ? openUrl(privacyUrl, 'Privacy policy') : Alert.alert('Missing link', 'Privacy policy URL is not configured yet.')}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="document-text-outline" size={22} color={colors.foreground} />
+                            <Text style={styles.menuRowText}>Privacy policy</Text>
+                            <Ionicons name="open-outline" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.menuRow, { marginTop: spacing.sm }]}
+                            onPress={() => termsUrl ? openUrl(termsUrl, 'Terms of service') : Alert.alert('Missing link', 'Terms of service URL is not configured yet.')}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="reader-outline" size={22} color={colors.foreground} />
+                            <Text style={styles.menuRowText}>Terms of service</Text>
+                            <Ionicons name="open-outline" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.menuRow, styles.deleteRow]} onPress={() => setDeleteModalVisible(true)} activeOpacity={0.7}>
+                            <Ionicons name="trash-outline" size={22} color={colors.error} />
+                            <Text style={[styles.menuRowText, { color: colors.error }]}>Delete account</Text>
+                            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                        </TouchableOpacity>
                     </View>
 
                     <TouchableOpacity style={styles.logoutButton} onPress={logout} activeOpacity={0.7}>
@@ -350,6 +423,39 @@ export default function ProfileScreen() {
                                 <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saveLoading} activeOpacity={0.7}>{saveLoading ? <ActivityIndicator color={colors.buttonText} /> : <Text style={styles.saveButtonText}>Save</Text>}</TouchableOpacity>
                             </View>
                         </ScrollView>
+                    </View>
+                </View>
+            </Modal>
+            <Modal animationType="fade" transparent visible={deleteModalVisible} onRequestClose={() => setDeleteModalVisible(false)}>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContent}>
+                        <View style={styles.modalHeader}>
+                            <Text style={styles.modalTitle}>Delete account</Text>
+                            <TouchableOpacity onPress={() => setDeleteModalVisible(false)} style={styles.modalClose} activeOpacity={0.7}>
+                                <Ionicons name="close" size={18} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
+                        <Text style={styles.deleteHelpText}>
+                            This permanently removes your account and personal data. This action cannot be undone.
+                        </Text>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="Confirm with your password"
+                            placeholderTextColor={colors.textMuted}
+                            secureTextEntry
+                            value={deletePassword}
+                            onChangeText={setDeletePassword}
+                            autoCapitalize="none"
+                            editable={!deleteBusy}
+                        />
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity style={styles.cancelButton} onPress={() => setDeleteModalVisible(false)}>
+                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={styles.deleteActionButton} onPress={confirmDeleteAccount} disabled={deleteBusy} activeOpacity={0.8}>
+                                {deleteBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.deleteActionButtonText}>Delete</Text>}
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </Modal>
@@ -598,6 +704,17 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: colors.foreground,
     },
+    deleteRow: {
+        borderColor: 'rgba(220, 38, 38, 0.35)',
+        backgroundColor: colors.card,
+        marginTop: spacing.md,
+    },
+    deleteHelpText: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        lineHeight: 20,
+        marginBottom: spacing.md,
+    },
     logoutButton: {
         alignItems: 'center',
         marginTop: spacing.xl,
@@ -719,4 +836,12 @@ const styles = StyleSheet.create({
     cancelButtonText: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
     saveButton: { backgroundColor: colors.foreground, borderRadius: borderRadius.full, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, ...shadows.sm },
     saveButtonText: { ...typography.button },
+    deleteActionButton: {
+        backgroundColor: colors.error,
+        borderRadius: borderRadius.full,
+        paddingHorizontal: spacing.xl,
+        paddingVertical: spacing.md,
+        ...shadows.sm,
+    },
+    deleteActionButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

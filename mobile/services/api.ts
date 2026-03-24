@@ -371,6 +371,11 @@ class ApiService {
         return response.data;
     }
 
+    async dismissPostSubscriptionOnboarding() {
+        const response = await this.client.post('users/post-subscription-onboarding/dismiss');
+        return response.data;
+    }
+
     async getScanHistory() {
         const response = await this.client.get('scans/history');
         return response.data;

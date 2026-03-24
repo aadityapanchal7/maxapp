@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -50,11 +51,10 @@ export default function FaceScanScreen() {
     /** One face scan per account — block repeat visits to this screen. */
     useLayoutEffect(() => {
         if (user?.first_scan_completed) {
-            const target = isPaid ? 'FullResult' : 'BlurredResult';
             navigation.dispatch(
                 CommonActions.reset({
                     index: 0,
-                    routes: [{ name: target }],
+                    routes: [{ name: 'FaceScanResults' }],
                 }),
             );
         }
@@ -89,6 +89,31 @@ export default function FaceScanScreen() {
         });
     };
 
+    const pickFromLibrary = async () => {
+        try {
+            const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+            if (status !== 'granted') {
+                Alert.alert('Photos', 'Allow photo library access to upload a picture.');
+                return;
+            }
+            const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: false,
+                quality: 0.85,
+            });
+            if (result.canceled || !result.assets?.[0]?.uri) return;
+            const uri = result.assets[0].uri;
+            setUris((prev) => {
+                const next = [...prev];
+                next[stepIndex] = uri;
+                return next;
+            });
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Error', 'Could not open photo library.');
+        }
+    };
+
     const goNext = () => {
         if (stepIndex < STEPS.length - 1) setStepIndex((s) => s + 1);
     };
@@ -113,12 +138,11 @@ export default function FaceScanScreen() {
             await api.uploadScanTriple(f, l, r);
             setAnalysisStep(2);
             await refreshUser();
-            const target = isPaid ? 'FullResult' : 'BlurredResult';
             // Reset stack so a stable initial route + auth refresh can't pop us back to FaceScan.
             navigation.dispatch(
                 CommonActions.reset({
                     index: 1,
-                    routes: [{ name: 'FeaturesIntro' }, { name: target }],
+                    routes: [{ name: 'FeaturesIntro' }, { name: 'FaceScanResults' }],
                 }),
             );
             didLeaveScan = true;
@@ -174,10 +198,16 @@ export default function FaceScanScreen() {
 
             <View style={styles.actions}>
                 {!hasCurrent && (
-                    <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.85}>
-                        <Ionicons name="camera" size={22} color={colors.background} style={{ marginRight: 8 }} />
-                        <Text style={styles.primaryBtnText}>Capture</Text>
-                    </TouchableOpacity>
+                    <View style={styles.captureRow}>
+                        <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.85}>
+                            <Ionicons name="camera" size={22} color={colors.background} style={{ marginRight: 8 }} />
+                            <Text style={styles.primaryBtnText}>Capture</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.uploadBtn} onPress={pickFromLibrary} activeOpacity={0.85}>
+                            <Ionicons name="images-outline" size={22} color={colors.foreground} style={{ marginRight: 8 }} />
+                            <Text style={styles.uploadBtnText}>Upload</Text>
+                        </TouchableOpacity>
+                    </View>
                 )}
 
                 {hasCurrent && (
@@ -273,6 +303,19 @@ const styles = StyleSheet.create({
         minWidth: 140,
     },
     primaryBtnText: { ...typography.button, color: colors.background },
+    uploadBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: spacing.xl,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        minWidth: 140,
+    },
+    uploadBtnText: { ...typography.button, color: colors.foreground },
     secondaryBtn: {
         paddingVertical: 14,
         paddingHorizontal: spacing.xl,

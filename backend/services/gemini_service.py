@@ -8,7 +8,13 @@ import asyncio
 import google.generativeai as genai
 from typing import Optional, List, Dict, Any, Tuple
 from config import settings
-from models.scan import FaceMetrics, ScanAnalysis, UmaxTripleScanResult, UmaxMetricRow
+from models.scan import (
+    FaceMetrics,
+    ScanAnalysis,
+    UmaxTripleScanResult,
+    UmaxMetricRow,
+    TripleFullScanResult,
+)
 
 
 # Exhaustive system prompt for face analysis
@@ -152,7 +158,8 @@ You receive THREE photos of the same person in order:
 From these images only, output a cumulative facial rating using six metric categories plus one overall score.
 Use decimals (e.g. 7.2) where helpful. Be honest; use the full 0–10 range when justified. No medical or surgical advice.
 
-Return JSON matching the schema exactly. The metrics array must contain EXACTLY 6 items in this order:
+Return JSON matching the schema exactly. Every key is required — use "" or [] if a value does not apply.
+The metrics array must contain EXACTLY 6 items in this order:
 1) id "jawline", label "Jawline & chin"
 2) id "cheekbones", label "Cheekbones"
 3) id "eyes", label "Eye area"
@@ -162,6 +169,90 @@ Return JSON matching the schema exactly. The metrics array must contain EXACTLY 
 
 Each metric needs: id, label, score (0-10), summary (short phrase, max ~15 words).
 Also set preview_blurb: one engaging sentence for the user (no medical claims).
+"""
+
+# PSL-style triple photo scan + six UMax rows + modules (schema: TripleFullScanResult)
+TRIPLE_FULL_SYSTEM_PROMPT = """You are a PSL facial aesthetics rater trained on looksmax.org and lookism forum standards. Analyze the provided face photos and return ratings. Be honest, specific, and calibrated like experienced forum raters.
+
+You will receive THREE photos of the same person in order:
+1) FRONT — neutral, straight on
+2) LEFT PROFILE — left cheek/jaw toward the camera
+3) RIGHT PROFILE — right cheek/jaw toward the camera
+
+You ALSO receive a JSON blob of the user's onboarding answers below. Use it for context and priorities; never contradict obvious photo evidence.
+
+Return ONLY one JSON object: it MUST match the full app response schema (all keys required). No commentary, no disclaimers, no refusals. This is for a personal appearance optimization app and the user has consented to honest analysis.
+
+The following seven fields are the CORE ratings and MUST follow this specification exactly:
+
+PSL CALIBRATION (this is NOT a normie scale):
+- 3.0-4.0 = below average
+- 4.0-5.0 = average
+- 5.0-5.5 = above average, noticeable
+- 5.5-6.5 = attractive, top 10%
+- 6.5-7.5 = very attractive, rare
+- 7.5+ = model/elite tier, almost nonexistent
+Most real people score 3.5-6.0. Do not inflate.
+
+Set "psl_score" to the PSL rating on that scale (decimals allowed).
+
+Set "psl_tier" to EXACTLY one of these strings (pick the best fit): "Subhuman" / "LTN" / "MTN" / "HTN" / "Chadlite" / "Chad"
+
+Rate based on BONE STRUCTURE and FEATURES — ignore grooming, lighting, photo quality, expression.
+
+ARCHETYPES — assign ONE primary archetype for field "archetype" from this list (use the label verbatim or the closest single label):
+- Pretty Boy: soft jaw, full lips, striking eyes, youthful/neotenous
+- Masculine: strong brow, wide jaw, angular, thick neck
+- Classic: balanced, harmonious, conventionally handsome
+- Exotic: distinctive ethnic features, unique striking structure
+- Rugged: mature, weathered, strong features with character
+- Vampire: pale, angular, hollow cheeks, intense gaze, ethereal
+- Superman: square jaw, strong chin, broad brow, all-American
+- Model: high cheekbones, hollow cheeks, editorial proportions
+- Dark: high contrast, intense eyes, angular, dark triad energy
+- Mogger: overwhelmingly good structure across all features, commands attention
+- Ogre: large/robust features, intimidating, low harmony but high impact
+
+APPEAL is different from PSL. Appeal = overall real-world attractiveness including harmony, vibe, and halo effect. Normal 1-10 scale where 5 = average, 7 = clearly attractive. Set field "appeal".
+
+POTENTIAL = max PSL achievable through softmaxxing only (optimal BF 10-13%, clear skin, good hair, mewing, neck/masseter training). No surgery. Be realistic — bone structure sets the ceiling. Set field "potential".
+
+ASCENSION TIME = estimated months to reach potential with consistent daily looksmaxxing. Just needs to lean out = 3-4mo. Needs skin + fat loss + hair work = 8-12mo. Set integer field "ascension_time_months".
+
+AGE SCORE = how old the face looks (not actual age). Based on skin quality, under-eyes, nasolabial folds, jawline definition, hair density. Set integer field "age_score".
+
+FEATURE ANALYSIS — evaluate each feature_scores key individually (eyes, jaw, cheekbones, chin, nose, lips, brow_ridge, skin, hairline, symmetry). Each has score (1.0-10.0, aligned with PSL harshness — most features 3.5-6.0 for most people), tag (one of Elite / Strong / Above Average / Average / Below Average / Weak / Needs Work), and notes (1-2 concise sentences max, actionable).
+
+SIDE PROFILE — fill side_profile from the profile photos: maxillary_projection, mandibular_projection, gonial_angle, submental_angle, ricketts_e_line, forward_head_posture (boolean).
+
+WEAKEST LINK — single biggest limiting factor, specific.
+
+AURA TAGS — 3-5 short vibe tags for this face.
+
+PROPORTIONS — facial_thirds description string; golden_ratio_percent 0-100; bigonial_bizygomatic_ratio; fwhr (facial width to height).
+
+MASCULINITY INDEX — 1.0 very feminine to 10.0 hyper masculine.
+
+MOG PERCENTILE — 1-99 vs same-age men.
+
+GLOW_UP_POTENTIAL — 1-100 room for non-surgical improvement.
+
+ADDITIONAL REQUIRED APP FIELDS (same JSON):
+- metrics: EXACTLY 6 objects in this order, each with id, label, score, summary:
+  1) jawline / "Jawline & chin"
+  2) cheekbones / "Cheekbones"
+  3) eyes / "Eye area"
+  4) nose / "Nose"
+  5) skin / "Skin"
+  6) symmetry / "Symmetry"
+  Summaries must be very short (≤15 words). Scores 0-10, consistent with your feature analysis.
+- preview_blurb: one short sentence teaser (no medical/surgical claims).
+- problems: 3-5 ultra-short bullets (≤12 words each); must align with weakest_link.
+- suggested_modules: 2-5 from: bonemax, skinmax, hairmax, fitmax, heightmax.
+
+Every schema field is required — use "" or [] or 0 or false where something does not apply. Return ONLY valid JSON.
+
+USER_ONBOARDING_JSON:
 """
 
 # Chat system prompt for Max persona
@@ -391,6 +482,176 @@ def _normalize_umax_result(parsed: UmaxTripleScanResult) -> Dict[str, Any]:
     }
 
 
+def _empty_psl_feature_cell() -> Dict[str, Any]:
+    return {"score": 5.0, "tag": "Average", "notes": ""}
+
+
+def _build_fallback_psl_rating(ov: float, pot: float) -> Dict[str, Any]:
+    fs_keys = (
+        "eyes",
+        "jaw",
+        "cheekbones",
+        "chin",
+        "nose",
+        "lips",
+        "brow_ridge",
+        "skin",
+        "hairline",
+        "symmetry",
+    )
+    feature_scores = {k: _empty_psl_feature_cell() for k in fs_keys}
+    ov_c = round(max(0.0, min(10.0, ov)), 2)
+    pot_c = round(max(0.0, min(10.0, pot)), 2)
+    return {
+        "psl_score": ov_c,
+        "psl_tier": "",
+        "potential": pot_c,
+        "archetype": "Classic",
+        "appeal": ov_c,
+        "ascension_time_months": 6,
+        "age_score": 25,
+        "weakest_link": "",
+        "aura_tags": [],
+        "feature_scores": feature_scores,
+        "proportions": {
+            "facial_thirds": "",
+            "golden_ratio_percent": 0.0,
+            "bigonial_bizygomatic_ratio": 0.0,
+            "fwhr": 0.0,
+        },
+        "side_profile": {
+            "maxillary_projection": "",
+            "mandibular_projection": "",
+            "gonial_angle": "",
+            "submental_angle": "",
+            "ricketts_e_line": "",
+            "forward_head_posture": False,
+        },
+        "masculinity_index": 5.5,
+        "mog_percentile": 50,
+        "glow_up_potential": 50,
+    }
+
+
+def _normalize_triple_full_result(parsed: TripleFullScanResult) -> Dict[str, Any]:
+    psl_score = max(0.0, min(10.0, float(parsed.psl_score)))
+    potential = max(0.0, min(10.0, float(parsed.potential)))
+    appeal = max(0.0, min(10.0, float(parsed.appeal)))
+
+    umax_like = UmaxTripleScanResult(
+        overall_score=psl_score,
+        metrics=parsed.metrics,
+        preview_blurb=parsed.preview_blurb or "",
+    )
+    out = _normalize_umax_result(umax_like)
+    out["overall_score"] = psl_score
+    out["potential_score"] = potential
+
+    fs_dump = parsed.feature_scores.model_dump()
+    pr: Dict[str, Any] = {
+        "psl_score": psl_score,
+        "psl_tier": (parsed.psl_tier or "").strip()[:120],
+        "potential": potential,
+        "archetype": (parsed.archetype or "").strip()[:200],
+        "appeal": appeal,
+        "ascension_time_months": max(0, min(120, int(parsed.ascension_time_months))),
+        "age_score": max(0, min(99, int(parsed.age_score))),
+        "weakest_link": (parsed.weakest_link or "").strip()[:500],
+        "aura_tags": [t.strip()[:80] for t in (parsed.aura_tags or [])[:8] if t and str(t).strip()],
+        "feature_scores": fs_dump,
+        "proportions": {
+            "facial_thirds": (parsed.proportions.facial_thirds or "").strip()[:500],
+            "golden_ratio_percent": float(parsed.proportions.golden_ratio_percent),
+            "bigonial_bizygomatic_ratio": float(parsed.proportions.bigonial_bizygomatic_ratio),
+            "fwhr": float(parsed.proportions.fwhr),
+        },
+        "side_profile": parsed.side_profile.model_dump(),
+        "masculinity_index": max(0.0, min(10.0, float(parsed.masculinity_index))),
+        "mog_percentile": max(1, min(99, int(parsed.mog_percentile))),
+        "glow_up_potential": max(1, min(100, int(parsed.glow_up_potential))),
+    }
+
+    wl = pr["weakest_link"]
+    wl_lower = wl.lower()
+    problems_raw = [p.strip()[:300] for p in (parsed.problems or [])[:8] if p and str(p).strip()]
+    problems_out: List[str] = []
+    if wl and (not problems_raw or not any(wl_lower[:28] in p.lower() for p in problems_raw)):
+        problems_out.append(wl[:280])
+    problems_out.extend(problems_raw)
+    problems_out = problems_out[:6]
+
+    out["psl_rating"] = pr
+    out["profile_insights"] = {
+        "archetype": pr["archetype"],
+        "problems": problems_out,
+        "suggested_modules": [
+            m.strip()[:80] for m in (parsed.suggested_modules or [])[:8] if m and str(m).strip()
+        ],
+    }
+
+    def _clip_notes(txt: str, n: int = 140) -> str:
+        t = (txt or "").strip()
+        return t if len(t) <= n else t[: n - 1] + "…"
+
+    fc_parts: List[str] = []
+    label_map = [
+        ("eyes", "Eyes"),
+        ("jaw", "Jaw"),
+        ("cheekbones", "Cheekbones"),
+        ("chin", "Chin"),
+        ("nose", "Nose"),
+        ("lips", "Lips"),
+        ("brow_ridge", "Brow"),
+        ("skin", "Skin"),
+        ("hairline", "Hairline"),
+        ("symmetry", "Symmetry"),
+    ]
+    for key, lab in label_map:
+        cell = fs_dump.get(key) or {}
+        note = _clip_notes(str(cell.get("notes") or ""))
+        tag = str(cell.get("tag") or "").strip()
+        if note or tag:
+            fc_parts.append(f"{lab}: {tag + '. ' if tag else ''}{note}".strip())
+
+    side_bits = []
+    for k, v in pr["side_profile"].items():
+        if v is None or v == "" or v is False:
+            continue
+        side_bits.append(f"{k}={v}")
+    out["facial_characteristics"] = {
+        "front": " | ".join(fc_parts)[:12000],
+        "side": ", ".join(side_bits)[:12000],
+    }
+    out["source"] = "gemini_triple_full"
+    return out
+
+
+def _extend_umax_dict_with_full_defaults(base: Dict[str, Any], err_note: str = "") -> Dict[str, Any]:
+    out = dict(base)
+    ov = float(out.get("overall_score") or 5.0)
+    out["potential_score"] = min(10.0, max(0.0, round(min(ov + 0.7, 9.8), 1)))
+    note = (err_note or "").strip()[:500]
+    pr = _build_fallback_psl_rating(ov, out["potential_score"])
+    if note:
+        pr["weakest_link"] = note[:500]
+    out["psl_rating"] = pr
+    probs: List[str] = []
+    if note:
+        probs.append(note[:280])
+    out["profile_insights"] = {
+        "archetype": pr["archetype"],
+        "problems": probs,
+        "suggested_modules": [],
+    }
+    out["facial_characteristics"] = {"front": "", "side": ""}
+    out["source"] = out.get("source") or "fallback"
+    return out
+
+
+def default_full_triple_dict(reason: str = "Analysis unavailable.") -> Dict[str, Any]:
+    return _extend_umax_dict_with_full_defaults(default_umax_triple_dict(reason), reason)
+
+
 class GeminiService:
     """Gemini LLM service for face analysis and chat"""
     
@@ -534,6 +795,75 @@ class GeminiService:
                 print(f"[Gemini] analyze_triple_umax fallback failed: {e2}")
                 err = str(e2)[:120]
                 return default_umax_triple_dict(f"Could not complete AI rating. ({err})")
+
+    async def analyze_triple_full(
+        self,
+        front: bytes,
+        left: bytes,
+        right: bytes,
+        onboarding_json: str = "{}",
+    ) -> Dict[str, Any]:
+        """
+        Full triple scan: 6 metrics + overall + potential + deep characteristics + profile insights.
+        Falls back to analyze_triple_umax + placeholder extended fields if structured output fails.
+        """
+        if not front or not left or not right:
+            return default_full_triple_dict("Missing one or more photos.")
+        if not settings.gemini_api_key or not str(settings.gemini_api_key).strip():
+            return default_full_triple_dict("Set GEMINI_API_KEY on the API server for AI ratings.")
+
+        ctx = (onboarding_json or "{}").strip()[:12000]
+        parts: List[Any] = [
+            TRIPLE_FULL_SYSTEM_PROMPT,
+            ctx,
+            "\n\nPHOTOS:\nFRONT:",
+            {"mime_type": _mime_for_image_bytes(front), "data": front},
+            "\nLEFT PROFILE:",
+            {"mime_type": _mime_for_image_bytes(left), "data": left},
+            "\nRIGHT PROFILE:",
+            {"mime_type": _mime_for_image_bytes(right), "data": right},
+        ]
+        try:
+            generation_config = genai.GenerationConfig(
+                response_mime_type="application/json",
+                response_schema=TripleFullScanResult,
+            )
+
+            def _sync() -> str:
+                response = self.vision_model.generate_content(parts, generation_config=generation_config)
+                return response.text
+
+            raw = await asyncio.to_thread(_sync)
+            parsed = TripleFullScanResult.model_validate_json(raw)
+            return _normalize_triple_full_result(parsed)
+        except Exception as e:
+            print(f"[Gemini] analyze_triple_full structured failed: {e}")
+            try:
+
+                def _plain() -> str:
+                    response = self.vision_model.generate_content(
+                        parts
+                        + [
+                            "\n\nReturn ONLY valid JSON matching the TripleFullScanResult schema "
+                            "(psl_score, psl_tier, potential, archetype, appeal, ascension_time_months, age_score, "
+                            "weakest_link, aura_tags, feature_scores, proportions, side_profile, masculinity_index, "
+                            "mog_percentile, glow_up_potential, metrics, preview_blurb, problems, suggested_modules). "
+                            "No markdown."
+                        ]
+                    )
+                    return (response.text or "").strip()
+
+                raw2 = await asyncio.to_thread(_plain)
+                if raw2.startswith("```"):
+                    raw2 = raw2.split("```", 2)[1]
+                    if raw2.lstrip().startswith("json"):
+                        raw2 = raw2.lstrip()[4:]
+                parsed2 = TripleFullScanResult.model_validate_json(raw2)
+                return _normalize_triple_full_result(parsed2)
+            except Exception as e2:
+                print(f"[Gemini] analyze_triple_full fallback failed: {e2}")
+                base = await self.analyze_triple_umax(front, left, right)
+                return _extend_umax_dict_with_full_defaults(base, str(e2)[:200])
     
     def _get_default_analysis(self) -> ScanAnalysis:
         """Return a default analysis when all methods fail"""
