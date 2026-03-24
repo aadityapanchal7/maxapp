@@ -28,6 +28,15 @@ interface User {
         equipment?: string[];
         unit_system?: string;
         timezone?: string;
+        post_subscription_onboarding?: boolean;
+        facial_scan_summary?: {
+            overall_score?: number;
+            potential_score?: number;
+            archetype?: string;
+            suggested_modules?: string[];
+            scan_completed_at?: string;
+        };
+        [key: string]: unknown;
     };
     profile: {
         current_level: number;

@@ -320,22 +320,86 @@ class ScanAnalysis(BaseModel):
 class UmaxMetricRow(BaseModel):
     """One row on the pre-pay UMax-style results screen.
 
-    Note: No Field(ge/le/max_length) — Gemini response_schema rejects JSON-Schema
-    maximum/minimum for some types. Clamp scores in code after parse.
+    Note: No Field(ge/le/default_factory) — Gemini response_schema rejects JSON-Schema
+    maximum/minimum/default for some types. Clamp scores in code after parse.
     """
 
     id: str
     label: str
     score: float
-    summary: str = ""
+    summary: str
 
 
 class UmaxTripleScanResult(BaseModel):
     """Structured Gemini output for front + left + right photos."""
 
     overall_score: float
-    metrics: List[UmaxMetricRow] = Field(default_factory=list)
-    preview_blurb: str = ""
+    metrics: List[UmaxMetricRow]
+    preview_blurb: str
+
+
+class PslFeatureCell(BaseModel):
+    """One feature row in PSL breakdown (Gemini schema: all keys required)."""
+
+    score: float
+    tag: str
+    notes: str
+
+
+class PslFeatureScoresBlock(BaseModel):
+    eyes: PslFeatureCell
+    jaw: PslFeatureCell
+    cheekbones: PslFeatureCell
+    chin: PslFeatureCell
+    nose: PslFeatureCell
+    lips: PslFeatureCell
+    brow_ridge: PslFeatureCell
+    skin: PslFeatureCell
+    hairline: PslFeatureCell
+    symmetry: PslFeatureCell
+
+
+class PslProportionsBlock(BaseModel):
+    facial_thirds: str
+    golden_ratio_percent: float
+    bigonial_bizygomatic_ratio: float
+    fwhr: float
+
+
+class PslSideProfileBlock(BaseModel):
+    maxillary_projection: str
+    mandibular_projection: str
+    gonial_angle: str
+    submental_angle: str
+    ricketts_e_line: str
+    forward_head_posture: bool
+
+
+class TripleFullScanResult(BaseModel):
+    """
+    PSL-style facial rating (single Gemini vision pass) + six UMax metric rows + app tags.
+    No Field(default=...) — Gemini response_schema rejects JSON-Schema defaults.
+    """
+
+    psl_score: float
+    psl_tier: str
+    potential: float
+    archetype: str
+    appeal: float
+    ascension_time_months: int
+    age_score: int
+    weakest_link: str
+    aura_tags: List[str]
+    feature_scores: PslFeatureScoresBlock
+    proportions: PslProportionsBlock
+    side_profile: PslSideProfileBlock
+    masculinity_index: float
+    mog_percentile: int
+    glow_up_potential: int
+    metrics: List[UmaxMetricRow]
+    preview_blurb: str
+    problems: List[str]
+    suggested_modules: List[str]
 
 
 # ============================================

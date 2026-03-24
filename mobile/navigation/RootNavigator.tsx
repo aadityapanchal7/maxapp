@@ -15,8 +15,8 @@ import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 import FeaturesIntroScreen from '../screens/onboarding/FeaturesIntroScreen';
 import FaceScanScreen from '../screens/scan/FaceScanScreen';
-import BlurredResultScreen from '../screens/scan/BlurredResultScreen';
-import FullResultScreen from '../screens/scan/FullResultScreen';
+import FaceScanResultsScreen from '../screens/scan/FaceScanResultsScreen';
+import ModuleSelectScreen from '../screens/scan/ModuleSelectScreen';
 import ScanDetailScreen from '../screens/scan/ScanDetailScreen';
 import PaymentScreen from '../screens/payment/PaymentScreen';
 import PaymentThankYouScreen from '../screens/payment/PaymentThankYouScreen';
@@ -58,8 +58,8 @@ export function RootNavigator() {
     const firstScanDone = user?.first_scan_completed === true;
 
     /**
-     * Pre-pay: Onboarding → FeaturesIntro → FaceScan → BlurredResult (UMax results) → Payment (from results only).
-     * If they already have a scan but aren’t paid, open on BlurredResult — never skip straight to Payment.
+     * Pre-pay: Onboarding → FeaturesIntro → FaceScan → FaceScanResults (locked) → Payment.
+     * Post-pay: optional FaceScanResults → ModuleSelect via onboarding.post_subscription_onboarding.
      */
     const initialRoute = !isAuthenticated
         ? 'Landing'
@@ -69,7 +69,7 @@ export function RootNavigator() {
                 ? !onboardingCompleted
                     ? 'Onboarding'
                     : firstScanDone
-                        ? 'BlurredResult'
+                        ? 'FaceScanResults'
                         : 'FeaturesIntro'
                 : 'Main';
 
@@ -99,8 +99,7 @@ export function RootNavigator() {
                     <Stack.Screen name="Onboarding" component={OnboardingScreen} />
                     <Stack.Screen name="FeaturesIntro" component={FeaturesIntroScreen} />
                     <Stack.Screen name="FaceScan" component={FaceScanScreen} />
-                    <Stack.Screen name="BlurredResult" component={BlurredResultScreen} />
-                    <Stack.Screen name="FullResult" component={FullResultScreen} />
+                    <Stack.Screen name="FaceScanResults" component={FaceScanResultsScreen} />
                     <Stack.Screen name="ScanDetail" component={ScanDetailScreen} />
                     <Stack.Screen name="Payment" component={PaymentScreen} />
                     <Stack.Screen name="PaymentThankYou" component={PaymentThankYouScreen} options={{ headerShown: false }} />
@@ -109,6 +108,8 @@ export function RootNavigator() {
             ) : (
                 <>
                     <Stack.Screen name="Main" component={TabNavigator} />
+                    <Stack.Screen name="FaceScanResults" component={FaceScanResultsScreen} />
+                    <Stack.Screen name="ModuleSelect" component={ModuleSelectScreen} />
                     <Stack.Screen name="Profile" component={ProfileScreen} />
                     <Stack.Screen name="EditPersonal" component={EditPersonalScreen} />
                     <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />

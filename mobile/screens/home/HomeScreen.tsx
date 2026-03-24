@@ -20,12 +20,36 @@ function getMaxxTagLabels(maxx: any): string[] {
 
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const [maxes, setMaxes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(20)).current;
+    const postPayRedirected = useRef(false);
+
+    useEffect(() => {
+        if (!(user?.onboarding as any)?.post_subscription_onboarding) {
+            postPayRedirected.current = false;
+        }
+    }, [user?.onboarding]);
+
+    useFocusEffect(
+        React.useCallback(() => {
+            const ob = user?.onboarding as { post_subscription_onboarding?: boolean } | undefined;
+            if (!ob?.post_subscription_onboarding || postPayRedirected.current) return;
+            postPayRedirected.current = true;
+            (async () => {
+                try {
+                    await refreshUser();
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    navigation.navigate('FaceScanResults', { postPay: true });
+                }
+            })();
+        }, [user?.onboarding, navigation, refreshUser]),
+    );
 
     useFocusEffect(React.useCallback(() => { loadData(); }, []));
 
