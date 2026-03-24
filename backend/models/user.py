@@ -3,8 +3,8 @@ User Models - Pydantic schemas for user data
 """
 
 import re
-from pydantic import AliasChoices, BaseModel, EmailStr, Field, field_validator
-from typing import Optional, List, Any
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_validator
+from typing import Optional, List, Any, Dict
 from datetime import datetime
 from enum import Enum
 
@@ -56,7 +56,10 @@ class GoalType(str, Enum):
 
 
 class OnboardingData(BaseModel):
-    """User onboarding questionnaire data"""
+    """User onboarding questionnaire data (JSON on User — extra keys allowed for forward compat)."""
+
+    model_config = ConfigDict(extra="allow")
+
     goals: List[GoalType] = Field(default_factory=list)
     experience_level: ExperienceLevel = ExperienceLevel.BEGINNER
     age: Optional[int] = None
@@ -72,11 +75,59 @@ class OnboardingData(BaseModel):
     wake_time: Optional[str] = Field(default=None, description="Usual wake time HH:MM (24h), e.g. 07:00")
     sleep_time: Optional[str] = Field(default=None, description="Usual sleep time HH:MM (24h), e.g. 23:00")
     completed: bool = False
+    # Profile questionnaire v2 (collected before pay in app flow) — optional flag for clients
+    questionnaire_v2_completed: Optional[bool] = None
+    # Rank: face_structure, skin, hair, body, height (first = highest notification priority)
+    priority_order: Optional[List[str]] = None
+    appearance_concerns: Optional[List[str]] = None
+    waist_cm: Optional[float] = None
+    # Skin (conditional)
+    primary_skin_concern: Optional[str] = None
+    secondary_skin_concern: Optional[str] = None
+    skincare_routine_level: Optional[str] = None
+    # Hair (conditional)
+    hair_family_history: Optional[str] = None
+    hair_current_loss: Optional[str] = None
+    hair_treatments_current: Optional[str] = None
+    hair_side_effect_sensitivity: Optional[str] = None
+    # Fitness / FitMax (conditional)
+    fitmax_primary_goal: Optional[str] = None
+    fitmax_training_experience: Optional[str] = None
+    fitmax_equipment: Optional[str] = None
+    fitmax_workout_days_per_week: Optional[int] = None
+    preferred_workout_time: Optional[str] = Field(
+        default=None, description="HH:MM 24h — pre/post workout notifications"
+    )
+    screen_hours_daily: Optional[str] = None
+    scan_suggested_hair_focus: Optional[bool] = Field(
+        default=None, description="True if latest scan metrics hinted at hair as a weak area"
+    )
+    post_subscription_onboarding: Optional[bool] = Field(
+        default=None,
+        description="When True, client should show post-pay scan insights then module select once.",
+    )
+    facial_scan_summary: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Denormalized scan headline fields after first triple scan completes.",
+    )
 
-    @field_validator("height", "weight", mode="before")
+    @field_validator("height", "weight", "waist_cm", mode="before")
     @classmethod
     def parse_height_weight(cls, v: Any) -> Optional[float]:
         return _coerce_optional_body_metric(v)
+
+    @field_validator("fitmax_workout_days_per_week", mode="before")
+    @classmethod
+    def coerce_fitmax_days(cls, v: Any) -> Optional[int]:
+        if v is None or v == "":
+            return None
+        if isinstance(v, bool):
+            return None
+        try:
+            n = int(float(str(v).strip()))
+            return max(1, min(7, n))
+        except (ValueError, TypeError):
+            return None
 
 
 class UserProfile(BaseModel):

@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Optional
 
@@ -82,6 +83,12 @@ async def _maybe_notify_scan_whatsapp(user: Optional[User], overall_score: Optio
 def _overall_from_analysis(analysis: dict) -> float:
     if not isinstance(analysis, dict):
         return 0.0
+    pr = analysis.get("psl_rating")
+    if isinstance(pr, dict) and pr.get("psl_score") is not None:
+        try:
+            return float(pr["psl_score"])
+        except (TypeError, ValueError):
+            pass
     o = analysis.get("scan_summary", {}).get("overall_score")
     if o is None:
         o = analysis.get("metrics", {}).get("overall_score") if isinstance(analysis.get("metrics"), dict) else None
@@ -112,6 +119,8 @@ async def upload_scan_triple(
     if user_row and user_row.first_scan_completed:
         raise HTTPException(status_code=400, detail="You have already completed your face scan.")
 
+    onboarding_ctx = json.dumps(user_row.onboarding or {}, default=str) if user_row else "{}"
+
     front_data = await front.read()
     left_data = await left.read()
     right_data = await right.read()
@@ -138,7 +147,7 @@ async def upload_scan_triple(
     scan_id = str(scan_row.id)
 
     try:
-        analysis = await gemini_service.analyze_triple_umax(front_data, left_data, right_data)
+        analysis = await gemini_service.analyze_triple_full(front_data, left_data, right_data, onboarding_ctx)
         scan_row.analysis = analysis
         scan_row.processing_status = "completed"
         await db.commit()
@@ -146,6 +155,20 @@ async def upload_scan_triple(
         user = await db.get(User, user_uuid)
         if user and not user.first_scan_completed:
             user.first_scan_completed = True
+            ob = dict(user.onboarding or {})
+            pi = analysis.get("profile_insights") or {}
+            pr = analysis.get("psl_rating") if isinstance(analysis.get("psl_rating"), dict) else {}
+            ob["facial_scan_summary"] = {
+                "overall_score": analysis.get("overall_score"),
+                "psl_score": pr.get("psl_score"),
+                "psl_tier": pr.get("psl_tier"),
+                "appeal": pr.get("appeal"),
+                "potential_score": analysis.get("potential_score"),
+                "archetype": pi.get("archetype"),
+                "suggested_modules": pi.get("suggested_modules") or [],
+                "scan_completed_at": datetime.utcnow().isoformat() + "Z",
+            }
+            user.onboarding = ob
             await db.commit()
 
         overall_score = _overall_from_analysis(analysis)
@@ -241,7 +264,9 @@ async def analyze_scan(
         if not all([front_data, left_data, right_data]):
             raise HTTPException(status_code=500, detail="Failed to retrieve images")
 
-        analysis = await gemini_service.analyze_triple_umax(front_data, left_data, right_data)
+        user_orm = await db.get(User, user_uuid)
+        onboarding_ctx = json.dumps(user_orm.onboarding or {}, default=str) if user_orm else "{}"
+        analysis = await gemini_service.analyze_triple_full(front_data, left_data, right_data, onboarding_ctx)
         scan.analysis = analysis
         scan.processing_status = "completed"
         await db.commit()
@@ -333,13 +358,46 @@ async def get_latest_scan(
         if is_paid:
             response["analysis"] = scan.analysis
         else:
-            a = scan.analysis
+            a = scan.analysis or {}
             overall_score = _overall_from_analysis(a)
+            try:
+                pot = float(a.get("potential_score", overall_score))
+            except (TypeError, ValueError):
+                pot = overall_score
+            pot = max(0.0, min(10.0, pot))
+            pr = a.get("psl_rating") if isinstance(a.get("psl_rating"), dict) else {}
+            appeal = overall_score
+            try:
+                if pr.get("appeal") is not None:
+                    appeal = float(pr["appeal"])
+            except (TypeError, ValueError):
+                pass
+            appeal = max(0.0, min(10.0, appeal))
+            tier_s = pr.get("psl_tier") if isinstance(pr.get("psl_tier"), str) else ""
+            arch_s = pr.get("archetype") if isinstance(pr.get("archetype"), str) else ""
+            try:
+                asc_m = int(pr.get("ascension_time_months") or 0)
+            except (TypeError, ValueError):
+                asc_m = 0
+            try:
+                age_s = int(pr.get("age_score") or 0)
+            except (TypeError, ValueError):
+                age_s = 0
             response["analysis"] = {
                 "overall_score": overall_score,
+                "potential_score": pot,
                 "scan_summary": a.get("scan_summary") or {"overall_score": overall_score},
                 "umax_metrics": a.get("umax_metrics"),
                 "preview_blurb": a.get("preview_blurb"),
+                "psl_rating": {
+                    "psl_score": overall_score,
+                    "potential": pot,
+                    "appeal": appeal,
+                    "psl_tier": tier_s,
+                    "ascension_time_months": max(0, min(120, asc_m)),
+                    "age_score": max(0, min(99, age_s)),
+                    "archetype": arch_s[:200] if arch_s else "",
+                },
                 "locked": True,
             }
 

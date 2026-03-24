@@ -7,8 +7,9 @@ import asyncio
 import copy
 import json
 import logging
+import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional, List
 from zoneinfo import ZoneInfo
 from uuid import UUID
@@ -24,6 +25,13 @@ from services.guideline_service import (
     resolve_concern,
     build_protocol_prompt_section,
     build_heightmax_protocol_section,
+)
+from services.maxx_guidelines import (
+    build_bonemax_prompt_section,
+    build_fitmax_prompt_section,
+    build_hairmax_prompt_section,
+    build_heightmax_prompt_section,
+    build_skinmax_prompt_section,
 )
 from models.sqlalchemy_models import User, UserSchedule, Scan
 from models.rds_models import Course
@@ -177,8 +185,8 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
 3. Schedule morning tasks shortly after wake time and evening tasks with enough runway before sleep to actually get done.
 4. Spread weekly or higher-intensity tasks across different days.
-5. If the protocol involves outside exposure reminders, only add them when outside_today is true.
-6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only.
+5. If the protocol involves outside exposure reminders, only add them when outside_today is true (SkinMax: follow outdoor_frequency rules in the SkinMax notification engine — not the same as this bullet for other maxxes).
+6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only. **Exception — SkinMax:** do NOT add a generic wake check-in; the AM routine at wake+15 is the first ping (unless another active module already owns wake — then stagger per MULTI-ACTIVE-MODULES). **Exception — BoneMax:** mewing morning reset at **wake** is the first ping. **Exception — HeightMax:** morning decompression at **wake+20** is the first HeightMax ping (merge with other modules per cross-module instructions when needed). **Exception — HairMax (thinning stack):** do NOT use a generic wake-only check-in; first pings are **finasteride (if oral path)** and/or **minoxidil at wake+15** per ramp phase (merge AM with SkinMax per HAIRMAX+SKINMAX when both active). **Exception — FitMax:** do NOT use a generic wake-only check-in; first daily FitMax anchor is **morning nutrition at wake+30** (merge with SkinMax AM when both active); on workout days add **pre-workout at workout−30m** (not a duplicate wake ping).
 7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
 8. task_type "routine" = core habit block, "reminder" = cue or anti-habit push, "checkpoint" = weekly treatment, harder session, or review.
 9. Keep daily routines consistent but vary weekly treatments, sprint sessions, and review tasks across days.
@@ -450,20 +458,6 @@ class ScheduleService:
                 raise ValueError("Select at least one height schedule component")
 
         guideline = await get_maxx_guideline_async(maxx_id, rds_db)
-        if not guideline and maxx_id == "fitmax":
-            guideline = {
-                "label": "Fitmax",
-                "protocols": {
-                    "recomp": {
-                        "label": "Recomposition",
-                        "cadence": "3-5 weekly sessions",
-                        "how_to": "Lift with progressive overload, keep protein high, and hold calories near maintenance.",
-                        "notification": "execute the session and close daily protein gap.",
-                        "blackpill": "consistency > perfect macros for one day.",
-                    }
-                },
-                "concern_mapping": {},
-            }
         if not guideline:
             raise ValueError(f"Unknown maxx: {maxx_id}")
 
@@ -477,36 +471,28 @@ class ScheduleService:
             concern = "bonemax_stack"
         elif maxx_id == "heightmax":
             concern = "heightmax_multi"
+        elif maxx_id == "fitmax":
+            protos_fm = guideline.get("protocols") or {}
+            if skin_concern and skin_concern in protos_fm:
+                concern = skin_concern
+            else:
+                from services.fitmax_notification_engine import resolve_fitmax_phase
+
+                concern = resolve_fitmax_phase(onboarding)
         else:
             concern = resolve_concern(guideline, skin_type, skin_concern)
 
-        if maxx_id == "heightmax":
-            protocol_section = build_heightmax_protocol_section(guideline, height_components)
-            active_labels: List[str] = []
-            if height_components:
-                for k, p in protos.items():
-                    if height_components.get(k, True) and isinstance(p, dict):
-                        active_labels.append(p.get("label", k))
-            else:
-                for k, p in protos.items():
-                    if isinstance(p, dict):
-                        active_labels.append(p.get("label", k))
-            if active_labels:
-                height_track_footer = (
-                    "\n## HEIGHTMAX — ENABLED TRACKS ONLY\n"
-                    "Only schedule tasks, reminders, and checkpoints that belong to these user-selected tracks. "
-                    "Do not add tasks for tracks the user did not select.\n"
-                    f"Enabled tracks: {', '.join(active_labels)}.\n"
-                )
-            else:
-                height_track_footer = ""
-        else:
-            protocol_section = build_protocol_prompt_section(guideline, concern)
-            height_track_footer = ""
+        profile_hint = ""
         if maxx_id == "skinmax":
             profile_hint = skin_type
         elif maxx_id == "bonemax":
             profile_hint = "bonemax"
+        elif maxx_id == "heightmax":
+            profile_hint = "heightmax"
+        elif maxx_id == "hairmax":
+            profile_hint = concern or "hairmax"
+        elif maxx_id == "fitmax":
+            profile_hint = concern or "fitmax"
         else:
             profile_hint = onboarding.get("goal", "none")
 
@@ -533,6 +519,24 @@ class ScheduleService:
                 profile_parts.append(f"Mastic or hard gum regularly: {gum}")
             if scr:
                 profile_parts.append(f"Heavy computer/phone screen time: {scr}")
+        if maxx_id == "heightmax":
+            gp = onboarding.get("growth_plate_status") or onboarding.get("heightmax_growth_plate_status")
+            if gp:
+                profile_parts.append(f"Growth plate status: {gp}")
+            hg = onboarding.get("heightmax_goal") or onboarding.get("height_goal")
+            if hg:
+                profile_parts.append(f"Height goal: {hg}")
+            wds = onboarding.get("heightmax_workout_schedule") or onboarding.get("workout_days_time")
+            if wds:
+                profile_parts.append(f"Workout schedule: {wds}")
+            if onboarding.get("heightmax_stretching_decompression") is not None:
+                profile_parts.append(f"Already stretching/decompression: {onboarding.get('heightmax_stretching_decompression')}")
+            sq = onboarding.get("heightmax_sleep_quality") or onboarding.get("sleep_quality")
+            if sq:
+                profile_parts.append(f"Sleep quality (self): {sq}")
+            sh = onboarding.get("heightmax_screen_hours")
+            if sh:
+                profile_parts.append(f"Screen hours/day: {sh}")
         if maxx_id == "hairmax":
             ht = override_hair_type or onboarding.get("hair_type")
             ss = override_scalp_state or onboarding.get("scalp_state")
@@ -548,6 +552,35 @@ class ScheduleService:
                 profile_parts.append(f"Daily styling/products most days: {ds}")
             if th is not None and str(th).strip() != "":
                 profile_parts.append(f"Thinning/receding: {th}")
+            tier_h = onboarding.get("hairmax_treatment_tier") or onboarding.get("hair_treatment_tier")
+            if tier_h is not None:
+                profile_parts.append(f"Hair treatment tier: {tier_h}")
+            if onboarding.get("hair_finasteride_sensitive") or onboarding.get("hairmax_fin_sensitive"):
+                profile_parts.append("Finasteride: side-effect sensitive / concerned")
+            if onboarding.get("hair_topical_fin_only") or onboarding.get("hairmax_topical_fin_only"):
+                profile_parts.append("Hair stack: topical finasteride path (no oral)")
+        if maxx_id == "fitmax":
+            for key, lbl in (
+                ("fitmax_body_fat_band", "Body fat band"),
+                ("estimated_body_fat", "Estimated body fat"),
+                ("fitmax_primary_goal", "Primary goal"),
+                ("fitmax_training_experience", "Training experience"),
+                ("fitmax_equipment", "Equipment"),
+                ("available_equipment", "Equipment (alt)"),
+                ("fitmax_workout_days_per_week", "Workout days/week"),
+                ("workout_days_per_week", "Workout days/week (alt)"),
+                ("fitmax_preferred_workout_time", "Preferred workout time"),
+                ("preferred_workout_time", "Preferred workout time (alt)"),
+                ("fitmax_diet_approach", "Diet approach"),
+                ("dietary_approach", "Diet approach (alt)"),
+            ):
+                v = onboarding.get(key)
+                if v is not None and str(v).strip() != "":
+                    profile_parts.append(f"{lbl}: {v}")
+            if onboarding.get("fitmax_supplements_opt_in") is not None:
+                profile_parts.append(f"Supplements opt-in: {onboarding.get('fitmax_supplements_opt_in')}")
+            if onboarding.get("fitmax_weeks_on_program") is not None:
+                profile_parts.append(f"Weeks on program (phase-in): {onboarding.get('fitmax_weeks_on_program')}")
         user_profile_context = ", ".join(profile_parts) if profile_parts else "No profile data yet."
 
         other_active_result = await db.execute(
@@ -558,6 +591,7 @@ class ScheduleService:
             )
         )
         other_active = list(other_active_result.scalars().all())
+        other_maxx_ids = [str(o.maxx_id) for o in other_active if o.maxx_id]
         if other_active:
             labels = [str(o.maxx_id or o.course_title or "module") for o in other_active]
             multi_module_instruction = (
@@ -569,6 +603,153 @@ class ScheduleService:
             )
         else:
             multi_module_instruction = ""
+        if maxx_id == "bonemax" and "skinmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## BONEMAX + SKINMAX\n"
+                "Merge morning mewing reset + SkinMax AM into **one** notification when both would land near wake; "
+                "merge mewing night check (bed−30) + SkinMax PM when both land in the pre-bed window. "
+                "**Max 10 notifications/day** across modules — drop lowest-priority tasks first per BoneMax engine.\n"
+            )
+        elif maxx_id == "skinmax" and "bonemax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## SKINMAX + BONEMAX\n"
+                "Prefer **one** merged morning block (mewing at wake + AM skincare) and **one** merged evening block when schedules overlap. "
+                "Stay under **10** total daily notifications.\n"
+            )
+        if maxx_id == "heightmax" and "bonemax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## HEIGHTMAX + BONEMAX\n"
+                "Merge **posture** notifications where exercises overlap; merge **evening sleep/posture** windows (bed−45 / bed−30) into one pre-bed block when possible; "
+                "one combined **supplement** reminder if both stacks apply. **Max 10** notifications/day.\n"
+            )
+        elif maxx_id == "bonemax" and "heightmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## BONEMAX + HEIGHTMAX\n"
+                "Merge posture and pre-bed blocks per HeightMax + BoneMax engine; dedupe supplement meal pings.\n"
+            )
+        if maxx_id == "heightmax" and "fitmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## HEIGHTMAX + FITMAX\n"
+                "Sprint days can align with workout days; schedule **decompression** after heavy axial lifting days; **max 10** notifications/day.\n"
+            )
+        elif maxx_id == "fitmax" and "heightmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## FITMAX + HEIGHTMAX\n"
+                "Respect HeightMax sprint + decompression timing around logged workouts; cap total daily notifications at **10**.\n"
+            )
+        if maxx_id == "hairmax" and "skinmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## HAIRMAX + SKINMAX\n"
+                "Merge AM/PM routines: **scalp (minoxidil) first**, then skin steps with required wait times (15 min AM after minox; 30 min PM). "
+                "**Never** scalp + face microneedling same day — stagger. **Max 10** notifications/day.\n"
+            )
+        elif maxx_id == "skinmax" and "hairmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## SKINMAX + HAIRMAX\n"
+                "Coordinate timing with minoxidil; one merged morning/evening block when possible. Stagger microneedling days. Cap **10**/day.\n"
+            )
+        if maxx_id == "fitmax" and "bonemax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## FITMAX + BONEMAX\n"
+                "Neck work lives in **BoneMax** — remove neck prescriptions from FitMax workouts. "
+                "Replace FitMax **midday posture** tips with **training/nutrition** tips (BoneMax owns posture). **Face pulls** stay in FitMax. Cap **10**/day.\n"
+            )
+        elif maxx_id == "bonemax" and "fitmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## BONEMAX + FITMAX\n"
+                "User lifts with FitMax — coordinate neck training with workout days; FitMax must not duplicate neck volume. Cap **10**/day.\n"
+            )
+        if maxx_id == "fitmax" and "skinmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## FITMAX + SKINMAX\n"
+                "Merge **wake+30** FitMax morning nutrition with SkinMax AM into **one** notification when possible.\n"
+            )
+        elif maxx_id == "skinmax" and "fitmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## SKINMAX + FITMAX\n"
+                "Merge morning blocks when times align; midday may note leanness → lower inflammation → clearer skin. Cap **10**/day.\n"
+            )
+        if maxx_id == "fitmax" and "hairmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## FITMAX + HAIRMAX\n"
+                "**Creatine** reminders: add hair/DHT caveat for users predisposed to loss. Cap **10**/day.\n"
+            )
+        elif maxx_id == "hairmax" and "fitmax" in other_maxx_ids:
+            multi_module_instruction += (
+                "\n## HAIRMAX + FITMAX\n"
+                "If creatine is mentioned in FitMax stack, respect hair-priority user choice. Cap **10**/day.\n"
+            )
+
+        if maxx_id == "heightmax":
+            tracks_body = build_heightmax_protocol_section(guideline, height_components)
+            active_labels: List[str] = []
+            if height_components:
+                for k, p in protos.items():
+                    if height_components.get(k, True) and isinstance(p, dict):
+                        active_labels.append(p.get("label", k))
+            else:
+                for k, p in protos.items():
+                    if isinstance(p, dict):
+                        active_labels.append(p.get("label", k))
+            if active_labels:
+                height_track_footer = (
+                    "\n## HEIGHTMAX — ENABLED TRACKS ONLY\n"
+                    "Only schedule tasks, reminders, and checkpoints that belong to these user-selected tracks. "
+                    "Do not add tasks for tracks the user did not select.\n"
+                    f"Enabled tracks: {', '.join(active_labels)}.\n"
+                )
+            else:
+                height_track_footer = ""
+            protocol_section = build_heightmax_prompt_section(
+                tracks_protocol_text=tracks_body,
+                height_track_footer=height_track_footer,
+                onboarding=onboarding,
+                wake_time=wake_time,
+                sleep_time=sleep_time,
+                age_val=age_val if override_age is not None else onboarding.get("age"),
+                other_active_maxx_ids=other_maxx_ids,
+            )
+            height_track_footer = ""
+        elif maxx_id == "skinmax":
+            protocol_section = build_skinmax_prompt_section(
+                concern,
+                onboarding=onboarding,
+                wake_time=wake_time,
+                sleep_time=sleep_time,
+                outside_today=outside_today,
+            )
+            height_track_footer = ""
+        elif maxx_id == "bonemax":
+            protocol_section = build_bonemax_prompt_section(
+                guideline,
+                onboarding=onboarding,
+                wake_time=wake_time,
+                sleep_time=sleep_time,
+                other_active_maxx_ids=other_maxx_ids,
+            )
+            height_track_footer = ""
+        elif maxx_id == "hairmax":
+            protocol_section = build_hairmax_prompt_section(
+                concern,
+                onboarding=onboarding,
+                wake_time=wake_time,
+                sleep_time=sleep_time,
+                other_active_maxx_ids=other_maxx_ids,
+            )
+            height_track_footer = ""
+        elif maxx_id == "fitmax":
+            protocol_section = build_fitmax_prompt_section(
+                concern,
+                guideline,
+                onboarding=onboarding,
+                wake_time=wake_time,
+                sleep_time=sleep_time,
+                other_active_maxx_ids=other_maxx_ids,
+            )
+            height_track_footer = ""
+        else:
+            protocol_section = build_protocol_prompt_section(guideline, concern)
+            height_track_footer = ""
 
         prompt = MAXX_SCHEDULE_PROMPT.format(
             maxx_label=guideline["label"],
@@ -584,22 +765,30 @@ class ScheduleService:
             multi_module_instruction=multi_module_instruction,
         )
 
+        tz_name = onboarding.get("timezone", "UTC")
+        try:
+            user_tz = ZoneInfo(tz_name)
+        except Exception:
+            user_tz = ZoneInfo("UTC")
+        start_date = datetime.now(user_tz).date()
+
         try:
             raw = await asyncio.to_thread(_sync_gemini_json_response, prompt)
             schedule_data = json.loads(raw)
         except Exception as e:
             logger.error(f"Gemini maxx schedule generation failed: {e}")
             schedule_data = self._generate_maxx_fallback(
-                maxx_id, num_days, wake_time, sleep_time, height_components
+                maxx_id,
+                num_days,
+                wake_time,
+                sleep_time,
+                height_components,
+                outside_today=outside_today,
+                onboarding=onboarding,
+                start_date=start_date,
+                hair_concern=concern if maxx_id == "hairmax" else None,
+                other_maxx_ids=other_maxx_ids,
             )
-
-        tz_name = onboarding.get("timezone", "UTC")
-        try:
-            user_tz = ZoneInfo(tz_name)
-        except Exception:
-            user_tz = ZoneInfo("UTC")
-
-        start_date = datetime.now(user_tz).date()
         for day in schedule_data.get("days", []):
             day_num = day.get("day_number", 1)
             day["date"] = (start_date + timedelta(days=day_num - 1)).isoformat()
@@ -628,7 +817,7 @@ class ScheduleService:
             "notification_minutes_before": 5,
         }
 
-        start_date_iso = datetime.now(user_tz).date().isoformat()
+        start_date_iso = start_date.isoformat()
         sched_ctx = {
             "selected_concern": concern,
             "skin_concern": concern,
@@ -638,6 +827,19 @@ class ScheduleService:
             "wake_time": wake_time,
             "sleep_time": sleep_time,
         }
+        if maxx_id == "skinmax":
+            for key in (
+                "outdoor_frequency",
+                "routine_level",
+                "secondary_skin_concern",
+                "dietary_restrictions",
+                "skin_hydration_notifications",
+                "exfoliation_weekday",
+                "retinoid_start_date",
+                "barrier_repair_started_at",
+            ):
+                if onboarding.get(key) is not None:
+                    sched_ctx[key] = onboarding[key]
         if maxx_id == "bonemax":
             sched_ctx.update(
                 {
@@ -647,8 +849,70 @@ class ScheduleService:
                     "bonemax_heavy_screen_time": (override_heavy_screen_time or onboarding.get("bonemax_heavy_screen_time") or ""),
                 }
             )
-        if maxx_id == "heightmax" and height_components is not None:
-            sched_ctx["height_components"] = {str(k): bool(v) for k, v in height_components.items()}
+            for key in (
+                "bonemax_workout_schedule",
+                "bonemax_screen_hours",
+                "bonemax_sleep_position",
+                "bonemax_current_habits",
+                "bonemax_meal_chewing_reminders",
+                "bonemax_bone_nutrition_opt_in",
+                "bonemax_hard_mewing",
+                "bonemax_mouth_breather",
+                "bonemax_weeks_on_routine",
+                "bonemax_masseter_time",
+            ):
+                if onboarding.get(key) is not None:
+                    sched_ctx[key] = onboarding[key]
+        if maxx_id == "heightmax":
+            if height_components is not None:
+                sched_ctx["height_components"] = {str(k): bool(v) for k, v in height_components.items()}
+            for key in (
+                "growth_plate_status",
+                "heightmax_growth_plate_status",
+                "heightmax_goal",
+                "height_goal",
+                "heightmax_workout_schedule",
+                "heightmax_workout_time",
+                "heightmax_stretching_decompression",
+                "heightmax_sleep_quality",
+                "heightmax_screen_hours",
+                "heightmax_height_nutrition_opt_in",
+                "heightmax_weeks_on_routine",
+            ):
+                if onboarding.get(key) is not None:
+                    sched_ctx[key] = onboarding[key]
+        if maxx_id == "hairmax":
+            for key in (
+                "hairmax_treatment_tier",
+                "hair_treatment_tier",
+                "hair_finasteride_sensitive",
+                "hairmax_fin_sensitive",
+                "hair_topical_fin_only",
+                "hairmax_topical_fin_only",
+                "hairmax_fin_dose_preference",
+                "hairmax_budget_band",
+                "hairmax_microneedling_weekday",
+                "hairmax_microneedling_time",
+                "hair_shed_tracking_opt_in",
+                "hair_fin_start_date",
+                "hairmax_months_on_treatment",
+            ):
+                if onboarding.get(key) is not None:
+                    sched_ctx[key] = onboarding[key]
+        if maxx_id == "fitmax":
+            for key in (
+                "fitmax_body_fat_band",
+                "fitmax_primary_goal",
+                "fitmax_training_experience",
+                "fitmax_equipment",
+                "fitmax_workout_days_per_week",
+                "fitmax_preferred_workout_time",
+                "fitmax_diet_approach",
+                "fitmax_supplements_opt_in",
+                "fitmax_weeks_on_program",
+            ):
+                if onboarding.get(key) is not None:
+                    sched_ctx[key] = onboarding[key]
 
         schedule_row = UserSchedule(
             user_id=user_uuid,
@@ -678,14 +942,64 @@ class ScheduleService:
         wake_time: str,
         sleep_time: str,
         height_components: Optional[dict] = None,
+        *,
+        outside_today: bool = False,
+        onboarding: Optional[dict] = None,
+        start_date: Optional[date] = None,
+        hair_concern: Optional[str] = None,
+        other_maxx_ids: Optional[list[str]] = None,
     ) -> dict:
         """Fallback schedule when Gemini fails for maxx schedules."""
+        if maxx_id == "hairmax":
+            sd = start_date if start_date is not None else datetime.now(ZoneInfo("UTC")).date()
+            return self._generate_hairmax_fallback(
+                num_days,
+                wake_time,
+                sleep_time,
+                concern=hair_concern or "minoxidil",
+                onboarding=onboarding or {},
+                start_date=sd,
+            )
         if maxx_id == "heightmax":
-            return self._generate_heightmax_fallback(num_days, wake_time, sleep_time, height_components)
+            sd = start_date if start_date is not None else datetime.now(ZoneInfo("UTC")).date()
+            return self._generate_heightmax_fallback(
+                num_days,
+                wake_time,
+                sleep_time,
+                height_components,
+                onboarding=onboarding or {},
+                start_date=sd,
+            )
         if maxx_id == "bonemax":
-            return self._generate_bonemax_fallback(num_days, wake_time, sleep_time)
+            sd = start_date if start_date is not None else datetime.now(ZoneInfo("UTC")).date()
+            return self._generate_bonemax_fallback(
+                num_days,
+                wake_time,
+                sleep_time,
+                onboarding=onboarding or {},
+                start_date=sd,
+            )
         if maxx_id == "fitmax":
-            return self._generate_fitmax_fallback(num_days, wake_time, sleep_time)
+            sd = start_date if start_date is not None else datetime.now(ZoneInfo("UTC")).date()
+            return self._generate_fitmax_fallback(
+                num_days,
+                wake_time,
+                sleep_time,
+                onboarding=onboarding or {},
+                start_date=sd,
+                other_maxx_ids=other_maxx_ids or [],
+            )
+        if maxx_id == "skinmax":
+            from services.skinmax_notification_engine import get_skinmax_slot_times
+
+            sd = start_date if start_date is not None else datetime.now(ZoneInfo("UTC")).date()
+            return self._generate_skinmax_fallback(
+                num_days,
+                get_skinmax_slot_times(wake_time, sleep_time),
+                outside_today=outside_today,
+                onboarding=onboarding or {},
+                start_date=sd,
+            )
 
         days = []
         wh, wm = map(int, wake_time.split(":"))
@@ -727,64 +1041,328 @@ class ScheduleService:
 
         return {"days": days}
 
-    def _generate_fitmax_fallback(self, num_days: int, wake_time: str, sleep_time: str) -> dict:
-        days = []
-        wh, wm = map(int, wake_time.split(":"))
-        preworkout_h = 17
-        postworkout_h = 20
-        evening_h = 20
-        split = ["Push", "Pull", "Legs", "Rest", "Upper", "Lower", "Rest"]
+    def _generate_skinmax_fallback(
+        self,
+        num_days: int,
+        slots: dict,
+        *,
+        outside_today: bool,
+        onboarding: dict,
+        start_date: date,
+    ) -> dict:
+        """Deterministic SkinMax-shaped days when Gemini fails (engine-aligned slot times)."""
+        ob = onboarding or {}
+        freq = str(ob.get("outdoor_frequency", "sometimes")).lower()
+        hydration_on = ob.get("skin_hydration_notifications", True)
+        exfol_raw = ob.get("exfoliation_weekday", 2)
+        if isinstance(exfol_raw, str):
+            key = exfol_raw.strip().lower()[:3]
+            dow_map = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+            exfol_dow = dow_map.get(key, 2)
+        else:
+            try:
+                exfol_dow = int(exfol_raw) % 7
+            except (TypeError, ValueError):
+                exfol_dow = 2
 
+        days: list = []
         for day_num in range(1, num_days + 1):
-            workout = split[(day_num - 1) % len(split)]
-            tasks = [
+            d = start_date + timedelta(days=day_num - 1)
+            wd = d.weekday()
+            tasks: list = [
                 {
                     "task_id": str(uuid.uuid4()),
-                    "time": f"{wh:02d}:{wm:02d}",
-                    "title": "Morning check-in",
-                    "description": f"{workout} day. confirm today's plan in chat and lock protein early.",
+                    "time": slots["am_routine"],
+                    "title": "SkinMax — AM routine",
+                    "description": "AM steps per your concern: cleanser → actives → moisturizer → SPF (see SkinMax protocol).",
+                    "task_type": "routine",
+                    "duration_minutes": 12,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["midday_tip"],
+                    "title": "SkinMax — midday micro-tip",
+                    "description": "7-day rotation tip (hands off face, water, pillowcase, phone, stress, sunglasses, diet).",
                     "task_type": "reminder",
                     "duration_minutes": 2,
                 },
             ]
-            if workout != "Rest":
+            include_spf = freq == "always" or (freq == "sometimes" and outside_today)
+            if include_spf:
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": f"{preworkout_h:02d}:15",
-                        "title": "Pre-workout nudge",
-                        "description": f"{workout} session soon. open the live tracker and hit your top lift while fresh.",
+                        "time": slots["spf_reapply"],
+                        "title": "SkinMax — SPF reapply",
+                        "description": "Reapply SPF ~3h after AM routine (per outdoor plan).",
                         "task_type": "reminder",
-                        "duration_minutes": 2,
-                    }
-                )
-                tasks.append(
-                    {
-                        "task_id": str(uuid.uuid4()),
-                        "time": f"{postworkout_h:02d}:00",
-                        "title": "Post-workout recovery",
-                        "description": "Log your session, rate how it felt, and get protein in within the next hour.",
-                        "task_type": "checkpoint",
                         "duration_minutes": 5,
                     }
                 )
+            if hydration_on:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["hydration"],
+                        "title": "SkinMax — hydration check",
+                        "description": "Water check — steady hydration supports skin barrier.",
+                        "task_type": "reminder",
+                        "duration_minutes": 1,
+                    }
+                )
+
+            is_exfol = wd == exfol_dow
             tasks.append(
                 {
                     "task_id": str(uuid.uuid4()),
-                    "time": f"{evening_h:02d}:00",
-                    "title": "Nutrition check",
-                    "description": "Review calories and remaining protein in chat. close the gap with a high-protein meal.",
-                    "task_type": "reminder",
-                    "duration_minutes": 3,
+                    "time": slots["pm_routine"],
+                    "title": (
+                        "SkinMax — weekly exfoliation (PM)"
+                        if is_exfol
+                        else "SkinMax — PM routine"
+                    ),
+                    "description": (
+                        "Exfoliation night per your concern — no retinoid. Limit time, rinse, moisturize."
+                        if is_exfol
+                        else "PM: retinoid night OR rest night per ramp (cleanser → treatment → moisturizer)."
+                    ),
+                    "task_type": "routine",
+                    "duration_minutes": 25 if is_exfol else 20,
                 }
             )
+
+            tasks.sort(key=lambda t: t.get("time") or "00:00")
+            extra = ""
+            if d.day == 1:
+                extra = " Monthly: progress photo at midday + check-in 30m after PM (add when AI schedule returns)."
             days.append(
                 {
                     "day_number": day_num,
                     "tasks": tasks,
-                    "motivation_message": f"day {day_num}: consistency beats intensity spikes. execute the basics.",
+                    "motivation_message": f"Day {day_num} — SkinMax fallback: times follow wake/bed engine.{extra}",
                 }
             )
+
+        return {"days": days}
+
+    def _generate_fitmax_fallback(
+        self,
+        num_days: int,
+        wake_time: str,
+        sleep_time: str,
+        *,
+        onboarding: Optional[dict] = None,
+        start_date: date,
+        other_maxx_ids: Optional[list[str]] = None,
+    ) -> dict:
+        """Fallback FitMax — engine anchors, phase-in, workout pattern."""
+        from services.fitmax_notification_engine import (
+            POSTURE_TIPS_10,
+            get_fitmax_slot_times,
+            resolve_fitmax_phase,
+        )
+
+        def _parse_days_per_week(ob: dict) -> int:
+            raw = ob.get("fitmax_workout_days_per_week") or ob.get("workout_days_per_week") or 4
+            try:
+                n = int(float(str(raw).strip().split()[0]))
+            except (ValueError, IndexError):
+                n = 4
+            return max(3, min(6, n))
+
+        def _workout_weekdays(n: int) -> set[int]:
+            if n <= 3:
+                return {0, 2, 4}
+            if n == 4:
+                return {0, 1, 3, 4}
+            if n == 5:
+                return {0, 1, 2, 3, 4}
+            return {0, 1, 2, 3, 4, 5}
+
+        def _split_labels(n: int, bonemax: bool) -> list[str]:
+            if n <= 3:
+                seq = ["Push + Shoulders", "Pull + Neck", "Legs + Core"]
+                if bonemax:
+                    seq[1] = "Pull + Upper back (neck in BoneMax)"
+                return seq
+            if n == 4:
+                return [
+                    "Upper (shoulder focus)",
+                    "Lower + posterior",
+                    "Upper (back focus)",
+                    "Lower + core",
+                ]
+            return ["Push (delts + face pulls)", "Pull (lats + rear delts)", "Legs + core"]
+
+        ob = onboarding or {}
+        oids = other_maxx_ids or []
+        bonemax = "bonemax" in oids
+        heightmax = "heightmax" in oids
+
+        wo = str(ob.get("fitmax_preferred_workout_time") or ob.get("preferred_workout_time") or "18:00").strip()[:5]
+        if ":" not in wo or len(wo) < 4:
+            wo = "18:00"
+
+        dpw = _parse_days_per_week(ob)
+        wdays = _workout_weekdays(dpw)
+        labels = _split_labels(dpw, bonemax)
+
+        raw_w = ob.get("fitmax_weeks_on_program")
+        if raw_w is None or str(raw_w).strip() == "":
+            weeks = 99
+        else:
+            try:
+                weeks = max(1, int(raw_w))
+            except (TypeError, ValueError):
+                weeks = 99
+        full_pm = weeks >= 3
+        full_posture = weeks >= 5
+        monthly_on = weeks >= 5
+
+        supp = bool(ob.get("fitmax_supplements_opt_in"))
+        duration = 75 if dpw >= 4 else 60
+        slots = get_fitmax_slot_times(wake_time, sleep_time, wo, duration)
+        phase = resolve_fitmax_phase(ob)
+        phase_blurb = {
+            "cut": "deficit + high protein",
+            "lean_bulk": "small surplus, slow weight gain",
+            "recomp": "maintenance calories, protein priority",
+            "maintain": "hold composition, stay consistent",
+        }.get(phase, "train + protein")
+
+        diet = str(ob.get("fitmax_diet_approach") or ob.get("dietary_approach") or "").lower()
+        no_track = any(x in diet for x in ("don't", "dont", "no track", "flex", "portion"))
+
+        workout_idx = 0
+        days: List[dict] = []
+        for day_num in range(1, num_days + 1):
+            d = start_date + timedelta(days=day_num - 1)
+            wd = d.weekday()
+            is_lift_day = wd in wdays
+            tasks: List[dict] = []
+
+            am_title = "FitMax — Morning nutrition"
+            if supp and full_pm:
+                am_title = "FitMax — Morning nutrition + supplements"
+            if no_track:
+                am_desc = (
+                    "Portion method: palm protein, fist carbs, thumb fat each meal — 3–4 meals, lean protein every time."
+                )
+            else:
+                am_desc = f"Phase **{phase}**: {phase_blurb}. Anchor protein at breakfast."
+            if supp and full_pm:
+                am_desc += " Creatine 5g (skip if hair-priority + HairMax — your call)."
+
+            tasks.append(
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["morning_nutrition"],
+                    "title": am_title,
+                    "description": am_desc,
+                    "task_type": "routine",
+                    "duration_minutes": 5,
+                }
+            )
+
+            if full_pm:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["evening_nutrition"],
+                        "title": "FitMax — Evening nutrition closeout",
+                        "description": "Protein target met? Calories over/under? Quick log in chat.",
+                        "task_type": "reminder",
+                        "duration_minutes": 3,
+                    }
+                )
+
+            if full_posture and not bonemax:
+                tip = POSTURE_TIPS_10[(d.toordinal() + day_num) % len(POSTURE_TIPS_10)]
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["midday_posture"],
+                        "title": "FitMax — Midday aesthetics tip",
+                        "description": tip,
+                        "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+            elif full_posture and bonemax:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["midday_posture"],
+                        "title": "FitMax — Training cue (BoneMax covers posture)",
+                        "description": "Hit top of rep range? Next session add 2.5–5 lb on lateral raises / isolations.",
+                        "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+
+            if wd == 0:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["monday_weigh_in"],
+                        "title": "FitMax — Weekly weigh-in",
+                        "description": "After bathroom, before food, same clothes. Log to 0.1.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
+
+            if d.day == 1 and monthly_on:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["monthly_body_check"],
+                        "title": "FitMax — Monthly body check",
+                        "description": "Photos (front/side/back + face front) + waist / shoulders / neck tape.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 15,
+                    }
+                )
+
+            if is_lift_day:
+                label = labels[workout_idx % len(labels)]
+                workout_idx += 1
+                pre_desc = (
+                    f"Today: **{label}**. Face pulls every session; lateral raises — light, controlled, high reps."
+                )
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["pre_workout"],
+                        "title": f"FitMax — Pre-workout ({label})",
+                        "description": pre_desc,
+                        "task_type": "reminder",
+                        "duration_minutes": 3,
+                    }
+                )
+                post_desc = "Protein 30–50g within 2h. Log sets/reps if you haven't."
+                if heightmax:
+                    post_desc += " After squats/deadlifts: optional 2 min dead hang."
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["post_workout"],
+                        "title": "FitMax — Post-workout",
+                        "description": post_desc,
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
+
+            tasks.sort(key=lambda t: t.get("time") or "00:00")
+            days.append(
+                {
+                    "day_number": day_num,
+                    "tasks": tasks,
+                    "motivation_message": f"Day {day_num} — FitMax fallback ({phase}); engine timings + phase-in rules.",
+                }
+            )
+
         return {"days": days}
 
     def _generate_heightmax_fallback(
@@ -793,247 +1371,524 @@ class ScheduleService:
         wake_time: str,
         sleep_time: str,
         height_components: Optional[dict] = None,
+        *,
+        onboarding: Optional[dict] = None,
+        start_date: date,
     ) -> dict:
-        """Fallback HeightMax schedule; optional height_components filters tracks (same keys as app toggles)."""
+        """Fallback HeightMax — heightmax_notification_engine slot math + track toggles."""
+
+        from services.heightmax_notification_engine import get_heightmax_slot_times
 
         def _on(key: str) -> bool:
             if not height_components:
                 return True
             return bool(height_components.get(key, True))
 
-        track_keys = (
-            "posturemaxxing",
-            "sprintmaxxing",
-            "deep_sleep_routine",
-            "decompress_lengthen",
-            "height_killers",
-            "look_taller_instantly",
-        )
-        any_selected = any(_on(k) for k in track_keys) if height_components else True
-        if height_components and not any_selected:
-            any_selected = True  # safety: behave like all on
+        def _sub_time(tstr: str, minutes: int) -> str:
+            h, m = map(int, tstr.split(":"))
+            total = h * 60 + m - minutes
+            total %= 24 * 60
+            return f"{total // 60:02d}:{total % 60:02d}"
 
-        days = []
-        wh, wm = map(int, wake_time.split(":"))
-        sh, sm = map(int, sleep_time.split(":"))
-        morning_minute = (wm + 10) % 60
-        morning_hour = wh + ((wm + 10) // 60)
-        wind_down_hour = max(0, sh - 3)
-        evening_hour = max(0, sh - 1)
-        posture_times = ["11:30", "16:30"]
-        sprint_days = {2, 4, 6}
+        def _add_time(tstr: str, minutes: int) -> str:
+            h, m = map(int, tstr.split(":"))
+            total = h * 60 + m + minutes
+            total %= 24 * 60
+            return f"{total // 60:02d}:{total % 60:02d}"
 
+        ob = onboarding or {}
+        slots = get_heightmax_slot_times(wake_time, sleep_time)
+        workout_t = (ob.get("heightmax_workout_time") or "18:00").strip()[:5]
+        if ":" not in workout_t:
+            workout_t = "18:00"
+        sprint_pre = _sub_time(workout_t, 30)
+        sprint_post = _add_time(workout_t, 60)
+        high_screen = False
+        scr = str(ob.get("heightmax_screen_hours") or ob.get("bonemax_heavy_screen_time") or "")
+        m_scr = re.search(r"(\d+)", scr)
+        if m_scr and int(m_scr.group(1)) >= 6:
+            high_screen = True
+        nutrition_on = bool(ob.get("heightmax_height_nutrition_opt_in"))
+
+        sprint_days = {1, 4, 6}
+
+        days: list = []
         for day_num in range(1, num_days + 1):
+            d = start_date + timedelta(days=day_num - 1)
+            wd = d.weekday()
             tasks: List[dict] = []
 
-            if any_selected:
-                tasks.append(
-                    {
-                        "task_id": str(uuid.uuid4()),
-                        "time": f"{wh:02d}:{wm:02d}",
-                        "title": "Morning Check-in",
-                        "description": "You're up. Own posture early and stop donating height to bad mechanics.",
-                        "task_type": "reminder",
-                        "duration_minutes": 1,
-                    }
-                )
             if _on("decompress_lengthen"):
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": f"{morning_hour:02d}:{morning_minute:02d}",
-                        "title": "Dead Hang + Decompress",
-                        "description": "Dead hang 2 x 20-30 sec, then open hips and hamstrings before desk posture crushes you.",
+                        "time": slots["morning_decompression"],
+                        "title": "HeightMax — Morning decompression",
+                        "description": "Dead hang, cobra, cat-cow, tadasana — 5–7 min. Spine is tallest in the morning.",
+                        "task_type": "routine",
+                        "duration_minutes": 7,
+                    }
+                )
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["evening_decompression"],
+                        "title": "HeightMax — Evening decompression",
+                        "description": "Undo daily compression: hang, twist, legs-up-wall or inversion, child's pose.",
                         "task_type": "routine",
                         "duration_minutes": 8,
                     }
                 )
+
             if _on("posturemaxxing"):
+                desc = "Wall test, chin tucks, shoulder squeezes, glute bridges — 3–4 min."
+                if _on("look_taller_instantly") and wd == 0:
+                    desc += " Softmax tip: fitted silhouette / vertical lines this week."
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": posture_times[(day_num - 1) % len(posture_times)],
-                        "title": "Posture Reset",
-                        "description": "Chin back x 10, ribs stacked over pelvis, shoulder blades down and back, then walk tall for 60 sec.",
-                        "task_type": "reminder",
-                        "duration_minutes": 3,
+                        "time": slots["midday_posture"],
+                        "title": "HeightMax — Midday posture reset",
+                        "description": desc,
+                        "task_type": "routine",
+                        "duration_minutes": 4,
                     }
                 )
+                if high_screen:
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": slots["afternoon_posture"],
+                            "title": "HeightMax — Afternoon posture slip check",
+                            "description": "Screen-heavy day: head back, shoulders open, phone at eye level.",
+                            "task_type": "reminder",
+                            "duration_minutes": 1,
+                        }
+                    )
+
             if _on("deep_sleep_routine"):
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": f"{wind_down_hour:02d}:{sm:02d}",
-                        "title": "Sleep Protection",
-                        "description": "No caffeine from here, stop the late sugar spiral, and set up the same bedtime again tonight.",
+                        "time": slots["sleep_protocol"],
+                        "title": "HeightMax — Sleep / GH protocol",
+                        "description": "Blue light off, cool room, no food <2h; blackout + back sleep + thin pillow.",
+                        "task_type": "routine",
+                        "duration_minutes": 5,
+                    }
+                )
+
+            if _on("sprintmaxxing") and day_num in sprint_days:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": sprint_pre,
+                        "title": "HeightMax — Sprint session soon",
+                        "description": "Warm-up then 6–8×30s sprints, full rest. No food 1h after.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 25,
+                    }
+                )
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": sprint_post,
+                        "title": "HeightMax — Post-sprint — eat window",
+                        "description": "High-protein meal within 30 min.",
                         "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+
+            if _on("height_killers"):
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": _add_time(slots["midday_posture"], 45),
+                        "title": "HeightMax — Height killer audit",
+                        "description": "Slouch, sitting load, sleep debt, under-eating — quick check.",
+                        "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+
+            if nutrition_on:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["height_nutrition"],
+                        "title": "HeightMax — Height nutrition (meal)",
+                        "description": "Protein + D3/K2/zinc/mag/collagen concept with a fat-containing meal — your stack.",
+                        "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+
+            if wd == 6 and _on("decompress_lengthen"):
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["weekly_measurement"],
+                        "title": "HeightMax — Weekly height measure",
+                        "description": "Sunday AM after routine: same wall/mark, mm precision.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
+
+            if d.day == 1:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["monthly_checkin"],
+                        "title": "HeightMax — Monthly review",
+                        "description": "Compare Sundays, posture feel, any stretch-related pain.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
+
+            tasks.sort(key=lambda t: t.get("time") or "00:00")
+            days.append(
+                {
+                    "day_number": day_num,
+                    "tasks": tasks,
+                    "motivation_message": f"Day {day_num} — HeightMax fallback uses engine timing; Tier 3 = reclaim only, no inch promises.",
+                }
+            )
+
+        return {"days": days}
+
+    def _generate_hairmax_fallback(
+        self,
+        num_days: int,
+        wake_time: str,
+        sleep_time: str,
+        *,
+        concern: str,
+        onboarding: dict,
+        start_date: date,
+    ) -> dict:
+        """Fallback HairMax when Gemini fails — engine slot times + concern-aware tasks."""
+        from services.hairmax_notification_engine import get_hairmax_slot_times
+
+        def _bed_minus_mins(bed: str, delta: int) -> str:
+            h, m = map(int, bed.split(":"))
+            t = h * 60 + m - delta
+            t %= 24 * 60
+            return f"{t // 60:02d}:{t % 60:02d}"
+
+        def _add_to_time(tstr: str, delta: int) -> str:
+            h, m = map(int, tstr.split(":"))
+            t = h * 60 + m + delta
+            t %= 24 * 60
+            return f"{t // 60:02d}:{t % 60:02d}"
+
+        slots = get_hairmax_slot_times(wake_time, sleep_time)
+        ob = onboarding or {}
+        topical_only = bool(ob.get("hair_topical_fin_only") or ob.get("hairmax_topical_fin_only"))
+        thinning_stack = concern in ("minoxidil", "dermastamp")
+        topical_pm_slot = _bed_minus_mins(sleep_time, 120)
+
+        days: list = []
+        for day_num in range(1, num_days + 1):
+            d = start_date + timedelta(days=day_num - 1)
+            wd = d.weekday()
+            tasks: List[dict] = []
+
+            if thinning_stack:
+                if topical_only:
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": topical_pm_slot,
+                            "title": "HairMax — Topical finasteride",
+                            "description": "Apply to thinning scalp at night — lower systemic load. Pair timing with minoxidil PM per your routine.",
+                            "task_type": "routine",
+                            "duration_minutes": 3,
+                        }
+                    )
+                else:
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": slots["finasteride"],
+                            "title": "HairMax — Finasteride",
+                            "description": "Daily dose per tier. 0.5mg ≈ 85–90% DHT suppression vs 1mg — staying on 0.5mg is valid if you prefer.",
+                            "task_type": "routine",
+                            "duration_minutes": 1,
+                        }
+                    )
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["minoxidil_am"],
+                        "title": "HairMax — Minoxidil AM",
+                        "description": "Foam preferred; 1ml to scalp; part hair; dry 15–20 min; no wash 4h; wash hands after.",
+                        "task_type": "routine",
                         "duration_minutes": 5,
                     }
                 )
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": f"{evening_hour:02d}:{sm:02d}",
-                        "title": "Night Height Routine",
-                        "description": "Screens off, posture relaxed, and get to bed on time so recovery isn't fake.",
+                        "time": slots["minoxidil_pm"],
+                        "title": "HairMax — Minoxidil PM",
+                        "description": "Liquid OK; dry 30–60 min before bed; keep off pillow.",
                         "task_type": "routine",
-                        "duration_minutes": 15,
+                        "duration_minutes": 5,
                     }
                 )
-            if _on("look_taller_instantly"):
+            else:
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": "13:00",
-                        "title": "Look Taller — Presentation",
-                        "description": "Quick mirror check: posture, outfit proportions, and how your frame reads. Presentation beats cope.",
+                        "time": slots["midday"],
+                        "title": f"HairMax — {concern.replace('_', ' ').title()} check-in",
+                        "description": "Follow your hair protocol for this concern (wash, oils, anti-dandruff, etc.).",
                         "task_type": "reminder",
                         "duration_minutes": 3,
                     }
                 )
 
-            if day_num in sprint_days and day_num <= num_days and _on("sprintmaxxing"):
+            tasks.append(
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["midday"],
+                    "title": "HairMax — Scalp micro-tip",
+                    "description": "Rotate tips: dry scalp, part to skin, no blow-dry right after minox, coverage includes crown.",
+                    "task_type": "reminder",
+                    "duration_minutes": 1,
+                }
+            )
+
+            if thinning_stack and wd in (0, 2, 4):
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": "17:30",
-                        "title": "Sprint Session",
-                        "description": "Warm up, then 6-10 sprints of 8-12 seconds with 60-90 sec rest. Keep it explosive, not cardio.",
+                        "time": _add_to_time(slots["finasteride"], 120),
+                        "title": "HairMax — Ketoconazole wash",
+                        "description": "2–3×/week medicated shampoo on scalp.",
+                        "task_type": "routine",
+                        "duration_minutes": 8,
+                    }
+                )
+
+            if thinning_stack and wd == 6 and day_num >= 8:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["microneedling_default"],
+                        "title": "HairMax — Microneedling session",
+                        "description": "Weekly scalp session — not same night as minoxidil (shift if conflict); stagger vs face microneedling. Resume minox after ~24h safe window.",
                         "task_type": "checkpoint",
                         "duration_minutes": 20,
                     }
                 )
-            elif _on("height_killers"):
+
+            if thinning_stack and day_num % 14 == 1:
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": "14:00",
-                        "title": "Height Killer Check",
-                        "description": "Audit slouching, under-eating, all-day sitting, and recovery debt before they flatten your frame.",
-                        "task_type": "reminder",
-                        "duration_minutes": 2,
+                        "time": _add_to_time(slots["minoxidil_am"], 45),
+                        "title": "HairMax — Bi-weekly progress photos",
+                        "description": "Same angles/lighting; wet hair OK for density.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 8,
                     }
                 )
 
-            tasks.sort(key=lambda t: t["time"])
+            if d.day == 1:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["midday"],
+                        "title": "HairMax — Monthly check-in",
+                        "description": "Compare photos, hair feel, sides, missed doses — per notification engine.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
 
+            tasks.sort(key=lambda t: t.get("time") or "00:00")
             days.append(
                 {
                     "day_number": day_num,
                     "tasks": tasks,
-                    "motivation_message": f"Day {day_num} — stop leaking inches and make your frame read the way it should.",
+                    "motivation_message": f"Day {day_num} — HairMax fallback: ramp phases + SkinMax merge rules apply when stacked.",
                 }
             )
 
         return {"days": days}
 
-    def _generate_bonemax_fallback(self, num_days: int, wake_time: str, sleep_time: str) -> dict:
-        """Fallback BoneMax schedule when Gemini fails — jaw/oral posture stack (no custom essays)."""
-        days = []
-        wh, wm = map(int, wake_time.split(":"))
-        sh, sm = map(int, sleep_time.split(":"))
-        midday_h = min(wh + 5, sh - 1) if sh > wh + 5 else max(wh + 2, min(12, sh - 1))
-        lunch_h = min(wh + 6, sh - 2) if sh > wh + 7 else max(wh + 3, min(13, sh - 2))
-        pm_h = max(wh + 1, min(sh - 2, wh + 8))
-        night_h = max(wh, sh - 1)
+    def _generate_bonemax_fallback(
+        self,
+        num_days: int,
+        wake_time: str,
+        sleep_time: str,
+        *,
+        onboarding: dict,
+        start_date: date,
+    ) -> dict:
+        """Fallback BoneMax when Gemini fails — aligned to bonemax_notification_engine slot math."""
+        from services.bonemax_notification_engine import get_bonemax_slot_times
 
+        def _add_minutes_to_str(tstr: str, delta: int) -> str:
+            h, m = map(int, tstr.split(":"))
+            total = h * 60 + m + delta
+            total %= 24 * 60
+            return f"{total // 60:02d}:{total % 60:02d}"
+
+        slots = get_bonemax_slot_times(wake_time, sleep_time)
+        ob = onboarding or {}
+        masseter_time = (ob.get("bonemax_masseter_time") or "").strip()
+        if masseter_time and ":" in masseter_time:
+            slots = {**slots, "masseter": masseter_time[:5]}
+        tmj_yes = str(ob.get("bonemax_tmj_history", "")).lower() in ("yes", "y", "true", "1")
+        bone_stack = bool(ob.get("bonemax_bone_nutrition_opt_in"))
+        high_screen = False
+        scr = str(ob.get("bonemax_heavy_screen_time") or ob.get("bonemax_screen_hours") or "")
+        m_scr = re.search(r"(\d+)", scr)
+        if m_scr and int(m_scr.group(1)) >= 6:
+            high_screen = True
+
+        days: list = []
         for day_num in range(1, num_days + 1):
-            tasks = [
+            d = start_date + timedelta(days=day_num - 1)
+            wd = d.weekday()
+            tasks: list = [
                 {
                     "task_id": str(uuid.uuid4()),
-                    "time": f"{wh:02d}:{wm:02d}",
-                    "title": "Morning Check-in",
-                    "description": "You're up. Lock tongue up, lips sealed, nasal breathing before the day wrecks your oral posture.",
+                    "time": slots["mewing_morning"],
+                    "title": "BoneMax — Mewing morning reset",
+                    "description": "👅 Tongue on palate, lips sealed, teeth light, chin tucked, 60s hold then passive. Nasal only.",
+                    "task_type": "routine",
+                    "duration_minutes": 2,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["facial"],
+                    "title": "BoneMax — Facial exercises (5 min)",
+                    "description": "Jaw push-outs, chin lifts, cheekbone presses, fish face — quick block after mewing set.",
+                    "task_type": "routine",
+                    "duration_minutes": 5,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["fascia_am"],
+                    "title": "BoneMax — Morning fascia / lymph",
+                    "description": "90s tap + drain paths; feather-light pressure.",
+                    "task_type": "routine",
+                    "duration_minutes": 2,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["masseter"],
+                    "title": "BoneMax — Masseter session",
+                    "description": (
+                        "Falim 10–15 min, premolar zone, switch sides q5min, stop if click/pain. TMJ history: keep ≤15 min Falim only."
+                        if tmj_yes
+                        else "Falim/mastic per your week band — slow reps, lips sealed, premolar zone, stop if click/pain."
+                    ),
+                    "task_type": "checkpoint",
+                    "duration_minutes": 15 if tmj_yes else 20,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": _add_minutes_to_str(slots["masseter"], 20),
+                    "title": "BoneMax — Masseter recovery check",
+                    "description": "Jaw worked but calm? Any clicking or one-sided soreness? Adjust next session per engine.",
+                    "task_type": "checkpoint",
+                    "duration_minutes": 1,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["mewing_midday"],
+                    "title": "BoneMax — Mewing midday reset (+ chin tucks if rest day)",
+                    "description": "30s tongue/lips/nose; stack head; unclench."
+                    + (" Add chin tucks 2×15 — no gym neck today." if day_num % 2 == 1 else " Gym day: you may skip chin tucks here if you hit neck post-workout."),
+                    "task_type": "routine",
+                    "duration_minutes": 3,
+                },
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["nasal"],
+                    "title": "BoneMax — Nasal breathing check",
+                    "description": "Mouth closed? 5 slow nasal breaths if not. Congestion: saline / light movement before forcing nasal only.",
                     "task_type": "reminder",
                     "duration_minutes": 1,
                 },
                 {
                     "task_id": str(uuid.uuid4()),
-                    "time": f"{wh:02d}:{min(59, wm + 8):02d}",
-                    "title": "Mewing Reset (30–60s)",
-                    "description": "Tongue flat on palate, light suction, chin slightly tucked, no mouth breathing. Passive, not max strain.",
-                    "task_type": "routine",
-                    "duration_minutes": 2,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{midday_h:02d}:30",
-                    "title": "Midday Oral Posture Reset",
-                    "description": "30s: tongue up, lips sealed, head stacked, jaw unclenched — especially after screens.",
-                    "task_type": "reminder",
-                    "duration_minutes": 1,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{lunch_h:02d}:00",
-                    "title": "Chewing Posture Cue",
-                    "description": "Meal: lips sealed, nasal breathing, slow chews, alternate sides, premolar bias. No clenching.",
-                    "task_type": "reminder",
-                    "duration_minutes": 2,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{min(wh + 1, sh - 1):02d}:15",
-                    "title": "Fascia / Lymph (AM)",
-                    "description": "Tapping jaw→cheeks→temples; drainage behind ears→neck→collarbone. Feather-light, neck upright.",
-                    "task_type": "routine",
-                    "duration_minutes": 4,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{min(wh + 1, sh - 1):02d}:45",
-                    "title": "Bone Support Stack (with food)",
-                    "description": "Take bone-support stack with breakfast (D3/K2/mag/zinc/boron concept — follow your actual supplement plan).",
-                    "task_type": "routine",
-                    "duration_minutes": 2,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{pm_h:02d}:00",
-                    "title": "Chin Tucks",
-                    "description": "2 sets of 10–15: chin straight back, no tilt. Fix forward-head look that hides the jaw.",
-                    "task_type": "routine",
-                    "duration_minutes": 6,
-                },
-                {
-                    "task_id": str(uuid.uuid4()),
-                    "time": f"{night_h:02d}:{sm:02d}",
-                    "title": "Night Oral Posture Check",
-                    "description": "30s: tongue up, lips closed, nasal route. Back sleep or at least not mouth-breathing open.",
+                    "time": slots["symmetry"],
+                    "title": "BoneMax — Symmetry habit check",
+                    "description": "Rotate weekly: shoulders, bag strap, chin on hand, jaw relaxed at rest, etc.",
                     "task_type": "reminder",
                     "duration_minutes": 1,
                 },
             ]
-            if day_num % 2 == 1:
-                tasks.insert(
-                    -1,
-                    {
-                        "task_id": str(uuid.uuid4()),
-                        "time": "15:30",
-                        "title": "Mastic / Masseter Session",
-                        "description": "Medium mastic, slow reps, lips sealed, split both sides, cap before form gets sloppy. Skip if jaw hurts or clicks.",
-                        "task_type": "checkpoint",
-                        "duration_minutes": 20,
-                    },
-                )
-            if day_num % 3 == 0:
-                nt_h = min(sh - 1, wh + 9)
+            if high_screen:
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": f"{nt_h:02d}:00",
-                        "title": "Neck Training Block",
-                        "description": "Light neck curls / extensions / side raises — controlled reps, no yanking. Stop if TMJ or neck pain spikes.",
-                        "task_type": "checkpoint",
-                        "duration_minutes": 15,
+                        "time": _add_minutes_to_str(slots["nasal"], 120),
+                        "title": "BoneMax — Nasal / posture (screen day)",
+                        "description": "Second check: screens pull head forward — reset nasal + chin back.",
+                        "task_type": "reminder",
+                        "duration_minutes": 1,
                     }
                 )
-            tasks.sort(key=lambda t: t["time"])
+            if wd not in (2, 6):
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["fascia_evening"],
+                        "title": "BoneMax — Evening fascia / lymph",
+                        "description": "2–3 min; jawline/cheeks/neck; finish downward to collarbone. Skip if SkinMax retinoid/exfol same night.",
+                        "task_type": "routine",
+                        "duration_minutes": 4,
+                    }
+                )
+            tasks.append(
+                {
+                    "task_id": str(uuid.uuid4()),
+                    "time": slots["mewing_night"],
+                    "title": "BoneMax — Mewing night check (+ sleep cues)",
+                    "description": "Tongue up, lips sealed, nasal. Bundle sleep position tip + optional mouth-tape note per onboarding.",
+                    "task_type": "routine",
+                    "duration_minutes": 2,
+                }
+            )
+            if bone_stack:
+                wh, wm = map(int, wake_time.split(":"))
+                bh = (wh + 1) % 24
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": f"{bh:02d}:{wm:02d}",
+                        "title": "BoneMax — Bone stack (with meal)",
+                        "description": "D3/K2/Mg/Zn/Boron/collagen concept — take with a fat-containing meal.",
+                        "task_type": "reminder",
+                        "duration_minutes": 1,
+                    }
+                )
+            if d.day == 1:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["mewing_midday"],
+                        "title": "BoneMax — Monthly bone check",
+                        "description": "Front + side photos, neck tape, jaw feel, TMJ month review.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 8,
+                    }
+                )
+            tasks.sort(key=lambda t: t.get("time") or "00:00")
             days.append(
                 {
                     "day_number": day_num,
                     "tasks": tasks,
-                    "motivation_message": f"Day {day_num} — bonemax is consistency: tongue, teeth, neck, chew volume.",
+                    "motivation_message": f"Day {day_num} — BoneMax fallback: engine slot times, cap notifications when stacking modules.",
                 }
             )
 

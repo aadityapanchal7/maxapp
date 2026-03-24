@@ -6,7 +6,7 @@ to generate personalised daily/weekly schedules.
 To add a new maxx, create a dict entry in MAXX_GUIDELINES with the same shape.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 # ---------------------------------------------------------------------------
 # Skin-type → primary concern mapping (used when user hasn't picked a concern)
@@ -453,16 +453,64 @@ BONEMAX_MODULES = [
     },
 ]
 
+# ---------------------------------------------------------------------------
+# FitMax — phase protocols (Cut / Lean bulk / Recomp / Maintain)
+# ---------------------------------------------------------------------------
+FITMAX_PROTOCOLS = {
+    "cut": {
+        "label": "Cut — deficit, preserve muscle, face gains",
+        "cadence": "Train 3–6×/week per user availability; pre-workout −30m, post +15m after session",
+        "how_to": "Caloric deficit (~TDEE−500), protein ≥1g/lb, train for hypertrophy with lateral raise + face pull volume every session pattern.",
+        "notification": "Anchor protein early; remind session focus + progressive overload when logs show top-of-range reps.",
+        "blackpill": "Face leanness is mostly kitchen + consistency; one perfect workout won't outrun a surplus.",
+    },
+    "lean_bulk": {
+        "label": "Lean bulk — small surplus, keep facial definition",
+        "cadence": "3–6×/week; monitor scale +0.5–1 lb/wk max",
+        "how_to": "TDEE+250–300, protein ~1g/lb, bias shoulders/back volume; deload when stalls.",
+        "notification": "Surplus discipline: if weight spikes >1 lb/wk, pull 200 kcal; hit protein every meal.",
+        "blackpill": "Fast bulk = fat face; slow surplus keeps jawline in the game.",
+    },
+    "recomp": {
+        "label": "Recomp — maintenance + high protein (beginner window)",
+        "cadence": "3–5×/week full-body or split per equipment",
+        "how_to": "Eat at maintenance, protein ~1g/lb, progressive overload on compounds + accessories.",
+        "notification": "Protein is the lever; sleep and steps support recomp more than macro perfectionism.",
+        "blackpill": "Recomp is real for novices — not for skipping protein or training like a tourist.",
+    },
+    "maintain": {
+        "label": "Maintain — sweet spot physique",
+        "cadence": "Keep training consistent; same notification anchors for habit glue",
+        "how_to": "TDEE maintenance, protein ~0.8–1g/lb, keep face pulls + shoulder volume as identity habits.",
+        "notification": "Consistency beats novelty; weekly weigh-in + monthly photos catch drift early.",
+        "blackpill": "Maintenance still needs structure — drifting off plan is how people 'accidentally' bulk.",
+    },
+}
+
+FITMAX_CONCERNS = [
+    {"id": "cut", "label": "Cut / get lean"},
+    {"id": "lean_bulk", "label": "Lean bulk"},
+    {"id": "recomp", "label": "Recomp"},
+    {"id": "maintain", "label": "Maintain"},
+]
+
 MAXX_GUIDELINES = {
     "skinmax": {
         "label": "SkinMax",
         "description": "AI-personalised skincare schedule based on your skin type and concerns.",
         "schedule_rules": {
-            "am_timing": "After waking up, when user usually does skincare",
-            "pm_timing": "1 hour before going to sleep so no substances rub off on pillow",
-            "sunscreen_reapply": "Every 3 hours while user is outside",
+            "engine": "skinmax_notification_engine_reference.md",
+            "am_routine": "wake_time + 15 minutes (never generic 'morning' without deriving from wake)",
+            "pm_routine": "bed_time - 60 minutes",
+            "midday_tip": "midpoint between AM routine and PM routine",
+            "hydration": "midday + 2 hours (toggle off via skin_hydration_notifications)",
+            "spf_reapply": "AM routine + 3 hours; only if outdoor_frequency is always or sometimes (sometimes + outside_today); never if rarely",
+            "quiet_hours": "No notifications between bed_time and wake_time",
+            "daily_budget": "min 3 (AM + midday + PM), max 5 notifications",
+            "weekly": "exfoliation on chosen weekday at PM time (replaces PM); pillowcase Sunday at midday time",
+            "monthly": "progress photo 1st at midday; check-in 1st at PM+30m",
+            "retinoid_ramp": "Automatic Mon/Thu → MWF → EOD → nightly per weeks since start; exfoliation day = rest night",
             "learn_patterns": True,
-            "wake_check": "Ask user to confirm they are awake each morning; if they say 'im awake' earlier or later, adjust",
         },
           "intake_questions": [
         "What time do you usually wake up AND go to sleep? (e.g., 7am / 11pm)"
@@ -480,11 +528,20 @@ MAXX_GUIDELINES = {
         "label": "Heightmax",
         "description": "Posture, recovery, and presentation rules that make your frame read taller.",
         "schedule_rules": {
-            "morning_decompression": "Schedule dead hangs and decompression work shortly after waking.",
-            "sleep_wind_down": "Push wind-down reminders 3 hours before bed for caffeine cutoff and 45 minutes before bed for screen cutoff.",
-            "posture_resets": "Add 1-2 posture reset reminders during the day rather than spamming notifications.",
-            "sprint_spacing": "Sprint sessions should be spaced with recovery days and not scheduled daily.",
-            "presentation_focus": "Favor posture, recovery, decompression, and visual presentation over fake bone-growth claims.",
+            "engine": "heightmax_notification_engine_reference.md",
+            "morning_decompression": "wake_time + 20 minutes",
+            "midday_posture": "midpoint(wake+15min, bed−60min) — same as BoneMax midday",
+            "afternoon_posture": "midday + 3 hours if 6+ hours screen/day at onboarding",
+            "evening_decompression": "bed_time − 90 minutes",
+            "sleep_gh_protocol": "bed_time − 45 minutes",
+            "sprint_reminder": "30 minutes before workout on sprint days (2–3×/week, non-consecutive)",
+            "height_nutrition": "wake+1h or wake+5h — only if user opted in",
+            "weekly_measurement": "Sunday wake + 30 minutes",
+            "monthly_checkin": "1st of month at midday posture time",
+            "quiet_hours": "No notifications between bed and wake",
+            "daily_cap": "Typically 6–7/day full stack; max 10/day with other modules",
+            "sprint_spacing": "Sprint sessions 2–3×/week, never consecutive days",
+            "presentation_focus": "Tier 3: no fake inch promises — posture/decompression reclamation only",
         },
         "modules": HEIGHTMAX_MODULES,
         "protocols": HEIGHTMAX_PROTOCOLS,
@@ -517,16 +574,64 @@ Blackpilled truth: {blackpill}
 
 """,
     },
+    "fitmax": {
+        "label": "FitMax",
+        "description": "Aesthetic hypertrophy, phased nutrition, body comp tracking, and face-gains framing — not powerlifting-first.",
+        "schedule_rules": {
+            "engine": "fitmax_notification_engine_reference.md",
+            "pre_workout": "preferred_workout_time − 30 minutes",
+            "post_workout": "estimated_workout_end + 15 minutes",
+            "morning_nutrition": "wake_time + 30 minutes",
+            "midday_aesthetics": "midpoint(wake+15min, bed−60min)",
+            "evening_nutrition": "bed_time − 2 hours",
+            "weekly_weigh_in": "Monday wake + 15 minutes",
+            "monthly_body_check": "1st of month at midday aesthetics time",
+            "quiet_hours": "No notifications between bed and wake",
+            "daily_cap": "5–6 workout days, 3–4 rest days; max 10/day with other modules",
+            "phase_in": "W1–2 training+AM nutrition+weigh-in; W3–4 +PM+supplements; W5+ +midday tips+monthly",
+            "learn_patterns": True,
+        },
+        "protocols": FITMAX_PROTOCOLS,
+        "concern_mapping": {},
+        "concern_question": "Body-composition phase is auto-routed from body fat + goal (Cut / Lean bulk / Recomp / Maintain).",
+        "concerns": FITMAX_CONCERNS,
+        "recurring": True,
+        "daily_tasks": True,
+        "weekly_tasks": True,
+        "protocol_prompt_template": """## FITMAX PROTOCOL — {label}
+Cadence: {cadence}
+How to do it: {how_to}
+Notification angle: {notification}
+Blackpilled truth: {blackpill}
+
+## SCHEDULE RULES
+- **Workout days:** pre-workout (−30m) + post-workout (+15m after estimated session end) only on scheduled lift days
+- **Daily:** morning nutrition (wake+30) + evening closeout (bed−2h); merge supplements at wake+30 if opted in
+- **Monday:** weekly weigh-in at wake+15; **1st of month:** body check at midday anchor
+- **Midday:** 10-day rotating aesthetics tip (omit posture overlap if BoneMax active — swap for training/nutrition tips)
+- **Phase routing:** use engine reference (BF% + goal → Cut / Lean bulk / Recomp / Maintain)
+- **No-track users:** portion-based guidance, no macro numbers in copy
+- **TDEE:** Mifflin–St Jeor; tune from weigh-in trends monthly
+- All tasks use **exact HH:MM** from wake, bed, and preferred workout time
+
+""",
+    },
     "hairmax": {
         "label": "HairMax",
         "description": "AI-personalised hair care schedule based on your hair type and concerns (thinning, wash routine, scalp health).",
         "schedule_rules": {
-            "wash_timing": "Based on hair type: straight/wavy 2-3x/week, curly less often with co-wash days",
-            "minoxidil_timing": "PM skincare time, before skincare routine. Daily non-negotiable.",
-            "dermastamp_timing": "Same day each week (habit lock), evening before bed. Never same night as minoxidil.",
-            "oil_timing": "1-2x/week, evening before wash day (overnight treatment)",
+            "engine": "hairmax_notification_engine_reference.md",
+            "minoxidil_am": "wake_time + 15 minutes",
+            "minoxidil_pm": "bed_time − 90 minutes",
+            "finasteride_daily": "typically wake + 30–45 min (user-adjustable); topical fin at night if oral skipped",
+            "ketoconazole": "2–3×/week on wash days only",
+            "microneedling": "1×/week; not same night as minoxidil (24h); stagger vs face microneedling if SkinMax active",
+            "midday": "midpoint(wake+15, bed−60) for monthly check-in (1st) and rotating tips",
+            "bloodwork": "Baseline ~3d after oral fin start, +180d, +365d — not daily",
+            "treatment_ramp": "M1 fin+keto → M2–3 +minox 2× → M4+ microneedling",
+            "quiet_hours": "No notifications between bed and wake",
+            "daily_cap": "~4–5/day full stack; max 10/day with other modules",
             "learn_patterns": True,
-            "thinning_escalation": "If user skips minoxidil, escalate notification tone",
         },
           "intake_questions": [
         "What time do you usually wake up AND go to sleep? (e.g., 7am / 11pm)"
@@ -566,12 +671,20 @@ Blackpilled truth: {blackpill}
         "label": "Bonemax",
         "description": "Facial bone / jawline stack: mewing, chewing form, fascia, bone nutrition, neck training, masseter gum.",
         "schedule_rules": {
-            "mewing_cues": "All-day soft oral posture reminders; morning/midday/night resets; optional hard mewing caps.",
-            "chewing_form": "Meal-time chewing posture cues; symmetrical, premolar-biased, closed mouth.",
-            "fascia_lymph": "Morning drainage; midday if puffy; evening sessions 4–5x/week.",
-            "bone_nutrition": "Stack with meals daily (concept: D3, K2, magnesium, zinc, boron).",
-            "neck_training": "After workouts / posture days; scale down if TMJ issues.",
-            "masseter_gum": "One main session/day max, volume caps; rest if jaw pain or clicking.",
+            "engine": "bonemax_notification_engine_reference.md",
+            "mewing_morning": "wake_time — first ping of the day",
+            "mewing_midday": "midpoint(wake+15min, bed−60min) — same active-day logic as SkinMax midday",
+            "mewing_night": "bed_time − 30 minutes — bundles sleep optimization + nasal night notes",
+            "facial_exercises": "wake + 15 minutes",
+            "fascia_morning": "wake + 20 minutes",
+            "fascia_evening": "bed − 90 minutes, 4–5×/week; skip on SkinMax retinoid/exfol nights when applicable",
+            "masseter_default": "user-chosen or wake + 2 hours",
+            "nasal_check": "midday mewing + 2h (2× if screen 6+h, max 2/day)",
+            "neck_training": "15 min after workout end on workout days; chin tucks in midday mewing on non-workout days",
+            "symmetry": "1×/day between midday and evening, weekly rotating tips",
+            "bone_nutrition": "1×/day at meal only if user opted in — no nag otherwise",
+            "quiet_hours": "No notifications between bed and wake",
+            "daily_cap": "Hard cap 10 notifications/day across all modules; use phased rollout 1→2→3",
             "learn_patterns": True,
         },
         "protocols": {
@@ -625,31 +738,265 @@ def resolve_skin_concern(skin_type: Optional[str], explicit_concern: Optional[st
     return SKIN_TYPE_TO_CONCERN.get(skin_type or "normal", "aging")
 
 
-def build_skinmax_prompt_section(concern: str) -> str:
-    """Build protocol text for the Gemini prompt."""
-    protocol = SKINMAX_PROTOCOLS.get(concern)
-    if not protocol:
-        protocol = SKINMAX_PROTOCOLS["aging"]
+def build_skinmax_prompt_section(
+    concern: str,
+    *,
+    onboarding: Optional[dict[str, Any]] = None,
+    wake_time: str = "",
+    sleep_time: str = "",
+    outside_today: bool = False,
+    for_coaching: bool = False,
+) -> str:
+    """
+    Build SkinMax text for Gemini schedule generation or coaching context.
+    When for_coaching=True, use a shorter notification-engine excerpt to save tokens.
+    """
+    from services.skinmax_notification_engine import (
+        SKINMAX_COACHING_REFERENCE,
+        SKINMAX_JSON_DIRECTIVES,
+        SKINMAX_NOTIFICATION_ENGINE_REFERENCE,
+        format_computed_anchor_times,
+        summarize_skinmax_onboarding,
+    )
 
-    return f"""## SKINCARE PROTOCOL — {protocol['label']}
+    protocol = SKINMAX_PROTOCOLS.get(concern) or SKINMAX_PROTOCOLS["aging"]
+    onboarding = onboarding or {}
+
+    base = f"""## SKINCARE PROTOCOL — {protocol['label']}
 AM Routine: {protocol['am']}
 PM Routine: {protocol['pm']}
 Weekly: {protocol['weekly']}
 Sunscreen: {protocol['sunscreen']}
+"""
+    profile = summarize_skinmax_onboarding(onboarding, wake_time, sleep_time, outside_today)
+    anchors = ""
+    if wake_time and sleep_time:
+        anchors = format_computed_anchor_times(wake_time, sleep_time)
 
-## SCHEDULE RULES
-- AM routine time = shortly after user wakes up
-- PM routine time = 1 hour before user goes to sleep (so nothing rubs off on pillow)
-- Sunscreen reapply reminders every 3 hours IF user will be outside that day
-- Weekly tasks (masks, exfoliants, peels) should be spread across the week
-- Learn the user's patterns and adapt over time
+    engine_body = SKINMAX_COACHING_REFERENCE if for_coaching else SKINMAX_NOTIFICATION_ENGINE_REFERENCE
 
-- All tasks MUST be anchored to the user's wake and sleep times
-- Do NOT output vague times like "morning" or "night"
-- Convert everything into exact clock times
+    if for_coaching:
+        return f"{base}\n{profile}\n{engine_body}\n"
 
-- Learn the user's patterns and adjust timing if they complete tasks early/late
-- If the user repeatedly skips steps, reduce friction and simplify the routine
+    return f"""{base}
+{profile}
+
+{anchors}
+
+## SKINMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
+{engine_body}
+
+{SKINMAX_JSON_DIRECTIVES}
+"""
+
+
+def build_bonemax_prompt_section(
+    guideline: dict,
+    *,
+    onboarding: Optional[dict[str, Any]] = None,
+    wake_time: str = "",
+    sleep_time: str = "",
+    other_active_maxx_ids: Optional[list[str]] = None,
+    for_coaching: bool = False,
+) -> str:
+    """
+    BoneMax schedule or coaching context: protocol stub + full notification engine reference.
+    """
+    from services.bonemax_notification_engine import (
+        BONEMAX_COACHING_REFERENCE,
+        BONEMAX_JSON_DIRECTIVES,
+        BONEMAX_NOTIFICATION_ENGINE_REFERENCE,
+        format_bonemax_anchor_times,
+        summarize_bonemax_onboarding,
+    )
+
+    protos = guideline.get("protocols") or {}
+    template = guideline.get("protocol_prompt_template") or ""
+    protocol = protos.get("bonemax_stack") or {}
+    base = ""
+    if template and isinstance(protocol, dict):
+        try:
+            base = template.format(**protocol).strip() + "\n\n"
+        except KeyError:
+            base = f"## BONEMAX — {protocol.get('label', 'Bonemax')}\n{protocol.get('task_families', '')}\n\n"
+
+    profile = summarize_bonemax_onboarding(onboarding or {}, wake_time, sleep_time)
+    anchors = format_bonemax_anchor_times(wake_time, sleep_time) if wake_time and sleep_time else ""
+
+    oids = [x for x in (other_active_maxx_ids or []) if x]
+    combo = ""
+    if "skinmax" in oids:
+        combo = (
+            "\n## ACTIVE MODULE: SKINMAX\n"
+            "Merge overlapping windows per engine: **one** morning notification combining mewing morning reset + SkinMax AM when timing aligns; "
+            "**one** evening block combining mewing night check (bed−30) + SkinMax PM when appropriate. "
+            "Hard cap **10** total notifications/day — drop lowest-priority items first.\n"
+        )
+    if "fitmax" in oids:
+        combo += (
+            "\n## ACTIVE MODULE: FITMAX\n"
+            "BoneMax owns **neck training** — FitMax programs must **not** prescribe separate neck volume. "
+            "FitMax midday **posture** tips should be disabled or swapped for training/nutrition (no duplicate posture coaching). Cap **10**/day.\n"
+        )
+
+    engine_body = BONEMAX_COACHING_REFERENCE if for_coaching else BONEMAX_NOTIFICATION_ENGINE_REFERENCE
+
+    if for_coaching:
+        return f"{base}{profile}\n{anchors}\n{engine_body}{combo}\n"
+
+    return f"""{base}{profile}
+
+{anchors}
+{combo}
+## BONEMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
+{engine_body}
+
+{BONEMAX_JSON_DIRECTIVES}
+"""
+
+
+def build_heightmax_prompt_section(
+    *,
+    tracks_protocol_text: str,
+    height_track_footer: str,
+    onboarding: Optional[dict[str, Any]] = None,
+    wake_time: str = "",
+    sleep_time: str = "",
+    age_val: Any = None,
+    other_active_maxx_ids: Optional[list[str]] = None,
+    for_coaching: bool = False,
+) -> str:
+    """
+    HeightMax: enabled-track protocol blocks + notification engine reference.
+    `tracks_protocol_text` comes from `build_heightmax_protocol_section` in guideline_service.
+    """
+    from services.heightmax_notification_engine import (
+        HEIGHTMAX_COACHING_REFERENCE,
+        HEIGHTMAX_JSON_DIRECTIVES,
+        HEIGHTMAX_NOTIFICATION_ENGINE_REFERENCE,
+        format_heightmax_anchor_times,
+        summarize_heightmax_onboarding,
+    )
+
+    ob = onboarding or {}
+    age_use = age_val if age_val is not None else ob.get("age")
+    profile = summarize_heightmax_onboarding(ob, wake_time, sleep_time, age_use)
+    anchors = format_heightmax_anchor_times(wake_time, sleep_time) if wake_time and sleep_time else ""
+
+    oids = [x for x in (other_active_maxx_ids or []) if x]
+    combo = ""
+    if "bonemax" in oids:
+        combo += (
+            "\n## ACTIVE MODULE: BONEMAX\n"
+            "Merge overlapping **posture** notifications; merge **sleep** evening block (Height sleep GH at bed−45 with Bone mewing night at bed−30) into **one** pre-bed notification when timing allows; "
+            "merge **supplement** reminders into one meal-time ping when stacks overlap. Cap **10** pings/day.\n"
+        )
+    if "fitmax" in oids:
+        combo += (
+            "\n## ACTIVE MODULE: FITMAX\n"
+            "**Sprint day** can double as a workout day; dead hangs can be scheduled at the gym. "
+            "After heavy **squat/deadlift** days, add or keep **evening decompression** copy (temporary spinal compression). Cap **10** pings/day.\n"
+        )
+
+    tracks = (tracks_protocol_text or "").strip()
+    footer = height_track_footer or ""
+    head = f"{tracks}\n{footer}\n" if tracks or footer else ""
+
+    engine_body = HEIGHTMAX_COACHING_REFERENCE if for_coaching else HEIGHTMAX_NOTIFICATION_ENGINE_REFERENCE
+
+    if for_coaching:
+        return f"{head}{profile}\n{anchors}\n{engine_body}{combo}\n"
+
+    return f"""{head}{profile}
+
+{anchors}
+{combo}
+## HEIGHTMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
+{engine_body}
+
+{HEIGHTMAX_JSON_DIRECTIVES}
+"""
+
+
+def build_fitmax_prompt_section(
+    concern: str,
+    guideline: dict[str, Any],
+    *,
+    onboarding: Optional[dict[str, Any]] = None,
+    wake_time: str = "",
+    sleep_time: str = "",
+    other_active_maxx_ids: Optional[list[str]] = None,
+    for_coaching: bool = False,
+) -> str:
+    """FitMax phase protocol + notification engine reference (schedule or coaching)."""
+    from services.guideline_service import build_protocol_prompt_section
+    from services.fitmax_notification_engine import (
+        FITMAX_COACHING_REFERENCE,
+        FITMAX_JSON_DIRECTIVES,
+        FITMAX_NOTIFICATION_ENGINE_REFERENCE,
+        format_fitmax_anchor_times,
+        summarize_fitmax_onboarding,
+    )
+
+    tracks = build_protocol_prompt_section(guideline, concern)
+    ob = onboarding or {}
+    wo = str(
+        ob.get("fitmax_preferred_workout_time")
+        or ob.get("preferred_workout_time")
+        or "18:00"
+    ).strip()[:5]
+    if ":" not in wo:
+        wo = "18:00"
+    profile = summarize_fitmax_onboarding(ob, wake_time, sleep_time, concern)
+    anchors = (
+        format_fitmax_anchor_times(wake_time, sleep_time, workout_time=wo)
+        if wake_time and sleep_time
+        else ""
+    )
+
+    oids = [x for x in (other_active_maxx_ids or []) if x]
+    combo = ""
+    if "bonemax" in oids:
+        combo += (
+            "\n## ACTIVE MODULE: BONEMAX\n"
+            "Remove **neck training** from FitMax workout copy (BoneMax owns neck). "
+            "Replace FitMax **midday posture** tips with **training/nutrition** tips — no duplicate posture coaching. "
+            "**Face pulls** stay in FitMax. Cap **10** pings/day.\n"
+        )
+    if "heightmax" in oids:
+        combo += (
+            "\n## ACTIVE MODULE: HEIGHTMAX\n"
+            "HeightMax **sprint** sessions count as cardio — do not add redundant cardio. "
+            "After heavy **squat/deadlift** days, post-workout or evening copy may include **2 min dead hang** for spinal decompression. "
+            "Align **protein** messaging with Height nutrition if both apply.\n"
+        )
+    if "skinmax" in oids:
+        combo += (
+            "\n## ACTIVE MODULE: SKINMAX\n"
+            "Merge **morning nutrition** with **SkinMax AM** into **one** notification when windows align. "
+            "Midday FitMax tip may add: leanness lowers systemic inflammation — helps skin clarity. Cap **10**/day.\n"
+        )
+    if "hairmax" in oids:
+        combo += (
+            "\n## ACTIVE MODULE: HAIRMAX\n"
+            "When scheduling **creatine** reminders, add caveat: mixed evidence on DHT/hair — if hair priority > performance, skip creatine. "
+            "Cap **10**/day total.\n"
+        )
+
+    engine_body = FITMAX_COACHING_REFERENCE if for_coaching else FITMAX_NOTIFICATION_ENGINE_REFERENCE
+
+    if for_coaching:
+        return f"{tracks}\n{profile}\n{anchors}\n{engine_body}{combo}\n"
+
+    return f"""{tracks}
+{profile}
+
+{anchors}
+{combo}
+## FITMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
+{engine_body}
+
+{FITMAX_JSON_DIRECTIVES}
 """
 
 
@@ -662,13 +1009,10 @@ def resolve_hair_concern(hair_type: Optional[str], explicit_concern: Optional[st
     return HAIR_TYPE_TO_CONCERN.get(hair_type or "normal", "wash_routine")
 
 
-def build_hairmax_prompt_section(concern: str) -> str:
-    """Build protocol text for the Gemini prompt."""
-    protocol = HAIRMAX_PROTOCOLS.get(concern)
-    if not protocol:
-        protocol = HAIRMAX_PROTOCOLS["wash_routine"]
+def _hairmax_protocol_details_block(concern: str) -> tuple[str, dict]:
+    """Return (details markdown, protocol dict) for the selected hair concern."""
+    protocol = HAIRMAX_PROTOCOLS.get(concern) or HAIRMAX_PROTOCOLS["wash_routine"]
 
-    # Build protocol details based on the concern type
     if concern == "wash_routine":
         details = f"""Shampoo: {protocol['shampoo']}
 Conditioner: {protocol['conditioner']}
@@ -712,29 +1056,73 @@ Rule: {protocol['rule']}"""
     else:
         details = str(protocol)
 
-    return f"""## HAIR PROTOCOL — {protocol['label']}
+    return details, protocol
+
+
+def build_hairmax_prompt_section(
+    concern: str,
+    *,
+    onboarding: Optional[dict[str, Any]] = None,
+    wake_time: str = "",
+    sleep_time: str = "",
+    other_active_maxx_ids: Optional[list[str]] = None,
+    for_coaching: bool = False,
+) -> str:
+    """Hair concern protocol + HairMax notification engine reference."""
+    from services.hairmax_notification_engine import (
+        HAIRMAX_COACHING_REFERENCE,
+        HAIRMAX_JSON_DIRECTIVES,
+        HAIRMAX_NOTIFICATION_ENGINE_REFERENCE,
+        format_hairmax_anchor_times,
+        summarize_hairmax_onboarding,
+    )
+
+    details, protocol = _hairmax_protocol_details_block(concern)
+    base = f"""## HAIR PROTOCOL — {protocol['label']}
 {details}
 
-## SCHEDULE RULES
+## SCHEDULE RULES (concern-specific baseline)
 - Wash frequency depends on hair type: straight/wavy 2-3x/week, curly less often with optional co-wash
-- Minoxidil is PM skincare time, daily, non-negotiable for thinning users
-- Dermastamp is 1x/week max, same day each week, never same night as minoxidil (wait 24h)
-- Oil treatments are 1-2x/week, evening before wash day as overnight treatment
-- Anti-dandruff shampoo only when clear fungal/seborrheic signs
-- Conditioner goes on strands only, never on scalp
-- Never push "no shampoo" as a lifestyle recommendation
-- Adjust schedule timing based on user behavior (early/late completion)
-- Reduce volume if user skips consistently
-- All tasks MUST be anchored to the user's wake and sleep times
-- Do NOT output vague times like "morning" or "night"
-- Convert everything into exact clock times
-
+- Minoxidil: **AM wake+15**, **PM bed−90** per HairMax engine (not vague "night skincare")
+- Microneedling / dermastamp: 1×/week max; never same night as minoxidil (24h gap); stagger vs SkinMax face microneedling
+- Oil treatments: 1-2x/week, evening before wash day as overnight treatment
+- Anti-dandruff / keto: 2-3x/week when indicated — can align with ketoconazole hair protocol
+- Conditioner on strands only unless designed for scalp
+- All tasks MUST use exact HH:MM from wake and sleep times
 
 ## NOTIFICATION RULES FOR THINNING USERS
 - Core: "Minoxidil. Thinning areas only."
 - Pressure: "Miss days = lose gains."
-- Identity: "You either maintain your hairline or watch it go."
-- If skip: escalate tone
-- If consistent: 1 clean reminder/day
-- Prioritize highest ROI actions
+- If skip 5+ PM in a row: offer 1×/day simplification (per engine) vs nagging
+- Prioritize highest ROI; fin dose 0.5mg vs 1mg — respect user preference (0.5mg ≈ 85-90% suppression of 1mg)
+"""
+
+    profile = summarize_hairmax_onboarding(onboarding or {}, wake_time, sleep_time, concern)
+    anchors = format_hairmax_anchor_times(wake_time, sleep_time) if wake_time and sleep_time else ""
+
+    oids = [x for x in (other_active_maxx_ids or []) if x]
+    combo = ""
+    if "skinmax" in oids:
+        combo = (
+            "\n## ACTIVE MODULE: SKINMAX\n"
+            "Merge **AM**: cleanser → **minoxidil on scalp** → **15 min** → skin actives → moisturizer → SPF in **one** notification when windows align. "
+            "Merge **PM**: minox → **30 min dry** → PM skincare. "
+            "**Do not** schedule scalp microneedling same day as **face** microneedling — stagger (e.g. scalp Sunday, face Wednesday). "
+            "Ketoconazole wash can double as dandruff control. **Max 10** notifications/day total.\n"
+        )
+
+    engine_body = HAIRMAX_COACHING_REFERENCE if for_coaching else HAIRMAX_NOTIFICATION_ENGINE_REFERENCE
+
+    if for_coaching:
+        return f"{base}\n{profile}\n{anchors}\n{engine_body}{combo}\n"
+
+    return f"""{base}
+{profile}
+
+{anchors}
+{combo}
+## HAIRMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
+{engine_body}
+
+{HAIRMAX_JSON_DIRECTIVES}
 """

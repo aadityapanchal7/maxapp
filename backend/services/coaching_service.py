@@ -226,7 +226,36 @@ CONVERSATION:
         # --- User profile (signup / global onboarding — always surface for schedule + chat flows) ---
         profile_bits = []
         global_bits = []
-        for k in ["age", "gender", "sex", "height", "weight", "skin_type", "goals", "experience_level", "activity_level", "equipment"]:
+        for k in [
+            "age",
+            "gender",
+            "sex",
+            "height",
+            "weight",
+            "waist_cm",
+            "skin_type",
+            "goals",
+            "experience_level",
+            "activity_level",
+            "equipment",
+            "priority_order",
+            "appearance_concerns",
+            "primary_skin_concern",
+            "secondary_skin_concern",
+            "skincare_routine_level",
+            "hair_family_history",
+            "hair_current_loss",
+            "hair_treatments_current",
+            "hair_side_effect_sensitivity",
+            "fitmax_primary_goal",
+            "fitmax_training_experience",
+            "fitmax_equipment",
+            "fitmax_workout_days_per_week",
+            "preferred_workout_time",
+            "fitmax_preferred_workout_time",
+            "screen_hours_daily",
+            "questionnaire_v2_completed",
+        ]:
             v = onboarding.get(k)
             if v is not None and v != "" and v != []:
                 val = ", ".join(str(x) for x in v) if isinstance(v, list) else str(v)
@@ -295,6 +324,9 @@ CONVERSATION:
         )
         schedules = sched_result.scalars().all()
         skinmax_protocol_added = False
+        bonemax_protocol_added = False
+        heightmax_protocol_added = False
+        hairmax_protocol_added = False
         tz_name = onboarding.get("timezone", "UTC")
         try:
             user_tz = ZoneInfo(tz_name)
@@ -310,7 +342,14 @@ CONVERSATION:
                     for t in day.get("tasks", []):
                         status = t.get("status", "pending")
                         today_tasks.append(f"{t.get('time','?')} {t.get('title','?')} [{status}]")
-            sched_str = f"SCHEDULE ({label}): concern={ctx.get('skin_concern', '?')}"
+            if s.maxx_id == "bonemax":
+                sched_str = f"SCHEDULE ({label}): bonemax"
+            elif s.maxx_id == "heightmax":
+                sched_str = f"SCHEDULE ({label}): heightmax"
+            elif s.maxx_id == "fitmax":
+                sched_str = f"SCHEDULE ({label}): fitmax phase={ctx.get('selected_concern', ctx.get('skin_concern', '?'))}"
+            else:
+                sched_str = f"SCHEDULE ({label}): concern={ctx.get('skin_concern', '?')}"
             if today_tasks:
                 sched_str += f" | today: {', '.join(today_tasks[:6])}"
             # outside_today: refreshed daily; if stale, AI should ask
@@ -323,22 +362,167 @@ CONVERSATION:
                     sched_str += " | outside_today: unknown — ask user each morning"
             parts.append(sched_str)
 
-            # --- SkinMax protocol (for skin Q&A) ---
+            # --- SkinMax notification engine + protocol (for skin Q&A & SMS alignment) ---
             if s.maxx_id == "skinmax" and not skinmax_protocol_added:
                 concern = ctx.get("skin_concern", "aging")
-                try:
-                    from services.guideline_service import get_maxx_guideline_async, build_protocol_prompt_section
-                    guideline = await get_maxx_guideline_async("skinmax", rds_db)
-                    if guideline:
-                        protocol_section = build_protocol_prompt_section(guideline, concern)
-                        if protocol_section:
-                            parts.append(f"SKINMAX PROTOCOL (for skin questions):\n{protocol_section[:800]}")
-                            skinmax_protocol_added = True
-                except Exception:
-                    from services.maxx_guidelines import build_skinmax_prompt_section
-                    protocol_section = build_skinmax_prompt_section(concern)
-                    parts.append(f"SKINMAX PROTOCOL (for skin questions):\n{protocol_section[:800]}")
-                    skinmax_protocol_added = True
+                wt = ctx.get("wake_time") or onboarding.get("wake_time") or "07:00"
+                st = ctx.get("sleep_time") or onboarding.get("sleep_time") or "23:00"
+                outside_val = False
+                if ctx.get("outside_today_date") == today_iso and ctx.get("outside_today") is not None:
+                    outside_val = bool(ctx.get("outside_today"))
+                from services.maxx_guidelines import build_skinmax_prompt_section
+
+                protocol_section = build_skinmax_prompt_section(
+                    concern,
+                    onboarding=onboarding,
+                    wake_time=str(wt),
+                    sleep_time=str(st),
+                    outside_today=outside_val,
+                    for_coaching=True,
+                )
+                parts.append(
+                    f"SKINMAX NOTIFICATION ENGINE (reference for skin + routine):\n{protocol_section}"
+                )
+                skinmax_protocol_added = True
+
+            # --- BoneMax notification engine (jaw / posture / SMS alignment) ---
+            if s.maxx_id == "bonemax" and not bonemax_protocol_added:
+                from services.guideline_service import get_maxx_guideline_async
+                from services.maxx_guidelines import MAXX_GUIDELINES, build_bonemax_prompt_section
+
+                guideline_b = await get_maxx_guideline_async("bonemax", rds_db)
+                if not guideline_b:
+                    guideline_b = MAXX_GUIDELINES.get("bonemax") or {}
+                wt = ctx.get("wake_time") or onboarding.get("wake_time") or "07:00"
+                st = ctx.get("sleep_time") or onboarding.get("sleep_time") or "23:00"
+                other_ids = [
+                    str(x.maxx_id) for x in schedules if x is not s and x.maxx_id
+                ]
+                bonemax_block = build_bonemax_prompt_section(
+                    guideline_b,
+                    onboarding=onboarding,
+                    wake_time=str(wt),
+                    sleep_time=str(st),
+                    other_active_maxx_ids=other_ids,
+                    for_coaching=True,
+                )
+                parts.append(
+                    f"BONEMAX NOTIFICATION ENGINE (reference for jaw + posture + routine):\n{bonemax_block}"
+                )
+                bonemax_protocol_added = True
+
+            if s.maxx_id == "heightmax" and not heightmax_protocol_added:
+                from services.guideline_service import (
+                    build_heightmax_protocol_section,
+                    get_maxx_guideline_async,
+                )
+                from services.maxx_guidelines import MAXX_GUIDELINES, build_heightmax_prompt_section
+
+                guideline_h = await get_maxx_guideline_async("heightmax", rds_db)
+                if not guideline_h:
+                    guideline_h = MAXX_GUIDELINES.get("heightmax") or {}
+                hcomp = ctx.get("height_components")
+                if isinstance(hcomp, dict):
+                    height_components = {str(k): bool(v) for k, v in hcomp.items()}
+                else:
+                    height_components = None
+                tracks_body = build_heightmax_protocol_section(guideline_h, height_components)
+                active_labels: list[str] = []
+                protos = guideline_h.get("protocols") or {}
+                if height_components:
+                    for k, p in protos.items():
+                        if height_components.get(k, True) and isinstance(p, dict):
+                            active_labels.append(str(p.get("label", k)))
+                else:
+                    for k, p in protos.items():
+                        if isinstance(p, dict):
+                            active_labels.append(str(p.get("label", k)))
+                htf = ""
+                if active_labels:
+                    htf = (
+                        "\n## HEIGHTMAX — ENABLED TRACKS ONLY\n"
+                        f"Enabled tracks: {', '.join(active_labels)}.\n"
+                    )
+                wt = ctx.get("wake_time") or onboarding.get("wake_time") or "07:00"
+                st = ctx.get("sleep_time") or onboarding.get("sleep_time") or "23:00"
+                others = [str(x.maxx_id) for x in schedules if x is not s and x.maxx_id]
+                age_v = onboarding.get("age")
+                hm_block = build_heightmax_prompt_section(
+                    tracks_protocol_text=tracks_body,
+                    height_track_footer=htf,
+                    onboarding=onboarding,
+                    wake_time=str(wt),
+                    sleep_time=str(st),
+                    age_val=age_v,
+                    other_active_maxx_ids=others,
+                    for_coaching=True,
+                )
+                parts.append(
+                    f"HEIGHTMAX NOTIFICATION ENGINE (reference for posture + sleep + sprints):\n{hm_block}"
+                )
+                heightmax_protocol_added = True
+
+            if s.maxx_id == "hairmax" and not hairmax_protocol_added:
+                from services.maxx_guidelines import (
+                    HAIRMAX_PROTOCOLS,
+                    build_hairmax_prompt_section,
+                    resolve_hair_concern,
+                )
+
+                concern_h = ctx.get("skin_concern")
+                if not concern_h or concern_h not in HAIRMAX_PROTOCOLS:
+                    concern_h = resolve_hair_concern(
+                        onboarding.get("hair_type"),
+                        explicit_concern=ctx.get("skin_concern"),
+                        has_thinning=bool(
+                            onboarding.get("hair_thinning") or onboarding.get("thinning")
+                        ),
+                    )
+                wt = ctx.get("wake_time") or onboarding.get("wake_time") or "07:00"
+                st = ctx.get("sleep_time") or onboarding.get("sleep_time") or "23:00"
+                others = [str(x.maxx_id) for x in schedules if x is not s and x.maxx_id]
+                hair_block = build_hairmax_prompt_section(
+                    concern_h,
+                    onboarding=onboarding,
+                    wake_time=str(wt),
+                    sleep_time=str(st),
+                    other_active_maxx_ids=others,
+                    for_coaching=True,
+                )
+                parts.append(
+                    f"HAIRMAX NOTIFICATION ENGINE (reference for hair loss stack + routine):\n{hair_block}"
+                )
+                hairmax_protocol_added = True
+
+            if s.maxx_id == "fitmax" and not fitmax_protocol_added:
+                from services.guideline_service import get_maxx_guideline_async
+                from services.maxx_guidelines import MAXX_GUIDELINES, build_fitmax_prompt_section
+
+                guideline_f = await get_maxx_guideline_async("fitmax", rds_db)
+                if not guideline_f:
+                    guideline_f = MAXX_GUIDELINES.get("fitmax") or {}
+                concern_f = ctx.get("selected_concern") or ctx.get("skin_concern")
+                protos_fm = guideline_f.get("protocols") or {}
+                if not concern_f or concern_f not in protos_fm:
+                    from services.fitmax_notification_engine import resolve_fitmax_phase
+
+                    concern_f = resolve_fitmax_phase(onboarding)
+                wt = ctx.get("wake_time") or onboarding.get("wake_time") or "07:00"
+                st = ctx.get("sleep_time") or onboarding.get("sleep_time") or "23:00"
+                others = [str(x.maxx_id) for x in schedules if x is not s and x.maxx_id]
+                fm_block = build_fitmax_prompt_section(
+                    concern_f,
+                    guideline_f,
+                    onboarding=onboarding,
+                    wake_time=str(wt),
+                    sleep_time=str(st),
+                    other_active_maxx_ids=others,
+                    for_coaching=True,
+                )
+                parts.append(
+                    f"FITMAX NOTIFICATION ENGINE (reference for training + nutrition + body-comp SMS):\n{fm_block}"
+                )
+                fitmax_protocol_added = True
 
         # --- AI memory ---
         if user.ai_context:

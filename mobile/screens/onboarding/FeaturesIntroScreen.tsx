@@ -13,7 +13,16 @@ export default function FeaturesIntroScreen() {
     return (
         <View style={styles.container}>
             <View style={styles.top}>
-                <Text style={styles.stepLabel}>STEP 2 OF 2</Text>
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
+                    style={styles.backWrap}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    accessibilityLabel="Back"
+                >
+                    <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+                </TouchableOpacity>
+                <Text style={styles.stepLabel}>FACE SCAN</Text>
+                <View style={{ width: 28 }} />
             </View>
 
             <View style={styles.content}>
@@ -31,7 +40,7 @@ export default function FeaturesIntroScreen() {
                 {user?.first_scan_completed && !isPaid ? (
                     <TouchableOpacity
                         style={styles.button}
-                        onPress={() => navigation.navigate('BlurredResult')}
+                        onPress={() => navigation.navigate('FaceScanResults')}
                         activeOpacity={0.7}
                     >
                         <Text style={styles.buttonText}>View my results</Text>
@@ -52,8 +61,14 @@ export default function FeaturesIntroScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background, padding: spacing.lg, justifyContent: 'space-between' },
-    top: { paddingTop: 80 },
-    stepLabel: { ...typography.label, color: colors.textMuted },
+    top: {
+        paddingTop: 56,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    backWrap: { width: 40, height: 40, justifyContent: 'center' },
+    stepLabel: { ...typography.label, color: colors.textMuted, flex: 1, textAlign: 'center' },
     content: { alignItems: 'center', paddingHorizontal: spacing.lg },
     iconRing: {
         width: 96,

@@ -70,6 +70,9 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             user.is_paid = True
             user.subscription_id = result.get("subscription_id")
             user.subscription_status = "active"
+            ob = dict(user.onboarding or {})
+            ob["post_subscription_onboarding"] = True
+            user.onboarding = ob
             await db.commit()
 
             if user.phone_number:
@@ -120,6 +123,9 @@ async def test_activate_subscription(
             raise HTTPException(status_code=404, detail="User not found")
         user.is_paid = True
         user.subscription_status = "active"
+        ob = dict(user.onboarding or {})
+        ob["post_subscription_onboarding"] = True
+        user.onboarding = ob
         await db.commit()
 
         scans_result = await db.execute(select(Scan).where(Scan.user_id == UUID(user_id)))
