@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from db.sqlalchemy import AsyncSessionLocal
-from services.twilio_service import twilio_service
+from services.sendblue_service import sendblue_service
 from models.sqlalchemy_models import UserSchedule, User, UserCoachingState
 from config import settings
 
@@ -230,7 +230,7 @@ async def send_due_notifications():
                 touched_schedules: set = set()
                 for _key, group in groups.items():
                     payload = [(item["task"], item["task_time_str"]) for item in group]
-                    success = await twilio_service.send_schedule_reminder_group(
+                    success = await sendblue_service.send_schedule_reminder_group(
                         user.phone_number, payload
                     )
                     if success:
@@ -352,7 +352,7 @@ async def send_bedtime_progress_picture_prompts():
                 msg = await coaching_service.generate_bedtime_progress_picture_prompt(
                     str(user_uuid), None, None
                 )
-                ok = await twilio_service.send_coaching_sms(phone, msg)
+                ok = await sendblue_service.send_coaching_sms(phone, msg)
                 if not ok:
                     continue
 
@@ -524,7 +524,7 @@ async def send_coaching_check_ins():
                     uid_str, None, None, ct, mt
                 )
 
-                await twilio_service.send_coaching_sms(phone, msg_text)
+                await sendblue_service.send_coaching_sms(phone, msg_text)
 
                 async with AsyncSessionLocal() as db:
                     st_res = await db.execute(
@@ -611,7 +611,7 @@ async def send_weekly_resets():
                 async with AsyncSessionLocal() as db:
                     user = await db.get(User, uid)
                     if user and phone:
-                        await twilio_service.send_coaching_sms(phone, msg_text)
+                        await sendblue_service.send_coaching_sms(phone, msg_text)
 
                     st_res = await db.execute(
                         select(UserCoachingState).where(UserCoachingState.user_id == uid)

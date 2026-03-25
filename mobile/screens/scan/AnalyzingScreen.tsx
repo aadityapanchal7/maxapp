@@ -21,17 +21,39 @@ function targetProgressForStep(step: number): number {
     return 94;
 }
 
+/** Slow climb with pauses: moves a bit, “hangs”, then continues (repeat) */
+function buildStutterSequence(anim: Animated.Value, from: number, to: number, pieceCount: number): Animated.CompositeAnimation {
+    if (to <= from + 0.5) {
+        return Animated.timing(anim, { toValue: to, duration: 400, useNativeDriver: false });
+    }
+    const anims: Animated.CompositeAnimation[] = [];
+    for (let i = 1; i <= pieceCount; i++) {
+        const next = from + ((to - from) * i) / pieceCount;
+        anims.push(
+            Animated.timing(anim, {
+                toValue: next,
+                duration: 950 + i * 110,
+                useNativeDriver: false,
+            }),
+        );
+        // “Caught up” pause — varies so it feels uneven, not mechanical
+        const pauseMs = 320 + (i % 4) * 140 + (i % 2) * 90;
+        anims.push(Animated.delay(pauseMs));
+    }
+    return Animated.sequence(anims);
+}
+
 export default function AnalyzingScreen({ currentStep = 0 }: Props) {
     const insets = useSafeAreaInsets();
     const [trackWidth, setTrackWidth] = useState(0);
     const progressAnim = useRef(new Animated.Value(0)).current;
     const displayedPct = useRef(0);
     const [pctLabel, setPctLabel] = useState(0);
+    const stutterHandle = useRef<Animated.CompositeAnimation | null>(null);
 
     const [dots] = useState([new Animated.Value(1), new Animated.Value(0.3), new Animated.Value(0.3)]);
 
     useEffect(() => {
-        const target = targetProgressForStep(currentStep);
         const listenerId = progressAnim.addListener(({ value }) => {
             const p = Math.min(100, Math.max(0, Math.round(value)));
             if (p !== displayedPct.current) {
@@ -39,12 +61,41 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                 setPctLabel(p);
             }
         });
-        Animated.timing(progressAnim, {
-            toValue: target,
-            duration: 900,
-            useNativeDriver: false,
-        }).start();
         return () => progressAnim.removeListener(listenerId);
+    }, [progressAnim]);
+
+    useEffect(() => {
+        const target = targetProgressForStep(currentStep);
+        stutterHandle.current?.stop?.();
+
+        progressAnim.stopAnimation((startVal) => {
+            const from = typeof startVal === 'number' ? Math.min(100, Math.max(0, startVal)) : 0;
+            if (from > target) {
+                const snap = Animated.timing(progressAnim, { toValue: target, duration: 350, useNativeDriver: false });
+                stutterHandle.current = snap;
+                snap.start();
+                return;
+            }
+            const pieceCount = currentStep >= 2 ? 7 : 6;
+            const main = buildStutterSequence(progressAnim, from, target, pieceCount);
+            stutterHandle.current = main;
+            main.start(({ finished }) => {
+                if (!finished) return;
+                // After the last pipeline step, crawl to 100% with extra stutters (upload may finish first)
+                if (currentStep >= 2 && target >= 94) {
+                    progressAnim.stopAnimation((v) => {
+                        const v0 = typeof v === 'number' ? v : 94;
+                        const to100 = buildStutterSequence(progressAnim, Math.max(v0, 94), 100, 8);
+                        stutterHandle.current = to100;
+                        to100.start();
+                    });
+                }
+            });
+        });
+
+        return () => {
+            stutterHandle.current?.stop?.();
+        };
     }, [currentStep, progressAnim]);
 
     useEffect(() => {
@@ -76,13 +127,20 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
 
     return (
         <View style={styles.container}>
-            <View style={[styles.progressHeader, { paddingTop: Math.max(insets.top, 12) + 8 }]}>
+            <View
+                style={[
+                    styles.progressHeader,
+                    { paddingTop: Math.max(insets.top, 12) + 28 },
+                ]}
+            >
                 <View style={styles.progressTopRow}>
                     <Text style={styles.progressTitle}>Analyzing</Text>
                     <Text style={styles.progressPct}>{pctLabel}%</Text>
                 </View>
-                <View style={styles.track} onLayout={onTrackLayout}>
-                    <Animated.View style={[styles.trackFill, { width: fillWidth }]} />
+                <View style={styles.trackWrap}>
+                    <View style={styles.track} onLayout={onTrackLayout}>
+                        <Animated.View style={[styles.trackFill, { width: fillWidth }]} />
+                    </View>
                 </View>
             </View>
 
@@ -152,7 +210,10 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'baseline',
-        marginBottom: 10,
+        marginBottom: 4,
+    },
+    trackWrap: {
+        marginTop: 22,
     },
     progressTitle: { ...typography.h3, fontSize: 20 },
     progressPct: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.5 },

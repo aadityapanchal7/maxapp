@@ -94,6 +94,24 @@ async def dismiss_post_subscription_onboarding(
     return {"message": "ok"}
 
 
+@router.post("/sendblue-connect/complete")
+async def complete_sendblue_connect(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark post-pay Sendblue intro screen as done (user texted the line or skipped)."""
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ob = dict(user.onboarding or {})
+    ob["sendblue_connect_completed"] = True
+    user.onboarding = ob
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok"}
+
+
 @router.post("/onboarding")
 async def save_onboarding(
     data: OnboardingData,

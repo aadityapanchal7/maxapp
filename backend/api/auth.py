@@ -32,7 +32,7 @@ from models.user import (
     UserProfile,
     UserResponse,
 )
-from services.twilio_service import normalize_phone, phone_lookup_candidates, twilio_service
+from services.sendblue_service import normalize_phone, phone_lookup_candidates, sendblue_service
 
 logger = logging.getLogger(__name__)
 
@@ -290,7 +290,7 @@ async def forgot_password_sms(
         f"It expires in {_PASSWORD_RESET_OTP_TTL_MINUTES} minutes. "
         "If you didn't ask for this, ignore this text."
     )
-    sent = await twilio_service.send_sms(user.phone_number, msg)
+    sent = await sendblue_service.send_sms(user.phone_number, msg)
     if not sent:
         logger.warning("Password reset SMS failed for user_id=%s", user.id)
 

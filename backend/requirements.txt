@@ -21,8 +21,6 @@ email-validator>=2.1.0
 # Stripe Payments
 stripe>=7.12.0
 
-# Twilio WhatsApp
-twilio>=9.0.0
 
 # Google Gemini (standalone - minimal dependencies)
 google-generativeai>=0.3.2

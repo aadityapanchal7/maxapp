@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -8,10 +8,12 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 
 export default function ModuleSelectScreen() {
     const navigation = useNavigation<any>();
-    const { refreshUser } = useAuth();
+    const { user, refreshUser } = useAuth();
     const [maxes, setMaxes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [finishing, setFinishing] = useState(false);
+    /** Lowercase maxx ids to show on Home (same as onboarding.goals). */
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const load = useCallback(async () => {
         try {
@@ -28,21 +30,46 @@ export default function ModuleSelectScreen() {
         load();
     }, [load]);
 
+    const toggleMaxx = (id: string) => {
+        const key = String(id || '').toLowerCase();
+        if (!key) return;
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
     const finish = async () => {
+        if (selectedIds.size === 0) {
+            Alert.alert('Choose programs', 'Select at least one Maxx to show on your home. You can change this later in your profile.');
+            return;
+        }
         try {
             setFinishing(true);
+            const onboardingData = {
+                ...(user?.onboarding || {}),
+                goals: Array.from(selectedIds),
+                timezone:
+                    user?.onboarding?.timezone ||
+                    (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC'),
+                completed: true,
+            };
+            await api.saveOnboarding(onboardingData as any);
             await api.dismissPostSubscriptionOnboarding();
             await refreshUser();
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setFinishing(false);
             navigation.dispatch(
                 CommonActions.reset({
                     index: 0,
                     routes: [{ name: 'Main' }],
                 }),
             );
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Error', 'Could not save your programs. Try again.');
+        } finally {
+            setFinishing(false);
         }
     };
 
@@ -65,34 +92,46 @@ export default function ModuleSelectScreen() {
                     <View style={styles.iconHit} />
                 </View>
 
-                <Text style={styles.lead}>Pick a Maxx track to start. You can open others anytime from Home.</Text>
+                <Text style={styles.lead}>
+                    Tap to select programs for your home. Starting a schedule is separate — open any track from Home when you are ready.
+                </Text>
 
-                {maxes.map((m) => (
-                    <TouchableOpacity
-                        key={m.id}
-                        style={styles.card}
-                        activeOpacity={0.85}
-                        onPress={() => navigation.navigate('MaxxDetail', { maxxId: m.id })}
-                    >
-                        <View style={[styles.dot, m.color ? { backgroundColor: m.color } : { backgroundColor: colors.foreground }]} />
-                        <View style={styles.cardText}>
-                            <Text style={styles.cardTitle}>{m.label || m.id}</Text>
-                            {m.description ? (
-                                <Text style={styles.cardDesc} numberOfLines={2}>
-                                    {m.description}
-                                </Text>
-                            ) : null}
-                        </View>
-                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                    </TouchableOpacity>
-                ))}
+                {maxes.map((m) => {
+                    const idKey = String(m.id || '').toLowerCase();
+                    const on = idKey && selectedIds.has(idKey);
+                    return (
+                        <TouchableOpacity
+                            key={m.id}
+                            style={[styles.card, on && styles.cardSelected]}
+                            activeOpacity={0.85}
+                            onPress={() => toggleMaxx(m.id)}
+                        >
+                            <View style={[styles.dot, m.color ? { backgroundColor: m.color } : { backgroundColor: colors.foreground }]} />
+                            <View style={styles.cardText}>
+                                <Text style={styles.cardTitle}>{m.label || m.id}</Text>
+                                {m.description ? (
+                                    <Text style={styles.cardDesc} numberOfLines={2}>
+                                        {m.description}
+                                    </Text>
+                                ) : null}
+                            </View>
+                            <View style={[styles.checkCircle, on && styles.checkCircleOn]}>
+                                <Ionicons
+                                    name={on ? 'checkmark' : 'ellipse-outline'}
+                                    size={on ? 20 : 22}
+                                    color={on ? colors.background : colors.textMuted}
+                                />
+                            </View>
+                        </TouchableOpacity>
+                    );
+                })}
 
                 <TouchableOpacity style={styles.cta} onPress={finish} disabled={finishing} activeOpacity={0.88}>
                     {finishing ? (
                         <ActivityIndicator color={colors.background} />
                     ) : (
                         <>
-                            <Text style={styles.ctaText}>Enter Max</Text>
+                            <Text style={styles.ctaText}>Add to home & continue</Text>
                             <Ionicons name="arrow-forward" size={20} color={colors.background} />
                         </>
                     )}
@@ -126,6 +165,24 @@ const styles = StyleSheet.create({
     cardText: { flex: 1 },
     cardTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground },
     cardDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
+    cardSelected: {
+        borderColor: colors.foreground,
+        backgroundColor: colors.accentMuted,
+    },
+    checkCircle: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        borderWidth: 2,
+        borderColor: colors.border,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.card,
+    },
+    checkCircleOn: {
+        borderColor: colors.foreground,
+        backgroundColor: colors.foreground,
+    },
     cta: {
         marginTop: spacing.xl,
         flexDirection: 'row',

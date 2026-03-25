@@ -12,7 +12,7 @@ from sqlalchemy import select
 from db import get_db
 from middleware import get_current_user
 from services.stripe_service import stripe_service
-from services.twilio_service import twilio_service
+from services.sendblue_service import sendblue_service
 from models.payment import PaymentCreate, CheckoutSessionResponse
 from models.sqlalchemy_models import User, Scan
 
@@ -72,12 +72,13 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             user.subscription_status = "active"
             ob = dict(user.onboarding or {})
             ob["post_subscription_onboarding"] = True
+            ob["sendblue_connect_completed"] = False
             user.onboarding = ob
             await db.commit()
 
             if user.phone_number:
                 asyncio.create_task(
-                    twilio_service.send_welcome(user.phone_number, user.first_name)
+                    sendblue_service.send_welcome(user.phone_number, user.first_name)
                 )
 
         scans_result = await db.execute(
@@ -125,6 +126,7 @@ async def test_activate_subscription(
         user.subscription_status = "active"
         ob = dict(user.onboarding or {})
         ob["post_subscription_onboarding"] = True
+        ob["sendblue_connect_completed"] = False
         user.onboarding = ob
         await db.commit()
 
@@ -135,7 +137,7 @@ async def test_activate_subscription(
 
         if user.phone_number:
             asyncio.create_task(
-                twilio_service.send_welcome(user.phone_number, user.first_name)
+                sendblue_service.send_welcome(user.phone_number, user.first_name)
             )
     except HTTPException:
         raise

@@ -29,6 +29,8 @@ interface User {
         unit_system?: string;
         timezone?: string;
         post_subscription_onboarding?: boolean;
+        /** False after payment until user completes in-app Sendblue SMS step */
+        sendblue_connect_completed?: boolean;
         facial_scan_summary?: {
             overall_score?: number;
             potential_score?: number;

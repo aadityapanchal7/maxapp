@@ -376,6 +376,11 @@ class ApiService {
         return response.data;
     }
 
+    async completeSendblueConnect() {
+        const response = await this.client.post('users/sendblue-connect/complete');
+        return response.data;
+    }
+
     async getScanHistory() {
         const response = await this.client.get('scans/history');
         return response.data;

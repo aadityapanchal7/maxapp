@@ -66,11 +66,11 @@ async def _update_leaderboard_after_scan(
 async def _maybe_notify_scan_whatsapp(user: Optional[User], overall_score: Optional[float]) -> None:
     try:
         if user and user.phone_number:
-            from services.twilio_service import twilio_service
+            from services.sendblue_service import sendblue_service
             import asyncio
 
             asyncio.create_task(
-                twilio_service.send_scan_complete(
+                sendblue_service.send_scan_complete(
                     user.phone_number,
                     user.email or "",
                     float(overall_score) if overall_score is not None else None,

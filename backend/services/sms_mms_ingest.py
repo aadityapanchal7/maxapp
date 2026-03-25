@@ -1,5 +1,6 @@
 """
-Ingest Twilio MMS images as user progress pictures (S3/local + DB).
+Ingest MMS / chat images as user progress pictures (S3/local + DB).
+Supports Twilio MMS URLs (basic auth) and Sendblue CDN URLs (public GET).
 """
 
 import logging
@@ -10,39 +11,61 @@ from uuid import UUID
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config import settings
 from models.sqlalchemy_models import User, UserProgressPhoto
 from services.storage_service import storage_service
 
 logger = logging.getLogger(__name__)
 
-# Twilio delivers media URLs; cap download size for safety
 MAX_MMS_IMAGE_BYTES = 15 * 1024 * 1024
 
 
-async def download_twilio_media(url: str) -> tuple[Optional[bytes], str]:
-    """Download bytes from Twilio MediaUrl; return (data, content_type)."""
-    auth: Optional[tuple[str, str]] = None
-    if settings.twilio_account_sid and settings.twilio_auth_token:
-        auth = (settings.twilio_account_sid, settings.twilio_auth_token)
-
+async def download_mms_media_url(url: str) -> tuple[Optional[bytes], str]:
+    """Download image bytes from a media URL (Sendblue CDN or public HTTPS)."""
     try:
         async with httpx.AsyncClient(timeout=45.0, follow_redirects=True) as client:
             resp = await client.get(url)
-            if resp.status_code == 401 and auth:
-                resp = await client.get(url, auth=auth)
             if resp.status_code != 200:
-                logger.warning("Twilio media GET failed status=%s url=%s", resp.status_code, url[:80])
+                logger.warning("MMS media GET failed status=%s url=%s", resp.status_code, url[:80])
                 return None, "image/jpeg"
             ct = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
             data = resp.content
             if len(data) > MAX_MMS_IMAGE_BYTES:
-                logger.warning("Twilio media too large: %s bytes", len(data))
+                logger.warning("MMS media too large: %s bytes", len(data))
                 return None, ct
             return data, ct
     except Exception as e:
-        logger.error("Twilio media download error: %s", e, exc_info=True)
+        logger.error("MMS media download error: %s", e, exc_info=True)
         return None, "image/jpeg"
+
+
+async def ingest_sendblue_media_progress_photo(db: AsyncSession, user: User, media_url: str) -> int:
+    """Store one Sendblue inbound image as UserProgressPhoto (source=sms). Caller commits."""
+    if not media_url:
+        return 0
+    data, resolved_ct = await download_mms_media_url(media_url)
+    if not data:
+        return 0
+    ct = resolved_ct or "image/jpeg"
+    if not ct.lower().startswith("image/"):
+        logger.info("Skipping non-image Sendblue media type=%s", ct)
+        return 0
+    uid = str(user.id)
+    try:
+        image_url = await storage_service.upload_progress_picture(data, uid, ct)
+    except Exception as e:
+        logger.error("Progress picture upload failed for user %s: %s", uid, e, exc_info=True)
+        return 0
+    if not image_url:
+        return 0
+    photo = UserProgressPhoto(
+        user_id=UUID(uid),
+        image_url=image_url,
+        created_at=datetime.utcnow(),
+        source="sms",
+    )
+    db.add(photo)
+    logger.info("Stored Sendblue progress photo for user %s", uid)
+    return 1
 
 
 async def ingest_mms_progress_photos_from_form(db: AsyncSession, user: User, form) -> int:
@@ -68,7 +91,7 @@ async def ingest_mms_progress_photos_from_form(db: AsyncSession, user: User, for
             logger.info("Skipping non-image MMS part %s type=%s", i, ct)
             continue
 
-        data, resolved_ct = await download_twilio_media(str(url))
+        data, resolved_ct = await download_mms_media_url(str(url))
         if not data:
             continue
 

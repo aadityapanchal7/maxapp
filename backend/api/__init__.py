@@ -13,4 +13,4 @@ from .admin import router as admin_router
 from .notifications import router as notifications_router
 from .schedules import router as schedules_router
 from .maxes import router as maxes_router
-from .twilio_webhook import router as twilio_webhook_router
+from .sendblue_webhook import router as sendblue_webhook_router

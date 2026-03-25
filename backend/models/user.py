@@ -106,6 +106,10 @@ class OnboardingData(BaseModel):
         default=None,
         description="When True, client should show post-pay scan insights then module select once.",
     )
+    sendblue_connect_completed: Optional[bool] = Field(
+        default=None,
+        description="User finished in-app step to text the Max Sendblue line after subscribe.",
+    )
     facial_scan_summary: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Denormalized scan headline fields after first triple scan completes.",

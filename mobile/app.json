@@ -18,7 +18,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.cannon.mobile",
       "infoPlist": {
-        "NSPhotoLibraryUsageDescription": "Max uses your photo library to attach images in community channels, chat, and profile or progress photos."
+        "NSPhotoLibraryUsageDescription": "Max uses your photo library to attach images in community channels, chat, and profile or progress photos.",
+        "NSPhotoLibraryAddUsageDescription": "Max saves your face scan from results to your photo library when you choose Save to photos."
       }
     },
     "android": {
@@ -30,7 +31,9 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
     "web": {
@@ -43,6 +46,14 @@
         {
           "cameraPermission": "Allow Max to access your camera for face scans.",
           "microphonePermission": "Allow Max to access your microphone for face scan video recording."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow Max to access photos to save your scan from results.",
+          "savePhotosPermission": "Allow Max to save your face scan to your photo library.",
+          "isAccessMediaLocationEnabled": false
         }
       ],
       "expo-video",
@@ -63,7 +74,9 @@
       "privacyPolicyUrl": "",
       "termsOfServiceUrl": "",
       "communityGuidelinesUrl": "",
-      "cookieNoticeUrl": ""
+      "cookieNoticeUrl": "",
+      "sendblueSmsNumber": "+16468304204",
+      "sendblueDisplayNumber": "+1 (646) 830-4204"
     }
   }
 }

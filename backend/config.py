@@ -59,11 +59,14 @@ class Settings(BaseSettings):
     subscription_price_monthly: float = Field(default=9.99)
     subscription_currency: str = Field(default="usd")
     
-    # Twilio Messaging
-    twilio_account_sid: str = Field(default="")
-    twilio_auth_token: str = Field(default="")
-    twilio_sms_from: str = Field(default="")
-    twilio_whatsapp_from: str = Field(default="whatsapp:+14155238886")  # Sandbox default
+    # Sendblue (iMessage / SMS) — https://sendblue.com/
+    sendblue_api_key_id: str = Field(default="", description="sb-api-key-id header")
+    sendblue_api_secret_key: str = Field(default="", description="sb-api-secret-key header")
+    sendblue_from_number: str = Field(default="", description="Your Sendblue line E.164, e.g. +16468304204")
+    sendblue_webhook_secret: str = Field(
+        default="",
+        description="Optional: must match Sendblue webhook secret header for /api/sendblue/receive",
+    )
     # DEV ONLY: set SMS_SCHEDULER_TEST_FAST_MODE=true — 1-min scheduler ticks, bypass clock windows so SMS
     # fires immediately; coaching + weekly send at most once per user until you restart the API process.
     sms_scheduler_test_fast_mode: bool = Field(default=False)
