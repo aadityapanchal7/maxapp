@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from db.sqlalchemy import AsyncSessionLocal
-from services.sendblue_service import sendblue_service
+from services.sendblue_service import sendblue_service, onboarding_allows_proactive_sms
 from models.sqlalchemy_models import UserSchedule, User, UserCoachingState
 from config import settings
 
@@ -171,6 +171,8 @@ async def send_due_notifications():
             for user_id, user_schedules in by_user.items():
                 user = await db.get(User, user_id)
                 if not user or not user.phone_number:
+                    continue
+                if not onboarding_allows_proactive_sms(user.onboarding):
                     continue
 
                 tz_name = (user.onboarding or {}).get("timezone", "UTC")
@@ -513,6 +515,9 @@ async def send_coaching_check_ins():
                     if not user.phone_number:
                         await db.commit()
                         continue
+                    if not onboarding_allows_proactive_sms(user.onboarding):
+                        await db.commit()
+                        continue
 
                     phone = user.phone_number
                     uid_str = str(user.id)
@@ -566,6 +571,8 @@ async def send_weekly_resets():
                 async with AsyncSessionLocal() as db:
                     user = await db.get(User, uid)
                     if not user:
+                        continue
+                    if not user.phone_number or not onboarding_allows_proactive_sms(user.onboarding):
                         continue
 
                     onboarding = user.onboarding or {}

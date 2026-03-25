@@ -65,17 +65,20 @@ async def _update_leaderboard_after_scan(
 
 async def _maybe_notify_scan_whatsapp(user: Optional[User], overall_score: Optional[float]) -> None:
     try:
-        if user and user.phone_number:
-            from services.sendblue_service import sendblue_service
-            import asyncio
+        if not user or not user.phone_number:
+            return
+        if not onboarding_allows_proactive_sms(user.onboarding):
+            return
+        from services.sendblue_service import sendblue_service
+        import asyncio
 
-            asyncio.create_task(
-                sendblue_service.send_scan_complete(
-                    user.phone_number,
-                    user.email or "",
-                    float(overall_score) if overall_score is not None else None,
-                )
+        asyncio.create_task(
+            sendblue_service.send_scan_complete(
+                user.phone_number,
+                user.email or "",
+                float(overall_score) if overall_score is not None else None,
             )
+        )
     except Exception as notif_err:
         logger.warning("Scan notification failed: %s", notif_err)
 

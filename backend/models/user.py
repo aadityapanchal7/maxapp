@@ -110,6 +110,10 @@ class OnboardingData(BaseModel):
         default=None,
         description="User finished in-app step to text the Max Sendblue line after subscribe.",
     )
+    sendblue_sms_engaged: Optional[bool] = Field(
+        default=None,
+        description="True after first inbound SMS/iMessage to our Sendblue number; enables automated outbound SMS.",
+    )
     facial_scan_summary: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Denormalized scan headline fields after first triple scan completes.",

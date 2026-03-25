@@ -2,7 +2,6 @@
 Payments API - Stripe subscriptions
 """
 
-import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Request, Depends
 from datetime import datetime
@@ -12,7 +11,6 @@ from sqlalchemy import select
 from db import get_db
 from middleware import get_current_user
 from services.stripe_service import stripe_service
-from services.sendblue_service import sendblue_service
 from models.payment import PaymentCreate, CheckoutSessionResponse
 from models.sqlalchemy_models import User, Scan
 
@@ -76,11 +74,6 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             user.onboarding = ob
             await db.commit()
 
-            if user.phone_number:
-                asyncio.create_task(
-                    sendblue_service.send_welcome(user.phone_number, user.first_name)
-                )
-
         scans_result = await db.execute(
             select(Scan).where(Scan.user_id == user_uuid)
         )
@@ -135,10 +128,6 @@ async def test_activate_subscription(
             scan.is_unlocked = True
         await db.commit()
 
-        if user.phone_number:
-            asyncio.create_task(
-                sendblue_service.send_welcome(user.phone_number, user.first_name)
-            )
     except HTTPException:
         raise
     except Exception as e:

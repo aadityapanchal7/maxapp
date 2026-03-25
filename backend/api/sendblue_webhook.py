@@ -1,17 +1,20 @@
 """
 Sendblue receive webhook — inbound iMessage/SMS routes through Max AI; images save as progress photos.
 Reply is sent via Sendblue outbound API (not TwiML).
+
+Sendblue requires a quick HTTP response to avoid duplicate webhook deliveries; AI + outbound send run in a background task.
 """
 
 import logging
 from collections import OrderedDict
 
-from fastapi import APIRouter, Request, HTTPException, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
-from db import get_db, get_rds_db_optional
+from db import AsyncSessionLocal
+from db.rds import RDSSessionLocal
 from models.sqlalchemy_models import User
 from services.sendblue_service import phone_lookup_candidates, sendblue_service
 from services.sms_mms_ingest import ingest_sendblue_media_progress_photo
@@ -21,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sendblue", tags=["Sendblue Webhook"])
 
-# Best-effort dedupe (multi-worker: use Redis in production if needed)
 _MAX_HANDLES = 4000
 _seen_handles: OrderedDict[str, bool] = OrderedDict()
 
@@ -38,47 +40,17 @@ def _seen_message(handle: str | None) -> bool:
     return False
 
 
-@router.post("/receive")
-async def sendblue_receive_webhook(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    rds_db: AsyncSession | None = Depends(get_rds_db_optional),
-):
-    """
-    Configure in Sendblue dashboard (receive webhook): POST https://<api>/api/sendblue/receive
-    """
-    if settings.sendblue_webhook_secret:
-        secret = (
-            request.headers.get("sb-webhook-secret")
-            or request.headers.get("SB-Webhook-Secret")
-            or request.headers.get("x-sendblue-secret")
-            or ""
-        )
-        if secret != settings.sendblue_webhook_secret:
-            raise HTTPException(status_code=401, detail="Invalid webhook secret")
-
-    try:
-        payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Expected JSON body")
-
-    if payload.get("is_outbound") is True:
-        return {"ok": True, "ignored": "outbound"}
-
-    handle = payload.get("message_handle")
-    if _seen_message(str(handle) if handle else ""):
-        return {"ok": True, "duplicate": True}
-
-    raw_number = str(payload.get("number") or payload.get("from_number") or "").strip()
-    body = str(payload.get("content") or "").strip()
-    media_url = str(payload.get("media_url") or "").strip()
-
-    if not raw_number:
-        return {"ok": True}
-
+async def _sendblue_inbound_core(
+    db,
+    rds_db,
+    raw_number: str,
+    body: str,
+    media_url: str,
+) -> None:
+    """DB + RDS sessions must be open; sends outbound SMS when appropriate."""
     candidates = phone_lookup_candidates(raw_number)
     logger.info(
-        "Sendblue inbound number=%s candidates=%s body_len=%s has_media=%s",
+        "Sendblue process number=%s candidates=%s body_len=%s has_media=%s",
         raw_number,
         candidates,
         len(body),
@@ -93,9 +65,26 @@ async def sendblue_receive_webhook(
             raw_number,
             "hey — you're not on max yet. sign up in the app to get started: https://maxmaxmax.today",
         )
-        return {"ok": True}
+        return
 
     user_id_str = str(user.id)
+
+    ob = dict(user.onboarding or {})
+    first_thread_message = not ob.get("sendblue_sms_engaged")
+    if first_thread_message:
+        ob["sendblue_sms_engaged"] = True
+        ob["sendblue_connect_completed"] = True
+        user.onboarding = ob
+        flag_modified(user, "onboarding")
+        await db.commit()
+
+    if not user.is_paid:
+        await sendblue_service.send_message(
+            raw_number,
+            "max: your subscription isn't active. open the app to subscribe — then text here anytime for coaching.",
+        )
+        return
+
     parts: list[str] = []
     mms_stored = 0
 
@@ -118,14 +107,21 @@ async def sendblue_receive_webhook(
             parts.append("couldn't read that image — try again or upload from the app.")
 
     if not body and not parts:
-        return {"ok": True}
+        return
 
     response_text = ""
     if body:
+        text_for_model = body
+        if first_thread_message:
+            text_for_model = (
+                "[SYSTEM: This is the user's first text to this number. One short welcoming line, "
+                "then answer their message. Keep SMS concise.]\n\n"
+                + body
+            )
         try:
             response_text = await process_chat_message(
                 user_id=user_id_str,
-                message_text=body,
+                message_text=text_for_model,
                 db=db,
                 rds_db=rds_db,
                 channel="sms",
@@ -152,4 +148,69 @@ async def sendblue_receive_webhook(
         combined = combined[:1547] + "..."
 
     await sendblue_service.send_message(raw_number, combined)
-    return {"ok": True}
+
+
+async def _sendblue_process_inbound_payload(payload: dict) -> None:
+    raw_number = str(payload.get("from_number") or payload.get("number") or "").strip()
+    body = str(payload.get("content") or "").strip()
+    media_url = str(payload.get("media_url") or "").strip()
+
+    if not raw_number:
+        return
+
+    async with AsyncSessionLocal() as db:
+        rds_cm = None
+        rds_db = None
+        try:
+            rds_cm = RDSSessionLocal()
+            rds_db = await rds_cm.__aenter__()
+        except Exception as e:
+            logger.info("Sendblue inbound without RDS session: %s", e)
+            rds_cm = None
+            rds_db = None
+        try:
+            await _sendblue_inbound_core(db, rds_db, raw_number, body, media_url)
+        finally:
+            if rds_cm is not None:
+                try:
+                    await rds_cm.__aexit__(None, None, None)
+                except Exception:
+                    pass
+
+
+@router.post("/receive")
+async def sendblue_receive_webhook(request: Request, background_tasks: BackgroundTasks):
+    """
+    Configure in Sendblue dashboard (receive webhook): POST https://<api>/api/sendblue/receive
+    """
+    if settings.sendblue_webhook_secret:
+        secret = (
+            request.headers.get("sb-webhook-secret")
+            or request.headers.get("SB-Webhook-Secret")
+            or request.headers.get("x-sendblue-secret")
+            or ""
+        )
+        if secret != settings.sendblue_webhook_secret:
+            raise HTTPException(status_code=401, detail="Invalid webhook secret")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Expected JSON body")
+
+    if payload.get("is_outbound") is True:
+        return {"ok": True, "ignored": "outbound"}
+
+    if payload.get("opted_out") is True:
+        return {"ok": True, "ignored": "opted_out"}
+
+    handle = payload.get("message_handle")
+    if _seen_message(str(handle) if handle else ""):
+        return {"ok": True, "duplicate": True}
+
+    raw_number = str(payload.get("from_number") or payload.get("number") or "").strip()
+    if not raw_number:
+        return {"ok": True}
+
+    background_tasks.add_task(_sendblue_process_inbound_payload, dict(payload))
+    return {"ok": True, "queued": True}

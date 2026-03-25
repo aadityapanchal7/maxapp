@@ -16,6 +16,11 @@ logger = logging.getLogger(__name__)
 SENDBLUE_API = "https://api.sendblue.co/api"
 
 
+def onboarding_allows_proactive_sms(onboarding: dict | None) -> bool:
+    """Schedule reminders, scan-complete texts, coaching nudges — only after user has texted our line."""
+    return (onboarding or {}).get("sendblue_sms_engaged") is True
+
+
 def normalize_phone(phone: str) -> str:
     """Normalize to E.164 (+XXXXXXXXXXX)."""
     digits = re.sub(r"[^\d+]", "", (phone or "").strip())
