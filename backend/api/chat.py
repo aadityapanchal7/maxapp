@@ -24,8 +24,16 @@ from services.gemini_service import gemini_service
 from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
+from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 
 logger = logging.getLogger(__name__)
+
+# Schedule setup: wake/sleep come from signup / profile only — never re-ask in chat.
+_WAKE_SLEEP_NEVER_ASK = (
+    "WAKE_TIME & SLEEP_TIME — NEVER ask the user in this flow. Read wake_time and sleep_time from "
+    "user_context.onboarding / GLOBAL ONBOARDING (includes schedule_preferences merge). "
+    "If either field is missing, pass wake_time=07:00 and sleep_time=23:00 in generate_maxx_schedule without asking."
+)
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -473,6 +481,189 @@ def _heightmax_global_profile_hint(onboarding: dict) -> str:
     )
 
 
+def _infer_skin_concern_id_from_onboarding(ob: dict) -> Optional[str]:
+    """Map questionnaire + skin_type to a SkinMax protocol id (acne, pigmentation, ...)."""
+    if not ob:
+        return None
+    primary = str(ob.get("primary_skin_concern") or "").strip().lower()
+    secondary = str(ob.get("secondary_skin_concern") or "").strip().lower()
+    keyword_to_id = [
+        (("acne", "breakout", "blemish", "congestion", "pimple", "blackhead"), "acne"),
+        (("pigment", "dark spot", "melasma", "hyperpigmentation", "uneven tone"), "pigmentation"),
+        (("texture", "scar", "scarring", "pores"), "texture"),
+        (("red", "sensitive", "rosacea", "irritat"), "redness"),
+        (("aging", "wrinkle", "fine line", "anti-aging"), "aging"),
+    ]
+    for text in (primary, secondary):
+        if not text:
+            continue
+        if text in SKINMAX_PROTOCOLS:
+            return text
+        for needles, cid in keyword_to_id:
+            if any(n in text for n in needles) and cid in SKINMAX_PROTOCOLS:
+                return cid
+    ac = ob.get("appearance_concerns")
+    if isinstance(ac, list):
+        blob = " ".join(str(x).lower() for x in ac if x)
+        for needles, cid in keyword_to_id:
+            if any(n in blob for n in needles) and cid in SKINMAX_PROTOCOLS:
+                return cid
+    st = str(ob.get("skin_type") or "").strip().lower()
+    if st:
+        return resolve_skin_concern(st, None)
+    return None
+
+
+def _bonemax_onboarding_known_block(ob: dict) -> str:
+    if not ob:
+        return ""
+    lines: list[str] = []
+    wf = str(ob.get("bonemax_workout_frequency") or "").strip()
+    if wf:
+        lines.append(f"- workout frequency already in onboarding: {wf} — pass to generate_maxx_schedule; do NOT ask again.")
+    for label, key in (
+        ("TMJ / jaw history", "bonemax_tmj_history"),
+        ("mastic gum regularly", "bonemax_mastic_gum_regular"),
+        ("heavy screen time", "bonemax_heavy_screen_time"),
+    ):
+        v = ob.get(key)
+        if v is None or str(v).strip() == "":
+            continue
+        if _yes_no_answered(v):
+            lines.append(f"- {label} already in onboarding: {v} — use in tool; do NOT ask again.")
+    if not lines:
+        return ""
+    return (
+        "ALREADY KNOWN FROM ONBOARDING (do NOT re-ask; read from user_context / GLOBAL ONBOARDING):\n"
+        + "\n".join(lines)
+        + "\n\n"
+    )
+
+
+def _hairmax_onboarding_known_block(ob: dict) -> str:
+    if not ob:
+        return ""
+    lines: list[str] = []
+    for label, key in (
+        ("hair type", "hair_type"),
+        ("scalp state", "scalp_state"),
+        ("daily styling / products", "daily_styling"),
+        ("thinning", "thinning"),
+        ("thinning (alt)", "hair_thinning"),
+    ):
+        v = ob.get(key)
+        if v is None or str(v).strip() == "":
+            continue
+        if key in ("thinning", "hair_thinning") and not _yes_no_answered(v):
+            continue
+        lines.append(f"- {label}: {v} — use in generate_maxx_schedule; do NOT ask again.")
+    hcl = str(ob.get("hair_current_loss") or "").strip().lower()
+    if hcl and not ob.get("thinning") and not ob.get("hair_thinning"):
+        if any(w in hcl for w in ("yes", "yeah", "yep", "reced", "thin", "losing", "balding", "some")):
+            lines.append(
+                "- hair questionnaire (hair_current_loss) suggests thinning — treat thinning=yes in tool unless user corrects; do NOT ask again unless unclear."
+            )
+        elif any(w in hcl for w in ("no", "nope", "not ", "none", "minimal")):
+            lines.append(
+                "- hair questionnaire suggests no major loss — treat thinning=no in tool unless user corrects."
+            )
+    if not lines:
+        return ""
+    return (
+        "ALREADY KNOWN FROM ONBOARDING (do NOT re-ask):\n"
+        + "\n".join(lines)
+        + "\n\n"
+    )
+
+
+def _fitmax_seed_profile_from_onboarding(profile: dict, ob: dict) -> dict:
+    """Pre-fill FitMax chat profile from global / FitMax questionnaire answers."""
+    out = dict(profile or {})
+    ob = ob or {}
+
+    def take(dst: str, val, only_if_empty: bool = True) -> None:
+        if val is None or val == "" or val == []:
+            return
+        if only_if_empty and out.get(dst) not in (None, "", []):
+            return
+        out[dst] = val
+
+    fpg = str(ob.get("fitmax_primary_goal") or "").lower()
+    if fpg:
+        if any(k in fpg for k in ("fat", "cut", "lose weight", "shred")):
+            take("goal", "fat_loss")
+        elif any(k in fpg for k in ("muscle", "bulk", "gain", "hypertrophy", "mass")):
+            take("goal", "muscle_gain")
+        elif "recomp" in fpg:
+            take("goal", "recomp")
+        elif any(k in fpg for k in ("maintain", "maintenance")):
+            take("goal", "maintenance")
+        elif any(k in fpg for k in ("performance", "strength", "athletic")):
+            take("goal", "performance")
+
+    exp = ob.get("fitmax_training_experience") or ob.get("experience_level")
+    if exp:
+        e = str(exp).lower()
+        if "beginner" in e:
+            take("experience_level", "beginner")
+        elif "intermediate" in e:
+            take("experience_level", "intermediate")
+        elif "advanced" in e:
+            take("experience_level", "advanced")
+
+    h = ob.get("height")
+    if h is not None and str(h).strip():
+        try:
+            take("height_cm", float(h))
+        except (TypeError, ValueError):
+            pass
+    w = ob.get("weight")
+    if w is not None and str(w).strip():
+        try:
+            take("weight_kg", float(w))
+        except (TypeError, ValueError):
+            pass
+    age_v = _safe_int_age(ob.get("age"))
+    if age_v is not None:
+        take("age", age_v)
+
+    g = str(ob.get("gender") or ob.get("sex") or "").lower()
+    if g:
+        if any(x in g for x in ("female", "woman", "girl")):
+            take("biological_sex", "female")
+        elif any(x in g for x in ("male", "man", "boy")):
+            take("biological_sex", "male")
+
+    feq = ob.get("fitmax_equipment")
+    if feq:
+        take("equipment", ", ".join(feq) if isinstance(feq, list) else str(feq))
+    elif ob.get("equipment"):
+        eq = ob.get("equipment")
+        take("equipment", ", ".join(eq) if isinstance(eq, list) else str(eq))
+
+    d = ob.get("fitmax_workout_days_per_week")
+    if d is not None:
+        try:
+            n = int(float(str(d).strip()))
+            if 1 <= n <= 7:
+                take("days_per_week", n)
+        except (TypeError, ValueError):
+            pass
+
+    al = str(ob.get("activity_level") or "").lower()
+    if al:
+        if any(k in al for k in ("sedentary", "desk")):
+            take("daily_activity_level", "sedentary")
+        elif any(k in al for k in ("light", "lightly")):
+            take("daily_activity_level", "lightly_active")
+        elif any(k in al for k in ("moderate", "medium")):
+            take("daily_activity_level", "moderately_active")
+        elif any(k in al for k in ("very", "high", "athlete", "extreme")):
+            take("daily_activity_level", "very_active")
+
+    return out
+
+
 def _merge_onboarding_with_schedule_prefs(user: Optional[User]) -> dict:
     """Expose wake/sleep from onboarding, backfilled from schedule_preferences for older users."""
     if not user:
@@ -747,6 +938,14 @@ async def process_chat_message(
     # --- Fitmax chat onboarding (profile is populated conversationally) ---
     if maxx_id == "fitmax" and user:
         fitmax_profile = dict(profile.get("fitmax_profile") or {})
+        seeded = _fitmax_seed_profile_from_onboarding(fitmax_profile, onboarding)
+        if seeded != fitmax_profile:
+            fitmax_profile = seeded
+            profile["fitmax_profile"] = fitmax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
         updates = _extract_fitmax_updates(message_text, fitmax_profile)
         if updates:
             fitmax_profile.update(updates)
@@ -907,33 +1106,30 @@ CRITICAL — FORBIDDEN FOR HEIGHTMAX
 MAIN RULES FOR HEIGHTMAX
 - do NOT ask "what is your main concern?" or any generic concern questions.
 - height is already the focus. don't ask what area they want to work on.
-- GLOBAL ONBOARDING: age, gender, and height are usually already in user_context.onboarding from app signup. NEVER ask for age, sex/gender, or height if they already appear there. only ask for wake_time and/or sleep_time if those are missing.
-- your job is to grab any missing info, then call generate_maxx_schedule so the app can save their answers. the actual calendar is NOT built in chat — after this tool runs, the user picks schedule parts in the app (toggles) and taps create.
-- NEVER ask the user to enter wake/sleep times in 24-hour or "military" format. ask naturally ("what time do you usually wake up?"); accept answers like "7am" or "11:30pm" and convert to HH:MM in the tool call.
+- GLOBAL ONBOARDING: age, gender, and height are usually already in user_context.onboarding from app signup. NEVER ask for age, sex/gender, or height if they already appear there.
+- {_WAKE_SLEEP_NEVER_ASK}
+- your job is to grab any missing demographic info, then call generate_maxx_schedule so the app can save their answers. the actual calendar is NOT built in chat — after this tool runs, the user picks schedule parts in the app (toggles) and taps create.
 
 WHAT YOU'RE ALLOWED TO ASK FOR (ONLY IF MISSING FROM user_context.onboarding)
 - age — ONLY if not already in onboarding
 - sex / gender — ONLY if not already in onboarding (field may be "gender")
 - current height — ONLY if not already in onboarding
-- wake time — if missing
-- sleep time — if missing
+- (never wake/sleep — see rule above)
 
 HOW TO RUN THE FLOW
 1) greet very briefly, in your usual style, and say you're going to set up their heightmax schedule.
 
-2) read user_context.onboarding first. ONLY ask for fields that are missing. typical signup users already have age, gender, height — go straight to wake/sleep if those are the only gaps.
+2) read user_context.onboarding first. ONLY ask for fields that are missing.
    - if age is missing from onboarding: ask "how old are you?"
    - if sex / gender is missing from onboarding: ask "what's your sex or gender?"
    - if height is missing from onboarding: ask "what's your current height?" (any format is fine)
-   - if wake_time is missing: ask "what time do you usually wake up?"
-   - if sleep_time is missing: ask "what time do you usually go to sleep?"
 
-   ask ONE question at a time. if age, gender, and height are already in onboarding, do NOT ask them again. do NOT ask about outside today.
+   ask ONE question at a time. if age, gender, and height are already in onboarding, do NOT ask them again. do NOT ask about outside today. do NOT ask wake or sleep.
 
-3) once you have age, sex, height, wake_time, and sleep_time available (from onboarding context and/or user answers), you must call the tool generate_maxx_schedule exactly once with:
+3) once you have age, sex, and height (from onboarding and/or user answers), call generate_maxx_schedule exactly once with:
    - maxx_id = "heightmax"
-   - wake_time = the user's wake time
-   - sleep_time = the user's sleep time
+   - wake_time = from onboarding, else 07:00
+   - sleep_time = from onboarding, else 23:00
    - skin_concern = null / empty (heightmax doesn't use concerns)
    - outside_today = false (heightmax doesn't use outside_today)
    - age = their age (number, if known)
@@ -953,17 +1149,19 @@ STYLE
 
 your first response in this heightmax start flow should:
 - briefly acknowledge they're starting heightmax, and
-- immediately ask for the first missing piece of required info — skipping age/sex/height if already present in onboarding (usually only wake/sleep left).]\n\n{message}"""
+- immediately ask for the first missing piece of required info — skipping age/sex/height if already present in onboarding; if all three are present, call generate_maxx_schedule immediately (wake/sleep from onboarding or defaults).]\n\n{message}"""
         elif maxx_id == "hairmax":
+            _hair_known = _hairmax_onboarding_known_block(onboarding)
             message = f"""[SYSTEM: you are running the HAIRMAX schedule setup.
 
-the user just opened hairmax to start a new schedule. follow the same tone and style as other maxx modules: short, casual, direct, focused on getting their schedule locked in.
+{_hair_known}the user just opened hairmax to start a new schedule. follow the same tone and style as other maxx modules: short, casual, direct, focused on getting their schedule locked in.
 
 DO NOT:
 - do not ask "what is your main concern?" or any generic concern questions.
 - do not ask if they will be outside today (that's only for skin).
 - do not invent your own detailed routine; the backend schedule handles tasks and timings.
 - stay inside hairmax. don't switch to skin, height, or fit here.
+- {_WAKE_SLEEP_NEVER_ASK}
 
 what you're allowed to ask for (only if missing in user_context or onboarding):
 - hair basics:
@@ -972,10 +1170,7 @@ what you're allowed to ask for (only if missing in user_context or onboarding):
   - daily styling/product use: "do you use hair products or styling most days?" (yes/no)
 - thinning:
   - "do you notice hair thinning or a receding hairline?" (yes/no)
-- timing anchors:
-  - wake_time
-  - sleep_time
-  - pm routine time (night routine / skincare) if needed for minoxidil/dermastamp timing
+- (never ask wake_time or sleep_time — pass from onboarding or 07:00 / 23:00 in the tool)
 
 guiding rules (for how you talk; backend does final schedule):
 - shampoo/conditioner:
@@ -1003,16 +1198,10 @@ guiding rules (for how you talk; backend does final schedule):
 
 flow for a new hairmax schedule:
 1) greet briefly and say you're setting up their hairmax schedule.
-2) check user_context/onboarding for existing data. only ask what's missing. STRICT ORDER — do not skip ahead:
-   - hair type (straight / wavy / curly / coily)
-   - scalp state (normal, dry/flaky, oily/greasy, itchy)
-   - daily product/styling (yes/no)
-   - thinning or receding hairline (yes/no)
-   - wake_time
-   - sleep_time
-   - pm routine time (only if needed and unknown)
-   ask one question at a time. you MUST collect all four hair lines (type, scalp, daily styling, thinning) before wake/sleep.
-3) only after you have all of those, call generate_maxx_schedule exactly once. the backend will reject the call if hair fields are missing — pass them explicitly:
+2) check the ALREADY KNOWN block above plus user_context/onboarding. only ask what's missing. STRICT ORDER — do not skip ahead:
+   - ask in order: hair type → scalp → daily styling → thinning (skip any line already listed as known).
+   ask one question at a time. you MUST have all four hair lines (type, scalp, daily styling, thinning) before calling the tool unless they were pre-filled.
+3) call generate_maxx_schedule exactly once once hair fields are complete. pass wake_time and sleep_time from onboarding only, or 07:00 and 23:00 if missing — never ask the user for them. the backend will reject the call if hair fields are missing — pass them explicitly:
    - maxx_id = "hairmax"
    - hair_type = e.g. "curly"
    - scalp_state = e.g. "oily/greasy"
@@ -1033,7 +1222,40 @@ style:
 
 your first response in this hairmax start flow should:
 - briefly acknowledge they're starting hairmax, and
-- immediately ask the first missing hair-related question (hair type / scalp / products / thinning). if all hair basics are known, ask for missing timing (wake/sleep), then proceed to trigger generate_maxx_schedule.]\n\n{message}"""
+- immediately ask the first missing hair-related question (hair type / scalp / products / thinning). if all hair basics are known, call generate_maxx_schedule (wake/sleep from onboarding or defaults) — never ask wake/sleep.]\n\n{message}"""
+        elif maxx_id == "skinmax":
+            inferred_sc = _infer_skin_concern_id_from_onboarding(onboarding)
+            wt_ok = _normalize_clock_hhmm(onboarding.get("wake_time"))
+            st_ok = _normalize_clock_hhmm(onboarding.get("sleep_time"))
+            known_lines: list[str] = [_WAKE_SLEEP_NEVER_ASK]
+            if inferred_sc:
+                known_lines.append(
+                    f'SKIN CONCERN already inferred from app onboarding — use skin_concern="{inferred_sc}" in generate_maxx_schedule. '
+                    "Do NOT ask the user to pick acne vs pigmentation etc. unless they explicitly want to change focus."
+                )
+            if wt_ok:
+                known_lines.append(f"(for the tool) use wake_time={wt_ok} from onboarding.")
+            if st_ok:
+                known_lines.append(f"(for the tool) use sleep_time={st_ok} from onboarding.")
+            sl = onboarding.get("skincare_routine_level")
+            if sl:
+                known_lines.append(f"skincare_routine_level={sl} (use as context; do not re-ask).")
+            known_block = "\n".join(known_lines)
+            message = f"""[SYSTEM: SkinMax schedule setup — user started the module schedule from the app.
+
+{known_block}
+
+RULES:
+- GLOBAL ONBOARDING + USER CONTEXT are source of truth.
+- Before generate_maxx_schedule you need: skin_concern, wake_time, sleep_time (from onboarding or 07:00/23:00 defaults — NEVER ask), and outside_today (boolean).
+- ONE question per message. Order: (1) skin concern ONLY if not pre-filled above, (2) then ONLY "planning to be outside much today?" for outside_today.
+- If skin concern is already pre-filled above, greet briefly and your FIRST question must be ONLY about outside today.
+- For wake/sleep in the tool: use values from onboarding if present; otherwise 07:00 and 23:00.
+
+Call generate_maxx_schedule once when you have skin_concern + outside_today (wake/sleep never from user chat). maxx_id=\"skinmax\".]\n\n{message}"""
+        elif maxx_id == "bonemax":
+            _bone_pre = _bonemax_onboarding_known_block(onboarding)
+            message = f"{_bone_pre}{BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT}\n\n{message}"
         else:
             concern_question, concerns = None, []
             if rds_db:
@@ -1057,16 +1279,18 @@ your first response in this hairmax start flow should:
                 concerns_str = ", ".join(c.get("label", c.get("id", "")) for c in concerns)
                 concern_ids = ", ".join(c.get("id", "") for c in concerns if c.get("id"))
                 message = f"""[SYSTEM: User wants to start their {maxx_id} schedule. CRITICAL — follow this EXACT order:
+{_WAKE_SLEEP_NEVER_ASK}
 1. Greet briefly and explain what the schedule does.
-2. Your FIRST question MUST be: "{concern_question}" Options: {concerns_str}. Do NOT ask wake time or sleep time yet. Wait for their answer.
-3. After they pick a concern, ask: "What time do you usually wake up?" — wait for answer.
-4. Then ask: "What time do you usually go to sleep?" — wait for answer.
-5. Then ask: "Are you planning to be outside much today?" — wait for answer.
-6. Once you have concern, wake_time, sleep_time, and outside_today, call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern ({concern_ids}), wake_time, sleep_time, outside_today.
-Never ask users to use 24-hour/military time for wake or sleep — convert natural answers (e.g. 7am, 11pm) to HH:MM in the tool.
+2. Your FIRST question MUST be: "{concern_question}" Options: {concerns_str}. Wait for their answer.
+3. After they pick a concern, ask: "Are you planning to be outside much today?" — wait for answer (needed for UV / SPF logic where applicable).
+4. Call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern ({concern_ids}), wake_time and sleep_time from user_context.onboarding (or 07:00 and 23:00 if missing), and outside_today.
 Ask ONE question at a time. Your very first response must ask the concern question.]\n\n{message}"""
             else:
-                message = f"[SYSTEM: User wants to start {maxx_id} schedule. Ask wake time, sleep time, outside today. One at a time. Never ask for 24-hour format for times — convert natural answers to HH:MM in the tool.]\n\n{message}"
+                message = (
+                    f"[SYSTEM: User wants to start {maxx_id} schedule. {_WAKE_SLEEP_NEVER_ASK} "
+                    "Ask outside today only if this module needs UV context; otherwise call generate_maxx_schedule with wake/sleep from onboarding or 07:00/23:00.]\n\n"
+                    + message
+                )
 
     # --- Image handling ---
     image_data = None
@@ -1113,7 +1337,17 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                 tmj_raw = None
                 gum_raw = None
                 scr_raw = None
-                skin_concern = args.get("skin_concern") or onboarding.get("skin_type")
+                if req_maxx == "skinmax":
+                    sc_arg = args.get("skin_concern")
+                    sc_str = str(sc_arg).strip().lower() if sc_arg is not None and str(sc_arg).strip() else ""
+                    if sc_str in SKINMAX_PROTOCOLS:
+                        skin_concern = sc_str
+                    else:
+                        skin_concern = _infer_skin_concern_id_from_onboarding(onboarding) or resolve_skin_concern(
+                            str(onboarding.get("skin_type") or "").strip() or None, None
+                        )
+                else:
+                    skin_concern = args.get("skin_concern") or onboarding.get("skin_type")
                 # For HeightMax, allow AI to pass age/sex/height from conversation
                 age_raw = args.get("age")
                 age = int(age_raw) if age_raw is not None and str(age_raw).isdigit() else None
@@ -1147,6 +1381,17 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     thinning = args.get("thinning") or args.get("hair_thinning")
                     if thinning is None:
                         thinning = onboarding.get("hair_thinning") or onboarding.get("thinning")
+                    if not _yes_no_answered(thinning):
+                        hcl = str(onboarding.get("hair_current_loss") or "").lower()
+                        if any(
+                            w in hcl
+                            for w in ("yes", "yeah", "yep", "reced", "thin", "losing", "balding", "some")
+                        ):
+                            thinning = "yes"
+                        elif any(
+                            w in hcl for w in ("no", "nope", "none", "not really", "minimal", "little")
+                        ):
+                            thinning = "no"
                     has_ht = bool(str(hair_type or "").strip())
                     has_ss = bool(str(scalp_state or "").strip())
                     has_ds = _yes_no_answered(daily_styling)

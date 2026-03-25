@@ -223,6 +223,20 @@ CONVERSATION:
         onboarding = user.onboarding or {}
         state = await self.get_or_create_state(user_id, db)
 
+        # --- Account (address naturally in replies) ---
+        account_bits = []
+        if user.first_name:
+            account_bits.append(f"first_name={user.first_name}")
+        if user.last_name:
+            account_bits.append(f"last_name={user.last_name}")
+        if user.username:
+            account_bits.append(f"username=@{user.username}")
+        if account_bits:
+            parts.append(
+                "ACCOUNT — use first name when greeting if present; username is social handle: "
+                + " | ".join(account_bits)
+            )
+
         # --- User profile (signup / global onboarding — always surface for schedule + chat flows) ---
         profile_bits = []
         global_bits = []
@@ -255,6 +269,15 @@ CONVERSATION:
             "fitmax_preferred_workout_time",
             "screen_hours_daily",
             "questionnaire_v2_completed",
+            "bonemax_workout_frequency",
+            "bonemax_tmj_history",
+            "bonemax_mastic_gum_regular",
+            "bonemax_heavy_screen_time",
+            "hair_type",
+            "scalp_state",
+            "daily_styling",
+            "thinning",
+            "hair_thinning",
         ]:
             v = onboarding.get(k)
             if v is not None and v != "" and v != []:
