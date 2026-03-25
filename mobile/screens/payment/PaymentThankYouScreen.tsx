@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,10 +12,35 @@ const UNLOCKED = [
     'Max coach in-app & SMS',
 ];
 
+const POLL_MS = 2000;
+const POLL_MAX = 30;
+
 export default function PaymentThankYouScreen() {
     const { refreshUser, user } = useAuth();
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+    const pollCount = useRef(0);
+
+    const paid = user?.is_paid === true;
+
+    /** Webhook can lag — auto-refresh until paid, then navigator switches to main app. */
+    useEffect(() => {
+        if (paid) return;
+        pollCount.current = 0;
+        const id = setInterval(async () => {
+            pollCount.current += 1;
+            if (pollCount.current > POLL_MAX) {
+                clearInterval(id);
+                return;
+            }
+            try {
+                await refreshUser();
+            } catch {
+                /* ignore */
+            }
+        }, POLL_MS);
+        return () => clearInterval(id);
+    }, [paid, refreshUser]);
 
     const handleContinue = async () => {
         try {
@@ -34,8 +59,6 @@ export default function PaymentThankYouScreen() {
             setRefreshing(false);
         }
     };
-
-    const paid = user?.is_paid === true;
 
     return (
         <ScrollView

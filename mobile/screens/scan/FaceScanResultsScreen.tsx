@@ -74,13 +74,38 @@ function getScoreColor(score: number) {
 }
 
 const RATING_DISPLAY_MIN = 2.5;
-const POTENTIAL_DISPLAY_MIN = 8;
 
-/** Slightly higher potential on the paid results screen only (UI display). */
+/** Model potential smoothed for display nudges (paid unlock only). */
 function inflatePotentialForDisplay(raw: number): number {
     const headroom = Math.max(0, 10 - raw);
     const bumped = raw + 0.28 + headroom * 0.06;
     return Math.min(10, Math.round(bumped * 10) / 10);
+}
+
+/**
+ * Anchor "potential" from current rating: lower score → lower ceiling (~8.2–8.4 at 4/10),
+ * higher score → higher ceiling (~8.9–9.1 at 6/10, up to ~9.85 at 10/10). Piecewise linear.
+ */
+function anchorPotentialFromRating(ratingDisplay: number | null): number {
+    const r = ratingDisplay ?? 5;
+    const x = Math.max(RATING_DISPLAY_MIN, Math.min(10, r));
+    const pts: readonly [number, number][] = [
+        [2.5, 7.55],
+        [4.0, 8.32],
+        [6.0, 8.95],
+        [8.0, 9.35],
+        [10.0, 9.85],
+    ];
+    if (x <= pts[0][0]) return pts[0][1];
+    for (let i = 0; i < pts.length - 1; i++) {
+        const [x0, y0] = pts[i];
+        const [x1, y1] = pts[i + 1];
+        if (x <= x1) {
+            const t = (x - x0) / (x1 - x0);
+            return y0 + t * (y1 - y0);
+        }
+    }
+    return pts[pts.length - 1][1];
 }
 
 /** Shown rating is never below 2.5. */
@@ -90,14 +115,18 @@ function clampDisplayRating(overall: number | null): number | null {
 }
 
 /**
- * Potential is always at least 8 and still tracks analysis + rating (higher rating → more headroom up to 10).
+ * Paid/unlocked: potential follows current rating (not stuck at 8), with a small shift from model raw potential.
+ * Preview: show raw analysis value only.
  */
 function computeDisplayPotential(rawPotential: number, treatAsPaid: boolean, ratingDisplay: number | null): number {
-    const base = treatAsPaid ? inflatePotentialForDisplay(rawPotential) : Math.max(0, Math.min(10, rawPotential));
-    const r = ratingDisplay ?? 5;
-    const t = Math.max(0, Math.min(1, (r - RATING_DISPLAY_MIN) / (10 - RATING_DISPLAY_MIN)));
-    const blended = base * (0.5 + 0.5 * t) + t * 1.6 + (r - RATING_DISPLAY_MIN) * 0.12;
-    return Math.round(Math.min(10, Math.max(POTENTIAL_DISPLAY_MIN, blended)) * 10) / 10;
+    if (!treatAsPaid) {
+        return Math.round(Math.max(0, Math.min(10, rawPotential)) * 10) / 10;
+    }
+    const anchor = anchorPotentialFromRating(ratingDisplay);
+    const inflated = inflatePotentialForDisplay(rawPotential);
+    const nudge = (inflated - 7) * 0.1;
+    const v = anchor + nudge;
+    return Math.round(Math.min(9.9, Math.max(6.4, v)) * 10) / 10;
 }
 
 type RouteParams = { postPay?: boolean };

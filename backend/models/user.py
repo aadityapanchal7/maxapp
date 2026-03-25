@@ -108,11 +108,11 @@ class OnboardingData(BaseModel):
     )
     sendblue_connect_completed: Optional[bool] = Field(
         default=None,
-        description="User finished in-app step to text the Max Sendblue line after subscribe.",
+        description="User tapped Continue on Sendblue screen after server saw their first inbound text.",
     )
     sendblue_sms_engaged: Optional[bool] = Field(
         default=None,
-        description="True after first inbound SMS/iMessage to our Sendblue number; enables automated outbound SMS.",
+        description="True after first inbound SMS/iMessage to our Sendblue number; enables automated outbound SMS and unlocks Continue on the connect screen.",
     )
     facial_scan_summary: Optional[Dict[str, Any]] = Field(
         default=None,

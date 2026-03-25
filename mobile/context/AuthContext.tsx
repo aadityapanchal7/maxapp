@@ -61,7 +61,8 @@ interface AuthContextType {
     login: (identifier: string, password: string) => Promise<void>;
     signup: (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => Promise<void>;
     logout: () => Promise<void>;
-    refreshUser: () => Promise<void>;
+    /** Returns latest user from API (e.g. after payment) so callers can branch before next render. */
+    refreshUser: () => Promise<User>;
     /** Permanently delete the signed-in account (App Store account-deletion requirement). */
     deleteAccount: (password: string) => Promise<void>;
 }
@@ -107,9 +108,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
     };
 
-    const refreshUser = async () => {
+    const refreshUser = async (): Promise<User> => {
         const userData = await api.getMe();
         setUser(userData);
+        return userData;
     };
 
     const deleteAccount = async (password: string) => {

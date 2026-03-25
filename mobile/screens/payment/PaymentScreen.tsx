@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -16,16 +16,16 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
-/** Optional: paste your Stripe Payment Link here if you’re not using .env yet. */
-const STRIPE_LINK_FALLBACK = '';
+/** Production Stripe Payment Link — override with EXPO_PUBLIC_STRIPE_PAYMENT_LINK in .env if needed. */
+const STRIPE_LINK_FALLBACK = 'https://buy.stripe.com/9B64gzazZgDmaVL7vKbII01';
 
 const STRIPE_CHECKOUT_URL = (
     process.env.EXPO_PUBLIC_STRIPE_PAYMENT_LINK?.trim() || STRIPE_LINK_FALLBACK
 ).trim();
 
 /**
- * Must match Stripe Payment Link (or Checkout) “redirect after payment” URL exactly.
- * Override if Stripe only allows https — use a page that redirects to this app URL.
+ * Must match Stripe Payment Link “Confirmation page” redirect URL exactly (custom redirect).
+ * Example: cannon://PaymentThankYou — set the same in Stripe Dashboard → Payment Link → After payment.
  */
 function getPaymentReturnUrl(): string {
     const override = process.env.EXPO_PUBLIC_STRIPE_RETURN_URL?.trim();
@@ -34,6 +34,9 @@ function getPaymentReturnUrl(): string {
 }
 
 const PRICE = '9.99';
+
+const POLL_INTERVAL_MS = 2000;
+const POLL_MAX_ATTEMPTS = 20;
 
 const FULL_ACCESS_FEATURES = [
     'Full course library & every Maxx track',
@@ -44,25 +47,73 @@ const FULL_ACCESS_FEATURES = [
     'Max coach in the app and over SMS',
 ];
 
+function buildCheckoutUrl(base: string, userId: string | undefined): string {
+    if (!userId) return base;
+    try {
+        const u = new URL(base);
+        u.searchParams.set('client_reference_id', userId);
+        return u.toString();
+    } catch {
+        const sep = base.includes('?') ? '&' : '?';
+        return `${base}${sep}client_reference_id=${encodeURIComponent(userId)}`;
+    }
+}
+
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const { user, refreshUser } = useAuth();
     const [checkoutLoading, setCheckoutLoading] = useState(false);
     const [devLoading, setDevLoading] = useState(false);
+    const pollingRef = useRef(false);
 
     const stripeUrlConfigured = useMemo(() => STRIPE_CHECKOUT_URL.length > 0, []);
     const paymentReturnUrl = useMemo(() => getPaymentReturnUrl(), []);
+    const checkoutUrl = useMemo(
+        () => buildCheckoutUrl(STRIPE_CHECKOUT_URL, user?.id),
+        [user?.id],
+    );
 
+    const pollUntilPaid = useCallback(async (): Promise<boolean> => {
+        if (pollingRef.current) return false;
+        pollingRef.current = true;
+        try {
+            for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
+                try {
+                    const u = await refreshUser();
+                    if (u?.is_paid) return true;
+                } catch {
+                    /* retry */
+                }
+                await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+            }
+            return false;
+        } finally {
+            pollingRef.current = false;
+        }
+    }, [refreshUser]);
+
+    /**
+     * After browser closes: refresh once; if still unpaid, poll (webhook delay).
+     * If paid, RootNavigator remounts (auth-paid) → Main — skip Thank You.
+     */
     const finishAfterPayment = useCallback(async () => {
         try {
-            await refreshUser();
+            let u = await refreshUser();
+            if (!u?.is_paid) {
+                const ok = await pollUntilPaid();
+                if (ok) {
+                    await refreshUser();
+                    return;
+                }
+            } else {
+                return;
+            }
         } catch {
-            /* still land on thank-you */
+            /* fall through */
         }
         navigation.navigate('PaymentThankYou');
-    }, [navigation, refreshUser]);
+    }, [navigation, refreshUser, pollUntilPaid]);
 
-    /** Deep link / universal link → thank-you (backup if auth session doesn’t fire). */
     useEffect(() => {
         const handleUrl = (event: { url: string }) => {
             const u = event.url || '';
@@ -88,7 +139,7 @@ export default function PaymentScreen() {
         if (!STRIPE_CHECKOUT_URL) {
             Alert.alert(
                 'Stripe link not set yet',
-                'Add EXPO_PUBLIC_STRIPE_PAYMENT_LINK in mobile/.env (restart Expo), or paste the URL in STRIPE_LINK_FALLBACK in PaymentScreen.tsx.',
+                'Add EXPO_PUBLIC_STRIPE_PAYMENT_LINK in mobile/.env (restart Expo), or set STRIPE_LINK_FALLBACK in PaymentScreen.tsx.',
             );
             return;
         }
@@ -98,15 +149,29 @@ export default function PaymentScreen() {
             WebBrowser.maybeCompleteAuthSession();
 
             if (Platform.OS === 'web') {
-                await WebBrowser.openBrowserAsync(STRIPE_CHECKOUT_URL);
+                await WebBrowser.openBrowserAsync(checkoutUrl);
+                await finishAfterPayment();
                 return;
             }
 
-            const result = await WebBrowser.openAuthSessionAsync(STRIPE_CHECKOUT_URL, paymentReturnUrl);
+            const authOpts = await WebBrowser.openAuthSessionAsync(checkoutUrl, paymentReturnUrl, {
+                preferEphemeralSession: true,
+                showInRecents: false,
+            });
             WebBrowser.maybeCompleteAuthSession();
 
-            if (result.type === 'success') {
+            if (authOpts.type === 'success') {
                 await finishAfterPayment();
+            } else {
+                const u = await refreshUser().catch(() => null);
+                if (!u?.is_paid) {
+                    const becamePaid = await pollUntilPaid();
+                    if (!becamePaid) {
+                        navigation.navigate('PaymentThankYou');
+                    } else {
+                        await refreshUser();
+                    }
+                }
             }
         } catch (e) {
             Alert.alert('Error', 'Could not open checkout. Try again.');
@@ -119,8 +184,10 @@ export default function PaymentScreen() {
         try {
             setDevLoading(true);
             await api.testActivateSubscription();
-            await refreshUser();
-            navigation.navigate('PaymentThankYou');
+            const u = await refreshUser();
+            if (!u?.is_paid) {
+                navigation.navigate('PaymentThankYou');
+            }
         } catch (error: any) {
             const msg =
                 error?.response?.data?.detail ||
@@ -178,16 +245,19 @@ export default function PaymentScreen() {
                     {stripeUrlConfigured ? (
                         <View style={styles.redirectBlock}>
                             <Text style={styles.redirectHint}>
-                                After payment, Stripe should send you back into the app. In your Payment Link (or
-                                Checkout) settings, set the success redirect URL to exactly:
+                                Checkout opens in a secure in-app browser (like Cal AI). After you pay, you&apos;ll return
+                                to Max automatically once your account updates — usually a few seconds.
+                            </Text>
+                            <Text style={[styles.redirectHint, styles.redirectHintSpaced]}>
+                                In Stripe → Payment Link → After payment → set redirect URL to exactly:
                             </Text>
                             <Text style={styles.redirectUrl} selectable>
                                 {paymentReturnUrl}
                             </Text>
                             {!process.env.EXPO_PUBLIC_STRIPE_RETURN_URL?.trim() ? (
                                 <Text style={[styles.redirectHint, styles.redirectHintSpaced]}>
-                                    Optional: use EXPO_PUBLIC_STRIPE_RETURN_URL if you redirect via an https page that
-                                    then opens the app.
+                                    Use EXPO_PUBLIC_STRIPE_RETURN_URL if you must redirect via https first, then open the
+                                    app.
                                 </Text>
                             ) : null}
                         </View>

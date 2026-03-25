@@ -73,7 +73,7 @@ async def _sendblue_inbound_core(
     first_thread_message = not ob.get("sendblue_sms_engaged")
     if first_thread_message:
         ob["sendblue_sms_engaged"] = True
-        ob["sendblue_connect_completed"] = True
+        # sendblue_connect_completed is set only in-app after user taps Continue (confirms they saw the screen).
         user.onboarding = ob
         flag_modified(user, "onboarding")
         await db.commit()

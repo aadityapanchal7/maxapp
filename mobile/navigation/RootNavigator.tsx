@@ -74,9 +74,17 @@ export function RootNavigator() {
                         : 'FeaturesIntro'
                 : 'Main';
 
+    const stackKey = !isAuthenticated
+        ? 'guest'
+        : user?.is_admin
+            ? 'admin'
+            : isPaid
+                ? 'auth-paid'
+                : 'auth-unpaid';
+
     return (
         <Stack.Navigator
-            key={isAuthenticated ? 'auth' : 'guest'}
+            key={stackKey}
             screenOptions={{
                 headerShown: false,
                 contentStyle: { backgroundColor: colors.background },

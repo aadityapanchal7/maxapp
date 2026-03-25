@@ -99,12 +99,17 @@ async def complete_sendblue_connect(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark post-pay Sendblue intro screen as done (user texted the line or skipped)."""
+    """Mark post-pay Sendblue intro done — only after inbound SMS/iMessage confirmed (sendblue_sms_engaged)."""
     user_uuid = UUID(current_user["id"])
     user = await db.get(User, user_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     ob = dict(user.onboarding or {})
+    if ob.get("sendblue_sms_engaged") is not True:
+        raise HTTPException(
+            status_code=400,
+            detail="We have not received a message from your number yet. Text the Max line from the phone on your account, wait a few seconds, then try again.",
+        )
     ob["sendblue_connect_completed"] = True
     user.onboarding = ob
     user.updated_at = datetime.utcnow()

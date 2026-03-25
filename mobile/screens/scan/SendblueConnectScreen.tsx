@@ -2,9 +2,9 @@
  * After paid scan results: user must text the Sendblue line so their number is in the thread ($100/mo plan).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, ActivityIndicator, Alert } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -16,8 +16,24 @@ type RouteParams = { next?: 'ModuleSelect' | 'Main' };
 export default function SendblueConnectScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
-    const { refreshUser } = useAuth();
+    const { refreshUser, user } = useAuth();
     const [busy, setBusy] = useState(false);
+
+    const smsConfirmed = user?.onboarding?.sendblue_sms_engaged === true;
+
+    useFocusEffect(
+        useCallback(() => {
+            refreshUser().catch(() => {});
+        }, [refreshUser])
+    );
+
+    useEffect(() => {
+        if (smsConfirmed) return;
+        const id = setInterval(() => {
+            refreshUser().catch(() => {});
+        }, 2500);
+        return () => clearInterval(id);
+    }, [smsConfirmed, refreshUser]);
 
     const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
     const smsE164 = (extra.sendblueSmsNumber || '+16468304204').replace(/\s/g, '');
@@ -72,20 +88,33 @@ export default function SendblueConnectScreen() {
                 </TouchableOpacity>
             </View>
 
+            {!smsConfirmed ? (
+                <View style={styles.waitingRow}>
+                    <ActivityIndicator color={colors.foreground} size="small" />
+                    <Text style={styles.waitingText}>
+                        Waiting for your message… we&apos;ll enable continue as soon as we see it.
+                    </Text>
+                </View>
+            ) : (
+                <Text style={styles.confirmedLine}>We got your text — you&apos;re linked. Tap continue below.</Text>
+            )}
+
             <Text style={styles.hint}>
-                After you&apos;ve sent a message, tap continue. You can always text this number later for help from Max.
+                {smsConfirmed
+                    ? 'You can always text this number later for help from Max.'
+                    : 'Use Open Messages, send any text from the phone on your account, then stay on this screen until continue turns on.'}
             </Text>
 
             <TouchableOpacity
-                style={[styles.secondaryBtn, busy && styles.secondaryBtnDisabled]}
+                style={[styles.secondaryBtn, (!smsConfirmed || busy) && styles.secondaryBtnDisabled]}
                 onPress={onContinue}
-                disabled={busy}
+                disabled={!smsConfirmed || busy}
                 activeOpacity={0.85}
             >
                 {busy ? (
                     <ActivityIndicator color={colors.foreground} />
                 ) : (
-                    <Text style={styles.secondaryBtnText}>I sent a message — continue</Text>
+                    <Text style={styles.secondaryBtnText}>Continue</Text>
                 )}
             </TouchableOpacity>
         </View>
@@ -125,6 +154,21 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.full,
     },
     primaryBtnText: { ...typography.button, color: colors.background, fontSize: 16 },
+    waitingRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        marginBottom: spacing.md,
+        paddingVertical: spacing.sm,
+    },
+    waitingText: { flex: 1, fontSize: 14, color: colors.textSecondary, lineHeight: 21 },
+    confirmedLine: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.foreground,
+        marginBottom: spacing.md,
+        lineHeight: 22,
+    },
     hint: { fontSize: 14, color: colors.textSecondary, lineHeight: 21, marginBottom: spacing.xl },
     secondaryBtn: {
         alignItems: 'center',
