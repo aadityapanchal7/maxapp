@@ -1,5 +1,7 @@
-"""Services Package"""
+"""Services Package.
 
-from .stripe_service import StripeService
-from .gemini_service import GeminiService
-from .storage_service import storage_service, LocalStorageService, S3StorageService
+Keep this module light: do not eagerly import optional/heavy dependencies.
+Import concrete services from their modules directly (e.g. services.gemini_service).
+"""
+
+# NOTE: Intentionally no eager imports here.

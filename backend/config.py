@@ -89,6 +89,13 @@ class Settings(BaseSettings):
             "If unset/null, defaults to prompts/prod. Set env PROMPTS_S3_PREFIX= (empty) for bucket root."
         ),
     )
+    prompts_s3_region: Optional[str] = Field(
+        default=None,
+        description=(
+            "Region for PROMPTS_S3_BUCKET (e.g. us-east-1). "
+            "If unset, falls back to AWS_S3_REGION."
+        ),
+    )
     
     # Application
     app_name: str = Field(default="Max")

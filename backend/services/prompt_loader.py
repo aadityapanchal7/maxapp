@@ -34,7 +34,12 @@ _CACHE: dict[str, str] = {}
 
 
 def _s3_client():
-    kwargs: dict = {"region_name": settings.aws_s3_region or "us-east-1"}
+    region = (
+        (getattr(settings, "prompts_s3_region", None) or "").strip()
+        or (settings.aws_s3_region or "").strip()
+        or "us-east-1"
+    )
+    kwargs: dict = {"region_name": region}
     if settings.aws_access_key_id and settings.aws_secret_access_key:
         kwargs["aws_access_key_id"] = settings.aws_access_key_id
         kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
