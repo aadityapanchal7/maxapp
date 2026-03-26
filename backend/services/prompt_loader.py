@@ -59,6 +59,7 @@ def resolve_prompt(key: str, fallback: str) -> str:
 
     bucket = (settings.prompts_s3_bucket or "").strip()
     if not bucket:
+        logger.info("Prompt %s using fallback (PROMPTS_S3_BUCKET is empty)", key)
         _CACHE[key] = fallback
         return fallback
 
@@ -69,8 +70,12 @@ def resolve_prompt(key: str, fallback: str) -> str:
         prefix = (raw_prefix or "").strip().strip("/")
     client = _s3_client()
 
+    attempted: list[str] = []
+    reasons: list[str] = []
+
     for ext in (".md", ".txt"):
         object_key = f"{prefix}/{key}{ext}" if prefix else f"{key}{ext}"
+        attempted.append(object_key)
         try:
             resp = client.get_object(Bucket=bucket, Key=object_key)
             raw = resp["Body"].read().decode("utf-8")
@@ -79,8 +84,13 @@ def resolve_prompt(key: str, fallback: str) -> str:
                 logger.info("Loaded prompt %s from s3://%s/%s", key, bucket, object_key)
                 _CACHE[key] = text
                 return text
+            reasons.append(f"{object_key}:empty")
         except ClientError as e:
             code = (e.response.get("Error") or {}).get("Code", "")
+            if code in ("404", "NoSuchKey", "NotFound"):
+                reasons.append(f"{object_key}:{code or 'missing'}")
+            else:
+                reasons.append(f"{object_key}:{code or 'client_error'}")
             if code not in ("404", "NoSuchKey", "NotFound"):
                 logger.warning(
                     "S3 prompt load failed key=%s object=%s error=%s — using fallback",
@@ -89,8 +99,17 @@ def resolve_prompt(key: str, fallback: str) -> str:
                     code or str(e),
                 )
         except Exception as e:
-            logger.warning("S3 prompt load error key=%s: %s — using fallback", key, e)
+            reasons.append(f"{object_key}:{type(e).__name__}")
+            logger.warning("S3 prompt load error key=%s object=%s: %s — using fallback", key, object_key, e)
 
+    logger.warning(
+        "Prompt %s using fallback after S3 miss bucket=%s prefix=%s attempted=%s reasons=%s",
+        key,
+        bucket,
+        prefix,
+        attempted,
+        reasons or ["none"],
+    )
     return fallback
 
 
