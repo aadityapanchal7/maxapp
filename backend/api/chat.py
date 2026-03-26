@@ -926,7 +926,11 @@ async def process_chat_message(
         msg_lower = message.lower()
         if "skinmax" in msg_lower or "skin max" in msg_lower:
             maxx_id = "skinmax"
-        elif "heightmax" in msg_lower or "height max" in msg_lower:
+        elif (
+            "heightmax" in msg_lower
+            or bool(re.search(r"\bheight\s+maxx?\b", msg_lower))
+            or bool(re.search(r"\bonboard\b.*\bheight\b|\bheight\b.*\bonboard\b", msg_lower))
+        ):
             maxx_id = "heightmax"
         elif "hairmax" in msg_lower or "hair max" in msg_lower:
             maxx_id = "hairmax"
@@ -1108,7 +1112,7 @@ MAIN RULES FOR HEIGHTMAX
 - height is already the focus. don't ask what area they want to work on.
 - GLOBAL ONBOARDING: age, gender, and height are usually already in user_context.onboarding from app signup. NEVER ask for age, sex/gender, or height if they already appear there.
 - {_WAKE_SLEEP_NEVER_ASK}
-- your job is to grab any missing demographic info, then call generate_maxx_schedule so the app can save their answers. the actual calendar is NOT built in chat — after this tool runs, the user picks schedule parts in the app (toggles) and taps create.
+- your job is to grab any missing demographic info, then call generate_maxx_schedule once. the backend builds their full HeightMax schedule in one shot (all standard tracks on). do NOT tell them to tap any in-app button, toggle, or "choose height schedule parts" — users on SMS/text have no such UI and it causes confusion. after the tool runs, tell them the schedule is locked in and to open the Schedule tab in the app for pings.
 
 WHAT YOU'RE ALLOWED TO ASK FOR (ONLY IF MISSING FROM user_context.onboarding)
 - age — ONLY if not already in onboarding
@@ -1136,11 +1140,9 @@ HOW TO RUN THE FLOW
    - sex = their sex/gender (if known)
    - height = their current height in any format, e.g. "5'10" or "178cm" (if known)
 
-   this saves their profile for the app. it does NOT finish the schedule in chat.
+   the backend then creates the full schedule — same as other maxx modules.
 
-4) after that tool runs, the user will see a message telling them to tap **choose height schedule parts** under the chat. your reply should:
-   - keep it short: e.g. "sweet — tap choose height schedule parts below, pick what you want in your plan, then hit create."
-   - do NOT say the schedule is already locked in or tell them to open the schedule tab yet — they still have one in-app step.
+4) after generate_maxx_schedule returns, your reply should be short: confirm heightmax is locked in and they should open the **Schedule** tab for reminders. optional one line on what HeightMax focuses on (sleep, posture/decompression, sprints, nutrition habits) if they seem unsure. never mention toggles, "below", or buttons.
 
 STYLE
 - same tone as skinmax/fitmax: friendly, casual, not overly motivational.
@@ -1463,14 +1465,40 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     except Exception as persist_err:
                         logger.warning("heightmax onboarding persist failed: %s", persist_err)
                     onboarding = _merge_onboarding_with_schedule_prefs(user)
-                    extra = (
-                        "sweet — tap **choose height schedule parts** below, toggle what you want in your plan, "
-                        "then hit create schedule."
-                    )
-                    if not response_text.strip():
-                        response_text = extra
-                    else:
-                        response_text = f"{response_text.strip()}\n\n{extra}"
+                    try:
+                        schedule = await schedule_service.generate_maxx_schedule(
+                            user_id=user_id,
+                            maxx_id="heightmax",
+                            db=db,
+                            rds_db=rds_db if rds_db else None,
+                            wake_time=str(final_wake),
+                            sleep_time=str(final_sleep),
+                            skin_concern=None,
+                            outside_today=False,
+                            override_age=ra,
+                            override_sex=rs if rs else None,
+                            override_height=rh if rh else None,
+                            height_components=None,
+                        )
+                        await _persist_user_wake_sleep(user, db, str(final_wake), str(final_sleep))
+                        onboarding = _merge_onboarding_with_schedule_prefs(user)
+                        schedule_summary = _summarise_schedule(schedule)
+                        if not response_text.strip():
+                            response_text = schedule_summary
+                        else:
+                            response_text = f"{response_text.strip()}\n\n{schedule_summary}"
+                    except ScheduleLimitError as e:
+                        names = ", ".join(e.active_labels)
+                        response_text = (
+                            f"you already have 2 active modules ({names}). "
+                            "you gotta stop one before starting a new one — "
+                            "tell me which module to stop in the app, or open the app to stop a module there."
+                        )
+                    except Exception as gen_err:
+                        logger.exception("HeightMax schedule generation failed: %s", gen_err)
+                        response_text = (
+                            (response_text.strip() + "\n\n") if response_text.strip() else ""
+                        ) + "had trouble building your heightmax schedule — try again in a sec or set it up in the app."
                     continue
 
                 schedule = await schedule_service.generate_maxx_schedule(

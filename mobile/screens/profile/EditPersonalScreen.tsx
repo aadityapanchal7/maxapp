@@ -65,9 +65,10 @@ export default function EditPersonalScreen() {
     const ob = user?.onboarding;
     if (ob) {
       if (unitSystem === 'imperial') {
-        w = ob.weight ? (ob.weight * 2.20462).toFixed(1) : '';
+        // Backend stores imperial users as: height=inches, weight=lbs
+        w = ob.weight ? Number(ob.weight).toFixed(1) : '';
         if (ob.height) {
-          const totalInches = ob.height / 2.54;
+          const totalInches = Number(ob.height);
           hFt = Math.floor(totalInches / 12).toString();
           hIn = Math.round(totalInches % 12).toString();
         }
@@ -107,10 +108,10 @@ export default function EditPersonalScreen() {
       const currentUnitSystem = (ob.unit_system as any) || 'imperial';
       if (currentUnitSystem === 'imperial') {
         if (ob.weight) {
-          setWeight((ob.weight * 2.20462).toFixed(1));
+          setWeight(Number(ob.weight).toFixed(1));
         }
         if (ob.height) {
-          const totalInches = ob.height / 2.54;
+          const totalInches = Number(ob.height);
           setHeightFt(Math.floor(totalInches / 12).toString());
           setHeightIn(Math.round(totalInches % 12).toString());
           setHeight('');
@@ -134,10 +135,10 @@ export default function EditPersonalScreen() {
       const ft = parseInt(heightFt) || 0;
       const inch = parseInt(heightIn) || 0;
       if (ft > 0 || inch > 0) {
-        finalHeight = (ft * 30.48) + (inch * 2.54);
+        finalHeight = (ft * 12) + inch;
       }
       if (weight && parseFloat(weight) > 0) {
-        finalWeight = parseFloat(weight) * 0.453592;
+        finalWeight = parseFloat(weight);
       }
     } else {
       if (height && parseFloat(height) > 0) {

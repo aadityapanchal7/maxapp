@@ -2237,8 +2237,22 @@ class ScheduleService:
             profile_parts = []
             if onboarding.get("gender"): profile_parts.append(f"Gender: {onboarding['gender']}")
             if onboarding.get("age"): profile_parts.append(f"Age: {onboarding['age']}")
-            if onboarding.get("height"): profile_parts.append(f"Height: {onboarding['height']}cm")
-            if onboarding.get("weight"): profile_parts.append(f"Weight: {onboarding['weight']}kg")
+            # Prefer canonical metric fields when present; fall back to legacy onboarding keys.
+            unit = str(onboarding.get("unit_system") or "imperial").strip().lower()
+            h_cm = onboarding.get("height_cm")
+            w_kg = onboarding.get("weight_kg")
+            if h_cm is None:
+                h_raw = onboarding.get("height")
+                if h_raw is not None:
+                    h_cm = float(h_raw) if unit == "metric" else float(h_raw) * 2.54
+            if w_kg is None:
+                w_raw = onboarding.get("weight")
+                if w_raw is not None:
+                    w_kg = float(w_raw) if unit == "metric" else float(w_raw) * 0.453592
+            if h_cm is not None:
+                profile_parts.append(f"Height: {round(float(h_cm), 1)}cm")
+            if w_kg is not None:
+                profile_parts.append(f"Weight: {round(float(w_kg), 1)}kg")
             if profile_parts:
                 lines.append("## PHYSICAL PROFILE")
                 lines.append(", ".join(profile_parts))

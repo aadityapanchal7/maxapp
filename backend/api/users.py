@@ -5,7 +5,7 @@ Users API - Profile and Onboarding
 import base64
 import logging
 import math
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Request
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from pydantic import BaseModel
@@ -43,6 +43,7 @@ from models.user import (
 from models.sqlalchemy_models import User, UserProgressPhoto
 from models.rds_models import ChannelMessage
 from api.auth import verify_password
+from config import settings
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -98,6 +99,7 @@ async def dismiss_post_subscription_onboarding(
 async def complete_sendblue_connect(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    request: Request = None,
 ):
     """Mark post-pay Sendblue intro done — only after inbound SMS/iMessage confirmed (sendblue_sms_engaged)."""
     user_uuid = UUID(current_user["id"])
@@ -105,11 +107,20 @@ async def complete_sendblue_connect(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     ob = dict(user.onboarding or {})
-    if ob.get("sendblue_sms_engaged") is not True:
+    dev_skip = False
+    try:
+        if request is not None:
+            dev_skip = str(request.headers.get("x-dev-skip-sendblue", "")).strip() == "1"
+    except Exception:
+        dev_skip = False
+    if ob.get("sendblue_sms_engaged") is not True and not (settings.debug and dev_skip):
         raise HTTPException(
             status_code=400,
             detail="We have not received a message from your number yet. Text the Max line from the phone on your account, wait a few seconds, then try again.",
         )
+    # Dev-only escape hatch so local/dev builds can proceed without texting.
+    if settings.debug and dev_skip:
+        ob["sendblue_sms_engaged"] = True
     ob["sendblue_connect_completed"] = True
     user.onboarding = ob
     user.updated_at = datetime.utcnow()
@@ -131,8 +142,50 @@ async def save_onboarding(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Update onboarding data
+    # Update onboarding data (normalize body metrics to chosen unit system)
     onboarding_data = data.model_dump()
+    unit = str(onboarding_data.get("unit_system") or "imperial").strip().lower()
+    height = onboarding_data.get("height")
+    weight = onboarding_data.get("weight")
+
+    def _round1(x):
+        try:
+            return round(float(x), 1)
+        except Exception:
+            return None
+
+    height_f = _round1(height) if height is not None else None
+    weight_f = _round1(weight) if weight is not None else None
+
+    # Canonical always-metric values
+    height_cm = None
+    weight_kg = None
+
+    if unit == "metric":
+        # height: cm, weight: kg
+        height_cm = height_f
+        weight_kg = weight_f
+        onboarding_data["height"] = height_cm
+        onboarding_data["weight"] = weight_kg
+    else:
+        # imperial: height: inches, weight: lbs
+        # Back-compat heuristics: older clients may still send cm/kg even when unit_system=imperial.
+        # - Height: if > 120, it's almost certainly cm; convert to inches.
+        # - Weight: if < 120, it's likely kg for most adults; convert to lbs.
+        inches = height_f
+        lbs = weight_f
+        if inches is not None and inches > 120:
+            inches = _round1(inches / 2.54)
+        if lbs is not None and lbs < 120:
+            lbs = _round1(lbs * 2.20462)
+
+        onboarding_data["height"] = inches
+        onboarding_data["weight"] = lbs
+        height_cm = _round1(inches * 2.54) if inches is not None else None
+        weight_kg = _round1(lbs * 0.453592) if lbs is not None else None
+
+    onboarding_data["height_cm"] = height_cm
+    onboarding_data["weight_kg"] = weight_kg
     onboarding_data["completed"] = True
     user.onboarding = onboarding_data
     user.updated_at = datetime.utcnow()

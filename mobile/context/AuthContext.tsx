@@ -21,8 +21,13 @@ interface User {
         experience_level: string;
         age?: number;
         gender?: string;
+        /** Metric users: cm/kg. Imperial users: inches/lbs. */
         height?: number;
+        /** Metric users: kg. Imperial users: lbs. */
         weight?: number;
+        /** Canonical always-metric values (populated by backend; may be missing for legacy users). */
+        height_cm?: number;
+        weight_kg?: number;
         activity_level?: string;
         skin_type?: string;
         equipment?: string[];

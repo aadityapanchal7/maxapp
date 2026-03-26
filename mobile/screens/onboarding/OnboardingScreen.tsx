@@ -414,17 +414,18 @@ export default function OnboardingScreen() {
         return null;
     };
 
-    const toCmHeight = (): number => {
+    /** Store height in cm (metric) OR total inches (imperial). */
+    const toStoredHeight = (): number => {
         if (unitSystem === 'metric') return Math.round(parseFloat(heightCm) * 10) / 10;
         const ft = parseInt(heightFt, 10) || 0;
         const inch = parseInt(heightIn, 10) || 0;
-        return Math.round((ft * 30.48 + inch * 2.54) * 10) / 10;
+        return Math.round((ft * 12 + inch) * 10) / 10;
     };
 
-    const toKgWeight = (): number => {
+    /** Store weight in kg (metric) OR lbs (imperial). */
+    const toStoredWeight = (): number => {
         const w = parseFloat(weight);
-        if (unitSystem === 'metric') return Math.round(w * 10) / 10;
-        return Math.round(w * 0.453592 * 10) / 10;
+        return Math.round(w * 10) / 10;
     };
 
     const hhmm = (s: string) => {
@@ -451,8 +452,8 @@ export default function OnboardingScreen() {
             appearance_concerns: [...appearanceConcerns],
             age: parseInt(age, 10),
             gender: gender.trim(),
-            height: toCmHeight(),
-            weight: toKgWeight(),
+            height: toStoredHeight(),
+            weight: toStoredWeight(),
             unit_system: unitSystem,
             timezone: typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC',
             skin_type: skinType,

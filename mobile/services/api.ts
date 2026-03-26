@@ -381,6 +381,14 @@ class ApiService {
         return response.data;
     }
 
+    /** Dev-only: allow bypassing inbound SMS requirement. */
+    async completeSendblueConnectDevSkip() {
+        const response = await this.client.post('users/sendblue-connect/complete', undefined, {
+            headers: { 'x-dev-skip-sendblue': '1' },
+        });
+        return response.data;
+    }
+
     async getScanHistory() {
         const response = await this.client.get('scans/history');
         return response.data;

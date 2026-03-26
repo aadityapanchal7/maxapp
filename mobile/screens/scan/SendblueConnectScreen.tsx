@@ -66,6 +66,21 @@ export default function SendblueConnectScreen() {
         }
     };
 
+    const onDevSkip = async () => {
+        setBusy(true);
+        try {
+            await api.completeSendblueConnectDevSkip();
+            await refreshUser();
+            if (next === 'ModuleSelect') navigation.navigate('ModuleSelect');
+            else navigation.navigate('Main');
+        } catch (e) {
+            console.error(e);
+            Alert.alert('Dev skip failed', 'Could not skip. Check backend is in debug mode.');
+        } finally {
+            setBusy(false);
+        }
+    };
+
     return (
         <View style={styles.root}>
             <TouchableOpacity style={styles.backHit} onPress={() => navigation.goBack()} hitSlop={12}>
@@ -117,6 +132,17 @@ export default function SendblueConnectScreen() {
                     <Text style={styles.secondaryBtnText}>Continue</Text>
                 )}
             </TouchableOpacity>
+
+            {__DEV__ && (
+                <TouchableOpacity
+                    style={[styles.devSkipBtn, busy && styles.secondaryBtnDisabled]}
+                    onPress={onDevSkip}
+                    disabled={busy}
+                    activeOpacity={0.85}
+                >
+                    <Text style={styles.devSkipText}>Dev: skip confirmation</Text>
+                </TouchableOpacity>
+            )}
         </View>
     );
 }
@@ -180,4 +206,15 @@ const styles = StyleSheet.create({
     },
     secondaryBtnDisabled: { opacity: 0.5 },
     secondaryBtnText: { fontSize: 16, fontWeight: '700', color: colors.foreground },
+    devSkipBtn: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+        marginTop: spacing.lg,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+    },
+    devSkipText: { fontSize: 13, fontWeight: '600', color: colors.textMuted },
 });

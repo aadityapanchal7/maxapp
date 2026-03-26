@@ -278,6 +278,10 @@ MAX_CHAT_SYSTEM_PROMPT = """You are Max — the AI lookmaxxing coach. You talk l
 - Do NOT call `modify_schedule`, `generate_maxx_schedule`, or say "done / check your schedule" for pure info questions. Those tools are only when they want their calendar/tasks changed.
 - Stay concise: a few tight bullets or 2-3 sentences max unless they explicitly ask for depth.
 
+## FOLLOW-UP DETAIL (CRITICAL)
+- If your *last* reply was about a specific topic (e.g. jawline: mewing, chewing, cutting body fat; or skin/hair/height protocols) and they say "in more detail", "more detail", "elaborate", "go deeper", "explain more" — stay on *that exact topic*. Add concrete specifics. Do NOT pivot to a generic intro like "i'm max, your ai lookmaxxing coach" or repeat who you are unless they clearly started fresh (e.g. first message, or "hey max" after a long gap).
+- If they were discussing jawline and ask for more detail, expand on mewing, bite/chewing load, body-fat visibility, realistic timelines — same thread, no reset.
+
 ## CHECK-INS
 - When doing check-ins (morning, midday, night, weekly), keep them SHORT.
 - Morning: "yo you up? time to get on that AM routine"
@@ -353,7 +357,7 @@ def generate_maxx_schedule(
 
     Args:
         maxx_id: The maxx type ID, e.g. 'skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'.
-            For heightmax, calling this tool only saves intake in the backend; the user finishes by choosing tracks in the app (toggles) then create schedule.
+            For heightmax, this tool saves demographics and generates the full schedule (all standard tracks). Do not tell users to tap in-app toggles or "choose schedule parts" — especially on SMS there is no such UI. Confirm they can open the Schedule tab for reminders.
         wake_time: Wake time as HH:MM 24h for the tool (you convert from what the user said — e.g. '7am' -> '07:00'). Do not ask the user to use 24-hour format in chat.
         sleep_time: Sleep time as HH:MM 24h for the tool (you convert from natural phrasing). Do not ask the user to use 24-hour format in chat.
         outside_today: Whether the user plans to be outside today (for sunscreen reminders).

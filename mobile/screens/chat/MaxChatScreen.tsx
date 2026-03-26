@@ -31,13 +31,23 @@ export default function MaxChatScreen() {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const flatListRef = useRef<FlatList>(null);
     const initScheduleHandled = useRef(false);
-    /** Heightmax: hide "choose parts" CTA after user created schedule from HeightScheduleComponents (API has active schedule). */
+    /** Heightmax: hide CTA after active schedule exists (chat or components screen). */
     const [heightmaxScheduleExists, setHeightmaxScheduleExists] = useState(false);
 
     const addTyping = () => setMessages(prev => [...prev.filter(m => !m.isTyping), { role: 'assistant', content: '', isTyping: true }]);
     const removeTyping = () => setMessages(prev => prev.filter(m => !m.isTyping));
 
     useEffect(() => { loadHistory(); }, []);
+
+    const refreshHeightmaxScheduleExists = useCallback(async () => {
+        if (route.params?.initSchedule !== 'heightmax') return;
+        try {
+            const res = await api.getMaxxSchedule('heightmax');
+            setHeightmaxScheduleExists(Boolean(res?.schedule?.id));
+        } catch {
+            setHeightmaxScheduleExists(false);
+        }
+    }, [route.params?.initSchedule]);
 
     useFocusEffect(
         useCallback(() => {
@@ -90,6 +100,7 @@ export default function MaxChatScreen() {
             const { response } = await api.sendChatMessage(msg, undefined, undefined, initContext);
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            if (initContext === 'heightmax') await refreshHeightmaxScheduleExists();
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
             removeTyping();
@@ -120,6 +131,7 @@ export default function MaxChatScreen() {
             const { response } = await api.sendChatMessage(userContent, attachmentUrl, attachmentType);
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            if (route.params?.initSchedule === 'heightmax') await refreshHeightmaxScheduleExists();
         } catch (e) { console.error(e); removeTyping(); setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong.' }]); }
         finally { setLoading(false); setUploading(false); }
     };
@@ -194,7 +206,7 @@ export default function MaxChatScreen() {
                         onPress={() => navigateFromNestedToRoot(navigation, 'HeightScheduleComponents')}
                     >
                         <Ionicons name="options-outline" size={20} color={colors.buttonText} />
-                        <Text style={styles.heightPartsCtaText}>choose height schedule parts</Text>
+                        <Text style={styles.heightPartsCtaText}>customize height tracks</Text>
                         <Ionicons name="chevron-forward" size={18} color={colors.buttonText} />
                     </TouchableOpacity>
                 )}

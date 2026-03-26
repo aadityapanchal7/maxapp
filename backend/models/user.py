@@ -64,8 +64,15 @@ class OnboardingData(BaseModel):
     experience_level: ExperienceLevel = ExperienceLevel.BEGINNER
     age: Optional[int] = None
     gender: Optional[str] = None
-    height: Optional[float] = None  # in cm
-    weight: Optional[float] = None  # in kg
+    # Storage rule:
+    # - If unit_system == "metric": height is cm, weight is kg
+    # - If unit_system == "imperial": height is total inches, weight is lbs
+    # For internal calculations, prefer height_cm / weight_kg (always metric).
+    height: Optional[float] = None
+    weight: Optional[float] = None
+    # Always-metric canonical fields (populated by backend on save; may be missing for legacy users)
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
     activity_level: Optional[str] = None
     skin_type: Optional[str] = None
     equipment: List[str] = Field(default_factory=list)

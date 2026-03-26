@@ -57,6 +57,32 @@ def phone_lookup_candidates(raw_from: str) -> list[str]:
 class SendblueService:
     """Outbound messages via Sendblue REST API."""
 
+    def _format_time_12h(self, raw: str) -> str:
+        """
+        Convert "HH:MM" (24h) -> "h:MMam/pm" for user-facing SMS copy.
+        If already contains am/pm or doesn't look like a clock, return as-is.
+        """
+        s = (raw or "").strip()
+        if not s:
+            return s
+        if re.search(r"\b(am|pm)\b", s, re.I):
+            return s
+        m = re.match(r"^(\d{1,2}):(\d{2})$", s)
+        if not m:
+            return s
+        try:
+            h = int(m.group(1))
+            mn = int(m.group(2))
+        except ValueError:
+            return s
+        if h < 0 or h > 23 or mn < 0 or mn > 59:
+            return s
+        ap = "am" if h < 12 else "pm"
+        h12 = h % 12
+        if h12 == 0:
+            h12 = 12
+        return f"{h12}:{mn:02d}{ap}"
+
     def _headers(self) -> dict[str, str]:
         return {
             "Content-Type": "application/json",
@@ -157,7 +183,7 @@ class SendblueService:
     ) -> str:
         title = (task_title or "").strip()
         desc = (task_description or "").strip()
-        when = (task_time or "").strip()
+        when = self._format_time_12h((task_time or "").strip())
         if title:
             body = title
         elif desc:
