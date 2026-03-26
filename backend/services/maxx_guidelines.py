@@ -8,6 +8,8 @@ To add a new maxx, create a dict entry in MAXX_GUIDELINES with the same shape.
 
 from typing import Any, Optional
 
+from services.prompt_loader import PromptKey, resolve_prompt
+
 # ---------------------------------------------------------------------------
 # Skin-type → primary concern mapping (used when user hasn't picked a concern)
 # ---------------------------------------------------------------------------
@@ -759,6 +761,12 @@ def build_skinmax_prompt_section(
         summarize_skinmax_onboarding,
     )
 
+    coaching_ref = resolve_prompt(PromptKey.SKINMAX_COACHING_REFERENCE, SKINMAX_COACHING_REFERENCE)
+    full_ref = resolve_prompt(
+        PromptKey.SKINMAX_NOTIFICATION_ENGINE_REFERENCE, SKINMAX_NOTIFICATION_ENGINE_REFERENCE
+    )
+    json_dirs = resolve_prompt(PromptKey.SKINMAX_JSON_DIRECTIVES, SKINMAX_JSON_DIRECTIVES)
+
     protocol = SKINMAX_PROTOCOLS.get(concern) or SKINMAX_PROTOCOLS["aging"]
     onboarding = onboarding or {}
 
@@ -773,7 +781,7 @@ Sunscreen: {protocol['sunscreen']}
     if wake_time and sleep_time:
         anchors = format_computed_anchor_times(wake_time, sleep_time)
 
-    engine_body = SKINMAX_COACHING_REFERENCE if for_coaching else SKINMAX_NOTIFICATION_ENGINE_REFERENCE
+    engine_body = coaching_ref if for_coaching else full_ref
 
     if for_coaching:
         return f"{base}\n{profile}\n{engine_body}\n"
@@ -786,7 +794,7 @@ Sunscreen: {protocol['sunscreen']}
 ## SKINMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
 {engine_body}
 
-{SKINMAX_JSON_DIRECTIVES}
+{json_dirs}
 """
 
 
@@ -809,6 +817,12 @@ def build_bonemax_prompt_section(
         format_bonemax_anchor_times,
         summarize_bonemax_onboarding,
     )
+
+    coaching_ref = resolve_prompt(PromptKey.BONEMAX_COACHING_REFERENCE, BONEMAX_COACHING_REFERENCE)
+    full_ref = resolve_prompt(
+        PromptKey.BONEMAX_NOTIFICATION_ENGINE_REFERENCE, BONEMAX_NOTIFICATION_ENGINE_REFERENCE
+    )
+    json_dirs = resolve_prompt(PromptKey.BONEMAX_JSON_DIRECTIVES, BONEMAX_JSON_DIRECTIVES)
 
     protos = guideline.get("protocols") or {}
     template = guideline.get("protocol_prompt_template") or ""
@@ -839,7 +853,7 @@ def build_bonemax_prompt_section(
             "FitMax midday **posture** tips should be disabled or swapped for training/nutrition (no duplicate posture coaching). Cap **10**/day.\n"
         )
 
-    engine_body = BONEMAX_COACHING_REFERENCE if for_coaching else BONEMAX_NOTIFICATION_ENGINE_REFERENCE
+    engine_body = coaching_ref if for_coaching else full_ref
 
     if for_coaching:
         return f"{base}{profile}\n{anchors}\n{engine_body}{combo}\n"
@@ -851,7 +865,7 @@ def build_bonemax_prompt_section(
 ## BONEMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
 {engine_body}
 
-{BONEMAX_JSON_DIRECTIVES}
+{json_dirs}
 """
 
 
@@ -877,6 +891,12 @@ def build_heightmax_prompt_section(
         format_heightmax_anchor_times,
         summarize_heightmax_onboarding,
     )
+
+    coaching_ref = resolve_prompt(PromptKey.HEIGHTMAX_COACHING_REFERENCE, HEIGHTMAX_COACHING_REFERENCE)
+    full_ref = resolve_prompt(
+        PromptKey.HEIGHTMAX_NOTIFICATION_ENGINE_REFERENCE, HEIGHTMAX_NOTIFICATION_ENGINE_REFERENCE
+    )
+    json_dirs = resolve_prompt(PromptKey.HEIGHTMAX_JSON_DIRECTIVES, HEIGHTMAX_JSON_DIRECTIVES)
 
     ob = onboarding or {}
     age_use = age_val if age_val is not None else ob.get("age")
@@ -938,6 +958,12 @@ def build_fitmax_prompt_section(
         summarize_fitmax_onboarding,
     )
 
+    coaching_ref = resolve_prompt(PromptKey.FITMAX_COACHING_REFERENCE, FITMAX_COACHING_REFERENCE)
+    full_ref = resolve_prompt(
+        PromptKey.FITMAX_NOTIFICATION_ENGINE_REFERENCE, FITMAX_NOTIFICATION_ENGINE_REFERENCE
+    )
+    json_dirs = resolve_prompt(PromptKey.FITMAX_JSON_DIRECTIVES, FITMAX_JSON_DIRECTIVES)
+
     tracks = build_protocol_prompt_section(guideline, concern)
     ob = onboarding or {}
     wo = str(
@@ -983,7 +1009,7 @@ def build_fitmax_prompt_section(
             "Cap **10**/day total.\n"
         )
 
-    engine_body = FITMAX_COACHING_REFERENCE if for_coaching else FITMAX_NOTIFICATION_ENGINE_REFERENCE
+    engine_body = coaching_ref if for_coaching else full_ref
 
     if for_coaching:
         return f"{tracks}\n{profile}\n{anchors}\n{engine_body}{combo}\n"
@@ -996,7 +1022,7 @@ def build_fitmax_prompt_section(
 ## FITMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
 {engine_body}
 
-{FITMAX_JSON_DIRECTIVES}
+{json_dirs}
 """
 
 
@@ -1077,6 +1103,12 @@ def build_hairmax_prompt_section(
         summarize_hairmax_onboarding,
     )
 
+    coaching_ref = resolve_prompt(PromptKey.HAIRMAX_COACHING_REFERENCE, HAIRMAX_COACHING_REFERENCE)
+    full_ref = resolve_prompt(
+        PromptKey.HAIRMAX_NOTIFICATION_ENGINE_REFERENCE, HAIRMAX_NOTIFICATION_ENGINE_REFERENCE
+    )
+    json_dirs = resolve_prompt(PromptKey.HAIRMAX_JSON_DIRECTIVES, HAIRMAX_JSON_DIRECTIVES)
+
     details, protocol = _hairmax_protocol_details_block(concern)
     base = f"""## HAIR PROTOCOL — {protocol['label']}
 {details}
@@ -1111,7 +1143,7 @@ def build_hairmax_prompt_section(
             "Ketoconazole wash can double as dandruff control. **Max 10** notifications/day total.\n"
         )
 
-    engine_body = HAIRMAX_COACHING_REFERENCE if for_coaching else HAIRMAX_NOTIFICATION_ENGINE_REFERENCE
+    engine_body = coaching_ref if for_coaching else full_ref
 
     if for_coaching:
         return f"{base}\n{profile}\n{anchors}\n{engine_body}{combo}\n"
@@ -1124,85 +1156,5 @@ def build_hairmax_prompt_section(
 ## HAIRMAX NOTIFICATION ENGINE — FULL REFERENCE (follow exactly)
 {engine_body}
 
-{HAIRMAX_JSON_DIRECTIVES}
-"""
-
-
-def resolve_hair_concern(hair_type: Optional[str], explicit_concern: Optional[str] = None, has_thinning: bool = False) -> str:
-    """Resolve hair concern based on hair type and thinning status."""
-    if explicit_concern and explicit_concern in HAIRMAX_PROTOCOLS:
-        return explicit_concern
-    if has_thinning:
-        return "minoxidil"
-    return HAIR_TYPE_TO_CONCERN.get(hair_type or "normal", "wash_routine")
-
-
-def build_hairmax_prompt_section(concern: str) -> str:
-    """Build protocol text for the Gemini prompt."""
-    protocol = HAIRMAX_PROTOCOLS.get(concern)
-    if not protocol:
-        protocol = HAIRMAX_PROTOCOLS["wash_routine"]
-
-    # Build protocol details based on the concern type
-    if concern == "wash_routine":
-        details = f"""Shampoo: {protocol['shampoo']}
-Conditioner: {protocol['conditioner']}
-Straight/Wavy frequency: {protocol['frequency_straight_wavy']}
-Curly frequency: {protocol['frequency_curly']}
-Product users: {protocol['frequency_product_heavy']}
-Over-washed signs: {protocol['over_washed_signs']}
-Under-washed signs: {protocol['under_washed_signs']}
-Rule: {protocol['rule']}"""
-    elif concern == "minoxidil":
-        details = f"""Who needs it: {protocol['who_needs_it']}
-When to apply: {protocol['when_to_apply']}
-Frequency: {protocol['frequency']}
-How to apply: {protocol['how_to']}
-Notification (core): {protocol['notification_core']}
-Notification (pressure): {protocol['notification_pressure']}
-Notification (identity): {protocol['notification_identity']}
-If skipped: {protocol['notification_skip_escalate']}
-If consistent: {protocol['notification_consistent']}
-Rule: {protocol['rule']}"""
-    elif concern == "dermastamp":
-        details = f"""Who needs it: {protocol['who_needs_it']}
-When to use: {protocol['when_to_use']}
-Frequency: {protocol['frequency']}
-How to do it: {protocol['how_to']}
-Notification: {protocol['notification']}
-Rule: {protocol['rule']}"""
-    elif concern == "oils_masks":
-        details = f"""When to use: {protocol['when_to_use']}
-Frequency: {protocol['frequency']}
-How to apply: {protocol['how_to']}
-Best oils: {protocol['best_oils']}
-Masks: {protocol['masks']}
-Notification: {protocol['notification']}"""
-    elif concern == "anti_dandruff":
-        details = f"""When to use: {protocol['when_to_use']}
-Shampoo: {protocol['shampoo']}
-Frequency: {protocol['frequency']}
-Conditioner: {protocol['conditioner']}
-Rule: {protocol['rule']}"""
-    else:
-        details = str(protocol)
-
-    return f"""## HAIR PROTOCOL — {protocol['label']}
-{details}
-
-## SCHEDULE RULES
-- Wash frequency depends on hair type: straight/wavy 2-3x/week, curly less often with optional co-wash
-- Minoxidil is PM skincare time, daily, non-negotiable for thinning users
-- Dermastamp is 1x/week max, same day each week, never same night as minoxidil (wait 24h)
-- Oil treatments are 1-2x/week, evening before wash day as overnight treatment
-- Anti-dandruff shampoo only when clear fungal/seborrheic signs
-- Conditioner goes on strands only, never on scalp
-- Never push "no shampoo" as a lifestyle recommendation
-
-## NOTIFICATION RULES FOR THINNING USERS
-- Core: "Minoxidil. Thinning areas only."
-- Pressure: "Miss days = lose gains."
-- Identity: "You either maintain your hairline or watch it go."
-- If skip: escalate tone
-- If consistent: 1 clean reminder/day
+{json_dirs}
 """

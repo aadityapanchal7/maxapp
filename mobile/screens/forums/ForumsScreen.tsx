@@ -115,8 +115,9 @@ export default function ForumsScreen() {
     };
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top }]}>
-            <View style={styles.header}>
+        <View style={styles.container}>
+            <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+                <View style={styles.contentWrap}>
                 <View style={styles.headerTopRow}>
                     <Text style={styles.headerTitle}>Forums</Text>
                     {page === 'community' && (
@@ -202,12 +203,18 @@ export default function ForumsScreen() {
                         </TouchableOpacity>
                     </View>
                 )}
+                </View>
             </View>
 
             {loading && forums.length === 0 ? (
                 <View style={styles.center}><ActivityIndicator size="large" color={colors.foreground} /></View>
             ) : (
-                <ScrollView style={styles.list} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 24 }}>
+                <ScrollView
+                    style={styles.list}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
+                >
+                    <View style={styles.contentWrap}>
                     {filteredForums.map(channel => {
                         const isOfficial = channel.is_admin_only;
                         return (
@@ -264,6 +271,7 @@ export default function ForumsScreen() {
                             <Text style={styles.emptySubtitle}>{searchQuery ? 'Try a different search' : 'Channels will appear here'}</Text>
                         </View>
                     )}
+                    </View>
                 </ScrollView>
             )}
 
@@ -377,7 +385,8 @@ export default function ForumsScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+    header: { paddingBottom: spacing.sm },
+    contentWrap: { width: '100%', maxWidth: 720, alignSelf: 'center', paddingHorizontal: spacing.lg },
     headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
     headerTitle: { fontSize: 26, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
     filterRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap' },
@@ -416,7 +425,8 @@ const styles = StyleSheet.create({
     clearFiltersBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: borderRadius.full, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
     clearFiltersText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    list: { flex: 1, paddingHorizontal: spacing.lg },
+    list: { flex: 1 },
+    listContent: { paddingTop: spacing.sm },
     section: { marginBottom: spacing.xl },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
     sectionAccent: { width: 4, height: 18, borderRadius: 2, backgroundColor: colors.foreground, marginRight: spacing.sm },

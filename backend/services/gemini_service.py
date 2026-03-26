@@ -8,6 +8,7 @@ import asyncio
 import google.generativeai as genai
 from typing import Optional, List, Dict, Any, Tuple
 from config import settings
+from services.prompt_loader import PromptKey, resolve_prompt
 from models.scan import (
     FaceMetrics,
     ScanAnalysis,
@@ -678,6 +679,9 @@ class GeminiService:
         Uses fallback if structured output fails
         """
         try:
+            system_prompt = await asyncio.to_thread(
+                resolve_prompt, PromptKey.FACE_ANALYSIS_SYSTEM, FACE_ANALYSIS_SYSTEM_PROMPT
+            )
             # Prepare images
             images = [
                 {"mime_type": "image/jpeg", "data": front_image},
@@ -687,7 +691,7 @@ class GeminiService:
             
             # Create prompt with images
             prompt_parts = [
-                FACE_ANALYSIS_SYSTEM_PROMPT,
+                system_prompt,
                 "\n\n## IMAGES TO ANALYZE:\n",
                 "FRONT VIEW:",
                 images[0],
@@ -756,8 +760,11 @@ class GeminiService:
         if not settings.gemini_api_key or not str(settings.gemini_api_key).strip():
             return default_umax_triple_dict("Set GEMINI_API_KEY on the API server for AI ratings.")
 
+        triple_intro = await asyncio.to_thread(
+            resolve_prompt, PromptKey.UMAX_TRIPLE_SYSTEM, UMAX_TRIPLE_SYSTEM_PROMPT
+        )
         parts: List[Any] = [
-            UMAX_TRIPLE_SYSTEM_PROMPT,
+            triple_intro,
             "FRONT:",
             {"mime_type": _mime_for_image_bytes(front), "data": front},
             "LEFT PROFILE:",
@@ -817,8 +824,11 @@ class GeminiService:
             return default_full_triple_dict("Set GEMINI_API_KEY on the API server for AI ratings.")
 
         ctx = (onboarding_json or "{}").strip()[:12000]
+        full_intro = await asyncio.to_thread(
+            resolve_prompt, PromptKey.TRIPLE_FULL_SYSTEM, TRIPLE_FULL_SYSTEM_PROMPT
+        )
         parts: List[Any] = [
-            TRIPLE_FULL_SYSTEM_PROMPT,
+            full_intro,
             ctx,
             "\n\nPHOTOS:\nFRONT:",
             {"mime_type": _mime_for_image_bytes(front), "data": front},
@@ -982,7 +992,9 @@ class GeminiService:
                 context_str += f"\nActive {ms.get('maxx_id')} schedule exists."
 
         # Build chat prompt
-        chat_prompt = MAX_CHAT_SYSTEM_PROMPT
+        chat_prompt = await asyncio.to_thread(
+            resolve_prompt, PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT
+        )
         if context_str:
             chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
         

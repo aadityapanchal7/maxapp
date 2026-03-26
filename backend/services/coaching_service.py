@@ -19,6 +19,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from config import settings
 from models.sqlalchemy_models import User, UserCoachingState, UserSchedule, ChatHistory, Scan
 from db.sqlalchemy import AsyncSessionLocal
+from services.prompt_loader import PromptKey, resolve_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,79 @@ def _sync_gemini_plain_text(prompt: str) -> str:
 COACHING_CONFIG = {
     "check_in_cooldown_hours": 8,
 }
+
+_COACHING_MEMORY_COMPRESS_FALLBACK = """Compress this conversation into 2-3 sentences capturing key facts about the user
+(goals, concerns, injuries, progress, preferences, anything they mentioned about themselves).
+Only include factual info, no fluff.
+
+CONVERSATION:
+{convo}
+
+SUMMARY:"""
+
+_COACHING_TONE_DETECT_FALLBACK = """Analyze this chat between a coaching AI and a user.
+Based on the user's responses, which coaching tone works best for them?
+Options: "direct", "aggressive", "chill"
+
+- "direct" = they respond well to straightforward no-BS advice
+- "aggressive" = they need tough love, accountability, being called out
+- "chill" = they respond better to gentle encouragement, low pressure
+
+Reply with ONLY one word: direct, aggressive, or chill
+
+CONVERSATION:
+{convo}"""
+
+_COACHING_FITMAX_CHECK_IN_FALLBACK = """You are the Fitmax SMS coach. Write one SMS only.
+
+Tone: direct, knowledgeable, personal. Never generic.
+Max length: 3 sentences.
+Exactly one actionable point.
+
+User name: {name}
+Check-in type: {check_in_type}
+Missed tasks today: {missed_today}
+
+Week state context:
+{context_str}{multi_module_sms_hint}
+
+If check_in_type is one of:
+- morning_training_day: mention today's session focus and one execution cue.
+- morning_rest_day: reinforce recovery + protein target.
+- preworkout: remind session start and one cue.
+- postworkout: reinforce protein + current calorie position.
+- evening_nutrition: mention calories left and one practical food option.
+- weekly_fitmax_summary: summarize week with one key priority for next week.
+- milestone_pr: celebrate PR and compare to prior trend.
+
+Return only the message text, no labels."""
+
+_COACHING_CHECK_IN_GENERAL_FALLBACK = """You are Max, a lookmaxxing coach. Generate a short check-in message for {name}.
+
+User context:
+{context_str}{multi_module_sms_hint}
+
+Check-in type: {check_in_type}{missed_line}
+
+Generate ONE short message (1-2 sentences max). Be casual, direct, no fluff. Match your tone to their situation — if they're slacking, call it out; if they're on a streak, hype them. Sound like a real person texting, not GPT.
+
+Message:"""
+
+_COACHING_BEDTIME_FALLBACK = """You are Max — the user's lookmaxxing coach. Send ONE SMS before their bedtime.
+
+User first name or handle: {name}
+
+Context (trim mentally — stay brief):
+{context_snippet}
+
+Rules:
+- 1–3 short sentences max. Casual, direct, lowercase ok — like other Max check-ins. No corporate tone.
+- Say it's almost bedtime / wind-down in a natural way.
+- You MUST clearly tell them they can reply to THIS SAME TEXT THREAD with a selfie or progress picture to log today's progress (MMS). Do not say "only in the app" — SMS photo reply is the main CTA.
+- Do not analyze or judge their face; you're just collecting for their private archive.
+- Under 300 characters if you can.
+
+Output ONLY the SMS body, no quotes."""
 
 
 class CoachingService:
@@ -159,14 +233,12 @@ class CoachingService:
         if not messages:
             return ""
         convo = "\n".join(f"{m['role']}: {m['content']}" for m in messages[-20:])
-        prompt = f"""Compress this conversation into 2-3 sentences capturing key facts about the user
-(goals, concerns, injuries, progress, preferences, anything they mentioned about themselves).
-Only include factual info, no fluff.
-
-CONVERSATION:
-{convo}
-
-SUMMARY:"""
+        tmpl = await asyncio.to_thread(
+            resolve_prompt,
+            PromptKey.COACHING_MEMORY_COMPRESS,
+            _COACHING_MEMORY_COMPRESS_FALLBACK,
+        )
+        prompt = tmpl.format(convo=convo)
         try:
             return await asyncio.to_thread(_sync_gemini_plain_text, prompt)
         except Exception as e:
@@ -185,18 +257,10 @@ SUMMARY:"""
         if len(messages) < 10:
             return
         convo = "\n".join(f"{m['role']}: {m['content']}" for m in messages[-30:])
-        prompt = f"""Analyze this chat between a coaching AI and a user.
-Based on the user's responses, which coaching tone works best for them?
-Options: "direct", "aggressive", "chill"
-
-- "direct" = they respond well to straightforward no-BS advice
-- "aggressive" = they need tough love, accountability, being called out
-- "chill" = they respond better to gentle encouragement, low pressure
-
-Reply with ONLY one word: direct, aggressive, or chill
-
-CONVERSATION:
-{convo}"""
+        tmpl = await asyncio.to_thread(
+            resolve_prompt, PromptKey.COACHING_TONE_DETECT, _COACHING_TONE_DETECT_FALLBACK
+        )
+        prompt = tmpl.format(convo=convo)
         try:
             text = await asyncio.to_thread(_sync_gemini_plain_text, prompt)
             tone = text.lower()
@@ -597,45 +661,34 @@ CONVERSATION:
 
         fitmax_prompt = None
         if fitmax_schedule:
-            fitmax_prompt = f"""You are the Fitmax SMS coach. Write one SMS only.
+            fit_tmpl = await asyncio.to_thread(
+                resolve_prompt,
+                PromptKey.COACHING_FITMAX_CHECK_IN,
+                _COACHING_FITMAX_CHECK_IN_FALLBACK,
+            )
+            fitmax_prompt = fit_tmpl.format(
+                name=name,
+                check_in_type=check_in_type,
+                missed_today=missed_today,
+                context_str=context_str,
+                multi_module_sms_hint=multi_module_sms_hint,
+            )
 
-Tone: direct, knowledgeable, personal. Never generic.
-Max length: 3 sentences.
-Exactly one actionable point.
-
-User name: {name}
-Check-in type: {check_in_type}
-Missed tasks today: {missed_today}
-
-Week state context:
-{context_str}{multi_module_sms_hint}
-
-If check_in_type is one of:
-- morning_training_day: mention today's session focus and one execution cue.
-- morning_rest_day: reinforce recovery + protein target.
-- preworkout: remind session start and one cue.
-- postworkout: reinforce protein + current calorie position.
-- evening_nutrition: mention calories left and one practical food option.
-- weekly_fitmax_summary: summarize week with one key priority for next week.
-- milestone_pr: celebrate PR and compare to prior trend.
-
-Return only the message text, no labels."""
-
-        prompt = f"""You are Max, a lookmaxxing coach. Generate a short check-in message for {name}.
-
-User context:
-{context_str}{multi_module_sms_hint}
-
-Check-in type: {check_in_type}
-"""
-        if missed_today > 0:
-            prompt += f"\nThey missed {missed_today} task(s) today."
-
-        prompt += """
-
-Generate ONE short message (1-2 sentences max). Be casual, direct, no fluff. Match your tone to their situation — if they're slacking, call it out; if they're on a streak, hype them. Sound like a real person texting, not GPT.
-
-Message:"""
+        missed_line = (
+            f"\nThey missed {missed_today} task(s) today." if missed_today > 0 else ""
+        )
+        gen_tmpl = await asyncio.to_thread(
+            resolve_prompt,
+            PromptKey.COACHING_CHECK_IN_GENERAL,
+            _COACHING_CHECK_IN_GENERAL_FALLBACK,
+        )
+        prompt = gen_tmpl.format(
+            name=name,
+            context_str=context_str,
+            multi_module_sms_hint=multi_module_sms_hint,
+            check_in_type=check_in_type,
+            missed_line=missed_line,
+        )
 
         return fitmax_prompt, prompt
 
@@ -686,21 +739,10 @@ Message:"""
         user = await db.get(User, UUID(user_id))
         name = (user.first_name or user.email.split("@")[0]) if user else "there"
 
-        prompt = f"""You are Max — the user's lookmaxxing coach. Send ONE SMS before their bedtime.
-
-User first name or handle: {name}
-
-Context (trim mentally — stay brief):
-{context_str[:2500]}
-
-Rules:
-- 1–3 short sentences max. Casual, direct, lowercase ok — like other Max check-ins. No corporate tone.
-- Say it's almost bedtime / wind-down in a natural way.
-- You MUST clearly tell them they can reply to THIS SAME TEXT THREAD with a selfie or progress picture to log today's progress (MMS). Do not say "only in the app" — SMS photo reply is the main CTA.
-- Do not analyze or judge their face; you're just collecting for their private archive.
-- Under 300 characters if you can.
-
-Output ONLY the SMS body, no quotes."""
+        bed_tmpl = await asyncio.to_thread(
+            resolve_prompt, PromptKey.COACHING_BEDTIME, _COACHING_BEDTIME_FALLBACK
+        )
+        prompt = bed_tmpl.format(name=name, context_snippet=context_str[:2500])
 
         fallback = (
             f"hey {name} — almost bedtime. if you want to log today's progress, just reply to this text "

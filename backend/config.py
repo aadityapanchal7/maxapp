@@ -5,7 +5,7 @@ Loads environment variables with validation using Pydantic Settings
 
 from pydantic_settings import BaseSettings
 from pydantic import Field
-from typing import List
+from typing import List, Optional
 from functools import lru_cache
 
 
@@ -76,6 +76,19 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = Field(default="")
     aws_s3_bucket: str = Field(default="cannon-app-uploads")
     aws_s3_region: str = Field(default="us-east-1")
+    # Remote LLM prompts (optional). If empty, bundled Python strings are used.
+    # Upload objects to: s3://{prompts_s3_bucket}/{prompts_s3_prefix}/{key}.md (or .txt)
+    prompts_s3_bucket: str = Field(
+        default="",
+        description="S3 bucket for chat/coaching prompt bodies; IAM needs s3:GetObject",
+    )
+    prompts_s3_prefix: Optional[str] = Field(
+        default=None,
+        description=(
+            "S3 key prefix, no leading/trailing slash (e.g. prompts/prod). "
+            "If unset/null, defaults to prompts/prod. Set env PROMPTS_S3_PREFIX= (empty) for bucket root."
+        ),
+    )
     
     # Application
     app_name: str = Field(default="Max")

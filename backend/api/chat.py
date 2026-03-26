@@ -4,6 +4,7 @@ Handles AI chat with tool-calling, coaching state, check-in parsing, and memory.
 The core logic lives in process_chat_message() so it can be reused by the SMS webhook.
 """
 
+import asyncio
 import logging
 import re
 from datetime import datetime
@@ -25,6 +26,7 @@ from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
+from services.prompt_loader import PromptKey, resolve_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -1257,7 +1259,12 @@ RULES:
 Call generate_maxx_schedule once when you have skin_concern + outside_today (wake/sleep never from user chat). maxx_id=\"skinmax\".]\n\n{message}"""
         elif maxx_id == "bonemax":
             _bone_pre = _bonemax_onboarding_known_block(onboarding)
-            message = f"{_bone_pre}{BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT}\n\n{message}"
+            bone_sys = await asyncio.to_thread(
+                resolve_prompt,
+                PromptKey.BONEMAX_NEW_SCHEDULE_SYSTEM,
+                BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT,
+            )
+            message = f"{_bone_pre}{bone_sys}\n\n{message}"
         else:
             concern_question, concerns = None, []
             if rds_db:

@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
 from services.gemini_service import GeminiService
+from services.prompt_loader import PromptKey, resolve_prompt
 from services.guideline_service import (
     get_maxx_guideline_async,
     resolve_concern,
@@ -357,7 +358,10 @@ class ScheduleService:
         if num_days == 7 and guidelines.get("recommended_days"):
             num_days = guidelines["recommended_days"]
 
-        prompt = SCHEDULE_GENERATION_PROMPT.format(
+        gen_tmpl = await asyncio.to_thread(
+            resolve_prompt, PromptKey.SCHEDULE_GENERATION, SCHEDULE_GENERATION_PROMPT
+        )
+        prompt = gen_tmpl.format(
             module_title=module.get("title", ""),
             module_description=module.get("description", ""),
             exercises=", ".join(guidelines.get("exercises", ["General exercises"])),
@@ -751,7 +755,10 @@ class ScheduleService:
             protocol_section = build_protocol_prompt_section(guideline, concern)
             height_track_footer = ""
 
-        prompt = MAXX_SCHEDULE_PROMPT.format(
+        maxx_tmpl = await asyncio.to_thread(
+            resolve_prompt, PromptKey.MAXX_SCHEDULE, MAXX_SCHEDULE_PROMPT
+        )
+        prompt = maxx_tmpl.format(
             maxx_label=guideline["label"],
             protocol_section=protocol_section,
             height_track_footer=height_track_footer,
@@ -2016,7 +2023,10 @@ class ScheduleService:
                 if task.get("status") == "skipped":
                     skipped_types.append(task.get("task_type", "unknown"))
 
-        prompt = SCHEDULE_ADAPTATION_PROMPT.format(
+        adapt_tmpl = await asyncio.to_thread(
+            resolve_prompt, PromptKey.SCHEDULE_ADAPTATION, SCHEDULE_ADAPTATION_PROMPT
+        )
+        prompt = adapt_tmpl.format(
             current_schedule_json=json.dumps({"days": schedule.days}, indent=2),
             completed_count=completed,
             total_count=total,
