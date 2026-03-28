@@ -66,11 +66,48 @@ function normalizeRoutineTitle(title: string): string {
   return s.slice(0, 56);
 }
 
+/** Same-day duplicate PM (or AM) skincare rows often differ only by time or wording — collapse to one per bucket. */
+function skincareRoutineFingerprint(title: string, desc: string): string {
+  const blob = `${title || ''} ${desc || ''}`;
+  if (!SKIN_TASK_RE.test(blob)) return '';
+  let core = (title || '')
+    .toLowerCase()
+    .replace(/\b(pm|am|p\.?m\.?|a\.?m\.?|evening|night|morning|bedtime|skincare|skin care|routine|daily)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (core.length < 2) core = 'skincare_routine';
+  return core.slice(0, 48);
+}
+
+function skincareAmPmBucket(task: MergedScheduleTask): 'am' | 'pm' | 'x' {
+  const blob = `${task.title || ''} ${task.description || ''}`;
+  if (/\b(pm|evening|night|bedtime|before bed)\b/i.test(blob)) return 'pm';
+  if (/\b(am|morning)\b/i.test(blob)) return 'am';
+  const time = (task.time || '').trim();
+  if (time.includes(':')) {
+    const h = parseInt(time.split(':')[0], 10);
+    if (!isNaN(h)) {
+      if (h < 12) return 'am';
+      return 'pm';
+    }
+  }
+  return 'x';
+}
+
+function dedupeKeyForTask(t: MergedScheduleTask): string {
+  const fp = skincareRoutineFingerprint(t.title || '', t.description || '');
+  if (fp) {
+    const bucket = skincareAmPmBucket(t);
+    return `${t.moduleLabel}|SC|${bucket}|${fp}`;
+  }
+  const rk = normalizeRoutineTitle(t.title || '');
+  return `${t.moduleLabel}|${(t.time || '').trim()}|${rk}`;
+}
+
 function dedupeMasterTasksForDay(tasks: MergedScheduleTask[]): MergedScheduleTask[] {
   const best = new Map<string, MergedScheduleTask>();
   for (const t of tasks) {
-    const rk = normalizeRoutineTitle(t.title || '');
-    const key = `${t.moduleLabel}|${(t.time || '').trim()}|${rk}`;
+    const key = dedupeKeyForTask(t);
     const prev = best.get(key);
     if (!prev) {
       best.set(key, t);
@@ -96,12 +133,6 @@ function displayModuleForTask(
   const skinish = SKIN_TASK_RE.test(blob);
   const hairish = HAIR_TASK_RE.test(blob);
 
-  if (scheduleMid === 'hairmax' && skinish && !hairish && activeMaxxIds.has('skinmax')) {
-    return {
-      moduleLabel: maxxLabels['skinmax'] || DEFAULT_MAXX_LABELS.skinmax,
-      moduleColor: maxxColors['skinmax'] || DEFAULT_MAXX_COLORS.skinmax,
-    };
-  }
   if (scheduleMid === 'skinmax' && hairish && !skinish && activeMaxxIds.has('hairmax')) {
     return {
       moduleLabel: maxxLabels['hairmax'] || DEFAULT_MAXX_LABELS.hairmax,
@@ -159,6 +190,11 @@ export function mergeSchedules(
       const d = day.date;
       if (!d) continue;
       for (const t of day.tasks || []) {
+        const blobEarly = `${t.title || ''} ${t.description || ''}`;
+        const skinEarly = SKIN_TASK_RE.test(blobEarly);
+        const hairEarly = HAIR_TASK_RE.test(blobEarly);
+        if (mid === 'hairmax' && skinEarly && !hairEarly) continue;
+
         if (!byDate[d]) byDate[d] = [];
         const { moduleLabel, moduleColor } = displayModuleForTask(
           t,

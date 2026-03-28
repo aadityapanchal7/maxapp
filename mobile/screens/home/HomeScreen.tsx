@@ -8,6 +8,7 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
 
 const MAX_TAG_PILLS = 3;
+const HOME_TODAY_TASK_PREVIEW = 3;
 
 /** Module step titles first (detail cards); else concern labels (e.g. SkinMax). */
 function getMaxxTagLabels(maxx: any): string[] {
@@ -161,7 +162,7 @@ export default function HomeScreen() {
                         {!schedulesLoading && !schedulesError && scheduleRows.length === 0 ? (
                             <Text style={styles.todayEmpty}>No tasks scheduled for today across your active programs.</Text>
                         ) : null}
-                        {scheduleRows.slice(0, 5).map((row, idx) => (
+                        {scheduleRows.slice(0, HOME_TODAY_TASK_PREVIEW).map((row, idx) => (
                             <TouchableOpacity
                                 key={`${row.scheduleId}-${row.task_id}`}
                                 style={[styles.todayRow, idx > 0 && styles.todayRowBorder]}
@@ -177,8 +178,10 @@ export default function HomeScreen() {
                                 <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                             </TouchableOpacity>
                         ))}
-                        {scheduleRows.length > 5 ? (
-                            <Text style={styles.todayMore}>+{scheduleRows.length - 5} more on Schedule tab</Text>
+                        {!schedulesLoading && !schedulesError && scheduleRows.length > HOME_TODAY_TASK_PREVIEW ? (
+                            <Text style={styles.todayMore}>
+                                +{scheduleRows.length - HOME_TODAY_TASK_PREVIEW} more on Master schedule
+                            </Text>
                         ) : null}
                     </View>
 

@@ -158,7 +158,7 @@ export default function MasterScheduleScreen() {
       <View style={styles.headerCenter}>
         <Text style={styles.headerTitle}>{title}</Text>
         {subtitle ? <Text style={styles.subhead}>{subtitle}</Text> : null}
-        {legend}
+        {legend ? <View style={styles.legendWrap}>{legend}</View> : null}
       </View>
       <View style={styles.backButton} />
     </View>
@@ -241,9 +241,11 @@ export default function MasterScheduleScreen() {
         legend={legendChips}
       />
 
+      <View style={styles.bodyBelowHeader}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.dayStripScroll}
         contentContainerStyle={styles.daySelectorContainer}
       >
         {merged.dates.map((dateStr) => {
@@ -272,6 +274,7 @@ export default function MasterScheduleScreen() {
         style={styles.taskList}
         contentContainerStyle={{ paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
+        nestedScrollEnabled
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.foreground} />
         }
@@ -334,6 +337,7 @@ export default function MasterScheduleScreen() {
           );
         })}
       </ScrollView>
+      </View>
     </View>
   );
 }
@@ -420,7 +424,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.success,
     marginTop: 3,
   },
-  taskList: { flex: 1, paddingHorizontal: spacing.lg },
+  taskList: { flex: 1, minHeight: 0, paddingHorizontal: spacing.lg },
   progressRow: {
     flexDirection: 'row',
     alignItems: 'center',
