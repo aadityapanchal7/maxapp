@@ -185,25 +185,6 @@ export default function HomeScreen() {
                         ) : null}
                     </View>
 
-                    <View style={styles.masterScheduleWrap}>
-                        <TouchableOpacity
-                            style={styles.masterScheduleCard}
-                            onPress={() => navigation.navigate('MasterScheduleTab')}
-                            activeOpacity={0.75}
-                        >
-                            <View style={styles.masterScheduleIcon}>
-                                <Ionicons name="calendar-outline" size={22} color={colors.foreground} />
-                            </View>
-                            <View style={styles.masterScheduleTextCol}>
-                                <Text style={styles.masterScheduleTitle}>Master schedule</Text>
-                                <Text style={styles.masterScheduleSub} numberOfLines={2}>
-                                    All tasks from every active program, color-coded by module
-                                </Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                        </TouchableOpacity>
-                    </View>
-
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionLabel}>MY ACTIVE MAXXES</Text>
@@ -320,28 +301,6 @@ const styles = StyleSheet.create({
     todayTitle: { fontSize: 14, fontWeight: '600', color: colors.foreground, marginTop: 2 },
     todayModule: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
     todayMore: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs, textAlign: 'center' },
-    masterScheduleWrap: { paddingHorizontal: spacing.lg, marginTop: spacing.sm },
-    masterScheduleCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.md,
-        backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
-        paddingVertical: spacing.md,
-        paddingHorizontal: spacing.lg,
-        ...shadows.sm,
-    },
-    masterScheduleIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: borderRadius.lg,
-        backgroundColor: colors.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    masterScheduleTextCol: { flex: 1, minWidth: 0 },
-    masterScheduleTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground, marginBottom: 4 },
-    masterScheduleSub: { ...typography.bodySmall, color: colors.textMuted, lineHeight: 18 },
     section: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
     sectionLabel: { ...typography.label },
