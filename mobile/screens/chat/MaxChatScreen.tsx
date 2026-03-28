@@ -128,7 +128,13 @@ export default function MaxChatScreen() {
             setMessages(prev => [...prev, { role: 'user', content: userContent, attachment_url: attachmentUrl, attachment_type: attachmentType }]);
             setSelectedImage(null);
             addTyping();
-            const { response } = await api.sendChatMessage(userContent, attachmentUrl, attachmentType);
+            const scheduleCtx = route.params?.initSchedule as string | undefined;
+            const { response } = await api.sendChatMessage(
+                userContent,
+                attachmentUrl,
+                attachmentType,
+                scheduleCtx,
+            );
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
             if (route.params?.initSchedule === 'heightmax') await refreshHeightmaxScheduleExists();

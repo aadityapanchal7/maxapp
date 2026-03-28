@@ -37,6 +37,17 @@ _WAKE_SLEEP_NEVER_ASK = (
     "If either field is missing, pass wake_time=07:00 and sleep_time=23:00 in generate_maxx_schedule without asking."
 )
 
+
+def _coerce_chat_maxx_id(raw: Optional[str]) -> Optional[str]:
+    """Normalize init_context / inferred maxx id so HairMax, hair-max, etc. hit the right SYSTEM branch."""
+    if not raw:
+        return None
+    s = re.sub(r"[\s\-_]+", "", str(raw).strip().lower())
+    for mid in ("skinmax", "hairmax", "heightmax", "fitmax", "bonemax"):
+        if s == mid:
+            return mid
+    return str(raw).strip().lower()
+
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
 FITMAX_REQUIRED_FIELDS = [
@@ -923,7 +934,7 @@ async def process_chat_message(
 
     # --- Init context / maxx schedule onboarding ---
     message = message_text
-    maxx_id = init_context
+    maxx_id = _coerce_chat_maxx_id(init_context)
     if not maxx_id and message:
         msg_lower = message.lower()
         if "skinmax" in msg_lower or "skin max" in msg_lower:
@@ -940,6 +951,8 @@ async def process_chat_message(
             maxx_id = "fitmax"
         elif "bonemax" in msg_lower or "bone max" in msg_lower or "bone maxx" in msg_lower:
             maxx_id = "bonemax"
+    if maxx_id:
+        maxx_id = _coerce_chat_maxx_id(maxx_id) or maxx_id
 
     # --- Fitmax chat onboarding (profile is populated conversationally) ---
     if maxx_id == "fitmax" and user:
@@ -1160,6 +1173,10 @@ your first response in this heightmax start flow should:
 
 {_hair_known}the user just opened hairmax to start a new schedule. follow the same tone and style as other maxx modules: short, casual, direct, focused on getting their schedule locked in.
 
+CRITICAL — EVERY TURN IN THIS THREAD (until generate_maxx_schedule succeeds):
+- you are ONLY in hairmax. NEVER ask skin concern, SPF, UV, "skinmax", or "focus area for skin".
+- NEVER ask "outside today", "going outside", sun, or sunscreen — those are SKINMAX-only. asking them here is a failure.
+
 DO NOT:
 - do not ask "what is your main concern?" or any generic concern questions.
 - do not ask if they will be outside today (that's only for skin).
@@ -1255,6 +1272,11 @@ RULES:
 - ONE question per message. Order: (1) skin concern ONLY if not pre-filled above, (2) then ONLY "planning to be outside much today?" for outside_today.
 - If skin concern is already pre-filled above, greet briefly and your FIRST question must be ONLY about outside today.
 - For wake/sleep in the tool: use values from onboarding if present; otherwise 07:00 and 23:00.
+
+ANTI-REDUNDANCY (CRITICAL):
+- NEVER ask the skin concern / focus question again if it appears anywhere in THIS chat thread (user already said e.g. "acne") OR if pre-filled above OR inferable from onboarding.
+- If the user already answered concern + outside today in this thread, call generate_maxx_schedule immediately — do NOT rephrase the same questions.
+- Do NOT repeat "what's your main skin concern" in different wording after they already answered once.
 
 Call generate_maxx_schedule once when you have skin_concern + outside_today (wake/sleep never from user chat). maxx_id=\"skinmax\".]\n\n{message}"""
         elif maxx_id == "bonemax":

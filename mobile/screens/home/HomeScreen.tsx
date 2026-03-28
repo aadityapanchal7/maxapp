@@ -43,6 +43,7 @@ export default function HomeScreen() {
     const [scheduleRows, setScheduleRows] = useState<MergedScheduleTask[]>([]);
     const [schedulesLoading, setSchedulesLoading] = useState(true);
     const [schedulesError, setSchedulesError] = useState<string | null>(null);
+    const [completingTaskKey, setCompletingTaskKey] = useState<string | null>(null);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(20)).current;
@@ -124,6 +125,25 @@ export default function HomeScreen() {
     // Filter maxes from RDS down to only the ones the user selected
     const activeMaxxes = maxes.filter(m => selectedGoals.includes(m.id?.toLowerCase()));
 
+    const completeTodayTask = async (row: MergedScheduleTask) => {
+        if (row.status === 'completed') return;
+        const key = `${row.scheduleId}-${row.task_id}`;
+        if (completingTaskKey) return;
+        setCompletingTaskKey(key);
+        try {
+            await api.completeScheduleTask(row.scheduleId, row.task_id);
+            setScheduleRows((prev) =>
+                prev.map((r) =>
+                    r.scheduleId === row.scheduleId && r.task_id === row.task_id ? { ...r, status: 'completed' } : r,
+                ),
+            );
+        } catch (e) {
+            console.error('completeTodayTask', e);
+        } finally {
+            setCompletingTaskKey(null);
+        }
+    };
+
     return (
         <View style={styles.container}>
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -162,26 +182,62 @@ export default function HomeScreen() {
                         {!schedulesLoading && !schedulesError && scheduleRows.length === 0 ? (
                             <Text style={styles.todayEmpty}>No tasks scheduled for today across your active programs.</Text>
                         ) : null}
-                        {scheduleRows.slice(0, HOME_TODAY_TASK_PREVIEW).map((row, idx) => (
-                            <TouchableOpacity
-                                key={`${row.scheduleId}-${row.task_id}`}
-                                style={[styles.todayRow, idx > 0 && styles.todayRowBorder]}
-                                onPress={() => navigation.navigate('Schedule', { scheduleId: row.scheduleId })}
-                                activeOpacity={0.75}
-                            >
-                                <View style={[styles.todayAccent, { backgroundColor: row.moduleColor }]} />
-                                <View style={styles.todayRowBody}>
-                                    <Text style={styles.todayTime}>{formatTimeTo12Hour(row.time)}</Text>
-                                    <Text style={styles.todayTitle} numberOfLines={1}>{row.title}</Text>
-                                    <Text style={styles.todayModule} numberOfLines={1}>{row.moduleLabel}</Text>
+                        {scheduleRows.slice(0, HOME_TODAY_TASK_PREVIEW).map((row, idx) => {
+                            const done = row.status === 'completed';
+                            const rowKey = `${row.scheduleId}-${row.task_id}`;
+                            const busy = completingTaskKey === rowKey;
+                            return (
+                                <View
+                                    key={rowKey}
+                                    style={[styles.todayRow, idx > 0 && styles.todayRowBorder]}
+                                >
+                                    {done ? (
+                                        <View style={styles.todayCheckHit} accessibilityRole="text" accessibilityLabel="Task completed">
+                                            <View style={[styles.todayCheckCircle, styles.todayCheckDone]}>
+                                                <Ionicons name="checkmark" size={12} color={colors.buttonText} />
+                                            </View>
+                                        </View>
+                                    ) : (
+                                        <TouchableOpacity
+                                            style={styles.todayCheckHit}
+                                            onPress={() => completeTodayTask(row)}
+                                            disabled={busy}
+                                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                            accessibilityRole="checkbox"
+                                            accessibilityState={{ checked: false, disabled: busy }}
+                                        >
+                                            {busy ? (
+                                                <ActivityIndicator size="small" color={colors.textMuted} />
+                                            ) : (
+                                                <View style={styles.todayCheckCircle} />
+                                            )}
+                                        </TouchableOpacity>
+                                    )}
+                                    <TouchableOpacity
+                                        style={styles.todayRowTap}
+                                        onPress={() => navigation.navigate('Schedule', { scheduleId: row.scheduleId })}
+                                        activeOpacity={0.75}
+                                    >
+                                        <View style={[styles.todayAccent, { backgroundColor: row.moduleColor }]} />
+                                        <View style={styles.todayRowBody}>
+                                            <Text style={styles.todayTime}>{formatTimeTo12Hour(row.time)}</Text>
+                                            <Text style={styles.todayTitle} numberOfLines={1}>{row.title}</Text>
+                                            <Text style={styles.todayModule} numberOfLines={1}>{row.moduleLabel}</Text>
+                                        </View>
+                                    </TouchableOpacity>
+                                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                                 </View>
-                                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                            </TouchableOpacity>
-                        ))}
+                            );
+                        })}
                         {!schedulesLoading && !schedulesError && scheduleRows.length > HOME_TODAY_TASK_PREVIEW ? (
-                            <Text style={styles.todayMore}>
-                                +{scheduleRows.length - HOME_TODAY_TASK_PREVIEW} more on Master schedule
-                            </Text>
+                            <TouchableOpacity
+                                onPress={() => navigation.navigate('MasterScheduleTab')}
+                                style={styles.todaySeeMoreBtn}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.todaySeeMoreText}>See more</Text>
+                                <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                            </TouchableOpacity>
                         ) : null}
                     </View>
 
@@ -300,7 +356,15 @@ const styles = StyleSheet.create({
     todayTime: { fontSize: 12, fontWeight: '700', color: colors.foreground },
     todayTitle: { fontSize: 14, fontWeight: '600', color: colors.foreground, marginTop: 2 },
     todayModule: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-    todayMore: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs, textAlign: 'center' },
+    todaySeeMoreBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 4,
+        marginTop: spacing.sm,
+        paddingVertical: spacing.xs,
+    },
+    todaySeeMoreText: { ...typography.caption, fontWeight: '600', color: colors.foreground },
     section: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
     sectionLabel: { ...typography.label },
