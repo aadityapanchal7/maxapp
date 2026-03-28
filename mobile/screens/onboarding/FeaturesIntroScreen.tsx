@@ -29,7 +29,9 @@ export default function FeaturesIntroScreen() {
                 <View style={styles.iconRing}>
                     <Ionicons name="scan" size={36} color={colors.foreground} />
                 </View>
-                <Text style={styles.title}>AI Face Scan</Text>
+                <Text style={styles.title} numberOfLines={1} ellipsizeMode="tail">
+                    ai face scan
+                </Text>
                 <Text style={styles.desc}>
                     Get a detailed analysis using three quick photos — front and both profiles — then see your scores
                     before you subscribe.
@@ -80,7 +82,11 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xl,
         ...shadows.md,
     },
-    title: { ...typography.h1, textAlign: 'center', marginBottom: spacing.md },
+    title: {
+        ...typography.h1,
+        textAlign: 'center',
+        marginBottom: spacing.md,
+    },
     desc: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 24, maxWidth: 320 },
     bottom: { gap: spacing.xl, paddingBottom: spacing.lg },
     button: {

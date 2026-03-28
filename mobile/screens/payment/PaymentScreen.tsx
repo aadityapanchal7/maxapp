@@ -12,6 +12,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -39,12 +40,11 @@ const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_ATTEMPTS = 20;
 
 const FULL_ACCESS_FEATURES = [
-    'Full course library & every Maxx track',
     'AI schedules + SMS reminders that keep you on track',
     'Face scans & progress tracking',
     'Fitmax workouts, routines, and check-ins',
-    'Community, forums, and live events',
-    'Max coach in the app and over SMS',
+    'Community & live events',
+    'Full course library',
 ];
 
 function buildCheckoutUrl(base: string, userId: string | undefined): string {
@@ -207,25 +207,37 @@ export default function PaymentScreen() {
                 </TouchableOpacity>
 
                 <View style={styles.header}>
-                    <Text style={styles.title}>Choose your plan</Text>
+                    <Text style={styles.kicker}>MAX PRO</Text>
+                    <Text style={styles.title}>Unlock your full stack</Text>
                     <Text style={styles.subtitle}>
-                        One membership — full access to everything in Max for ${PRICE}/month.
+                        One clean plan. Full access to Max for ${PRICE}/month.
                     </Text>
                 </View>
 
                 <View style={styles.planCard}>
+                    <LinearGradient
+                        colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.03)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.planCardSheen}
+                        pointerEvents="none"
+                    />
                     <View style={styles.planHeader}>
-                        <Text style={styles.planName}>Full access</Text>
+                        <View style={styles.planTag}>
+                            <Text style={styles.planTagText}>Most popular</Text>
+                        </View>
                         <View style={styles.priceRow}>
                             <Text style={styles.price}>${PRICE}</Text>
                             <Text style={styles.priceLabel}>/month</Text>
                         </View>
                     </View>
-
+                    <Text style={styles.planName}>Everything included</Text>
                     <View style={styles.featureList}>
                         {FULL_ACCESS_FEATURES.map((feature, idx) => (
                             <View key={idx} style={styles.featureItem}>
-                                <Ionicons name="checkmark" size={16} color={colors.foreground} />
+                                <View style={styles.featureIconWrap}>
+                                    <Ionicons name="checkmark" size={13} color={colors.background} />
+                                </View>
                                 <Text style={styles.featureText}>{feature}</Text>
                             </View>
                         ))}
@@ -242,46 +254,11 @@ export default function PaymentScreen() {
                         </Text>
                     </TouchableOpacity>
 
-                    {stripeUrlConfigured ? (
-                        <View style={styles.redirectBlock}>
-                            <Text style={styles.redirectHint}>
-                                Checkout opens in a secure in-app browser (like Cal AI). After you pay, you&apos;ll return
-                                to Max automatically once your account updates — usually a few seconds.
-                            </Text>
-                            <Text style={[styles.redirectHint, styles.redirectHintSpaced]}>
-                                In Stripe → Payment Link → After payment → set redirect URL to exactly:
-                            </Text>
-                            <Text style={styles.redirectUrl} selectable>
-                                {paymentReturnUrl}
-                            </Text>
-                            {!process.env.EXPO_PUBLIC_STRIPE_RETURN_URL?.trim() ? (
-                                <Text style={[styles.redirectHint, styles.redirectHintSpaced]}>
-                                    Use EXPO_PUBLIC_STRIPE_RETURN_URL if you must redirect via https first, then open the
-                                    app.
-                                </Text>
-                            ) : null}
-                        </View>
-                    ) : (
-                        <Text style={styles.linkHint}>
-                            Add your Stripe link in .env as EXPO_PUBLIC_STRIPE_PAYMENT_LINK, then restart Expo.
-                        </Text>
+                    {stripeUrlConfigured ? null : (
+                        <Text style={styles.linkHint}>Stripe checkout isn’t configured yet.</Text>
                     )}
                 </View>
 
-                <Text style={styles.disclaimer}>
-                    You can change or cancel your plan any time from your account settings.
-                </Text>
-
-                <TouchableOpacity
-                    style={styles.devButton}
-                    activeOpacity={0.85}
-                    onPress={handleDevSkip}
-                    disabled={devLoading || checkoutLoading}
-                >
-                    <Text style={styles.devButtonText}>
-                        {devLoading ? 'Activating…' : 'DEV: Skip payment & unlock'}
-                    </Text>
-                </TouchableOpacity>
             </ScrollView>
         </View>
     );
@@ -292,38 +269,67 @@ const styles = StyleSheet.create({
     content: { padding: spacing.lg, paddingTop: 64, paddingBottom: 40 },
     backButton: { position: 'absolute', top: 54, left: spacing.lg, zIndex: 10, padding: spacing.sm },
     header: { alignItems: 'flex-start', marginBottom: spacing.xl, marginTop: spacing.xl },
+    kicker: {
+        ...typography.label,
+        color: colors.textMuted,
+        letterSpacing: 1.2,
+        marginBottom: spacing.xs,
+    },
     title: {
         fontSize: 28,
-        fontWeight: '600',
+        fontWeight: '700',
         color: colors.foreground,
         letterSpacing: -0.5,
         marginBottom: spacing.xs,
     },
-    subtitle: { fontSize: 13, color: colors.textSecondary, lineHeight: 19 },
+    subtitle: { fontSize: 14, color: colors.textSecondary, lineHeight: 21, maxWidth: 340 },
     planCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
         padding: spacing.lg,
         marginBottom: spacing.lg,
         ...shadows.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        overflow: 'hidden',
+        position: 'relative',
     },
+    planCardSheen: { ...StyleSheet.absoluteFillObject },
     planHeader: {
         flexDirection: 'row',
         alignItems: 'flex-end',
         justifyContent: 'space-between',
-        marginBottom: spacing.md,
+        marginBottom: spacing.sm,
     },
+    planTag: {
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: borderRadius.full,
+        paddingHorizontal: 10,
+        paddingVertical: 5,
+    },
+    planTagText: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
     planName: {
-        fontSize: 18,
+        fontSize: 22,
         fontWeight: '600',
         color: colors.foreground,
-        textTransform: 'uppercase',
+        letterSpacing: -0.3,
     },
+    planSub: { fontSize: 13, color: colors.textMuted, marginTop: 4, marginBottom: spacing.md },
     priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
-    price: { fontSize: 28, fontWeight: '700', color: colors.foreground },
+    price: { fontSize: 34, fontWeight: '700', color: colors.foreground },
     priceLabel: { fontSize: 14, fontWeight: '400', color: colors.textMuted },
     featureList: { marginBottom: spacing.lg, gap: spacing.sm },
     featureItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    featureIconWrap: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.foreground,
+    },
     featureText: { flex: 1, fontSize: 14, color: colors.foreground },
     button: {
         backgroundColor: colors.foreground,
@@ -334,6 +340,21 @@ const styles = StyleSheet.create({
     },
     buttonMuted: { opacity: 0.5 },
     buttonText: { ...typography.button },
+    metaRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+    metaPill: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+        paddingVertical: 8,
+        paddingHorizontal: 8,
+    },
+    metaText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
     linkHint: {
         fontSize: 12,
         color: colors.textMuted,
@@ -341,7 +362,7 @@ const styles = StyleSheet.create({
         marginTop: spacing.md,
         lineHeight: 18,
     },
-    redirectBlock: { marginTop: spacing.md },
+    redirectBlock: { marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
     redirectHint: {
         fontSize: 11,
         color: colors.textMuted,
