@@ -611,6 +611,27 @@ class CoachingService:
                 )
                 fitmax_protocol_added = True
 
+        completed_today: list[str] = []
+        for s in schedules:
+            label = s.course_title or s.maxx_id or "program"
+            for day in s.days or []:
+                if day.get("date") != today_iso:
+                    continue
+                for t in day.get("tasks") or []:
+                    if str(t.get("status", "")).lower() == "completed":
+                        completed_today.append(
+                            f"- {t.get('time', '?')} {t.get('title', '?')} ({label})"
+                        )
+        if completed_today:
+            parts.append(
+                "TASKS COMPLETED TODAY (use this to answer SMS/app questions about what they finished or checked off):\n"
+                + "\n".join(completed_today[:25])
+            )
+        elif schedules:
+            parts.append(
+                "TASKS COMPLETED TODAY: none marked completed yet for the user's local calendar date across active schedules."
+            )
+
         # --- AI memory ---
         if user.ai_context:
             parts.append(f"MEMORY (from past convos):\n{user.ai_context}")

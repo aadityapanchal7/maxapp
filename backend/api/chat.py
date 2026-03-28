@@ -7,7 +7,7 @@ The core logic lives in process_chat_message() so it can be reused by the SMS we
 import asyncio
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -47,6 +47,95 @@ def _coerce_chat_maxx_id(raw: Optional[str]) -> Optional[str]:
         if s == mid:
             return mid
     return str(raw).strip().lower()
+
+
+def _expire_stale_chat_pending(profile: dict) -> bool:
+    """Drop chat_pending_module if older than TTL. Returns True if profile was mutated."""
+    mod = str(profile.get("chat_pending_module") or "").strip()
+    if not mod:
+        return False
+    at_raw = profile.get("chat_pending_module_at")
+    stale = False
+    if not at_raw:
+        stale = True
+    else:
+        try:
+            at_s = str(at_raw).replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(at_s)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - parsed > timedelta(hours=8):
+                stale = True
+        except Exception:
+            stale = True
+    if stale:
+        profile.pop("chat_pending_module", None)
+        profile.pop("chat_pending_module_at", None)
+        return True
+    return False
+
+
+def _looks_like_fitmax_activation_message(text: str) -> bool:
+    t = (text or "").lower()
+    return "fitmax" in t or "fit max" in t
+
+
+def _looks_like_completed_tasks_question(text: str) -> bool:
+    t = (text or "").lower().strip()
+    if len(t) > 160:
+        return False
+    needles = (
+        "completed today",
+        "complete today",
+        "finished today",
+        "tasks have i",
+        "task have i",
+        "checked off",
+        "check off today",
+        "knocked out today",
+        "what did i do today",
+        "what have i done today",
+        "did i complete",
+        "did i finish",
+        "how many tasks",
+        "tasks done today",
+        "stuff i finished",
+    )
+    return any(n in t for n in needles)
+
+
+async def _reply_today_completed_tasks_summary(user_id: str, onboarding: dict, db: AsyncSession) -> str:
+    from zoneinfo import ZoneInfo
+
+    from services.schedule_service import schedule_service
+
+    tz_name = (onboarding or {}).get("timezone") or "UTC"
+    try:
+        user_tz = ZoneInfo(str(tz_name))
+    except Exception:
+        user_tz = ZoneInfo("UTC")
+    today_iso = datetime.now(user_tz).date().isoformat()
+    schedules = await schedule_service.get_all_active_schedules(user_id, db)
+    lines: list[str] = []
+    for s in schedules:
+        label = s.get("maxx_id") or s.get("course_title") or "program"
+        for day in s.get("days") or []:
+            if day.get("date") != today_iso:
+                continue
+            for t in day.get("tasks") or []:
+                if str(t.get("status", "")).lower() == "completed":
+                    tm = t.get("time") or "?"
+                    tit = (t.get("title") or "task").strip()
+                    lines.append(f"- {tm} {tit} ({label})")
+    if not lines:
+        return (
+            "nothing's marked complete yet today across your active schedules. "
+            "when you check off tasks in the app, i can recap them here too."
+        )
+    body = "\n".join(lines[:15])
+    extra = f"\n…+{len(lines) - 15} more" if len(lines) > 15 else ""
+    return f"here's what you checked off today:\n{body}{extra}"
+
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -924,13 +1013,44 @@ async def process_chat_message(
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     user = await db.get(User, user_uuid)
     onboarding = _merge_onboarding_with_schedule_prefs(user)
-    profile = (user.profile if user else {}) or {}
-    
+    if user:
+        profile = dict((user.profile or {}) or {})
+        if _expire_stale_chat_pending(profile):
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+    else:
+        profile = {}
+
     user_context = {
         "coaching_context": coaching_context,
         "active_schedule": active_schedule,
         "onboarding": onboarding,
     }
+
+    if user and _looks_like_completed_tasks_question(message_text):
+        response_text = await _reply_today_completed_tasks_summary(user_id, onboarding, db)
+        if _persist_chat_history(channel):
+            user_message = ChatHistory(
+                user_id=user_uuid,
+                role="user",
+                content=message_text,
+                channel=channel,
+                created_at=datetime.utcnow(),
+            )
+            assistant_message = ChatHistory(
+                user_id=user_uuid,
+                role="assistant",
+                content=response_text,
+                channel=channel,
+                created_at=datetime.utcnow(),
+            )
+            db.add(user_message)
+            db.add(assistant_message)
+        await db.commit()
+        return response_text
 
     # --- Init context / maxx schedule onboarding ---
     message = message_text
@@ -954,8 +1074,22 @@ async def process_chat_message(
     if maxx_id:
         maxx_id = _coerce_chat_maxx_id(maxx_id) or maxx_id
 
+    if maxx_id and maxx_id != "fitmax" and user:
+        prof = dict(user.profile or {})
+        if str(prof.get("chat_pending_module") or "").lower() == "fitmax":
+            prof.pop("chat_pending_module", None)
+            prof.pop("chat_pending_module_at", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = prof
+
+    fitmax_pending = bool(user and str(profile.get("chat_pending_module") or "").lower() == "fitmax")
+    run_fitmax_onboarding = bool(user and (maxx_id == "fitmax" or fitmax_pending))
+
     # --- Fitmax chat onboarding (profile is populated conversationally) ---
-    if maxx_id == "fitmax" and user:
+    if run_fitmax_onboarding:
         fitmax_profile = dict(profile.get("fitmax_profile") or {})
         seeded = _fitmax_seed_profile_from_onboarding(fitmax_profile, onboarding)
         if seeded != fitmax_profile:
@@ -974,95 +1108,122 @@ async def process_chat_message(
             user.updated_at = datetime.utcnow()
             await db.commit()
 
-        fitmax_schedule = await schedule_service.get_maxx_schedule(user_id, "fitmax", db=db)
-        missing = _fitmax_missing_fields(fitmax_profile)
-
-        # Onboarding incomplete -> ask exactly one next question in chat
-        if not fitmax_schedule and missing:
-            if not any(fitmax_profile.values()):
-                response_text = "hey, welcome to fitmax. before we build your plan, i need to know a bit about you — this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, maintain, or performance?"
-            else:
-                response_text = _fitmax_next_question(fitmax_profile)
-
-            user_message = ChatHistory(
-                user_id=user_uuid,
-                role="user",
-                content=message_text,
-                channel=channel,
-                created_at=datetime.utcnow(),
-            )
-            assistant_message = ChatHistory(
-                user_id=user_uuid,
-                role="assistant",
-                content=response_text,
-                channel=channel,
-                created_at=datetime.utcnow(),
-            )
-            db.add(user_message)
-            db.add(assistant_message)
-            await db.commit()
-            return response_text
-
-        # Onboarding complete and no fitmax schedule yet -> generate + summarize
-        if not fitmax_schedule and not missing:
-            plan = _fitmax_build_plan(fitmax_profile)
-            profile["fitmax_plan"] = plan
-            user.profile = profile
+        abandoned_sms_fitmax = (
+            fitmax_pending
+            and not any(fitmax_profile.values())
+            and not updates
+            and not _looks_like_fitmax_activation_message(message_text)
+        )
+        if abandoned_sms_fitmax:
+            prof = dict(user.profile or {})
+            prof.pop("chat_pending_module", None)
+            prof.pop("chat_pending_module_at", None)
+            user.profile = prof
             flag_modified(user, "profile")
             user.updated_at = datetime.utcnow()
-
-            try:
-                schedule = await schedule_service.generate_maxx_schedule(
-                    user_id=user_id,
-                    maxx_id="fitmax",
-                    db=db,
-                    rds_db=rds_db if rds_db else None,
-                    wake_time="07:00",
-                    sleep_time="23:00",
-                    skin_concern=plan["goal_label"],
-                    outside_today=False,
-                    num_days=7,
-                )
-                user_context["active_maxx_schedule"] = schedule
-
-                response_text = (
-                    "got everything i need. here's what i've built for you:\n\n"
-                    "view your fitmax plan ->\n\n"
-                    f"your daily calorie target is {plan['calories']} calories with {plan['protein_g']}g protein. "
-                    f"your split is {plan['split']}, {plan['days_per_week']} days a week. "
-                    "i'll text you each morning with what's on deck. want to start with module 1, or do you want any plan tweaks first?"
-                )
-            except ScheduleLimitError as e:
-                names = ", ".join(e.active_labels)
-                response_text = (
-                    f"your fitmax profile is saved, but you already have 2 active modules ({names}). "
-                    "stop one of them first and then come back to start fitmax."
-                )
-
-            if _persist_chat_history(channel):
-                user_message = ChatHistory(
-                    user_id=user_uuid,
-                    role="user",
-                    content=message_text,
-                    channel=channel,
-                    created_at=datetime.utcnow(),
-                )
-                assistant_message = ChatHistory(
-                    user_id=user_uuid,
-                    role="assistant",
-                    content=response_text,
-                    channel=channel,
-                    created_at=datetime.utcnow(),
-                )
-                db.add(user_message)
-                db.add(assistant_message)
             await db.commit()
-            return response_text
+            profile = prof
+        else:
+            fitmax_schedule = await schedule_service.get_maxx_schedule(user_id, "fitmax", db=db)
+            missing = _fitmax_missing_fields(fitmax_profile)
+
+            # Onboarding incomplete -> ask exactly one next question in chat
+            if not fitmax_schedule and missing:
+                if not any(fitmax_profile.values()):
+                    response_text = "hey, welcome to fitmax. before we build your plan, i need to know a bit about you — this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, maintain, or performance?"
+                else:
+                    response_text = _fitmax_next_question(fitmax_profile)
+
+                if channel == "sms" and user:
+                    prof = dict(user.profile or {})
+                    prof["chat_pending_module"] = "fitmax"
+                    prof["chat_pending_module_at"] = datetime.now(timezone.utc).isoformat()
+                    user.profile = prof
+                    flag_modified(user, "profile")
+
+                if _persist_chat_history(channel):
+                    user_message = ChatHistory(
+                        user_id=user_uuid,
+                        role="user",
+                        content=message_text,
+                        channel=channel,
+                        created_at=datetime.utcnow(),
+                    )
+                    assistant_message = ChatHistory(
+                        user_id=user_uuid,
+                        role="assistant",
+                        content=response_text,
+                        channel=channel,
+                        created_at=datetime.utcnow(),
+                    )
+                    db.add(user_message)
+                    db.add(assistant_message)
+                await db.commit()
+                return response_text
+
+            # Onboarding complete and no fitmax schedule yet -> generate + summarize
+            if not fitmax_schedule and not missing:
+                plan = _fitmax_build_plan(fitmax_profile)
+                profile.pop("chat_pending_module", None)
+                profile.pop("chat_pending_module_at", None)
+                profile["fitmax_plan"] = plan
+                user.profile = profile
+                flag_modified(user, "profile")
+                user.updated_at = datetime.utcnow()
+
+                try:
+                    schedule = await schedule_service.generate_maxx_schedule(
+                        user_id=user_id,
+                        maxx_id="fitmax",
+                        db=db,
+                        rds_db=rds_db if rds_db else None,
+                        wake_time="07:00",
+                        sleep_time="23:00",
+                        skin_concern=plan["goal_label"],
+                        outside_today=False,
+                        num_days=7,
+                    )
+                    user_context["active_maxx_schedule"] = schedule
+
+                    response_text = (
+                        "got everything i need. here's what i've built for you:\n\n"
+                        "view your fitmax plan ->\n\n"
+                        f"your daily calorie target is {plan['calories']} calories with {plan['protein_g']}g protein. "
+                        f"your split is {plan['split']}, {plan['days_per_week']} days a week. "
+                        "i'll text you each morning with what's on deck. want to start with module 1, or do you want any plan tweaks first?"
+                    )
+                except ScheduleLimitError as e:
+                    names = ", ".join(e.active_labels)
+                    response_text = (
+                        f"your fitmax profile is saved, but you already have 2 active modules ({names}). "
+                        "stop one of them first and then come back to start fitmax."
+                    )
+
+                if _persist_chat_history(channel):
+                    user_message = ChatHistory(
+                        user_id=user_uuid,
+                        role="user",
+                        content=message_text,
+                        channel=channel,
+                        created_at=datetime.utcnow(),
+                    )
+                    assistant_message = ChatHistory(
+                        user_id=user_uuid,
+                        role="assistant",
+                        content=response_text,
+                        channel=channel,
+                        created_at=datetime.utcnow(),
+                    )
+                    db.add(user_message)
+                    db.add(assistant_message)
+                await db.commit()
+                return response_text
 
     # --- Fitmax meal logging from natural language (average macro lookup) ---
     if user:
         is_fitmax_context = (
             maxx_id == "fitmax"
+            or str((profile or {}).get("chat_pending_module") or "").lower() == "fitmax"
             or bool((profile or {}).get("fitmax_plan"))
             or (active_schedule and str(active_schedule.get("maxx_id", "")).lower() == "fitmax")
         )
