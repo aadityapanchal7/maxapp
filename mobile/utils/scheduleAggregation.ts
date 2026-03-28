@@ -53,6 +53,40 @@ export type MergedScheduleTask = {
   moduleColor: string;
 };
 
+/** When the AI puts skincare copy on the hair schedule (or vice versa), infer display module from task text. */
+const SKIN_TASK_RE =
+  /\b(skinmax|skincare|skin care|spf\b|sunscreen|retinoid|retinol|\bam\s+skincare|\bpm\s+skincare|cleanser?\b|niacinamide|exfoliat|your skinmax|moisturiz\w*|moisturis\w*|evening routine:\s*cleanse)\b/i;
+const HAIR_TASK_RE =
+  /\b(hairmax|minoxidil|finasteride|dutasteride|hair loss|ketoconazole\s+shampoo|microneedl(?:e|ing)\s+(?:for\s+)?hair|dermaroll(?:er)?\s+(?:for\s+)?(?:hair|scalp))\b/i;
+
+function displayModuleForTask(
+  task: { title?: string; description?: string },
+  scheduleMid: string,
+  baseLabel: string,
+  baseColor: string,
+  activeMaxxIds: Set<string>,
+  maxxLabels: Record<string, string>,
+  maxxColors: Record<string, string>,
+): { moduleLabel: string; moduleColor: string } {
+  const blob = `${task.title || ''} ${task.description || ''}`;
+  const skinish = SKIN_TASK_RE.test(blob);
+  const hairish = HAIR_TASK_RE.test(blob);
+
+  if (scheduleMid === 'hairmax' && skinish && !hairish && activeMaxxIds.has('skinmax')) {
+    return {
+      moduleLabel: maxxLabels['skinmax'] || DEFAULT_MAXX_LABELS.skinmax,
+      moduleColor: maxxColors['skinmax'] || DEFAULT_MAXX_COLORS.skinmax,
+    };
+  }
+  if (scheduleMid === 'skinmax' && hairish && !skinish && activeMaxxIds.has('hairmax')) {
+    return {
+      moduleLabel: maxxLabels['hairmax'] || DEFAULT_MAXX_LABELS.hairmax,
+      moduleColor: maxxColors['hairmax'] || DEFAULT_MAXX_COLORS.hairmax,
+    };
+  }
+  return { moduleLabel: baseLabel, moduleColor: baseColor };
+}
+
 export function buildMaxxMaps(maxxes: any[]): {
   labels: Record<string, string>;
   colors: Record<string, string>;
@@ -81,6 +115,11 @@ export function mergeSchedules(
 } {
   const byDate: Record<string, MergedScheduleTask[]> = {};
   const legendMap = new Map<string, { label: string; color: string }>();
+  const activeMaxxIds = new Set<string>();
+  for (const s of schedules || []) {
+    const m = normalizeMaxxId(s.maxx_id);
+    if (m) activeMaxxIds.add(m);
+  }
 
   for (const s of schedules || []) {
     const mid = normalizeMaxxId(s.maxx_id);
@@ -97,11 +136,20 @@ export function mergeSchedules(
       if (!d) continue;
       for (const t of day.tasks || []) {
         if (!byDate[d]) byDate[d] = [];
+        const { moduleLabel, moduleColor } = displayModuleForTask(
+          t,
+          mid,
+          label,
+          color,
+          activeMaxxIds,
+          maxxLabels,
+          maxxColors,
+        );
         byDate[d].push({
           ...t,
           scheduleId: s.id,
-          moduleLabel: label,
-          moduleColor: color,
+          moduleLabel,
+          moduleColor,
         });
       }
     }

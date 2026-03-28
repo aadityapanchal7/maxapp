@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -138,7 +138,15 @@ export default function MasterScheduleScreen() {
     navigation.navigate('Schedule', { scheduleId: task.scheduleId });
   };
 
-  const HeaderChrome = ({ title, subtitle }: { title: string; subtitle?: string }) => (
+  const HeaderChrome = ({
+    title,
+    subtitle,
+    legend,
+  }: {
+    title: string;
+    subtitle?: string;
+    legend?: ReactNode;
+  }) => (
     <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
       {isTab ? (
         <View style={styles.backButton} />
@@ -150,6 +158,7 @@ export default function MasterScheduleScreen() {
       <View style={styles.headerCenter}>
         <Text style={styles.headerTitle}>{title}</Text>
         {subtitle ? <Text style={styles.subhead}>{subtitle}</Text> : null}
+        {legend}
       </View>
       <View style={styles.backButton} />
     </View>
@@ -205,28 +214,32 @@ export default function MasterScheduleScreen() {
     );
   }
 
+  const legendChips =
+    merged.legend.length > 0 ? (
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.legendScroll}
+        contentContainerStyle={styles.legendRowInHeader}
+      >
+        {merged.legend.map((item) => (
+          <View key={item.id} style={styles.legendChip}>
+            <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+            <Text style={styles.legendText} numberOfLines={1}>
+              {item.label}
+            </Text>
+          </View>
+        ))}
+      </ScrollView>
+    ) : null;
+
   return (
     <View style={styles.container}>
-      <HeaderChrome title="Master schedule" />
-
-      <Text style={styles.subhead}>All tasks across your active programs</Text>
-
-      {merged.legend.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.legendRow}
-        >
-          {merged.legend.map((item) => (
-            <View key={item.id} style={styles.legendChip}>
-              <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-              <Text style={styles.legendText} numberOfLines={1}>
-                {item.label}
-              </Text>
-            </View>
-          ))}
-        </ScrollView>
-      )}
+      <HeaderChrome
+        title="Master schedule"
+        subtitle="All tasks across your active programs"
+        legend={legendChips}
+      />
 
       <ScrollView
         horizontal
@@ -348,15 +361,24 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     marginTop: 2,
+    marginBottom: spacing.xs,
     lineHeight: 18,
     width: '100%',
   },
-  legendRow: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
-    gap: spacing.sm,
+  /** Horizontal legend must not grow (web flex); keeps chips tight under title. */
+  legendScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    maxHeight: 44,
+    width: '100%',
+  },
+  legendRowInHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
   },
   legendChip: {
     flexDirection: 'row',
