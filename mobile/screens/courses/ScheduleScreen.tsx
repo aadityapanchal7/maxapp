@@ -675,6 +675,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm, ...shadows.sm,
   },
   taskCardDone: { opacity: 0.6 },
+  scheduleTaskAccent: {
+    width: 4,
+    alignSelf: 'stretch',
+    borderRadius: 2,
+    minHeight: 44,
+  },
   taskCheck: {
     width: 24, height: 24, borderRadius: 12, borderWidth: 2,
     borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginTop: 2, marginLeft: spacing.xs,

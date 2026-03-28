@@ -242,7 +242,6 @@ export default function MasterScheduleScreen() {
       />
 
       <View style={styles.bodyBelowHeader}>
-      <View style={styles.dayStripOuter}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -270,7 +269,6 @@ export default function MasterScheduleScreen() {
           );
         })}
       </ScrollView>
-      </View>
 
       <ScrollView
         style={styles.taskList}
@@ -283,7 +281,10 @@ export default function MasterScheduleScreen() {
       >
         <View style={styles.progressRow}>
           <Text style={styles.progressText}>
-            {completedCount}/{totalCount} done · {merged.legend.length} program{merged.legend.length !== 1 ? 's' : ''}
+            {completedCount}/{totalCount} completed
+            {merged.legend.length > 0
+              ? ` · ${merged.legend.length} program${merged.legend.length !== 1 ? 's' : ''}`
+              : ''}
           </Text>
           <View style={styles.progressBar}>
             <View
@@ -299,7 +300,7 @@ export default function MasterScheduleScreen() {
           const isDone = task.status === 'completed';
           return (
             <View key={`${task.scheduleId}-${task.task_id}`} style={[styles.taskCard, isDone && styles.taskCardDone]}>
-              <View style={[styles.moduleAccent, { backgroundColor: task.moduleColor }]} />
+              <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
               <TouchableOpacity
                 style={[styles.taskCheck, isDone && styles.taskCheckDone]}
                 onPress={() => {
@@ -323,12 +324,9 @@ export default function MasterScheduleScreen() {
                     <Text style={styles.taskTypeText}>{task.duration_minutes}m</Text>
                   </View>
                 </View>
-                <View style={styles.modulePill}>
-                  <View style={[styles.modulePillDot, { backgroundColor: task.moduleColor }]} />
-                  <Text style={styles.modulePillText} numberOfLines={1}>
-                    {task.moduleLabel}
-                  </Text>
-                </View>
+                <Text style={styles.taskModuleLabel} numberOfLines={1}>
+                  {task.moduleLabel}
+                </Text>
                 <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>{task.title}</Text>
                 <Text style={styles.taskDescription} numberOfLines={2}>
                   {task.description}
@@ -406,48 +404,40 @@ const styles = StyleSheet.create({
   },
   legendDot: { width: 4, height: 4, borderRadius: 2 },
   legendText: { fontSize: 9, fontWeight: '600', color: colors.foreground, flexShrink: 1, lineHeight: 12 },
+  /** Match ScheduleScreen day strip */
   daySelectorContainer: {
-    paddingHorizontal: 4,
-    paddingTop: 4,
-    paddingBottom: 4,
-    gap: 6,
-    flexGrow: 1,
-    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
   },
   dayPill: {
     alignItems: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.lg,
     backgroundColor: colors.card,
-    minWidth: 34,
+    minWidth: 52,
   },
   dayPillActive: { backgroundColor: colors.foreground },
-  dayPillDone: { borderWidth: 1, borderColor: colors.success },
-  dayPillLabel: { fontSize: 8, fontWeight: '600', color: colors.textSecondary, marginBottom: 0, lineHeight: 10 },
+  dayPillDone: { borderWidth: 1.5, borderColor: colors.success },
+  dayPillLabel: { ...typography.caption, marginBottom: 2 },
   dayPillLabelActive: { color: colors.buttonText },
-  dayPillNumber: { fontSize: 11, fontWeight: '700', color: colors.foreground, lineHeight: 13 },
+  dayPillNumber: { fontSize: 16, fontWeight: '600', color: colors.foreground },
   dayPillNumberActive: { color: colors.buttonText },
   dayCompleteDot: {
-    width: 3,
-    height: 3,
-    borderRadius: 2,
+    width: 5,
+    height: 5,
+    borderRadius: 3,
     backgroundColor: colors.success,
-    marginTop: 1,
+    marginTop: 3,
   },
   bodyBelowHeader: {
     flex: 1,
     minHeight: 0,
   },
-  dayStripOuter: {
-    width: '50%',
-    maxWidth: '100%',
-    alignSelf: 'center',
-  },
   dayStripScroll: {
     flexGrow: 0,
     flexShrink: 0,
-    width: '100%',
   },
   taskList: { flex: 1, minHeight: 0, paddingHorizontal: spacing.lg },
   progressRow: {
@@ -457,7 +447,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     marginTop: spacing.sm,
   },
-  progressText: { ...typography.caption, flexShrink: 0, maxWidth: '48%' },
+  progressText: { ...typography.caption, flexShrink: 0, minWidth: 80, maxWidth: '52%' },
   progressBar: {
     flex: 1,
     height: 4,
@@ -466,25 +456,23 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   progressFill: { height: '100%', backgroundColor: colors.success, borderRadius: 2 },
+  /** Match ScheduleScreen task cards */
   taskCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: spacing.sm,
+    gap: spacing.md,
     backgroundColor: colors.card,
     padding: spacing.md,
-    paddingLeft: 0,
     borderRadius: borderRadius.lg,
     marginBottom: spacing.sm,
-    overflow: 'hidden',
     ...shadows.sm,
   },
-  taskCardDone: { opacity: 0.62 },
-  moduleAccent: {
+  taskCardDone: { opacity: 0.6 },
+  scheduleTaskAccent: {
     width: 4,
     alignSelf: 'stretch',
-    borderTopLeftRadius: borderRadius.lg,
-    borderBottomLeftRadius: borderRadius.lg,
-    minHeight: 48,
+    borderRadius: 2,
+    minHeight: 44,
   },
   taskCheck: {
     width: 24,
@@ -498,31 +486,23 @@ const styles = StyleSheet.create({
     marginLeft: spacing.xs,
   },
   taskCheckDone: { backgroundColor: colors.success, borderColor: colors.success },
-  taskContent: { flex: 1, paddingRight: spacing.xs },
+  taskContent: { flex: 1 },
   taskHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   taskTime: { fontSize: 12, fontWeight: '700', color: colors.foreground, letterSpacing: 0.3 },
   taskTimeDone: { textDecorationLine: 'line-through', color: colors.textMuted },
-  taskTypeBadge: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  taskTypeText: { ...typography.caption, fontSize: 9, lineHeight: 12 },
-  modulePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    gap: 3,
-    backgroundColor: colors.surface,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: 8,
-    marginBottom: 4,
-    maxWidth: '100%',
+  taskTypeBadge: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  taskTypeText: { ...typography.caption },
+  taskModuleLabel: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '600',
+    marginBottom: 2,
   },
-  modulePillDot: { width: 4, height: 4, borderRadius: 2 },
-  modulePillText: { fontSize: 9, fontWeight: '600', color: colors.textSecondary, flexShrink: 1, lineHeight: 12 },
   taskTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground, marginBottom: 2 },
   taskTitleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
   taskDescription: { ...typography.bodySmall },
