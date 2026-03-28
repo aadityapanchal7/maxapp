@@ -278,10 +278,6 @@ export default function SignupScreen() {
                         <TouchableOpacity onPress={() => navigation.navigate('Login')} activeOpacity={0.6} style={styles.linkContainer}>
                             <Text style={styles.linkText}>Already have an account? <Text style={styles.linkBold}>Sign In</Text></Text>
                         </TouchableOpacity>
-
-                        <TouchableOpacity onPress={() => navigation.navigate('LegalAndSafety')} activeOpacity={0.6} style={styles.legalLink}>
-                            <Text style={styles.legalLinkText}>Privacy, support & safety</Text>
-                        </TouchableOpacity>
                     </Animated.View>
                 </ScrollView>
             </KeyboardAvoidingView>
@@ -299,7 +295,14 @@ const styles = StyleSheet.create({
         padding: spacing.xl,
         ...shadows.xl,
     },
-    wordmark: { fontSize: 40, fontWeight: '300', color: colors.foreground, letterSpacing: -2, textAlign: 'center', marginBottom: spacing.xs },
+    wordmark: {
+        fontSize: 44,
+        fontWeight: '300',
+        color: colors.foreground,
+        letterSpacing: -2,
+        textAlign: 'center',
+        marginBottom: spacing.xs,
+    },
     tagline: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xl, letterSpacing: 0.2 },
     form: { gap: spacing.md },
     avatarContainer: { alignSelf: 'center', marginBottom: spacing.sm },
@@ -343,8 +346,6 @@ const styles = StyleSheet.create({
     buttonDisabled: { opacity: 0.5 },
     buttonText: { ...typography.button },
     linkContainer: { marginTop: spacing.xl, alignItems: 'center' },
-    legalLink: { marginTop: spacing.md, alignItems: 'center', paddingVertical: spacing.sm },
-    legalLinkText: { fontSize: 12, color: colors.textMuted, fontWeight: '500' },
     linkText: { fontSize: 13, color: colors.textSecondary },
     linkBold: { color: colors.foreground, fontWeight: '600' },
     phoneRow: {

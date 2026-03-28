@@ -19,6 +19,7 @@ import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -324,7 +325,26 @@ function PaywallBlurShell({ children, minHeight }: { children: React.ReactNode; 
     return (
         <View style={[styles.paywallBlurShell, minHeight ? { minHeight } : null]}>
             {children}
-            <BlurView intensity={Platform.OS === 'ios' ? 30 : 42} tint="light" style={StyleSheet.absoluteFill} />
+            <BlurView
+                intensity={Platform.OS === 'ios' ? 56 : 72}
+                tint="light"
+                style={StyleSheet.absoluteFill}
+                experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            />
+            <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(255,255,255,0.34)', 'rgba(255,255,255,0.20)', 'rgba(255,255,255,0.30)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(255,255,255,0.18)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0.16)']}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.paywallVignette}
+            />
         </View>
     );
 }
@@ -376,12 +396,6 @@ function ScanProcessingView() {
             <ActivityIndicator size="large" color={colors.foreground} style={{ marginTop: spacing.xl }} />
         </View>
     );
-}
-
-function clipProblem(s: string, maxLen: number) {
-    const t = (s || '').trim();
-    if (t.length <= maxLen) return t;
-    return `${t.slice(0, maxLen - 1)}…`;
 }
 
 export default function FaceScanResultsScreen() {
@@ -485,18 +499,6 @@ export default function FaceScanResultsScreen() {
         typeof pr?.age_score === 'number' && !Number.isNaN(pr.age_score)
             ? pr.age_score
             : parseInt(String(pr?.age_score || '0'), 10) || 0;
-    const weakestLink = typeof pr?.weakest_link === 'string' ? pr.weakest_link.trim() : '';
-    const problemsRaw: string[] = Array.isArray(pi?.problems) ? pi.problems : [];
-    const focusProblems: string[] = [];
-    if (weakestLink) focusProblems.push(weakestLink);
-    for (const p of problemsRaw) {
-        if (!p || typeof p !== 'string') continue;
-        const t = p.trim();
-        if (!t) continue;
-        if (focusProblems.some((x) => x.toLowerCase().includes(t.slice(0, 24).toLowerCase()))) continue;
-        focusProblems.push(t);
-        if (focusProblems.length >= 5) break;
-    }
     const suggestedMods: string[] = Array.isArray(pi?.suggested_modules) ? pi.suggested_modules : [];
 
     const goPayment = () => navigation.navigate('Payment');
@@ -784,37 +786,6 @@ export default function FaceScanResultsScreen() {
                     </View>
                 </View>
 
-                <Text style={styles.sectionKicker}>Focus</Text>
-                {locked ? (
-                    <View style={styles.insightCard}>
-                        <PaywallBlurShell minHeight={Math.max(120, 24 + focusProblems.length * 26)}>
-                            <View style={styles.focusBlurInner}>
-                                {focusProblems.length > 0 ? (
-                                    focusProblems.map((p, i) => (
-                                        <Text key={i} style={styles.bullet}>
-                                            • {clipProblem(p, 96)}
-                                        </Text>
-                                    ))
-                                ) : (
-                                    <Text style={styles.bodyText}>No major focus flags.</Text>
-                                )}
-                            </View>
-                        </PaywallBlurShell>
-                    </View>
-                ) : (
-                    <View style={styles.insightCard}>
-                        {focusProblems.length > 0 ? (
-                            focusProblems.map((p, i) => (
-                                <Text key={i} style={styles.bullet}>
-                                    • {clipProblem(p, 96)}
-                                </Text>
-                            ))
-                        ) : (
-                            <Text style={styles.bodyText}>No major focus flags.</Text>
-                        )}
-                    </View>
-                )}
-
                 {!locked ? (
                     <>
                         <Text style={styles.sectionKicker}>Suggested modules</Text>
@@ -931,10 +902,15 @@ const styles = StyleSheet.create({
     paywallBlurShell: {
         borderRadius: borderRadius.lg,
         overflow: 'hidden',
-        backgroundColor: colors.borderLight,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
         position: 'relative',
         alignSelf: 'stretch',
         width: '100%',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.28)',
+    },
+    paywallVignette: {
+        ...StyleSheet.absoluteFillObject,
     },
     header: {
         flexDirection: 'row',
@@ -997,10 +973,6 @@ const styles = StyleSheet.create({
         minHeight: 22,
         paddingVertical: 2,
     },
-    focusBlurInner: {
-        paddingVertical: spacing.xs,
-        paddingHorizontal: spacing.xs,
-    },
     statGrid: {
         flexDirection: 'row',
         flexWrap: 'wrap',
@@ -1042,7 +1014,6 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
     },
     bodyText: { fontSize: 14, color: colors.textSecondary, lineHeight: 21 },
-    bullet: { fontSize: 14, color: colors.textSecondary, marginBottom: 6, lineHeight: 20 },
     moduleChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     moduleChip: {
         paddingHorizontal: 12,

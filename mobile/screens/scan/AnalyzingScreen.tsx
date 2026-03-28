@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, Animated, LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography, borderRadius } from '../../theme/dark';
+import { colors, spacing, typography, borderRadius, shadows } from '../../theme/dark';
 
 interface Props {
     currentStep: number;
@@ -13,6 +13,8 @@ const ANALYSIS_STEPS = [
     'Scoring your facial metrics',
     'Preparing your scan summary',
 ];
+
+const GRID_N = 7;
 
 /** Map discrete step → target % (Cal-AI style milestones) */
 function targetProgressForStep(step: number): number {
@@ -36,12 +38,95 @@ function buildStutterSequence(anim: Animated.Value, from: number, to: number, pi
                 useNativeDriver: false,
             }),
         );
-        // “Caught up” pause — varies so it feels uneven, not mechanical
         const pauseMs = 320 + (i % 4) * 140 + (i % 2) * 90;
         anims.push(Animated.delay(pauseMs));
     }
     return Animated.sequence(anims);
 }
+
+function ScanningGrid() {
+    const cellOpacities = useMemo(
+        () => Array.from({ length: GRID_N * GRID_N }, () => new Animated.Value(0.18)),
+        [],
+    );
+
+    useEffect(() => {
+        const wave = Animated.loop(
+            Animated.sequence([
+                Animated.stagger(
+                    32,
+                    cellOpacities.map((v) =>
+                        Animated.sequence([
+                            Animated.timing(v, { toValue: 1, duration: 340, useNativeDriver: true }),
+                            Animated.timing(v, { toValue: 0.2, duration: 380, useNativeDriver: true }),
+                        ]),
+                    ),
+                ),
+                Animated.delay(180),
+            ]),
+        );
+        wave.start();
+        return () => wave.stop();
+    }, [cellOpacities]);
+
+    return (
+        <View style={gridStyles.shell}>
+            <View style={gridStyles.glow} />
+            <View style={gridStyles.grid}>
+                {Array.from({ length: GRID_N }).map((_, row) => (
+                    <View key={row} style={gridStyles.row}>
+                        {Array.from({ length: GRID_N }).map((_, col) => {
+                            const idx = row * GRID_N + col;
+                            return (
+                                <Animated.View key={idx} style={[gridStyles.cell, { opacity: cellOpacities[idx] }]} />
+                            );
+                        })}
+                    </View>
+                ))}
+            </View>
+        </View>
+    );
+}
+
+const gridStyles = StyleSheet.create({
+    shell: {
+        width: 240,
+        height: 240,
+        borderRadius: borderRadius.xl,
+        padding: 18,
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderStyle: 'dashed',
+        ...shadows.lg,
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'stretch',
+        overflow: 'hidden',
+    },
+    glow: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: 'rgba(17, 17, 19, 0.03)',
+        borderRadius: borderRadius.xl,
+    },
+    grid: {
+        width: '100%',
+        flex: 1,
+        justifyContent: 'center',
+        rowGap: 6,
+    },
+    row: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        columnGap: 6,
+    },
+    cell: {
+        width: 24,
+        height: 24,
+        borderRadius: 4,
+        backgroundColor: colors.foreground,
+    },
+});
 
 export default function AnalyzingScreen({ currentStep = 0 }: Props) {
     const insets = useSafeAreaInsets();
@@ -81,7 +166,6 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
             stutterHandle.current = main;
             main.start(({ finished }) => {
                 if (!finished) return;
-                // After the last pipeline step, crawl to 100% with extra stutters (upload may finish first)
                 if (currentStep >= 2 && target >= 94) {
                     progressAnim.stopAnimation((v) => {
                         const v0 = typeof v === 'number' ? v : 94;
@@ -134,7 +218,9 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                 ]}
             >
                 <View style={styles.progressTopRow}>
-                    <Text style={styles.progressTitle}>Analyzing</Text>
+                    <Text style={styles.progressTitle} numberOfLines={1} ellipsizeMode="tail">
+                        analyzing
+                    </Text>
                     <Text style={styles.progressPct}>{pctLabel}%</Text>
                 </View>
                 <View style={styles.trackWrap}>
@@ -144,16 +230,8 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                 </View>
             </View>
 
-            <View style={styles.gridBox}>
-                <View style={styles.gridInner}>
-                    {[...Array(6)].map((_, row) => (
-                        <View key={row} style={styles.gridRow}>
-                            {[...Array(6)].map((_, col) => (
-                                <View key={col} style={styles.gridCell} />
-                            ))}
-                        </View>
-                    ))}
-                </View>
+            <View style={styles.centerStage}>
+                <ScanningGrid />
             </View>
 
             <View style={styles.stepsContainer}>
@@ -190,11 +268,9 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                 ))}
             </View>
 
-            <View style={[styles.footer, { bottom: Math.max(insets.bottom, 20) + 24 }]}>
-                <Text style={styles.footerText}>
-                    AI is generating your maximum potential based on{'\n'}
-                    <Text style={styles.footerHighlight}>50k+ successful transformations</Text>
-                </Text>
+            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) + 24 }]}>
+                <Text style={styles.footerText}>AI is generating your maximum potential based on</Text>
+                <Text style={styles.footerHighlight}>50k+ successful transformations</Text>
             </View>
         </View>
     );
@@ -215,7 +291,16 @@ const styles = StyleSheet.create({
     trackWrap: {
         marginTop: 22,
     },
-    progressTitle: { ...typography.h3, fontSize: 20 },
+    progressTitle: {
+        ...typography.h3,
+        fontSize: 20,
+        fontWeight: '700',
+        color: colors.foreground,
+        letterSpacing: -0.5,
+        textTransform: 'lowercase',
+        flex: 1,
+        marginRight: spacing.sm,
+    },
     progressPct: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.5 },
     track: {
         height: 10,
@@ -228,11 +313,14 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.full,
         backgroundColor: colors.foreground,
     },
-    gridBox: { width: 260, height: 260, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: 8, padding: 20, marginBottom: spacing.xl },
-    gridInner: { flex: 1, justifyContent: 'space-between' },
-    gridRow: { flexDirection: 'row', justifyContent: 'space-between' },
-    gridCell: { width: 4, height: 4, backgroundColor: colors.border, borderRadius: 2 },
-    stepsContainer: { alignItems: 'flex-start', marginBottom: spacing.xl },
+    centerStage: {
+        flex: 1,
+        width: '100%',
+        justifyContent: 'center',
+        alignItems: 'center',
+        minHeight: 200,
+    },
+    stepsContainer: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: spacing.xl },
     stepRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md, gap: spacing.sm },
     emptyIcon: { width: 16, height: 16 },
     stepText: { fontSize: 15, color: colors.textMuted },
@@ -241,7 +329,12 @@ const styles = StyleSheet.create({
     stepTextPending: { color: colors.textMuted },
     dotsContainer: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xxl },
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.foreground },
-    footer: { position: 'absolute', paddingHorizontal: spacing.lg },
-    footerText: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
-    footerHighlight: { fontWeight: '600', color: colors.foreground },
+    footer: {
+        width: '100%',
+        alignItems: 'center',
+        paddingHorizontal: spacing.lg,
+        marginTop: spacing.lg,
+    },
+    footerText: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20, marginBottom: 0 },
+    footerHighlight: { fontSize: 14, fontWeight: '600', color: colors.foreground, textAlign: 'center', lineHeight: 20 },
 });

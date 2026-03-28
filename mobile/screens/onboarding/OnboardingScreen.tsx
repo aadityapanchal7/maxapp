@@ -596,9 +596,11 @@ export default function OnboardingScreen() {
 
         return (
             <View style={styles.card}>
-                <Text style={styles.kicker}>Basic info</Text>
-                <Text style={styles.h1}>What the scan doesn’t know</Text>
-                <Text style={styles.lead}>Age, gender, height & weight — we use these for tiers, TDEE, and schedules.</Text>
+                <Text style={styles.kicker}>Baseline</Text>
+                <Text style={styles.h1} numberOfLines={1} ellipsizeMode="tail">
+                    Baseline stats
+                </Text>
+                <Text style={styles.lead}>Used to personalize your targets, priorities, and reminders.</Text>
 
                 <Text style={styles.label}>Gender</Text>
                 <View style={[styles.rowWrap, showGenderErr && styles.groupErrorOutline]}>
@@ -623,9 +625,6 @@ export default function OnboardingScreen() {
                 </View>
 
                 <Text style={styles.label}>Age</Text>
-                <Text style={styles.rangeHint}>
-                    {AGE_MIN}–{AGE_MAX} years
-                </Text>
                 <TextInput
                     style={[styles.input, showAgeErr && styles.inputError]}
                     placeholder="e.g. 24"
@@ -639,9 +638,6 @@ export default function OnboardingScreen() {
                 ) : null}
 
                 <Text style={styles.label}>Weight ({metric ? 'kg' : 'lb'})</Text>
-                <Text style={styles.rangeHint}>
-                    {metric ? `${WEIGHT_KG_MIN}–${WEIGHT_KG_MAX} kg` : `${WEIGHT_LBS_MIN}–${WEIGHT_LBS_MAX} lb`}
-                </Text>
                 <TextInput
                     style={[styles.input, showWeightErr && styles.inputError]}
                     placeholder={metric ? 'e.g. 75' : 'e.g. 175'}
@@ -661,11 +657,6 @@ export default function OnboardingScreen() {
                 ) : null}
 
                 <Text style={styles.label}>Height {metric ? '(cm)' : '(ft / in)'}</Text>
-                <Text style={styles.rangeHint}>
-                    {metric
-                        ? `${HEIGHT_CM_MIN}–${HEIGHT_CM_MAX} cm`
-                        : `About 4′0″–8′11″ (ft 0–${HEIGHT_FT_MAX}, in 0–${HEIGHT_IN_MAX})`}
-                </Text>
                 {metric ? (
                     <>
                         <TextInput
@@ -717,9 +708,11 @@ export default function OnboardingScreen() {
 
     const renderB = () => (
         <View style={styles.card}>
-            <Text style={styles.kicker}>Goals</Text>
-            <Text style={styles.h1}>Priorities</Text>
-            <Text style={styles.lead}>Order = notification priority (replaces picking modules manually). Top = we emphasize first.</Text>
+            <Text style={styles.kicker}>Stack order</Text>
+            <Text style={styles.h1} numberOfLines={1} ellipsizeMode="tail">
+                What we push first
+            </Text>
+            <Text style={styles.lead}>Rank top = loudest in your rotation. Lower slots still get love — just quieter.</Text>
 
             <Text style={styles.label}>Rank — use arrows</Text>
             {priorityOrder.map((key, i) => (
@@ -755,8 +748,10 @@ export default function OnboardingScreen() {
     const renderC = () => (
         <View style={styles.card}>
             <Text style={styles.kicker}>Skin</Text>
-            <Text style={styles.h1}>Your read</Text>
-            <Text style={styles.lead}>Scan shows texture; you pick what actually annoys you.</Text>
+            <Text style={styles.h1} numberOfLines={1} ellipsizeMode="tail">
+                Skin priorities
+            </Text>
+            <Text style={styles.lead}>Pick the concerns you want to focus on first.</Text>
 
             <Text style={styles.label}>Primary concern</Text>
             <View style={[styles.rowWrap, attemptC && !primarySkin && styles.groupErrorOutline]}>
@@ -798,7 +793,10 @@ export default function OnboardingScreen() {
     const renderD = () => (
         <View style={styles.card}>
             <Text style={styles.kicker}>Hair</Text>
-            <Text style={styles.h1}>Risk + reality</Text>
+            <Text style={styles.h1} numberOfLines={1} ellipsizeMode="tail">
+                Hair profile
+            </Text>
+            <Text style={styles.lead}>Helps tailor your hair plan to your current situation.</Text>
             {scanHairHint ? <Text style={styles.banner}>Your scan flagged hair as a weaker metric — worth an honest pass.</Text> : null}
 
             <Text style={styles.label}>Family history of hair loss?</Text>
@@ -857,8 +855,11 @@ export default function OnboardingScreen() {
 
     const renderE = () => (
         <View style={styles.card}>
-            <Text style={styles.kicker}>Body</Text>
-            <Text style={styles.h1}>Training context</Text>
+            <Text style={styles.kicker}>Physique</Text>
+            <Text style={styles.h1} numberOfLines={1} ellipsizeMode="tail">
+                Training profile
+            </Text>
+            <Text style={styles.lead}>Sets your plan to match your goal, experience, and equipment.</Text>
 
             <Text style={styles.label}>Primary goal</Text>
             {[
@@ -970,9 +971,11 @@ export default function OnboardingScreen() {
 
         return (
             <View style={styles.card}>
-                <Text style={styles.kicker}>Schedule</Text>
-                <Text style={styles.h1}>When we ping you</Text>
-                <Text style={styles.lead}>Pick times from the dropdown (AM/PM).</Text>
+                <Text style={styles.kicker}>Rhythm</Text>
+                <Text style={styles.h1} numberOfLines={1} ellipsizeMode="tail">
+                    Reminder timing
+                </Text>
+                <Text style={styles.lead}>Choose when daily reminders should appear.</Text>
 
                 {timeRow('Wake', 'wake', wakeTime, showWakeErr, wakeErr)}
                 {timeRow('Bed', 'bed', bedTime, showBedErr, bedErr)}
@@ -1067,10 +1070,15 @@ const styles = StyleSheet.create({
         ...shadows.sm,
     },
     kicker: { ...typography.label, color: colors.textMuted, marginBottom: spacing.xs, letterSpacing: 1.2 },
-    h1: { fontSize: 26, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5, marginBottom: spacing.sm },
+    h1: {
+        fontSize: 22,
+        fontWeight: '700',
+        color: colors.foreground,
+        letterSpacing: -0.5,
+        marginBottom: spacing.sm,
+    },
     lead: { fontSize: 15, color: colors.textSecondary, lineHeight: 22, marginBottom: spacing.lg },
     label: { ...typography.label, color: colors.textMuted, marginTop: spacing.lg, marginBottom: spacing.xs },
-    rangeHint: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.sm, lineHeight: 16 },
     input: {
         backgroundColor: colors.card,
         borderRadius: borderRadius.lg,

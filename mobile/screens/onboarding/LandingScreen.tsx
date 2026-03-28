@@ -71,9 +71,6 @@ export default function LandingScreen() {
                         <Text style={styles.heroLine1}>{item.line1}</Text>
                         <Text style={styles.heroLine2}>{item.line2}</Text>
                     </View>
-                    <TouchableOpacity style={styles.arrowDown} onPress={goNext} activeOpacity={0.7}>
-                        <Ionicons name="chevron-down" size={28} color={colors.textMuted} />
-                    </TouchableOpacity>
                 </View>
             );
         }
@@ -208,11 +205,6 @@ const styles = StyleSheet.create({
         fontSize: 17,
         color: colors.textSecondary,
         textAlign: 'center',
-    },
-    arrowDown: {
-        alignSelf: 'center',
-        padding: spacing.sm,
-        ...(isWeb && { cursor: 'pointer' as const }),
     },
     coachingContent: {
         flex: 1,
