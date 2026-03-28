@@ -9,6 +9,7 @@ from typing import TypedDict, Optional, List
 import google.generativeai as genai
 from pydantic import BaseModel, Field
 from config import settings
+from services.llm_provider import use_openai
 from services.langgraph_face_prompts import (
     LANGGRAPH_ANALYZE_FACE_METRICS_FALLBACK,
     LANGGRAPH_IMPROVEMENTS_FALLBACK,
@@ -28,8 +29,8 @@ import os
 import numpy as np
 
 
-# Configure Gemini
-genai.configure(api_key=settings.gemini_api_key)
+if not use_openai():
+    genai.configure(api_key=settings.gemini_api_key)
 
 
 # ============================================
@@ -69,22 +70,30 @@ class GraphState(TypedDict):
 async def validate_images(state: GraphState) -> GraphState:
     """Step 1: Validate image quality and detect faces"""
     try:
-        model = genai.GenerativeModel(settings.gemini_model)
-
         validation_prompt = await asyncio.to_thread(
             resolve_prompt,
             PromptKey.LANGGRAPH_VALIDATE_IMAGES,
             LANGGRAPH_VALIDATE_IMAGES_FALLBACK,
         )
 
-        response = model.generate_content([
-            validation_prompt,
-            {"mime_type": "image/jpeg", "data": state["front_image"]},
-            {"mime_type": "image/jpeg", "data": state["left_image"]},
-            {"mime_type": "image/jpeg", "data": state["right_image"]},
-        ])
-        
-        text = response.text.strip()
+        if use_openai():
+            from services.openai_service import openai_service
+
+            text = await openai_service.completion_vision(
+                validation_prompt,
+                [state["front_image"], state["left_image"], state["right_image"]],
+                json_mode=True,
+            )
+        else:
+            model = genai.GenerativeModel(settings.gemini_model)
+            response = model.generate_content([
+                validation_prompt,
+                {"mime_type": "image/jpeg", "data": state["front_image"]},
+                {"mime_type": "image/jpeg", "data": state["left_image"]},
+                {"mime_type": "image/jpeg", "data": state["right_image"]},
+            ])
+            text = response.text.strip()
+
         if text.startswith("```"):
             text = text.split("```")[1].replace("json", "").strip()
         
@@ -142,8 +151,6 @@ async def generate_improvements(state: GraphState) -> GraphState:
         if not metrics:
             return {**state, "improvements": [], "error": "No metrics available"}
         
-        model = genai.GenerativeModel(settings.gemini_model)
-
         tmpl = await asyncio.to_thread(
             resolve_prompt,
             PromptKey.LANGGRAPH_IMPROVEMENTS,
@@ -151,9 +158,15 @@ async def generate_improvements(state: GraphState) -> GraphState:
         )
         improvement_prompt = tmpl.format(overall_score=metrics.get("overall_score", 5))
 
-        response = model.generate_content(improvement_prompt)
-        
-        text = response.text.strip()
+        if use_openai():
+            from services.openai_service import openai_service
+
+            text = await openai_service.completion_text(improvement_prompt)
+        else:
+            model = genai.GenerativeModel(settings.gemini_model)
+            response = model.generate_content(improvement_prompt)
+            text = response.text.strip()
+
         if text.startswith("```"):
             text = text.split("```")[1].replace("json", "").strip()
         

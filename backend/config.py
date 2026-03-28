@@ -44,9 +44,18 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=1440)  # 24 hours
     jwt_refresh_token_expire_days: int = Field(default=300)      # ~10 months
     
+    # LLM provider: "gemini" (default) or "openai"
+    llm_provider: str = Field(default="gemini")
     # Google Gemini
     gemini_api_key: str = Field(default="")
     gemini_model: str = Field(default="gemini-2.5-flash")
+    # OpenAI (when llm_provider=openai)
+    openai_api_key: str = Field(default="")
+    openai_model: str = Field(default="gpt-4o-mini")
+    openai_vision_model: str = Field(
+        default="",
+        description="Vision-capable model for scans/chat images; defaults to openai_model if empty",
+    )
     
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")

@@ -17,21 +17,12 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
+from services.llm_sync import sync_llm_plain_text
 from models.sqlalchemy_models import User, UserCoachingState, UserSchedule, ChatHistory, Scan
 from db.sqlalchemy import AsyncSessionLocal
 from services.prompt_loader import PromptKey, resolve_prompt
 
 logger = logging.getLogger(__name__)
-
-
-def _sync_gemini_plain_text(prompt: str) -> str:
-    """Blocking Gemini call — run via asyncio.to_thread so the event loop is not frozen."""
-    import google.generativeai as genai
-
-    genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel(settings.gemini_model)
-    resp = model.generate_content(prompt)
-    return (resp.text or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +231,7 @@ class CoachingService:
         )
         prompt = tmpl.format(convo=convo)
         try:
-            return await asyncio.to_thread(_sync_gemini_plain_text, prompt)
+            return await asyncio.to_thread(sync_llm_plain_text, prompt)
         except Exception as e:
             logger.error(f"Summary generation failed: {e}")
             return ""
@@ -262,7 +253,7 @@ class CoachingService:
         )
         prompt = tmpl.format(convo=convo)
         try:
-            text = await asyncio.to_thread(_sync_gemini_plain_text, prompt)
+            text = await asyncio.to_thread(sync_llm_plain_text, prompt)
             tone = text.lower()
             if tone in ("direct", "aggressive", "chill"):
                 await self.update_state(user_id, db, preferred_tone=tone)
@@ -740,12 +731,12 @@ class CoachingService:
 
         if fitmax_prompt:
             try:
-                return await asyncio.to_thread(_sync_gemini_plain_text, fitmax_prompt)
+                return await asyncio.to_thread(sync_llm_plain_text, fitmax_prompt)
             except Exception as e:
                 logger.error(f"Fitmax check-in generation failed: {e}")
 
         try:
-            return await asyncio.to_thread(_sync_gemini_plain_text, general_prompt)
+            return await asyncio.to_thread(sync_llm_plain_text, general_prompt)
         except Exception as e:
             logger.error(f"Check-in generation failed: {e}")
             return "yo, checking in — how you doing today?"
@@ -788,7 +779,7 @@ class CoachingService:
                 prompt, fallback = await self._prepare_bedtime_prompt(user_id, inner, rds_db)
 
         try:
-            text = await asyncio.to_thread(_sync_gemini_plain_text, prompt)
+            text = await asyncio.to_thread(sync_llm_plain_text, prompt)
             if text:
                 return text
         except Exception as e:

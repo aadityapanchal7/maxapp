@@ -21,7 +21,7 @@ from middleware.auth_middleware import require_paid_user
 from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 from services.coaching_service import coaching_service
-from services.gemini_service import gemini_service
+from services.llm_router import llm_chat
 from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
@@ -1490,7 +1490,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         image_data = await storage_service.get_image(attachment_url)
     
     # --- LLM call ---
-    result = await gemini_service.chat(message, history, user_context, image_data)
+    result = await llm_chat(message, history, user_context, image_data)
     response_text = result.get("text", "")
     tool_calls = result.get("tool_calls", [])
     

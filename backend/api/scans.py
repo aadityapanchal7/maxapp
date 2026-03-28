@@ -10,7 +10,7 @@ from sqlalchemy import select
 from db import get_db
 from middleware.auth_middleware import require_paid_user, get_current_user
 from services.storage_service import storage_service
-from services.gemini_service import gemini_service
+from services.llm_router import llm_analyze_triple_full
 from models.sqlalchemy_models import Scan, Leaderboard, User
 from pydantic import BaseModel
 
@@ -150,7 +150,7 @@ async def upload_scan_triple(
     scan_id = str(scan_row.id)
 
     try:
-        analysis = await gemini_service.analyze_triple_full(front_data, left_data, right_data, onboarding_ctx)
+        analysis = await llm_analyze_triple_full(front_data, left_data, right_data, onboarding_ctx)
         scan_row.analysis = analysis
         scan_row.processing_status = "completed"
         await db.commit()
@@ -269,7 +269,7 @@ async def analyze_scan(
 
         user_orm = await db.get(User, user_uuid)
         onboarding_ctx = json.dumps(user_orm.onboarding or {}, default=str) if user_orm else "{}"
-        analysis = await gemini_service.analyze_triple_full(front_data, left_data, right_data, onboarding_ctx)
+        analysis = await llm_analyze_triple_full(front_data, left_data, right_data, onboarding_ctx)
         scan.analysis = analysis
         scan.processing_status = "completed"
         await db.commit()

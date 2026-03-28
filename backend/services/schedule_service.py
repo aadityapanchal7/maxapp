@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
-from services.gemini_service import GeminiService
+from services.llm_sync import sync_llm_json_response
 from services.prompt_loader import PromptKey, resolve_prompt
 from services.guideline_service import (
     get_maxx_guideline_async,
@@ -52,18 +52,6 @@ class ScheduleLimitError(Exception):
             f"You already have {len(active_labels)} active module{'s' if len(active_labels) != 1 else ''} ({names}). "
             f"Stop one before starting a new one."
         )
-
-
-def _sync_gemini_json_response(prompt: str) -> str:
-    """Run blocking Gemini SDK in a worker thread (must not block asyncio event loop)."""
-    import google.generativeai as genai
-
-    model = genai.GenerativeModel(settings.gemini_model)
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(response_mime_type="application/json"),
-    )
-    return response.text
 
 
 SCHEDULE_GENERATION_PROMPT = """You are an expert fitness and self-improvement coach specialising in lookmaxxing.
@@ -229,7 +217,7 @@ class ScheduleService:
     """AI-powered schedule generation and management"""
 
     def __init__(self):
-        self.gemini = GeminiService()
+        pass
 
     async def get_active_schedule_count(self, user_id: str, db: AsyncSession) -> tuple[int, list[str]]:
         """Return (count, list_of_labels) of all currently active schedules."""
@@ -389,7 +377,7 @@ class ScheduleService:
         )
 
         try:
-            raw = await asyncio.to_thread(_sync_gemini_json_response, prompt)
+            raw = await asyncio.to_thread(sync_llm_json_response, prompt)
             schedule_data = json.loads(raw)
         except Exception as e:
             logger.error(f"Gemini schedule generation failed: {e}")
@@ -791,7 +779,7 @@ class ScheduleService:
         start_date = datetime.now(user_tz).date()
 
         try:
-            raw = await asyncio.to_thread(_sync_gemini_json_response, prompt)
+            raw = await asyncio.to_thread(sync_llm_json_response, prompt)
             schedule_data = json.loads(raw)
         except Exception as e:
             logger.error(f"Gemini maxx schedule generation failed: {e}")
@@ -2047,7 +2035,7 @@ class ScheduleService:
         )
 
         try:
-            raw = await asyncio.to_thread(_sync_gemini_json_response, prompt)
+            raw = await asyncio.to_thread(sync_llm_json_response, prompt)
             adapted = json.loads(raw)
         except Exception as e:
             logger.error(f"Schedule adaptation failed: {e}")
