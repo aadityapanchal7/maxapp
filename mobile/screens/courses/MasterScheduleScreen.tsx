@@ -242,6 +242,7 @@ export default function MasterScheduleScreen() {
       />
 
       <View style={styles.bodyBelowHeader}>
+      <View style={styles.dayStripOuter}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -269,6 +270,7 @@ export default function MasterScheduleScreen() {
           );
         })}
       </ScrollView>
+      </View>
 
       <ScrollView
         style={styles.taskList}
@@ -405,10 +407,12 @@ const styles = StyleSheet.create({
   legendDot: { width: 4, height: 4, borderRadius: 2 },
   legendText: { fontSize: 9, fontWeight: '600', color: colors.foreground, flexShrink: 1, lineHeight: 12 },
   daySelectorContainer: {
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: 4,
     paddingTop: 4,
     paddingBottom: 4,
     gap: 6,
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   dayPill: {
     alignItems: 'center',
