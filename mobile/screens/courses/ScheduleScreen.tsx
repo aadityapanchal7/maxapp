@@ -7,6 +7,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { buildMaxxMaps, moduleColorForSchedule, moduleLabelForSchedule } from '../../utils/scheduleAggregation';
 
 
 type Task = {
@@ -106,9 +107,24 @@ export default function ScheduleScreen() {
   const [editDescription, setEditDescription] = useState('');
   const [editDuration, setEditDuration] = useState('');
   const [saving, setSaving] = useState(false);
+  const [maxxes, setMaxxes] = useState<any[]>([]);
+
+  const { labels: maxxLabels, colors: maxxColors } = useMemo(() => buildMaxxMaps(maxxes), [maxxes]);
+  const scheduleModuleColor = useMemo(
+    () => moduleColorForSchedule(schedule, maxxColors),
+    [schedule, maxxColors],
+  );
+  const scheduleModuleLabel = useMemo(
+    () => moduleLabelForSchedule(schedule, maxxLabels),
+    [schedule, maxxLabels],
+  );
 
   useEffect(() => {
     loadSchedule();
+  }, []);
+
+  useEffect(() => {
+    api.getMaxxes().then((r) => setMaxxes(r.maxes || [])).catch(() => setMaxxes([]));
   }, []);
 
   const loadSchedule = async () => {
@@ -453,6 +469,7 @@ export default function ScheduleScreen() {
           const isDone = task.status === 'completed';
           return (
             <View key={task.task_id} style={[styles.taskCard, isDone && styles.taskCardDone]}>
+              <View style={[styles.scheduleTaskAccent, { backgroundColor: scheduleModuleColor }]} />
               {/* Checkbox */}
               <TouchableOpacity
                 style={[styles.taskCheck, isDone && styles.taskCheckDone]}
@@ -660,7 +677,7 @@ const styles = StyleSheet.create({
   taskCardDone: { opacity: 0.6 },
   taskCheck: {
     width: 24, height: 24, borderRadius: 12, borderWidth: 2,
-    borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginTop: 2,
+    borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginTop: 2, marginLeft: spacing.xs,
   },
   taskCheckDone: { backgroundColor: colors.success, borderColor: colors.success },
 

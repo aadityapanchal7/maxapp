@@ -690,6 +690,11 @@ class ApiService {
         const response = await this.client.get('schedules/active/all');
         return response.data;
     }
+
+    async getActiveSchedulesFull(): Promise<{ schedules: any[] }> {
+        const response = await this.client.get('schedules/active/full');
+        return response.data;
+    }
 }
 
 export const api = new ApiService();

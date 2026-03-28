@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
 type RouteParams = { next?: 'ModuleSelect' | 'Main' };
 
@@ -133,7 +134,7 @@ export default function SendblueConnectScreen() {
                 )}
             </TouchableOpacity>
 
-            {__DEV__ && (
+            {SHOW_DEV_SKIP_CONTROLS ? (
                 <TouchableOpacity
                     style={[styles.devSkipBtn, busy && styles.secondaryBtnDisabled]}
                     onPress={onDevSkip}
@@ -142,7 +143,7 @@ export default function SendblueConnectScreen() {
                 >
                     <Text style={styles.devSkipText}>Dev: skip confirmation</Text>
                 </TouchableOpacity>
-            )}
+            ) : null}
         </View>
     );
 }

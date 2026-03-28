@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
 /** Production Stripe Payment Link — override with EXPO_PUBLIC_STRIPE_PAYMENT_LINK in .env if needed. */
 const STRIPE_LINK_FALLBACK = 'https://buy.stripe.com/9B64gzazZgDmaVL7vKbII01';
@@ -259,6 +260,22 @@ export default function PaymentScreen() {
                     )}
                 </View>
 
+                <Text style={styles.disclaimer}>
+                    You can change or cancel your plan any time from your account settings.
+                </Text>
+
+                {SHOW_DEV_SKIP_CONTROLS ? (
+                    <TouchableOpacity
+                        style={styles.devButton}
+                        activeOpacity={0.85}
+                        onPress={handleDevSkip}
+                        disabled={devLoading || checkoutLoading}
+                    >
+                        <Text style={styles.devButtonText}>
+                            {devLoading ? 'Activating…' : 'DEV: Skip payment & unlock'}
+                        </Text>
+                    </TouchableOpacity>
+                ) : null}
             </ScrollView>
         </View>
     );

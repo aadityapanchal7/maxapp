@@ -246,6 +246,17 @@ class ScheduleService:
             labels.append(label)
         return len(schedules), labels
 
+    async def get_all_active_schedules(self, user_id: str, db: AsyncSession) -> list[dict]:
+        """Return full schedule payloads for every active schedule (e.g. master week view)."""
+        user_uuid = UUID(user_id)
+        result = await db.execute(
+            select(UserSchedule)
+            .where((UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True))
+            .order_by(UserSchedule.created_at.asc())
+        )
+        schedules = result.scalars().all()
+        return [self._schedule_to_dict(s) for s in schedules]
+
     async def _enforce_schedule_limit(self, user_id: str, db: AsyncSession, replacing_maxx_id: str | None = None, replacing_course_module: tuple | None = None):
         """
         Raise ScheduleLimitError if adding a new schedule would exceed MAX_ACTIVE_SCHEDULES.

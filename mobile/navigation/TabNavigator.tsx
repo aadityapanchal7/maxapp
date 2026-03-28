@@ -10,6 +10,7 @@ import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
 import ForumsScreen from '../screens/forums/ForumsScreen';
 import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
+import MasterScheduleScreen from '../screens/courses/MasterScheduleScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -47,6 +48,15 @@ export default function TabNavigator() {
                 component={HomeScreen}
                 options={{
                     tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={22} color={color} />,
+                }}
+            />
+            <Tab.Screen
+                name="MasterScheduleTab"
+                component={MasterScheduleScreen}
+                options={{
+                    title: 'Schedule',
+                    tabBarLabel: 'Schedule',
+                    tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" size={22} color={color} />,
                 }}
             />
             <Tab.Screen

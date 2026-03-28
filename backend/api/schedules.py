@@ -117,6 +117,16 @@ async def get_all_active_schedules(
     return {"count": count, "labels": labels, "max": 2}
 
 
+@router.get("/active/full")
+async def get_all_active_schedules_full(
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Full schedule documents for all active modules (master schedule / merged week view)."""
+    schedules = await schedule_service.get_all_active_schedules(current_user["id"], db)
+    return {"schedules": schedules}
+
+
 @router.get("/{schedule_id}")
 async def get_schedule(
     schedule_id: str,
