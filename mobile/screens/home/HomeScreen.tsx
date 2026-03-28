@@ -19,6 +19,21 @@ function getMaxxTagLabels(maxx: any): string[] {
     return concerns.map((c: any) => c.label || c.id).filter(Boolean);
 }
 
+function formatTimeTo12Hour(time24: string) {
+    if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24 || '';
+    try {
+        const [hoursStr, minutesStr] = time24.split(':');
+        const hours = parseInt(hoursStr, 10);
+        const minutes = parseInt(minutesStr, 10);
+        if (isNaN(hours) || isNaN(minutes)) return time24;
+        const period = hours >= 12 ? 'PM' : 'AM';
+        const hours12 = hours % 12 || 12;
+        return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+    } catch {
+        return time24;
+    }
+}
+
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
     const { user, refreshUser } = useAuth();

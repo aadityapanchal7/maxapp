@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, shadows } from '../theme/dark';
@@ -63,11 +63,8 @@ export default function TabNavigator() {
                 name="Chat"
                 component={MaxChatScreen}
                 options={{
-                    tabBarLabel: () => null,
-                    tabBarIcon: () => (
-                        <View style={styles.centerIcon}>
-                            <Ionicons name="chatbubble-outline" size={22} color={colors.buttonText} />
-                        </View>
+                    tabBarIcon: ({ color, size }) => (
+                        <Ionicons name="chatbubble-outline" size={22} color={color} />
                     ),
                 }}
             />
@@ -94,14 +91,5 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: '500',
         letterSpacing: 0.2,
-    },
-    centerIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: colors.foreground,
-        justifyContent: 'center',
-        alignItems: 'center',
-        ...shadows.md,
     },
 });
