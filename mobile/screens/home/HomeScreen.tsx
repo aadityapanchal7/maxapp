@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Image, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
 
 const MAX_TAG_PILLS = 3;
 
@@ -23,6 +24,9 @@ export default function HomeScreen() {
     const { user, refreshUser } = useAuth();
     const [maxes, setMaxes] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [scheduleRows, setScheduleRows] = useState<MergedScheduleTask[]>([]);
+    const [schedulesLoading, setSchedulesLoading] = useState(true);
+    const [schedulesError, setSchedulesError] = useState<string | null>(null);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(20)).current;
@@ -71,6 +75,33 @@ export default function HomeScreen() {
         }
     };
 
+    const loadTodaySchedules = async () => {
+        setSchedulesError(null);
+        try {
+            const full = await api.getActiveSchedulesFull();
+            const maxxRes = await api.getMaxxes().catch(() => ({ maxes: [] as any[] }));
+            const { labels, colors: colorMap } = buildMaxxMaps(maxxRes.maxes || []);
+            const merged = mergeSchedules(full.schedules || [], labels, colorMap);
+            const today = new Date().toISOString().split('T')[0];
+            setScheduleRows(merged.byDate[today] || []);
+        } catch (e: any) {
+            const msg =
+                e?.response?.data?.detail || e?.message || 'Could not load today’s tasks.';
+            setSchedulesError(String(msg));
+            setScheduleRows([]);
+        } finally {
+            setSchedulesLoading(false);
+        }
+    };
+
+    useFocusEffect(
+        React.useCallback(() => {
+            loadData();
+            setSchedulesLoading(true);
+            loadTodaySchedules();
+        }, []),
+    );
+
     const userName = user?.first_name || user?.email?.split('@')[0] || 'there';
     const selectedGoals: string[] = (user?.onboarding?.goals || []).map((g: string) => g.toLowerCase());
 
@@ -100,6 +131,59 @@ export default function HomeScreen() {
                                 </View>
                             </TouchableOpacity>
                         </View>
+                    </View>
+
+                    <View style={styles.todaySection}>
+                        <View style={styles.todayHeader}>
+                            <Text style={styles.todayLabel}>TODAY&apos;S TASKS</Text>
+                            {schedulesLoading ? (
+                                <ActivityIndicator size="small" color={colors.textMuted} />
+                            ) : null}
+                        </View>
+                        {schedulesError ? (
+                            <Text style={styles.todayError}>{schedulesError}</Text>
+                        ) : null}
+                        {!schedulesLoading && !schedulesError && scheduleRows.length === 0 ? (
+                            <Text style={styles.todayEmpty}>No tasks scheduled for today across your active programs.</Text>
+                        ) : null}
+                        {scheduleRows.slice(0, 5).map((row, idx) => (
+                            <TouchableOpacity
+                                key={`${row.scheduleId}-${row.task_id}`}
+                                style={[styles.todayRow, idx > 0 && styles.todayRowBorder]}
+                                onPress={() => navigation.navigate('Schedule', { scheduleId: row.scheduleId })}
+                                activeOpacity={0.75}
+                            >
+                                <View style={[styles.todayAccent, { backgroundColor: row.moduleColor }]} />
+                                <View style={styles.todayRowBody}>
+                                    <Text style={styles.todayTime}>{formatTimeTo12Hour(row.time)}</Text>
+                                    <Text style={styles.todayTitle} numberOfLines={1}>{row.title}</Text>
+                                    <Text style={styles.todayModule} numberOfLines={1}>{row.moduleLabel}</Text>
+                                </View>
+                                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        ))}
+                        {scheduleRows.length > 5 ? (
+                            <Text style={styles.todayMore}>+{scheduleRows.length - 5} more on Schedule tab</Text>
+                        ) : null}
+                    </View>
+
+                    <View style={styles.masterScheduleWrap}>
+                        <TouchableOpacity
+                            style={styles.masterScheduleCard}
+                            onPress={() => navigation.navigate('MasterScheduleTab')}
+                            activeOpacity={0.75}
+                        >
+                            <View style={styles.masterScheduleIcon}>
+                                <Ionicons name="calendar-outline" size={22} color={colors.foreground} />
+                            </View>
+                            <View style={styles.masterScheduleTextCol}>
+                                <Text style={styles.masterScheduleTitle}>Master schedule</Text>
+                                <Text style={styles.masterScheduleSub} numberOfLines={2}>
+                                    All tasks from every active program, color-coded by module
+                                </Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                        </TouchableOpacity>
                     </View>
 
                     <View style={styles.section}>
@@ -184,6 +268,62 @@ const styles = StyleSheet.create({
     },
     profileAvatar: { width: 40, height: 40, borderRadius: 20 },
     profileInitial: { fontSize: 16, fontWeight: '600', color: colors.buttonText },
+    todaySection: {
+        marginHorizontal: spacing.lg,
+        marginTop: spacing.md,
+        marginBottom: spacing.sm,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'],
+        padding: spacing.md,
+        ...shadows.sm,
+    },
+    todayHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: spacing.sm,
+    },
+    todayLabel: { ...typography.label, fontSize: 11 },
+    todayError: { ...typography.bodySmall, color: colors.error, marginBottom: spacing.xs },
+    todayEmpty: { ...typography.bodySmall, color: colors.textMuted, lineHeight: 20 },
+    todayRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingVertical: spacing.sm,
+    },
+    todayRowBorder: {
+        borderTopWidth: 1,
+        borderTopColor: colors.borderLight,
+    },
+    todayAccent: { width: 4, height: 40, borderRadius: 2 },
+    todayRowBody: { flex: 1, minWidth: 0 },
+    todayTime: { fontSize: 12, fontWeight: '700', color: colors.foreground },
+    todayTitle: { fontSize: 14, fontWeight: '600', color: colors.foreground, marginTop: 2 },
+    todayModule: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
+    todayMore: { ...typography.caption, color: colors.textMuted, marginTop: spacing.xs, textAlign: 'center' },
+    masterScheduleWrap: { paddingHorizontal: spacing.lg, marginTop: spacing.sm },
+    masterScheduleCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'],
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.lg,
+        ...shadows.sm,
+    },
+    masterScheduleIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: borderRadius.lg,
+        backgroundColor: colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    masterScheduleTextCol: { flex: 1, minWidth: 0 },
+    masterScheduleTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground, marginBottom: 4 },
+    masterScheduleSub: { ...typography.bodySmall, color: colors.textMuted, lineHeight: 18 },
     section: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
     sectionLabel: { ...typography.label },
