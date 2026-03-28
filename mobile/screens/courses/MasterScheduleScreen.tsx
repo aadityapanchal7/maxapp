@@ -439,9 +439,15 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
   },
+  dayStripOuter: {
+    width: '50%',
+    maxWidth: '100%',
+    alignSelf: 'center',
+  },
   dayStripScroll: {
     flexGrow: 0,
     flexShrink: 0,
+    width: '100%',
   },
   taskList: { flex: 1, minHeight: 0, paddingHorizontal: spacing.lg },
   progressRow: {
