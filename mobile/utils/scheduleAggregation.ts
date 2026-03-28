@@ -59,6 +59,30 @@ const SKIN_TASK_RE =
 const HAIR_TASK_RE =
   /\b(hairmax|minoxidil|finasteride|dutasteride|hair loss|ketoconazole\s+shampoo|microneedl(?:e|ing)\s+(?:for\s+)?hair|dermaroll(?:er)?\s+(?:for\s+)?(?:hair|scalp))\b/i;
 
+/** Collapse duplicate rows when two schedules (or bad AI) emit the same routine at the same time. */
+function normalizeRoutineTitle(title: string): string {
+  let s = (title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  s = s.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  return s.slice(0, 56);
+}
+
+function dedupeMasterTasksForDay(tasks: MergedScheduleTask[]): MergedScheduleTask[] {
+  const best = new Map<string, MergedScheduleTask>();
+  for (const t of tasks) {
+    const rk = normalizeRoutineTitle(t.title || '');
+    const key = `${t.moduleLabel}|${(t.time || '').trim()}|${rk}`;
+    const prev = best.get(key);
+    if (!prev) {
+      best.set(key, t);
+      continue;
+    }
+    const nextLen = (t.description || '').length;
+    const prevLen = (prev.description || '').length;
+    best.set(key, nextLen >= prevLen ? t : prev);
+  }
+  return Array.from(best.values()).sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+}
+
 function displayModuleForTask(
   task: { title?: string; description?: string },
   scheduleMid: string,
@@ -157,7 +181,7 @@ export function mergeSchedules(
 
   const dates = Object.keys(byDate).sort();
   for (const d of dates) {
-    byDate[d].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+    byDate[d] = dedupeMasterTasksForDay(byDate[d]);
   }
 
   const legend = Array.from(legendMap.entries()).map(([id, v]) => ({
