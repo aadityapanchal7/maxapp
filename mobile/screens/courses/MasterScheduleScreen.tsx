@@ -9,6 +9,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -47,6 +48,7 @@ function getTaskIcon(type: string) {
 export default function MasterScheduleScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
   const isTab = route.name === 'MasterScheduleTab';
 
   const [schedules, setSchedules] = useState<any[]>([]);
@@ -136,8 +138,8 @@ export default function MasterScheduleScreen() {
     navigation.navigate('Schedule', { scheduleId: task.scheduleId });
   };
 
-  const HeaderChrome = ({ title }: { title: string }) => (
-    <View style={styles.header}>
+  const HeaderChrome = ({ title, subtitle }: { title: string; subtitle?: string }) => (
+    <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
       {isTab ? (
         <View style={styles.backButton} />
       ) : (
@@ -145,8 +147,11 @@ export default function MasterScheduleScreen() {
           <Ionicons name="arrow-back" size={22} color={colors.foreground} />
         </TouchableOpacity>
       )}
-      <Text style={styles.headerTitle}>{title}</Text>
-      <View style={{ width: 40 }} />
+      <View style={styles.headerCenter}>
+        <Text style={styles.headerTitle}>{title}</Text>
+        {subtitle ? <Text style={styles.subhead}>{subtitle}</Text> : null}
+      </View>
+      <View style={styles.backButton} />
     </View>
   );
 
@@ -184,7 +189,7 @@ export default function MasterScheduleScreen() {
   if (schedules.length === 0 || merged.dates.length === 0) {
     return (
       <View style={styles.container}>
-        <HeaderChrome title="Master schedule" />
+        <HeaderChrome title="Master schedule" subtitle="All tasks across your active programs" />
         <View style={[styles.emptyState, styles.center]}>
           <Ionicons name="layers-outline" size={64} color={colors.textMuted} />
           <Text style={styles.emptyTitle}>No active schedules</Text>
@@ -328,21 +333,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingTop: 64,
     paddingBottom: spacing.xs,
   },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: spacing.xs,
+    minWidth: 0,
+  },
   backButton: { width: 40, padding: spacing.xs },
-  headerTitle: { ...typography.h3, flex: 1, textAlign: 'center' },
+  headerTitle: { ...typography.h3, textAlign: 'center', width: '100%' },
   subhead: {
     ...typography.bodySmall,
     color: colors.textMuted,
     textAlign: 'center',
-    paddingHorizontal: spacing.xl,
-    marginBottom: spacing.sm,
+    marginTop: 2,
+    lineHeight: 18,
+    width: '100%',
   },
   legendRow: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
     gap: spacing.sm,
     alignItems: 'center',
   },
@@ -359,7 +371,12 @@ const styles = StyleSheet.create({
   },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendText: { fontSize: 12, fontWeight: '600', color: colors.foreground, flexShrink: 1 },
-  daySelectorContainer: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: spacing.sm },
+  daySelectorContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.xs,
+    gap: spacing.sm,
+  },
   dayPill: {
     alignItems: 'center',
     paddingHorizontal: 14,

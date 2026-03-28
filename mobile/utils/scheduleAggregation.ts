@@ -4,6 +4,36 @@
 
 export const FALLBACK_MODULE_COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6', '#0ea5e9'];
 
+/** Must match backend seed_rds_maxes / app naming so tasks never pick up the wrong program from course_title alone. */
+const DEFAULT_MAXX_LABELS: Record<string, string> = {
+  skinmax: 'SkinMax',
+  hairmax: 'Hairmax',
+  fitmax: 'Fitmax',
+  bonemax: 'Bonemax',
+  heightmax: 'Heightmax',
+};
+
+const DEFAULT_MAXX_COLORS: Record<string, string> = {
+  skinmax: '#8B5CF6',
+  hairmax: '#3B82F6',
+  fitmax: '#10B981',
+  bonemax: '#F59E0B',
+  heightmax: '#6366F1',
+};
+
+/** Normalize DB/API maxx id (spacing, casing). */
+export function normalizeMaxxId(raw: unknown): string {
+  if (raw == null) return '';
+  const s = String(raw).trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return '';
+  if (s === 'skin-max' || s === 'skinmax') return 'skinmax';
+  if (s === 'hair-max' || s === 'hairmax') return 'hairmax';
+  if (s === 'fit-max' || s === 'fitmax') return 'fitmax';
+  if (s === 'bone-max' || s === 'bonemax') return 'bonemax';
+  if (s === 'height-max' || s === 'heightmax') return 'heightmax';
+  return s;
+}
+
 export function fallbackColor(key: string): string {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h << 5) - h + key.charCodeAt(i);
@@ -31,8 +61,9 @@ export function buildMaxxMaps(maxxes: any[]): {
   const colors: Record<string, string> = {};
   for (const x of maxxes || []) {
     if (x?.id) {
-      const id = String(x.id).toLowerCase();
-      labels[id] = x.label || x.id;
+      const id = normalizeMaxxId(x.id);
+      if (!id) continue;
+      labels[id] = x.label || DEFAULT_MAXX_LABELS[id] || x.id;
       if (x.color) colors[id] = x.color;
     }
   }
@@ -52,10 +83,13 @@ export function mergeSchedules(
   const legendMap = new Map<string, { label: string; color: string }>();
 
   for (const s of schedules || []) {
-    const mid = (s.maxx_id || '').toLowerCase();
-    const label = (mid && maxxLabels[mid]) || s.course_title || s.maxx_id || 'Program';
-    const color =
-      (mid && maxxColors[mid]) || fallbackColor((s.course_title || s.maxx_id || 'x').toLowerCase());
+    const mid = normalizeMaxxId(s.maxx_id);
+    const label = mid
+      ? maxxLabels[mid] || DEFAULT_MAXX_LABELS[mid] || s.maxx_id || mid
+      : s.course_title || s.maxx_id || 'Program';
+    const color = mid
+      ? maxxColors[mid] || DEFAULT_MAXX_COLORS[mid] || fallbackColor(mid)
+      : fallbackColor(String(s.course_title || s.maxx_id || 'program').toLowerCase());
     legendMap.set(s.id, { label, color });
 
     for (const day of s.days || []) {
@@ -92,9 +126,11 @@ export function moduleColorForSchedule(
   maxxColors: Record<string, string>,
 ): string {
   if (!schedule) return FALLBACK_MODULE_COLORS[0];
-  const mid = (schedule.maxx_id || '').toLowerCase();
-  if (mid && maxxColors[mid]) return maxxColors[mid];
-  return fallbackColor((schedule.course_title || schedule.maxx_id || 'x').toLowerCase());
+  const mid = normalizeMaxxId(schedule.maxx_id);
+  if (mid) {
+    return maxxColors[mid] || DEFAULT_MAXX_COLORS[mid] || fallbackColor(mid);
+  }
+  return fallbackColor(String(schedule.course_title || schedule.maxx_id || 'x').toLowerCase());
 }
 
 export function moduleLabelForSchedule(
@@ -102,7 +138,9 @@ export function moduleLabelForSchedule(
   maxxLabels: Record<string, string>,
 ): string {
   if (!schedule) return 'Program';
-  const mid = (schedule.maxx_id || '').toLowerCase();
-  if (mid && maxxLabels[mid]) return maxxLabels[mid];
+  const mid = normalizeMaxxId(schedule.maxx_id);
+  if (mid) {
+    return maxxLabels[mid] || DEFAULT_MAXX_LABELS[mid] || schedule.maxx_id || mid;
+  }
   return schedule.course_title || schedule.maxx_id || 'Program';
 }
