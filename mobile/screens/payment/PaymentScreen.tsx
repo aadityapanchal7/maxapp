@@ -18,11 +18,15 @@ import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
-/** Production Stripe Payment Link — override with EXPO_PUBLIC_STRIPE_PAYMENT_LINK in .env if needed. */
-const STRIPE_LINK_FALLBACK = 'https://buy.stripe.com/9B64gzazZgDmaVL7vKbII01';
+/** Stripe Payment Links — override with EXPO_PUBLIC_STRIPE_BASIC_LINK / EXPO_PUBLIC_STRIPE_PREMIUM_LINK. Legacy: EXPO_PUBLIC_STRIPE_PAYMENT_LINK maps to Premium only. */
+const STRIPE_BASIC_FALLBACK = 'https://buy.stripe.com/8x25kD0Zpdra9RH7vKbII04';
+const STRIPE_PREMIUM_FALLBACK = 'https://buy.stripe.com/6oU4gz7nNdra0h79DSbII03';
 
-const STRIPE_CHECKOUT_URL = (
-    process.env.EXPO_PUBLIC_STRIPE_PAYMENT_LINK?.trim() || STRIPE_LINK_FALLBACK
+const STRIPE_BASIC_URL = (process.env.EXPO_PUBLIC_STRIPE_BASIC_LINK?.trim() || STRIPE_BASIC_FALLBACK).trim();
+const STRIPE_PREMIUM_URL = (
+    process.env.EXPO_PUBLIC_STRIPE_PREMIUM_LINK?.trim() ||
+    process.env.EXPO_PUBLIC_STRIPE_PAYMENT_LINK?.trim() ||
+    STRIPE_PREMIUM_FALLBACK
 ).trim();
 
 /**
@@ -35,16 +39,21 @@ function getPaymentReturnUrl(): string {
     return Linking.createURL('PaymentThankYou');
 }
 
-const PRICE = '9.99';
-
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_ATTEMPTS = 20;
 
-const FULL_ACCESS_FEATURES = [
-    'AI schedules + SMS reminders that keep you on track',
-    'Face scans & progress tracking',
-    'Fitmax workouts, routines, and check-ins',
-    'Community & live events',
+const BASIC_FEATURES = [
+    'Up to 2 maxxes active',
+    'Community forums',
+    '1 face scan',
+    'Basic course library',
+];
+
+const PREMIUM_FEATURES = [
+    'Up to 3 maxxes active',
+    'Exclusive forums with influencers (alpha tips)',
+    '1:1 lives / calls with influencers',
+    'Daily face scans',
     'Full course library',
 ];
 
@@ -63,16 +72,14 @@ function buildCheckoutUrl(base: string, userId: string | undefined): string {
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const { user, refreshUser } = useAuth();
-    const [checkoutLoading, setCheckoutLoading] = useState(false);
+    const [checkoutLoading, setCheckoutLoading] = useState<'basic' | 'premium' | null>(null);
     const [devLoading, setDevLoading] = useState(false);
     const pollingRef = useRef(false);
 
-    const stripeUrlConfigured = useMemo(() => STRIPE_CHECKOUT_URL.length > 0, []);
+    const stripeUrlsConfigured = useMemo(() => STRIPE_BASIC_URL.length > 0 && STRIPE_PREMIUM_URL.length > 0, []);
     const paymentReturnUrl = useMemo(() => getPaymentReturnUrl(), []);
-    const checkoutUrl = useMemo(
-        () => buildCheckoutUrl(STRIPE_CHECKOUT_URL, user?.id),
-        [user?.id],
-    );
+    const basicCheckoutUrl = useMemo(() => buildCheckoutUrl(STRIPE_BASIC_URL, user?.id), [user?.id]);
+    const premiumCheckoutUrl = useMemo(() => buildCheckoutUrl(STRIPE_PREMIUM_URL, user?.id), [user?.id]);
 
     const pollUntilPaid = useCallback(async (): Promise<boolean> => {
         if (pollingRef.current) return false;
@@ -129,7 +136,7 @@ export default function PaymentScreen() {
         return () => sub.remove();
     }, [finishAfterPayment]);
 
-    const openStripeCheckout = async () => {
+    const openStripeCheckout = async (checkoutUrl: string, tier: 'basic' | 'premium') => {
         if (user && !user.first_scan_completed) {
             Alert.alert('Face scan first', 'Complete your AI face scan to see your preview score, then you can subscribe.', [
                 { text: 'Start scan', onPress: () => navigation.navigate('FaceScan') },
@@ -137,16 +144,16 @@ export default function PaymentScreen() {
             ]);
             return;
         }
-        if (!STRIPE_CHECKOUT_URL) {
+        if (!checkoutUrl) {
             Alert.alert(
-                'Stripe link not set yet',
-                'Add EXPO_PUBLIC_STRIPE_PAYMENT_LINK in mobile/.env (restart Expo), or set STRIPE_LINK_FALLBACK in PaymentScreen.tsx.',
+                'Stripe link not set',
+                'Add EXPO_PUBLIC_STRIPE_BASIC_LINK and EXPO_PUBLIC_STRIPE_PREMIUM_LINK in mobile/.env (restart Expo), or use the defaults in PaymentScreen.tsx.',
             );
             return;
         }
 
         try {
-            setCheckoutLoading(true);
+            setCheckoutLoading(tier);
             WebBrowser.maybeCompleteAuthSession();
 
             if (Platform.OS === 'web') {
@@ -155,6 +162,7 @@ export default function PaymentScreen() {
                 return;
             }
 
+            /** iOS: SFSafari View Controller via expo-web-browser — standard for Stripe Payment Links. */
             const authOpts = await WebBrowser.openAuthSessionAsync(checkoutUrl, paymentReturnUrl, {
                 preferEphemeralSession: true,
                 showInRecents: false,
@@ -177,7 +185,7 @@ export default function PaymentScreen() {
         } catch (e) {
             Alert.alert('Error', 'Could not open checkout. Try again.');
         } finally {
-            setCheckoutLoading(false);
+            setCheckoutLoading(null);
         }
     };
 
@@ -208,33 +216,31 @@ export default function PaymentScreen() {
                 </TouchableOpacity>
 
                 <View style={styles.header}>
-                    <Text style={styles.kicker}>MAX PRO</Text>
-                    <Text style={styles.title}>Unlock your full stack</Text>
+                    <Text style={styles.kicker}>SUBSCRIBE</Text>
+                    <Text style={styles.title}>Choose Basic or Premium</Text>
                     <Text style={styles.subtitle}>
-                        One clean plan. Full access to Max for ${PRICE}/month.
+                        Checkout opens in a secure browser (Safari on iOS). Price and renewal are shown on Stripe before you pay.
+                        Configure the same return URL on both Payment Links in the Stripe Dashboard.
                     </Text>
                 </View>
 
-                <View style={styles.planCard}>
+                <View style={[styles.planCard, styles.planCardBasic]}>
                     <LinearGradient
-                        colors={['rgba(255,255,255,0.14)', 'rgba(255,255,255,0.03)']}
+                        colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.02)']}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 1 }}
                         style={styles.planCardSheen}
                         pointerEvents="none"
                     />
                     <View style={styles.planHeader}>
+                        <Text style={styles.planName}>Basic</Text>
                         <View style={styles.planTag}>
-                            <Text style={styles.planTagText}>Most popular</Text>
-                        </View>
-                        <View style={styles.priceRow}>
-                            <Text style={styles.price}>${PRICE}</Text>
-                            <Text style={styles.priceLabel}>/month</Text>
+                            <Text style={styles.planTagText}>Core access</Text>
                         </View>
                     </View>
-                    <Text style={styles.planName}>Everything included</Text>
+                    <Text style={styles.planSub}>Essential maxxes, forums, and your first scan.</Text>
                     <View style={styles.featureList}>
-                        {FULL_ACCESS_FEATURES.map((feature, idx) => (
+                        {BASIC_FEATURES.map((feature, idx) => (
                             <View key={idx} style={styles.featureItem}>
                                 <View style={styles.featureIconWrap}>
                                     <Ionicons name="checkmark" size={13} color={colors.background} />
@@ -243,25 +249,69 @@ export default function PaymentScreen() {
                             </View>
                         ))}
                     </View>
-
                     <TouchableOpacity
-                        style={[styles.button, (!stripeUrlConfigured || checkoutLoading || devLoading) && styles.buttonMuted]}
+                        style={[
+                            styles.button,
+                            styles.buttonSecondary,
+                            (!stripeUrlsConfigured || checkoutLoading !== null || devLoading) && styles.buttonMuted,
+                        ]}
                         activeOpacity={0.85}
-                        onPress={openStripeCheckout}
-                        disabled={checkoutLoading || devLoading}
+                        onPress={() => openStripeCheckout(basicCheckoutUrl, 'basic')}
+                        disabled={checkoutLoading !== null || devLoading}
                     >
-                        <Text style={styles.buttonText}>
-                            {checkoutLoading ? 'Opening checkout…' : 'Continue to checkout'}
+                        <Text style={[styles.buttonText, styles.buttonTextOnSurface]}>
+                            {checkoutLoading === 'basic' ? 'Opening checkout…' : 'Continue with Basic'}
                         </Text>
                     </TouchableOpacity>
-
-                    {stripeUrlConfigured ? null : (
-                        <Text style={styles.linkHint}>Stripe checkout isn’t configured yet.</Text>
-                    )}
                 </View>
 
+                <View style={[styles.planCard, styles.planCardPremium]}>
+                    <LinearGradient
+                        colors={['rgba(255,255,255,0.16)', 'rgba(255,255,255,0.04)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.planCardSheen}
+                        pointerEvents="none"
+                    />
+                    <View style={styles.planHeader}>
+                        <Text style={styles.planName}>Premium</Text>
+                        <View style={[styles.planTag, styles.planTagAccent]}>
+                            <Text style={styles.planTagTextAccent}>Full stack</Text>
+                        </View>
+                    </View>
+                    <Text style={styles.planSub}>Influencer access, daily scans, and the full library.</Text>
+                    <View style={styles.featureList}>
+                        {PREMIUM_FEATURES.map((feature, idx) => (
+                            <View key={idx} style={styles.featureItem}>
+                                <View style={styles.featureIconWrap}>
+                                    <Ionicons name="checkmark" size={13} color={colors.background} />
+                                </View>
+                                <Text style={styles.featureText}>{feature}</Text>
+                            </View>
+                        ))}
+                    </View>
+                    <TouchableOpacity
+                        style={[
+                            styles.button,
+                            (!stripeUrlsConfigured || checkoutLoading !== null || devLoading) && styles.buttonMuted,
+                        ]}
+                        activeOpacity={0.85}
+                        onPress={() => openStripeCheckout(premiumCheckoutUrl, 'premium')}
+                        disabled={checkoutLoading !== null || devLoading}
+                    >
+                        <Text style={styles.buttonText}>
+                            {checkoutLoading === 'premium' ? 'Opening checkout…' : 'Continue with Premium'}
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {stripeUrlsConfigured ? null : (
+                    <Text style={styles.linkHint}>Stripe Payment Links aren’t configured.</Text>
+                )}
+
                 <Text style={styles.disclaimer}>
-                    You can change or cancel your plan any time from your account settings.
+                    Manage billing from Stripe emails or customer portal. For App Store distribution, confirm subscription
+                    rules with Apple and your counsel—Stripe checkout is typical for web or companion flows.
                 </Text>
 
                 {SHOW_DEV_SKIP_CONTROLS ? (
@@ -269,7 +319,7 @@ export default function PaymentScreen() {
                         style={styles.devButton}
                         activeOpacity={0.85}
                         onPress={handleDevSkip}
-                        disabled={devLoading || checkoutLoading}
+                        disabled={devLoading || checkoutLoading !== null}
                     >
                         <Text style={styles.devButtonText}>
                             {devLoading ? 'Activating…' : 'DEV: Skip payment & unlock'}
@@ -311,12 +361,18 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         position: 'relative',
     },
+    planCardBasic: {},
+    planCardPremium: {
+        borderColor: colors.foreground,
+        borderWidth: 2,
+    },
     planCardSheen: { ...StyleSheet.absoluteFillObject },
     planHeader: {
         flexDirection: 'row',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         justifyContent: 'space-between',
         marginBottom: spacing.sm,
+        gap: spacing.sm,
     },
     planTag: {
         backgroundColor: colors.surface,
@@ -326,7 +382,12 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingVertical: 5,
     },
+    planTagAccent: {
+        backgroundColor: colors.foreground,
+        borderColor: colors.foreground,
+    },
     planTagText: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
+    planTagTextAccent: { fontSize: 11, fontWeight: '700', color: colors.background },
     planName: {
         fontSize: 22,
         fontWeight: '600',
@@ -354,6 +415,14 @@ const styles = StyleSheet.create({
         paddingVertical: spacing.md,
         alignItems: 'center',
         ...shadows.md,
+    },
+    buttonSecondary: {
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    buttonTextOnSurface: {
+        color: colors.foreground,
     },
     buttonMuted: { opacity: 0.5 },
     buttonText: { ...typography.button },

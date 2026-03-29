@@ -499,7 +499,7 @@ FITMAX_CONCERNS = [
 MAXX_GUIDELINES = {
     "skinmax": {
         "label": "skinmax",
-        "description": "Skincare and SPF routines.",
+        "description": "Skincare and gut health",
         "schedule_rules": {
             "engine": "skinmax_notification_engine_reference.md",
             "am_routine": "wake_time + 15 minutes (never generic 'morning' without deriving from wake)",

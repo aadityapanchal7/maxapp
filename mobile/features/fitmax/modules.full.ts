@@ -2024,7 +2024,7 @@ Expensive — pharmaceutical-grade HGH costs $500–2,000+/month.
 
 Peptides for Skin — The Looksmaxxing Crossover
 
-Relevant to users who are also on Skinmax:
+Relevant to users who are also on skinmax:
 
 GHK-Cu (Copper Peptide): Naturally occurring peptide-copper complex that activates genes
 involved in collagen and elastin production, promotes wound healing, has strong antioxidant
@@ -2535,14 +2535,14 @@ Fitmax doesn't operate in isolation. Your body is a system, and the modules inte
 Fitmax builds the physical foundation — muscle, body composition, hormonal optimization
 through training.
 
-Skinmax refines the surface — skin clarity, texture, and health that makes the underlying
+skinmax refines the surface — skin clarity, texture, and health that makes the underlying
 structure visible.
 
 Sleepmax (if active) maximizes the hormonal environment — the GH and testosterone that
 Fitmax creates the conditions for, Sleepmax ensures are fully realized through optimized
 recovery.
 
-These don't add linearly. A person running Fitmax at 80% effectiveness + Skinmax at 80%
+These don't add linearly. A person running Fitmax at 80% effectiveness + skinmax at 80%
 effectiveness + optimized sleep doesn't get 240% of one module's result — they get a
 compounding synergy. The muscle built by Fitmax displays better on clear skin. The
 testosterone optimized by sleep and training amplifies every adaptation. The confidence built by
