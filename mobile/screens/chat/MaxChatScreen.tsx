@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { ChatTypingIndicator, ChatTypingMode } from '../../components/ChatTypingIndicator';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -21,8 +20,6 @@ export default function MaxChatScreen() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
-    const [uploading, setUploading] = useState(false);
-    const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const flatListRef = useRef<FlatList>(null);
     const initScheduleHandled = useRef(false);
     /** Prevents auto "start schedule" running before history fetch finishes (otherwise setMessages(history) wipes the optimistic user line). */
@@ -65,11 +62,6 @@ export default function MaxChatScreen() {
         );
     }, [route.params?.initSchedule, loading, historyReady]);
 
-    const handlePickImage = async () => {
-        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
-        if (!result.canceled) setSelectedImage(result.assets[0].uri);
-    };
-
     const sendMessageWithContext = async (msg: string, initContext?: string) => {
         if (!msg.trim() || loading) return;
         setLoading(true);
@@ -89,34 +81,23 @@ export default function MaxChatScreen() {
     };
 
     const sendMessage = async () => {
-        if ((!input.trim() && !selectedImage) || loading) return;
+        if (!input.trim() || loading) return;
         const userContent = input.trim();
-        let attachmentUrl: string | undefined; let attachmentType: string | undefined;
         setLoading(true); setInput('');
         try {
-            if (selectedImage) {
-                setUploading(true);
-                const formData = new FormData();
-                const filename = selectedImage.split('/').pop() || 'upload.jpg';
-                const match = /\.(\w+)$/.exec(filename);
-                formData.append('file', { uri: selectedImage, name: filename, type: match ? `image/${match[1]}` : 'image' } as any);
-                const uploadRes = await api.uploadChatFile(formData);
-                attachmentUrl = uploadRes.url; attachmentType = 'image'; setUploading(false);
-            }
-            setMessages(prev => [...prev, { role: 'user', content: userContent, attachment_url: attachmentUrl, attachment_type: attachmentType }]);
-            setSelectedImage(null);
+            setMessages(prev => [...prev, { role: 'user', content: userContent }]);
             const scheduleCtx = route.params?.initSchedule as string | undefined;
             addTyping(scheduleCtx ? 'schedule' : 'default');
             const { response } = await api.sendChatMessage(
                 userContent,
-                attachmentUrl,
-                attachmentType,
+                undefined,
+                undefined,
                 scheduleCtx,
             );
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
         } catch (e) { console.error(e); removeTyping(); setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong.' }]); }
-        finally { setLoading(false); setUploading(false); }
+        finally { setLoading(false); }
     };
 
     const renderMessage = ({ item }: { item: Message }) => {
@@ -176,19 +157,7 @@ export default function MaxChatScreen() {
                 />
 
                 <View style={styles.outerInputContainer}>
-                    {selectedImage && (
-                        <View style={styles.imagePreviewContainer}>
-                            <Image source={{ uri: selectedImage }} style={styles.imagePreview} />
-                            <TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}>
-                                <Ionicons name="close-circle" size={22} color={colors.error} />
-                            </TouchableOpacity>
-                            {uploading && <View style={styles.uploadOverlay}><ActivityIndicator color={colors.buttonText} /></View>}
-                        </View>
-                    )}
                     <View style={styles.inputContainer}>
-                        <TouchableOpacity style={styles.attachButton} onPress={handlePickImage} disabled={loading || uploading}>
-                            <Ionicons name="add-circle-outline" size={26} color={colors.textMuted} />
-                        </TouchableOpacity>
                         <TextInput
                             style={styles.input}
                             placeholder="Ask Max anything..."
@@ -196,14 +165,14 @@ export default function MaxChatScreen() {
                             value={input}
                             onChangeText={setInput}
                             multiline
-                            editable={!loading && !uploading}
+                            editable={!loading}
                         />
                         <TouchableOpacity
-                            style={[styles.sendButton, (!input.trim() && !selectedImage) && styles.disabledButton]}
+                            style={[styles.sendButton, !input.trim() && styles.disabledButton]}
                             onPress={sendMessage}
-                            disabled={(!input.trim() && !selectedImage) || loading || uploading}
+                            disabled={!input.trim() || loading}
                         >
-                            {loading || uploading ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={18} color={colors.buttonText} />}
+                            {loading ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={18} color={colors.buttonText} />}
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -270,23 +239,18 @@ const styles = StyleSheet.create({
         borderTopColor: colors.border,
         backgroundColor: colors.background,
     },
-    imagePreviewContainer: { position: 'relative', marginBottom: spacing.sm, alignSelf: 'flex-start' },
-    imagePreview: { width: 80, height: 80, borderRadius: 12 },
-    removeImageBtn: { position: 'absolute', top: -6, right: -6, backgroundColor: colors.card, borderRadius: 14, ...shadows.sm },
-    uploadOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', borderRadius: 12 },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'flex-end',
         backgroundColor: colors.card,
         borderRadius: 24,
-        paddingHorizontal: 12,
+        paddingHorizontal: 14,
         paddingVertical: 8,
         borderWidth: 1,
         borderColor: colors.border,
         ...shadows.sm,
     },
-    attachButton: { padding: 6, marginRight: 4 },
-    input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 10, paddingHorizontal: 8, maxHeight: 100 },
+    input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 10, paddingHorizontal: 4, maxHeight: 100 },
     sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center', marginLeft: 8, ...shadows.sm },
     disabledButton: { opacity: 0.35 },
 });
