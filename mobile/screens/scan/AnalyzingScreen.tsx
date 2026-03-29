@@ -268,10 +268,6 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                 ))}
             </View>
 
-            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 20) + 24 }]}>
-                <Text style={styles.footerText}>AI is generating your maximum potential based on</Text>
-                <Text style={styles.footerHighlight}>50k+ successful transformations</Text>
-            </View>
         </View>
     );
 }
@@ -340,12 +336,4 @@ const styles = StyleSheet.create({
         alignSelf: 'center',
     },
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.foreground },
-    footer: {
-        width: '100%',
-        alignItems: 'center',
-        paddingHorizontal: spacing.lg,
-        marginTop: spacing.lg,
-    },
-    footerText: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20, marginBottom: 0 },
-    footerHighlight: { fontSize: 14, fontWeight: '600', color: colors.foreground, textAlign: 'center', lineHeight: 20 },
 });

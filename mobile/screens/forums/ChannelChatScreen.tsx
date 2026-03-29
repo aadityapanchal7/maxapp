@@ -25,6 +25,29 @@ interface Message {
     reactions?: Record<string, string[]>;
 }
 
+function parseMessageTimestamp(dateString: string): number {
+    if (!dateString) return 0;
+    const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(dateString);
+    let normalized = dateString;
+    if (!normalized.includes('T') && normalized.includes(' ')) {
+        normalized = normalized.replace(' ', 'T');
+    }
+    if (!hasTz) {
+        normalized = `${normalized}Z`;
+    }
+    const time = new Date(normalized).getTime();
+    return Number.isNaN(time) ? 0 : time;
+}
+
+function sortMessagesChronological(msgs: Message[]): Message[] {
+    return msgs.slice().sort((a, b) => {
+        const at = parseMessageTimestamp(a.created_at);
+        const bt = parseMessageTimestamp(b.created_at);
+        if (at !== bt) return at - bt;
+        return a.id.localeCompare(b.id);
+    });
+}
+
 export default function ChannelChatScreen() {
     const navigation = useNavigation();
     const insets = useSafeAreaInsets();
@@ -127,19 +150,7 @@ export default function ChannelChatScreen() {
             }
             const result = await api.sendChannelMessage(channelId, messageText.trim() || '', replyingTo?.id, attachmentUrl, attachmentType);
             if (result.message) {
-                setMessages(prev => [...prev, result.message].sort((a, b) => {
-                    const aUp = (a.reactions?.[UPVOTE] || a.reactions?.[LEGACY_UPVOTE] || []).length;
-                    const aDown = (a.reactions?.[DOWNVOTE] || a.reactions?.[LEGACY_DOWNVOTE] || []).length;
-                    const bUp = (b.reactions?.[UPVOTE] || b.reactions?.[LEGACY_UPVOTE] || []).length;
-                    const bDown = (b.reactions?.[DOWNVOTE] || b.reactions?.[LEGACY_DOWNVOTE] || []).length;
-                    const aScore = aUp - aDown;
-                    const bScore = bUp - bDown;
-                    if (aScore !== bScore) return bScore - aScore;
-                    const at = parseTimestamp(a.created_at);
-                    const bt = parseTimestamp(b.created_at);
-                    if (at !== bt) return bt - at;
-                    return b.id.localeCompare(a.id);
-                }));
+                setMessages(prev => sortMessagesChronological([...prev, result.message]));
             }
             setMessageText(''); setReplyingTo(null); setSelectedImage(null);
             setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
@@ -262,56 +273,52 @@ export default function ChannelChatScreen() {
     };
 
     const renderMessage = ({ item, index }: { item: Message; index: number }) => {
-        const showFullHeader = true;
         const repliedMessage = item.parent_id ? messages.find(m => m.id === item.parent_id) : null;
         const isHighlighted = highlightedId === item.id;
-        const isReply = !!item.parent_id;
-        const upvotes = (item.reactions?.[UPVOTE] || item.reactions?.[LEGACY_UPVOTE] || []).length;
-        const downvotes = (item.reactions?.[DOWNVOTE] || item.reactions?.[LEGACY_DOWNVOTE] || []).length;
-        const score = upvotes - downvotes;
+        const prev = index > 0 ? messages[index - 1] : null;
+        const groupWithPrev =
+            !!prev &&
+            prev.user_id === item.user_id &&
+            parseTimestamp(item.created_at) - parseTimestamp(prev.created_at) < 7 * 60 * 1000;
 
         return (
-            <View style={[styles.messageRow, isReply && styles.replyRow, isHighlighted && styles.messageHighlight]}>
-                <View style={styles.userPanel}>
-                    <View style={styles.userAvatarWrap}>
-                        {item.user_avatar_url ? (
-                            <Image source={{ uri: api.resolveAttachmentUrl(item.user_avatar_url) }} style={styles.userAvatar} />
+            <View style={[styles.msgRow, isReply && styles.replyRow, isHighlighted && styles.msgHighlight, groupWithPrev && styles.msgRowGrouped]}>
+                <View style={styles.msgAvatarSlot}>
+                    {!groupWithPrev ? (
+                        item.user_avatar_url ? (
+                            <Image source={{ uri: api.resolveAttachmentUrl(item.user_avatar_url) }} style={styles.msgAvatar} />
                         ) : (
-                            <View style={styles.avatarMini}>
-                                <Text style={styles.avatarInitial}>{getDisplayName(item)[0]?.toUpperCase()}</Text>
+                            <View style={styles.msgAvatarFallback}>
+                                <Text style={styles.msgAvatarInitial}>{getDisplayName(item)[0]?.toUpperCase()}</Text>
                             </View>
-                        )}
-                    </View>
-                    <Text style={styles.userPanelName} numberOfLines={1}>{getDisplayName(item)}</Text>
-                    <Text style={styles.userPanelRole}>{item.is_admin ? 'Admin' : 'Member'}</Text>
+                        )
+                    ) : null}
                 </View>
-                <View style={styles.contentColumn}>
-                    <View style={styles.metaRow}>
-                        <Text style={styles.postIndex}>#{index + 1}</Text>
-                        <Text style={styles.metaTime}>{formatTime(item.created_at)}</Text>
-                        <View style={styles.votePill}>
-                            <Text style={styles.voteScore}>{score}</Text>
+                <View style={styles.msgBody}>
+                    {!groupWithPrev && (
+                        <View style={styles.msgAuthorRow}>
+                            <Text style={styles.msgAuthor}>{getDisplayName(item)}</Text>
+                            {item.is_admin ? <Text style={styles.msgModBadge}>MOD</Text> : null}
+                            <Text style={styles.msgTime}>{formatShortTime(item.created_at)}</Text>
                         </View>
-                    </View>
+                    )}
                     {repliedMessage && (
                         <TouchableOpacity
                             style={styles.replyContext}
                             onPress={() => scrollToMessage(repliedMessage.id)}
                             activeOpacity={0.7}
                         >
+                            <Ionicons name="return-down-forward" size={12} color={colors.textMuted} style={{ marginRight: 4 }} />
                             <Text style={styles.replyContextText} numberOfLines={1}>
-                                <Text style={styles.replyContextUser}>{getDisplayName(repliedMessage)}: </Text>
+                                <Text style={styles.replyContextUser}>{getDisplayName(repliedMessage)} </Text>
                                 {repliedMessage.content}
                             </Text>
-                            <Ionicons name="arrow-up" size={14} color={colors.textMuted} />
                         </TouchableOpacity>
                     )}
-                    <View style={styles.messageBody}>
-                        {item.content ? <Text style={styles.messageText}>{item.content}</Text> : null}
-                        {item.attachment_url && item.attachment_type === 'image' && (
-                            <Image source={{ uri: api.resolveAttachmentUrl(item.attachment_url) }} style={styles.attachmentImage} resizeMode="cover" />
-                        )}
-                    </View>
+                    {item.content ? <Text style={styles.messageText}>{item.content}</Text> : null}
+                    {item.attachment_url && item.attachment_type === 'image' && (
+                        <Image source={{ uri: api.resolveAttachmentUrl(item.attachment_url) }} style={styles.attachmentImage} resizeMode="cover" />
+                    )}
                     {renderReactions(item)}
                     <View style={styles.messageActions}>
                         <TouchableOpacity onPress={() => handleToggleReaction(item.id, UPVOTE)} style={styles.actionBtn} activeOpacity={0.6}>
@@ -341,10 +348,13 @@ export default function ChannelChatScreen() {
 
     const renderReactions = (message: Message) => {
         if (!message.reactions || Object.keys(message.reactions).length === 0) return null;
-        const entries = Object.entries(message.reactions).map(([emoji, userIds]) => {
-            const normalizedEmoji = emoji === LEGACY_UPVOTE ? UPVOTE : emoji === LEGACY_DOWNVOTE ? DOWNVOTE : emoji;
-            return [normalizedEmoji, userIds] as [string, string[]];
-        });
+        const entries = Object.entries(message.reactions)
+            .map(([emoji, userIds]) => {
+                const normalizedEmoji = emoji === LEGACY_UPVOTE ? UPVOTE : emoji === LEGACY_DOWNVOTE ? DOWNVOTE : emoji;
+                return [normalizedEmoji, userIds] as [string, string[]];
+            })
+            .filter(([emoji]) => emoji !== UPVOTE && emoji !== DOWNVOTE);
+        if (entries.length === 0) return null;
         return (
             <View style={styles.reactionsRow}>
                 {entries.map(([emoji, userIds]) => {
@@ -378,8 +388,8 @@ export default function ChannelChatScreen() {
                     {!isSearching ? (
                         <>
                             <View style={styles.headerCenter}>
-                                <Text style={styles.channelName} numberOfLines={1}>{channelName}</Text>
-                                <Text style={styles.channelHint}>Channel</Text>
+                                <Text style={styles.channelName} numberOfLines={1}>{`#${channelName}`}</Text>
+                                <Text style={styles.channelHint}>Live chat</Text>
                             </View>
                             <TouchableOpacity onPress={() => setIsSearching(true)} style={styles.headerAction} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                                 <Ionicons name="search" size={22} color={colors.textMuted} />
@@ -398,19 +408,21 @@ export default function ChannelChatScreen() {
                     ListHeaderComponent={
                         !isSearching ? (
                             <View style={styles.threadHeader}>
-                                <Text style={styles.breadcrumb}>Community · {channelCategory || 'general'}</Text>
-                                <Text style={styles.threadTitle}>{channelName}</Text>
-                                {!!channelDescription && <Text style={styles.threadSubtitle}>{channelDescription}</Text>}
-                                {!!channelTags.length && (
-                                    <View style={styles.tagRow}>
-                                        {channelTags.slice(0, 5).map((tag) => (
-                                            <View key={tag} style={styles.tagPill}><Text style={styles.tagText}>{tag}</Text></View>
-                                        ))}
-                                    </View>
-                                )}
-                                <Text style={styles.ugcNotice}>
-                                    Be respectful. Use the ··· menu on a message to report content or block a user. For help, open Legal & safety from your profile.
+                                <Text style={styles.threadHashLine} numberOfLines={1}>
+                                    #{channelName}
+                                    {channelCategory ? <Text style={styles.threadMetaMuted}> · {channelCategory}</Text> : null}
                                 </Text>
+                                {!!channelDescription && (
+                                    <Text style={styles.threadSubtitle} numberOfLines={2}>
+                                        {channelDescription}
+                                    </Text>
+                                )}
+                                {!!channelTags.length && (
+                                    <Text style={styles.threadTagsInline} numberOfLines={1}>
+                                        {channelTags.slice(0, 5).map((tag) => `#${tag}`).join(' ')}
+                                    </Text>
+                                )}
+                                <Text style={styles.ugcNotice}>··· on a message: report or block.</Text>
                             </View>
                         ) : null
                     }
@@ -484,65 +496,45 @@ const styles = StyleSheet.create({
     searchBar: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: 10, paddingHorizontal: spacing.sm, height: 40 },
     searchInput: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 8, marginRight: spacing.sm },
     cancelText: { color: colors.info, fontWeight: '600', fontSize: 15 },
-    messagesListContainer: { backgroundColor: colors.surface },
-    messagesList: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.lg },
-    messageRow: {
+    messagesListContainer: { backgroundColor: colors.background },
+    messagesList: { paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.sm },
+    msgRow: {
         flexDirection: 'row',
-        backgroundColor: colors.card,
-        borderRadius: 12,
-        marginBottom: spacing.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        ...shadows.sm,
+        alignItems: 'flex-start',
+        paddingVertical: 6,
+        paddingHorizontal: 4,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.border,
     },
-    replyRow: {
-        borderLeftWidth: 3,
-        borderLeftColor: colors.info,
-    },
-    messageHighlight: { borderColor: colors.info },
-    userPanel: {
-        width: 120,
-        padding: spacing.md,
-        borderRightWidth: 1,
-        borderRightColor: colors.border,
-        alignItems: 'center',
-        backgroundColor: colors.surface,
-        borderTopLeftRadius: 12,
-        borderBottomLeftRadius: 12,
-    },
-    userAvatarWrap: { marginBottom: spacing.sm },
-    userAvatar: { width: 56, height: 56, borderRadius: 28 },
-    avatarMini: { width: 56, height: 56, borderRadius: 28, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center' },
-    avatarInitial: { color: colors.buttonText, fontWeight: '700', fontSize: 16 },
-    userPanelName: { fontSize: 13, fontWeight: '700', color: colors.foreground, textAlign: 'center' },
-    userPanelRole: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
-    contentColumn: { flex: 1, minWidth: 0, padding: spacing.md },
-    metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm },
-    postIndex: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
-    metaTime: { fontSize: 11, color: colors.textMuted },
-    votePill: { backgroundColor: colors.surface, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
-    voteScore: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
+    msgRowGrouped: { paddingTop: 2, paddingBottom: 4 },
+    replyRow: { borderLeftWidth: 2, borderLeftColor: colors.info, paddingLeft: 6, marginLeft: 2 },
+    msgHighlight: { backgroundColor: colors.accentMuted },
+    msgAvatarSlot: { width: 40, alignItems: 'center', marginRight: 8 },
+    msgAvatar: { width: 36, height: 36, borderRadius: 18 },
+    msgAvatarFallback: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center' },
+    msgAvatarInitial: { color: colors.buttonText, fontWeight: '700', fontSize: 13 },
+    msgBody: { flex: 1, minWidth: 0 },
+    msgAuthorRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 2 },
+    msgAuthor: { fontSize: 14, fontWeight: '700', color: colors.foreground },
+    msgModBadge: { fontSize: 9, fontWeight: '800', color: colors.background, backgroundColor: colors.info, paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3, overflow: 'hidden' },
+    msgTime: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
     replyContext: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.sm,
         backgroundColor: colors.surface,
-        borderRadius: 8,
-        paddingHorizontal: spacing.sm,
-        paddingVertical: 6,
-        marginBottom: 8,
-        borderLeftWidth: 3,
-        borderLeftColor: colors.info,
+        borderRadius: 6,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        marginBottom: 4,
     },
-    replyContextText: { color: colors.textSecondary, fontSize: 13, flex: 1 },
+    replyContextText: { color: colors.textSecondary, fontSize: 12, flex: 1 },
     replyContextUser: { fontWeight: '600', color: colors.foreground },
-    messageBody: { backgroundColor: colors.background, borderRadius: 8, padding: spacing.md },
-    messageText: { color: colors.foreground, fontSize: 15, lineHeight: 22 },
-    attachmentImage: { width: '100%', aspectRatio: 1.33, borderRadius: 12, marginTop: spacing.sm, backgroundColor: colors.surface, maxWidth: 260 },
-    messageActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center' },
-    actionBtn: { padding: 6 },
-    reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 8, gap: 6 },
-    reactionBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: colors.border },
+    messageText: { color: colors.foreground, fontSize: 14, lineHeight: 20 },
+    attachmentImage: { width: '100%', maxWidth: 280, aspectRatio: 1.33, borderRadius: 8, marginTop: 6, backgroundColor: colors.surface },
+    messageActions: { flexDirection: 'row', gap: 4, marginTop: 4, alignItems: 'center', opacity: 0.85 },
+    actionBtn: { padding: 4 },
+    reactionsRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, gap: 4 },
+    reactionBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
     reactionBadgeActive: { backgroundColor: colors.accentMuted, borderColor: colors.foreground },
     reactionEmoji: { fontSize: 13 },
     reactionCount: { fontSize: 11, color: colors.textSecondary, marginLeft: 4 },
@@ -551,14 +543,12 @@ const styles = StyleSheet.create({
     emptyStateIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.lg },
     welcomeTitle: { fontSize: 20, fontWeight: '700', color: colors.foreground, textAlign: 'center', marginBottom: spacing.sm },
     welcomeSubtitle: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
-    threadHeader: { backgroundColor: colors.card, padding: spacing.lg, borderRadius: 12, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.lg },
-    breadcrumb: { fontSize: 11, color: colors.textMuted, letterSpacing: 0.4, textTransform: 'uppercase' },
-    threadTitle: { fontSize: 20, fontWeight: '700', color: colors.foreground, marginTop: 6 },
-    threadSubtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 6, lineHeight: 18 },
-    tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm },
-    tagPill: { backgroundColor: colors.surface, borderRadius: borderRadius.full, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
-    tagText: { fontSize: 10, color: colors.textMuted, fontWeight: '600' },
-    ugcNotice: { fontSize: 12, color: colors.textMuted, lineHeight: 17, marginTop: spacing.md },
+    threadHeader: { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm, marginBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+    threadHashLine: { fontSize: 15, fontWeight: '700', color: colors.foreground },
+    threadMetaMuted: { fontSize: 13, fontWeight: '500', color: colors.textMuted },
+    threadSubtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 4, lineHeight: 16 },
+    threadTagsInline: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
+    ugcNotice: { fontSize: 11, color: colors.textMuted, marginTop: 6 },
     inputWrapper: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, backgroundColor: colors.background, borderTopWidth: 1, borderTopColor: colors.border },
     replyPreview: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, paddingVertical: 10, paddingHorizontal: spacing.md, borderRadius: 12, marginBottom: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.info },
     replyPreviewText: { color: colors.textSecondary, fontSize: 13, flex: 1 },

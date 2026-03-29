@@ -274,7 +274,7 @@ MAXX_SEEDS = [
     {
         "id": "skinmax",
         "label": "skinmax",
-        "description": "Skincare and SPF routines.",
+        "description": "Skincare and gut health",
         "icon": "sparkles-outline",
         "color": "#8B5CF6",
         "modules": SKINMAX_MODULES,

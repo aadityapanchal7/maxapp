@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -217,48 +217,38 @@ export default function ForumsScreen() {
                     <View style={styles.contentWrap}>
                     {filteredForums.map(channel => {
                         const isOfficial = channel.is_admin_only;
+                        const count = channel.message_count || 0;
                         return (
                             <TouchableOpacity
                                 key={channel.id}
-                                style={[styles.card, activeChannelId === channel.id && styles.cardActive]}
+                                style={[styles.channelRow, activeChannelId === channel.id && styles.channelRowActive]}
                                 onPress={() => handleChannelPress(channel)}
                                 activeOpacity={0.7}
                             >
-                                <View style={styles.voteCol}>
-                                    <Ionicons name="arrow-up" size={18} color={colors.textMuted} />
-                                    <Text style={styles.voteCount}>{channel.message_count || 0}</Text>
-                                    <Ionicons name="arrow-down" size={18} color={colors.textMuted} />
-                                </View>
-                                <View style={[styles.iconWrap, isOfficial && styles.iconWrapOfficial]}>
-                                    <Ionicons name="chatbubble-ellipses" size={20} color={isOfficial ? colors.info : colors.textSecondary} />
-                                </View>
-                                <View style={styles.info}>
-                                    <View style={styles.titleRow}>
-                                        <Text style={styles.channelName} numberOfLines={1}>{channel.name}</Text>
-                                        {channel.category && <Text style={styles.categoryBadge}>{channel.category}</Text>}
+                                <Text style={styles.channelHash} accessibilityLabel="Channel">
+                                    #
+                                </Text>
+                                <View style={styles.channelMain}>
+                                    <View style={styles.channelTitleLine}>
+                                        <Text style={styles.channelName} numberOfLines={1}>
+                                            {channel.name}
+                                        </Text>
+                                        {channel.category ? (
+                                            <Text style={styles.categoryInline} numberOfLines={1}>
+                                                {' '}
+                                                · {channel.category}
+                                            </Text>
+                                        ) : null}
+                                        {isOfficial ? <Text style={styles.officialMark}> Official</Text> : null}
                                     </View>
-                                    <Text style={styles.channelDesc} numberOfLines={2}>{channel.description || 'No description'}</Text>
-                                    {!isOfficial && channel.created_by_username && (
-                                        <View style={styles.creatorRow}>
-                                            {channel.created_by_avatar_url ? (
-                                                <Image source={{ uri: api.resolveAttachmentUrl(channel.created_by_avatar_url) }} style={styles.creatorAvatar} />
-                                            ) : (
-                                                <View style={styles.creatorAvatarFallback}>
-                                                    <Text style={styles.creatorInitial}>{channel.created_by_username[0]?.toUpperCase()}</Text>
-                                                </View>
-                                            )}
-                                            <Text style={styles.creatorText}>by {channel.created_by_username}</Text>
-                                        </View>
-                                    )}
-                                    {!!channel.tags?.length && (
-                                        <View style={styles.tagRow}>
-                                            {channel.tags.slice(0, 3).map((tag: string) => (
-                                                <View key={tag} style={styles.tagPill}><Text style={styles.tagText}>{tag}</Text></View>
-                                            ))}
-                                        </View>
-                                    )}
+                                    {channel.description ? (
+                                        <Text style={styles.channelTopic} numberOfLines={1}>
+                                            {channel.description}
+                                        </Text>
+                                    ) : null}
                                 </View>
-                                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                                <Text style={styles.channelStat}>{count}</Text>
+                                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
                             </TouchableOpacity>
                         );
                     })}
@@ -432,46 +422,29 @@ const styles = StyleSheet.create({
     sectionAccent: { width: 4, height: 18, borderRadius: 2, backgroundColor: colors.foreground, marginRight: spacing.sm },
     sectionAccentOfficial: { backgroundColor: colors.info },
     sectionTitle: { fontSize: 13, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.5 },
-    card: {
+    channelRow: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.card,
-        borderRadius: 12,
-        padding: spacing.md,
-        marginBottom: spacing.sm,
+        borderRadius: 8,
+        paddingVertical: 10,
+        paddingHorizontal: spacing.sm,
+        marginBottom: 4,
         borderWidth: 1,
         borderColor: colors.border,
-        ...shadows.sm,
     },
-    cardActive: {
+    channelRowActive: {
         borderColor: colors.foreground,
-        ...shadows.md,
-    },
-    voteCol: { alignItems: 'center', marginRight: spacing.sm },
-    voteCount: { fontSize: 12, color: colors.textSecondary, marginVertical: 2, fontWeight: '600' },
-    iconWrap: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
         backgroundColor: colors.surface,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: spacing.md,
     },
-    iconWrapOfficial: { backgroundColor: colors.accentMuted },
-    info: { flex: 1, minWidth: 0 },
-    titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    channelHash: { fontSize: 18, fontWeight: '700', color: colors.textMuted, width: 16, marginRight: 4 },
+    channelMain: { flex: 1, minWidth: 0 },
+    channelTitleLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
     channelName: { fontSize: 15, fontWeight: '700', color: colors.foreground },
-    categoryBadge: { fontSize: 11, color: colors.textMuted, backgroundColor: colors.surface, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-    channelDesc: { fontSize: 13, color: colors.textMuted, marginTop: 2, lineHeight: 18 },
-    creatorRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
-    creatorAvatar: { width: 18, height: 18, borderRadius: 9 },
-    creatorAvatarFallback: { width: 18, height: 18, borderRadius: 9, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-    creatorInitial: { fontSize: 10, color: colors.textMuted, fontWeight: '700' },
-    creatorText: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
-    tagRow: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.sm },
-    tagPill: { backgroundColor: colors.surface, borderRadius: borderRadius.full, paddingHorizontal: 8, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
-    tagText: { fontSize: 10, color: colors.textMuted, fontWeight: '600' },
+    categoryInline: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
+    officialMark: { fontSize: 10, fontWeight: '700', color: colors.info },
+    channelTopic: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+    channelStat: { fontSize: 11, fontWeight: '600', color: colors.textMuted, marginRight: 4, minWidth: 28, textAlign: 'right' },
     empty: { alignItems: 'center', marginTop: 48 },
     emptyIconWrap: {
         width: 88,
