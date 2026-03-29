@@ -6,6 +6,7 @@ Async PostgreSQL for shared/multi-user data
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import text
 from typing import AsyncGenerator
+
 from config import settings
 
 
@@ -41,35 +42,23 @@ async def get_rds_db() -> AsyncGenerator[AsyncSession, None]:
     Usage: rds_db: AsyncSession = Depends(get_rds_db)
     """
     async with RDSSessionLocal() as session:
-        try:
-            yield session
-        except BaseException:
-            try:
-                await session.rollback()
-            except Exception:
-                pass
-            raise
-        finally:
-            await session.close()
+        yield session
 
 
 async def get_rds_db_optional() -> AsyncGenerator["AsyncSession | None", None]:
     """
-    Optional RDS session — yields None if RDS is unavailable (e.g. not configured).
-    Use for endpoints that can fall back to code when RDS fails.
+    Optional RDS session — yields None when RDS is not configured (no password).
+    Endpoints should use `if rds_db:` before querying RDS.
+
+    Use only a single `yield session` inside `async with` (no extra try/finally/close),
+    so FastAPI can inject athrow() into the dependency generator safely.
     """
-    try:
-        async with RDSSessionLocal() as session:
-            try:
-                yield session
-            except BaseException:
-                try:
-                    await session.rollback()
-                except Exception:
-                    pass
-                raise
-    except Exception:
+    if not (settings.aws_rds_password or "").strip():
         yield None
+        return
+
+    async with RDSSessionLocal() as session:
+        yield session
 
 
 async def init_rds_db():

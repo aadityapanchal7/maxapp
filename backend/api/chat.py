@@ -237,6 +237,240 @@ def _to_kg_from_text(text: str) -> Optional[float]:
     return None
 
 
+def _parse_days_per_week_reply(text: str) -> Optional[int]:
+    """Parse training days (1–7) from short answers like '3', 'five', '5 days', '3-4', '5+', 'gym\\n3'."""
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    s = raw.lower()
+    wmap = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7}
+    if s in wmap:
+        return wmap[s]
+    if re.fullmatch(r"([1-7])\.?", s):
+        return int(s[0])
+    if re.search(r"\b5\+|5\s*plus|6\s*[-–]\s*7|every\s*day|daily\b|all\s*week\b", s):
+        return 6
+    if re.search(r"\b3\s*[-–]\s*4\b|three\s+or\s+four\b", s):
+        return 4
+    if re.search(r"\b1\s*[-–]\s*2\b|one\s+or\s+two\b", s):
+        return 2
+    m = re.search(
+        r"\b([1-7])\s*(?:days?|d/w|times?|x|sessions?)(?:\s*(?:per|a|\/)\s*(?:week|wk))?\b",
+        s,
+    )
+    if m:
+        return int(m.group(1))
+    m2 = re.search(
+        r"\b(one|two|three|four|five|six|seven)\s*(?:days?|times?)?(?:\s*(?:per|a)\s*week)?\b",
+        s,
+    )
+    if m2 and m2.group(1) in wmap:
+        return wmap[m2.group(1)]
+    # Last non-empty line: "gym" then user sends "3", or combined "gym\n3"
+    for line in reversed(s.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        low = line.lower()
+        if low in wmap:
+            return wmap[low]
+        if re.fullmatch(r"[1-7]\.?", line):
+            return int(line[0])
+    return None
+
+
+HAIRMAX_REQUIRED_FIELDS = ["hair_type", "scalp_state", "daily_styling", "thinning"]
+
+
+def _hairmax_missing_fields(profile: dict) -> list[str]:
+    return [f for f in HAIRMAX_REQUIRED_FIELDS if profile.get(f) in (None, "", [])]
+
+
+def _hairmax_next_question(profile: dict) -> str:
+    missing = _hairmax_missing_fields(profile)
+    if not missing:
+        return ""
+    prompts = {
+        "hair_type": "what's your hair type — straight, wavy, curly, or coily?",
+        "scalp_state": "how's your scalp: normal, dry/flaky, oily/greasy, or itchy?",
+        "daily_styling": "do you use hair products or styling most days? yes or no.",
+        "thinning": "noticing any thinning or receding hairline? yes or no.",
+    }
+    return prompts[missing[0]]
+
+
+def _extract_hairmax_updates(message: str, current: dict) -> dict:
+    s = (message or "").strip().lower()
+    updates: dict = {}
+
+    hair_types = {
+        "straight": "straight", "wavy": "wavy", "curly": "curly", "coily": "coily",
+        "coarse": "coily", "kinky": "coily",
+    }
+    for kw, val in hair_types.items():
+        if kw in s:
+            updates["hair_type"] = val
+            break
+
+    scalp_map = {
+        "normal": "normal", "healthy": "normal",
+        "dry": "dry/flaky", "flaky": "dry/flaky", "dandruff": "dry/flaky",
+        "oily": "oily/greasy", "greasy": "oily/greasy",
+        "itchy": "itchy", "irritated": "itchy",
+    }
+    for kw, val in scalp_map.items():
+        if kw in s:
+            updates["scalp_state"] = val
+            break
+
+    yes_words = ("yes", "y", "yeah", "yep", "yea", "sure", "definitely", "for sure")
+    no_words = ("no", "n", "nope", "nah", "not really", "none", "minimal", "barely")
+
+    if "daily_styling" not in current or current.get("daily_styling") in (None, "", []):
+        for w in yes_words:
+            if re.search(rf"\b{re.escape(w)}\b", s):
+                updates["daily_styling"] = "yes"
+                break
+        if "daily_styling" not in updates:
+            for w in no_words:
+                if re.search(rf"\b{re.escape(w)}\b", s):
+                    updates["daily_styling"] = "no"
+                    break
+
+    if "thinning" not in current or current.get("thinning") in (None, "", []):
+        for w in yes_words:
+            if re.search(rf"\b{re.escape(w)}\b", s):
+                updates["thinning"] = "yes"
+                break
+        if "thinning" not in updates:
+            for w in no_words:
+                if re.search(rf"\b{re.escape(w)}\b", s):
+                    updates["thinning"] = "no"
+                    break
+
+    return updates
+
+
+def _hairmax_seed_profile_from_onboarding(profile: dict, ob: dict) -> dict:
+    """Pre-fill HairMax chat profile from global onboarding answers."""
+    out = dict(profile or {})
+    ob = ob or {}
+    for key in HAIRMAX_REQUIRED_FIELDS:
+        if out.get(key) not in (None, "", []):
+            continue
+        v = ob.get(key)
+        if v is not None and str(v).strip():
+            out[key] = str(v).strip()
+    hcl = str(ob.get("hair_current_loss") or "").strip().lower()
+    if out.get("thinning") in (None, "", []) and hcl:
+        if any(w in hcl for w in ("yes", "yeah", "yep", "reced", "thin", "losing", "balding", "some")):
+            out["thinning"] = "yes"
+        elif any(w in hcl for w in ("no", "nope", "not ", "none", "minimal")):
+            out["thinning"] = "no"
+    return out
+
+
+def _hairmax_setup_stale(profile: dict, hours: float = 24) -> bool:
+    at = (profile or {}).get("hairmax_chat_setup_at")
+    if not at:
+        return False
+    try:
+        at_s = str(at).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(at_s)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - parsed > timedelta(hours=hours)
+    except Exception:
+        return True
+
+
+def _assistant_last_turn_is_hairmax_onboarding(history: list) -> bool:
+    """True if the latest assistant message looks like scripted HairMax intake."""
+    for h in reversed(history or []):
+        if h.get("role") != "assistant":
+            continue
+        c = (h.get("content") or "").lower()
+        needles = (
+            "welcome to hairmax",
+            "setting up your hairmax",
+            "hair type",
+            "straight, wavy, curly, or coily",
+            "how's your scalp",
+            "normal, dry/flaky, oily/greasy, or itchy",
+            "hair products or styling",
+            "thinning or receding",
+        )
+        return any(n in c for n in needles)
+    return False
+
+
+def _fitmax_setup_stale(profile: dict, hours: float = 24) -> bool:
+    at = (profile or {}).get("fitmax_chat_setup_at")
+    if not at:
+        return False
+    try:
+        at_s = str(at).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(at_s)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - parsed > timedelta(hours=hours)
+    except Exception:
+        return True
+
+
+def _assistant_last_turn_is_fitmax_onboarding(history: list) -> bool:
+    """True if the latest assistant message looks like scripted FitMax intake (app thread)."""
+    for h in reversed(history or []):
+        if h.get("role") != "assistant":
+            continue
+        c = (h.get("content") or "").lower()
+        needles = (
+            "welcome to fitmax",
+            "what's your main goal right now",
+            "training experience level",
+            "height (cm or ft/in)",
+            "current body weight",
+            "how old are you",
+            "biological sex",
+            "what do you have available to train",
+            "how many days per week can you realistically train",
+            "session length can you commit",
+            "outside the gym, what's your daily activity",
+            "dietary restrictions",
+        )
+        return any(n in c for n in needles)
+    return False
+
+
+def _parse_session_minutes_reply(text: str) -> Optional[int]:
+    """Parse session length when user sends '45', '60', '90 min', etc."""
+    s = (text or "").strip().lower()
+    if not s:
+        return None
+    m = re.fullmatch(r"(\d{2,3})\s*(?:min|mins|minutes?)?\.?", s)
+    if m:
+        v = int(m.group(1))
+        if 20 <= v <= 180:
+            return v
+    return None
+
+
+def _parse_daily_activity_short_reply(text: str) -> Optional[str]:
+    """Single-word / short aliases for the activity-level question."""
+    s = (text or "").strip().lower()
+    if not s:
+        return None
+    if s in ("sedentary", "desk", "office", "sit"):
+        return "sedentary"
+    if s in ("light", "lightly", "low", "easy"):
+        return "lightly_active"
+    if s in ("moderate", "medium", "mid", "average", "normal"):
+        return "moderately_active"
+    if s in ("very", "high", "active", "lots"):
+        return "very_active"
+    return None
+
+
 def _extract_fitmax_updates(message: str, current: dict) -> dict:
     s = (message or "").strip().lower()
     updates = {}
@@ -279,7 +513,10 @@ def _extract_fitmax_updates(message: str, current: dict) -> dict:
     if any(k in s for k in ["dumbbell", "barbell", "bench", "machine", "gym", "cable", "bands", "bodyweight", "home"]):
         updates["equipment"] = s
 
-    days_match = re.search(r"(\d)\s*(?:days?|x)\s*(?:per week|/week|a week)?", s)
+    days_match = re.search(
+        r"\b([1-7])\s*(?:days?|day|times?|x)(?:\s*(?:per|a|\/)\s*(?:week|wk|weeks?))?\b",
+        s,
+    )
     if days_match:
         days = int(days_match.group(1))
         if 1 <= days <= 7:
@@ -993,7 +1230,10 @@ async def process_chat_message(
     """
     from services.schedule_service import schedule_service, ScheduleLimitError
     user_uuid = UUID(user_id)
-    
+
+    fitmax_schedule_active = None
+    hairmax_schedule_active = None
+
     # SMS is not persisted; use in-app thread as read-only context for the model.
     history_channel_for_load = "app" if channel == "sms" else channel
     history_result = await db.execute(
@@ -1023,6 +1263,52 @@ async def process_chat_message(
             profile = dict((user.profile or {}) or {})
     else:
         profile = {}
+
+    if user:
+        try:
+            fitmax_schedule_active = await schedule_service.get_maxx_schedule(user_id, "fitmax", db=db)
+        except Exception:
+            fitmax_schedule_active = None
+        try:
+            hairmax_schedule_active = await schedule_service.get_maxx_schedule(user_id, "hairmax", db=db)
+        except Exception:
+            hairmax_schedule_active = None
+        if hairmax_schedule_active and profile.get("hairmax_chat_setup"):
+            prof = dict(profile)
+            prof.pop("hairmax_chat_setup", None)
+            prof.pop("hairmax_chat_setup_at", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+        elif profile.get("hairmax_chat_setup") and _hairmax_setup_stale(profile):
+            prof = dict(profile)
+            prof.pop("hairmax_chat_setup", None)
+            prof.pop("hairmax_chat_setup_at", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+        if fitmax_schedule_active and profile.get("fitmax_chat_setup"):
+            prof = dict(profile)
+            prof.pop("fitmax_chat_setup", None)
+            prof.pop("fitmax_chat_setup_at", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+        elif profile.get("fitmax_chat_setup") and _fitmax_setup_stale(profile):
+            prof = dict(profile)
+            prof.pop("fitmax_chat_setup", None)
+            prof.pop("fitmax_chat_setup_at", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
 
     user_context = {
         "coaching_context": coaching_context,
@@ -1076,17 +1362,84 @@ async def process_chat_message(
 
     if maxx_id and maxx_id != "fitmax" and user:
         prof = dict(user.profile or {})
+        changed = False
         if str(prof.get("chat_pending_module") or "").lower() == "fitmax":
             prof.pop("chat_pending_module", None)
             prof.pop("chat_pending_module_at", None)
+            changed = True
+        if prof.get("fitmax_chat_setup"):
+            prof.pop("fitmax_chat_setup", None)
+            prof.pop("fitmax_chat_setup_at", None)
+            changed = True
+        if changed:
             user.profile = prof
             flag_modified(user, "profile")
             user.updated_at = datetime.utcnow()
             await db.commit()
             profile = prof
 
+    if maxx_id and maxx_id != "hairmax" and user:
+        prof = dict(user.profile or {})
+        if prof.get("hairmax_chat_setup"):
+            prof.pop("hairmax_chat_setup", None)
+            prof.pop("hairmax_chat_setup_at", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = prof
+
+    if maxx_id == "fitmax" and user and not fitmax_schedule_active:
+        prof = dict(profile or {})
+        if not prof.get("fitmax_chat_setup"):
+            prof["fitmax_chat_setup"] = True
+            prof["fitmax_chat_setup_at"] = datetime.now(timezone.utc).isoformat()
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+
+    if maxx_id == "hairmax" and user and not hairmax_schedule_active:
+        prof = dict(profile or {})
+        if not prof.get("hairmax_chat_setup"):
+            prof["hairmax_chat_setup"] = True
+            prof["hairmax_chat_setup_at"] = datetime.now(timezone.utc).isoformat()
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+
     fitmax_pending = bool(user and str(profile.get("chat_pending_module") or "").lower() == "fitmax")
-    run_fitmax_onboarding = bool(user and (maxx_id == "fitmax" or fitmax_pending))
+    fitmax_chat_setup = bool(profile.get("fitmax_chat_setup"))
+    run_fitmax_onboarding = bool(
+        user
+        and not fitmax_schedule_active
+        and (
+            maxx_id == "fitmax"
+            or fitmax_pending
+            or (
+                fitmax_chat_setup
+                and not _fitmax_setup_stale(profile)
+                and (channel == "sms" or _assistant_last_turn_is_fitmax_onboarding(history))
+            )
+        )
+    )
+
+    hairmax_chat_setup = bool(profile.get("hairmax_chat_setup"))
+    run_hairmax_onboarding = bool(
+        user
+        and not hairmax_schedule_active
+        and (
+            maxx_id == "hairmax"
+            or (
+                hairmax_chat_setup
+                and not _hairmax_setup_stale(profile)
+                and _assistant_last_turn_is_hairmax_onboarding(history)
+            )
+        )
+    )
 
     # --- Fitmax chat onboarding (profile is populated conversationally) ---
     if run_fitmax_onboarding:
@@ -1100,6 +1453,21 @@ async def process_chat_message(
             user.updated_at = datetime.utcnow()
             await db.commit()
         updates = _extract_fitmax_updates(message_text, fitmax_profile)
+        missing_next = _fitmax_missing_fields(fitmax_profile)
+        if missing_next:
+            nxt = missing_next[0]
+            if nxt == "days_per_week" and "days_per_week" not in updates:
+                d = _parse_days_per_week_reply(message_text)
+                if d is not None:
+                    updates["days_per_week"] = d
+            elif nxt == "session_minutes" and "session_minutes" not in updates:
+                sm = _parse_session_minutes_reply(message_text)
+                if sm is not None:
+                    updates["session_minutes"] = sm
+            elif nxt == "daily_activity_level" and "daily_activity_level" not in updates:
+                act = _parse_daily_activity_short_reply(message_text)
+                if act is not None:
+                    updates["daily_activity_level"] = act
         if updates:
             fitmax_profile.update(updates)
             profile["fitmax_profile"] = fitmax_profile
@@ -1124,7 +1492,7 @@ async def process_chat_message(
             await db.commit()
             profile = prof
         else:
-            fitmax_schedule = await schedule_service.get_maxx_schedule(user_id, "fitmax", db=db)
+            fitmax_schedule = fitmax_schedule_active
             missing = _fitmax_missing_fields(fitmax_profile)
 
             # Onboarding incomplete -> ask exactly one next question in chat
@@ -1166,6 +1534,8 @@ async def process_chat_message(
                 plan = _fitmax_build_plan(fitmax_profile)
                 profile.pop("chat_pending_module", None)
                 profile.pop("chat_pending_module_at", None)
+                profile.pop("fitmax_chat_setup", None)
+                profile.pop("fitmax_chat_setup_at", None)
                 profile["fitmax_plan"] = plan
                 user.profile = profile
                 flag_modified(user, "profile")
@@ -1218,6 +1588,142 @@ async def process_chat_message(
                     db.add(assistant_message)
                 await db.commit()
                 return response_text
+
+    # --- Hairmax chat onboarding (deterministic, same pattern as fitmax) ---
+    if run_hairmax_onboarding:
+        hairmax_profile = dict(profile.get("hairmax_profile") or {})
+        seeded = _hairmax_seed_profile_from_onboarding(hairmax_profile, onboarding)
+        if seeded != hairmax_profile:
+            hairmax_profile = seeded
+            profile["hairmax_profile"] = hairmax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+
+        updates = _extract_hairmax_updates(message_text, hairmax_profile)
+        missing_next = _hairmax_missing_fields(hairmax_profile)
+        if missing_next:
+            nxt = missing_next[0]
+            if nxt == "daily_styling" and "daily_styling" not in updates:
+                s_low = (message_text or "").strip().lower()
+                yes_words = ("yes", "y", "yeah", "yep", "yea", "sure", "definitely")
+                no_words = ("no", "n", "nope", "nah", "not really", "none", "minimal", "barely")
+                for w in yes_words:
+                    if re.search(rf"\b{re.escape(w)}\b", s_low):
+                        updates["daily_styling"] = "yes"
+                        break
+                if "daily_styling" not in updates:
+                    for w in no_words:
+                        if re.search(rf"\b{re.escape(w)}\b", s_low):
+                            updates["daily_styling"] = "no"
+                            break
+            elif nxt == "thinning" and "thinning" not in updates:
+                s_low = (message_text or "").strip().lower()
+                yes_words = ("yes", "y", "yeah", "yep", "yea", "sure", "definitely")
+                no_words = ("no", "n", "nope", "nah", "not really", "none", "minimal", "barely")
+                for w in yes_words:
+                    if re.search(rf"\b{re.escape(w)}\b", s_low):
+                        updates["thinning"] = "yes"
+                        break
+                if "thinning" not in updates:
+                    for w in no_words:
+                        if re.search(rf"\b{re.escape(w)}\b", s_low):
+                            updates["thinning"] = "no"
+                            break
+        if updates:
+            hairmax_profile.update(updates)
+            profile["hairmax_profile"] = hairmax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+
+        missing = _hairmax_missing_fields(hairmax_profile)
+
+        if not hairmax_schedule_active and missing:
+            if not any(hairmax_profile.values()):
+                response_text = (
+                    "hey, setting up your hairmax schedule. just need a few quick answers. "
+                    + _hairmax_next_question(hairmax_profile)
+                )
+            else:
+                response_text = _hairmax_next_question(hairmax_profile)
+
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            return response_text
+
+        if not hairmax_schedule_active and not missing:
+            profile.pop("hairmax_chat_setup", None)
+            profile.pop("hairmax_chat_setup_at", None)
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+
+            wake = str(onboarding.get("wake_time") or "07:00")
+            sleep = str(onboarding.get("sleep_time") or "23:00")
+
+            try:
+                schedule = await schedule_service.generate_maxx_schedule(
+                    user_id=user_id,
+                    maxx_id="hairmax",
+                    db=db,
+                    rds_db=rds_db if rds_db else None,
+                    wake_time=wake,
+                    sleep_time=sleep,
+                    skin_concern=None,
+                    outside_today=False,
+                    override_hair_type=hairmax_profile.get("hair_type"),
+                    override_scalp_state=hairmax_profile.get("scalp_state"),
+                    override_daily_styling=_normalize_hair_yes_no(hairmax_profile.get("daily_styling")),
+                    override_thinning=_normalize_hair_yes_no(hairmax_profile.get("thinning")),
+                )
+                user_context["active_maxx_schedule"] = schedule
+                schedule_summary = _summarise_schedule(schedule)
+                response_text = f"your hairmax schedule is locked in.\n\n{schedule_summary}"
+            except ScheduleLimitError as e:
+                names = ", ".join(e.active_labels)
+                response_text = (
+                    f"your hairmax profile is saved, but you already have 2 active modules ({names}). "
+                    "stop one of them first and then come back to start hairmax."
+                )
+
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            return response_text
 
     # --- Fitmax meal logging from natural language (average macro lookup) ---
     if user:
@@ -1448,6 +1954,24 @@ Call generate_maxx_schedule once when you have skin_concern + outside_today (wak
                 BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT,
             )
             message = f"{_bone_pre}{bone_sys}\n\n{message}"
+        elif maxx_id == "fitmax":
+            _wt = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
+            _st = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
+            message = f"""[SYSTEM: FitMax — training & nutrition schedule. The user is starting or continuing FitMax.
+
+CRITICAL — FORBIDDEN FOR FITMAX (not SkinMax)
+- NEVER ask "outside today", "going outside", UV, sunscreen, or SPF. FitMax always uses outside_today=false in generate_maxx_schedule.
+- NEVER ask wake_time or sleep_time to complete setup — use user_context.onboarding or pass wake_time="{_wt}" and sleep_time="{_st}" in the tool. Only acknowledge if the user volunteers a correction.
+
+ANTI-REDUNDANCY
+- Do NOT repeat the same question if the user already answered in this thread.
+- Do NOT use the SkinMax flow (skin concern + outside today). FitMax is not a skin module.
+
+WHAT TO DO
+- If you have enough context, call generate_maxx_schedule ONCE with maxx_id="fitmax", outside_today=false, skin_concern=a short goal/phase label from the conversation, wake_time="{_wt}", sleep_time="{_st}".
+- Otherwise ONE short follow-up at a time — never wake, sleep, or outside.
+
+STYLE: short, casual, same as other maxxes.]\n\n{message}"""
         else:
             concern_question, concerns = None, []
             if rds_db:
@@ -1699,7 +2223,9 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     wake_time=str(final_wake),
                     sleep_time=str(final_sleep),
                     skin_concern=skin_concern,
-                    outside_today=bool(args.get("outside_today", False)),
+                    outside_today=False
+                    if req_maxx == "fitmax"
+                    else bool(args.get("outside_today", False)),
                     override_age=age,
                     override_sex=sex,
                     override_height=str(height) if height is not None else None,

@@ -169,6 +169,22 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 - Higher workout days/week → place neck training after training days where possible
 - Gum beginners → shorter mastic sessions with same form rules
 
+## MINIMUM TASKS PER DAY — MANDATORY (do NOT generate fewer)
+
+**SkinMax:** minimum **3** tasks/day (AM routine, midday micro-tip, PM routine). Typical day has **4–5** tasks when including SPF reapply and/or hydration check. Weekly adds exfoliation (replaces PM on chosen day) + pillowcase (Sunday). Monthly: progress photo + check-in on the 1st.
+
+**HairMax (thinning/minoxidil stack):** minimum **4** tasks/day (finasteride, minoxidil AM, minoxidil PM, daily scalp micro-tip). Typical day has **4–5** tasks. Weekly: ketoconazole 2–3x/week on wash days; microneedling 1×/week (after month 4). Bi-weekly: progress photos. Monthly: check-in on the 1st.
+
+**HairMax (non-thinning):** minimum **3** tasks/day (wash routine reminder or oil/mask on treatment days, daily scalp micro-tip, PM hair care). Weekly: wash day tasks per hair type frequency.
+
+**HeightMax:** minimum **4** tasks/day (morning decompression, midday posture, evening decompression, sleep GH protocol). Typical: **5–7** with sprint days, nutrition, measurements.
+
+**BoneMax:** minimum **4** tasks/day (mewing morning, midday oral posture, masseter/chew, mewing night). Typical: **5–7** with fascia, neck, nutrition, symmetry.
+
+**FitMax:** minimum **3** tasks on rest days (morning nutrition, midday tip, evening closeout). Workout days: **5–6** (add pre-workout, post-workout, supplements). Weekly: weigh-in. Monthly: body check.
+
+CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. SkinMax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
+
 ## INSTRUCTIONS
 1. Create a schedule for {num_days} days.
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
@@ -181,9 +197,13 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 9. Keep daily routines consistent but vary weekly treatments, sprint sessions, and review tasks across days.
 10. Avoid stacking duplicate notification intent at the same clock time as generic pings the user may already get from another module (the system dedupes SMS, but schedules should still be sensible).
 11. Include brief motivational messages for each day.
+12. **IMPORTANT:** Every day MUST have at least the minimum number of tasks specified above. Read the NOTIFICATION ENGINE reference and include ALL mandatory daily tasks it lists. Short schedules with 1–2 tasks/day are wrong.
+13. Task descriptions should include specific product names, step-by-step instructions, or actionable copy from the notification engine reference — not vague one-liners.
 
 ## OUTPUT FORMAT
-Return ONLY valid JSON matching this structure (no markdown fences):
+Return ONLY valid JSON matching this structure (no markdown fences).
+Each day should have **at least 3–5 tasks** (more for full-stack modules). The example below is abbreviated — your actual output must include ALL mandatory daily tasks per the notification engine reference.
+
 {{
   "days": [
     {{
@@ -191,22 +211,46 @@ Return ONLY valid JSON matching this structure (no markdown fences):
       "tasks": [
         {{
           "task_id": "uuid-string",
-          "time": "07:00",
-          "title": "Morning Check-in",
-          "description": "Let me know you're awake! Say 'I'm awake' in chat.",
+          "time": "07:15",
+          "title": "AM Skincare Routine",
+          "description": "(1) CeraVe Foaming Cleanser (2) Paula's Choice 2% BHA — thin layer, dry 2 min (3) CeraVe Daily Lotion (4) EltaMD UV Clear SPF 46",
+          "task_type": "routine",
+          "duration_minutes": 12
+        }},
+        {{
+          "task_id": "uuid-string",
+          "time": "10:15",
+          "title": "SPF Reapply",
+          "description": "Reapply SPF — 3h since AM. Especially important if outdoors.",
+          "task_type": "reminder",
+          "duration_minutes": 3
+        }},
+        {{
+          "task_id": "uuid-string",
+          "time": "14:37",
+          "title": "Midday Micro-Tip",
+          "description": "Hands off face. Every touch transfers bacteria and oils.",
           "task_type": "reminder",
           "duration_minutes": 1
         }},
         {{
           "task_id": "uuid-string",
-          "time": "07:15",
-          "title": "AM Skincare Routine",
-          "description": "Gentle cleanser → serum → moisturizer → sunscreen",
+          "time": "16:37",
+          "title": "Hydration Check",
+          "description": "Water check — ~3L target today. Hydration supports skin barrier.",
+          "task_type": "reminder",
+          "duration_minutes": 1
+        }},
+        {{
+          "task_id": "uuid-string",
+          "time": "22:00",
+          "title": "PM Skincare — Retinoid Night",
+          "description": "(1) CeraVe Foaming Cleanser (2) Differin 0.1% — pea-sized, thin layer (3) Wait 20 min (4) CeraVe PM Lotion",
           "task_type": "routine",
-          "duration_minutes": 10
+          "duration_minutes": 25
         }}
       ],
-      "motivation_message": "Day 1! Your skin transformation starts now."
+      "motivation_message": "Day 1 — consistency compounds. every AM + PM you don't skip is another day closer."
     }}
   ]
 }}
@@ -795,6 +839,16 @@ class ScheduleService:
                 hair_concern=concern if maxx_id == "hairmax" else None,
                 other_maxx_ids=other_maxx_ids,
             )
+        else:
+            if maxx_id == "skinmax":
+                self._augment_skinmax_llm_schedule(
+                    schedule_data,
+                    onboarding=onboarding or {},
+                    wake_time=wake_time,
+                    sleep_time=sleep_time,
+                    outside_today=outside_today,
+                    start_date=start_date,
+                )
         for day in schedule_data.get("days", []):
             day_num = day.get("day_number", 1)
             day["date"] = (start_date + timedelta(days=day_num - 1)).isoformat()
@@ -940,6 +994,242 @@ class ScheduleService:
         await db.refresh(schedule_row)
 
         return self._schedule_to_dict(schedule_row)
+
+    def _augment_skinmax_llm_schedule(
+        self,
+        schedule_data: dict,
+        *,
+        onboarding: dict,
+        wake_time: str,
+        sleep_time: str,
+        outside_today: bool,
+        start_date: date,
+    ) -> None:
+        """
+        SkinMax LLM output often returns only AM / midday / PM. Enrich with engine slots
+        (hydration, SPF / outdoor prompt, dietary nudge, monthly checkpoints) when missing.
+        """
+        from services.skinmax_notification_engine import (
+            add_minutes_to_clock,
+            add_minutes_to_wake_clock,
+            get_skinmax_slot_times,
+            skinmax_dietary_restriction_keys,
+            skinmax_midday_tip_for_weekday,
+            skinmax_restriction_reminder_body,
+        )
+
+        days = schedule_data.get("days")
+        if not isinstance(days, list):
+            return
+
+        ob = onboarding or {}
+        slots = get_skinmax_slot_times(wake_time, sleep_time)
+        freq = str(ob.get("outdoor_frequency", "sometimes")).lower()
+        hydration_on = ob.get("skin_hydration_notifications", True)
+        if hydration_on is None:
+            hydration_on = True
+        restriction_keys = skinmax_dietary_restriction_keys(ob)
+
+        def tmin(t: str) -> int:
+            p = str(t).strip().split(":")
+            return int(p[0]) * 60 + int(p[1][:2])
+
+        def near_slot(task_time: str, slot: str, win: int = 50) -> bool:
+            return abs(tmin(task_time) - tmin(slot)) <= win
+
+        def day_blob(ts: list) -> str:
+            parts = []
+            for x in ts:
+                if not isinstance(x, dict):
+                    continue
+                parts.append(str(x.get("title", "")))
+                parts.append(str(x.get("description", "")))
+            return " ".join(parts).lower()
+
+        for day in days:
+            if not isinstance(day, dict):
+                continue
+            tasks = day.get("tasks")
+            if not isinstance(tasks, list):
+                day["tasks"] = []
+                tasks = day["tasks"]
+
+            try:
+                dn = int(day.get("day_number") or 1)
+            except (TypeError, ValueError):
+                dn = 1
+            d = start_date + timedelta(days=dn - 1)
+            wd = d.weekday()
+            blob = day_blob(tasks)
+
+            # 1) Midday: engine tip + Sunday pillowcase line
+            mid_slot = slots["midday_tip"]
+            mid_idx = -1
+            best = 9999
+            for i, x in enumerate(tasks):
+                if not isinstance(x, dict):
+                    continue
+                tt = x.get("time") or "12:00"
+                gap = abs(tmin(tt) - tmin(mid_slot))
+                if gap < best:
+                    best = gap
+                    mid_idx = i
+            if mid_idx >= 0 and best <= 90:
+                tip = skinmax_midday_tip_for_weekday(wd)
+                if wd == 6:
+                    tip += (
+                        " Also: change your pillowcase today if you haven't this week — "
+                        "keeps oil and bacteria off your face."
+                    )
+                t0 = tasks[mid_idx]
+                desc = str(t0.get("description") or "").strip()
+                generic = len(desc) < 55 or "tip of the day" in desc.lower()
+                if generic:
+                    t0["description"] = tip
+
+            # 2) Hydration
+            hyd = slots["hydration"]
+
+            def _task_blob(x: dict) -> str:
+                return f"{x.get('title', '')} {x.get('description', '')}".lower()
+
+            has_hyd = any(
+                k in blob for k in ("hydration", "water check", "~3l", "3l")
+            ) or any(
+                near_slot(x.get("time") or "", hyd)
+                and any(w in _task_blob(x) for w in ("water", "hydrat", "3l", "drink"))
+                for x in tasks
+                if isinstance(x, dict)
+            )
+            if hydration_on and not has_hyd:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": hyd,
+                        "title": "SkinMax — hydration check",
+                        "description": "Water check — aim for ~3L today for barrier and glow.",
+                        "task_type": "reminder",
+                        "duration_minutes": 2,
+                    }
+                )
+                blob = day_blob(tasks)
+
+            # 3) SPF or "going outside" prompt
+            spf_slot = slots["spf_reapply"]
+            has_spf = any(k in blob for k in ("spf", "sunscreen", "reapply", "uv")) or any(
+                near_slot(x.get("time") or "", spf_slot, 60)
+                and any(k in _task_blob(x) for k in ("spf", "sun", "reapply", "uv"))
+                for x in tasks
+                if isinstance(x, dict)
+            )
+            has_outdoor_ask = "going outside" in blob or "outside today" in blob
+            if freq == "rarely":
+                pass
+            elif freq == "always" or (freq == "sometimes" and outside_today):
+                if not has_spf:
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": spf_slot,
+                            "title": "SkinMax — SPF reapply",
+                            "description": "Reapply SPF ~3h after your AM routine (per your outdoor plan).",
+                            "task_type": "reminder",
+                            "duration_minutes": 5,
+                        }
+                    )
+                    blob = day_blob(tasks)
+            elif freq == "sometimes" and not outside_today:
+                if not has_spf and not has_outdoor_ask:
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": spf_slot,
+                            "title": "SkinMax — going outside today?",
+                            "description": (
+                                "If yes, plan SPF reapply ~3h after AM. If not, you can skip an extra reapply."
+                            ),
+                            "task_type": "reminder",
+                            "duration_minutes": 2,
+                        }
+                    )
+                    blob = day_blob(tasks)
+
+            # 4) Dietary restriction nudge (max 1/day)
+            if restriction_keys:
+                has_rest = any(
+                    k in blob
+                    for k in (
+                        "nutrition nudge",
+                        "igf-1",
+                        "seed oil",
+                        "dairy",
+                        "added sugar",
+                        "inflammatory",
+                        "dietary restriction",
+                    )
+                )
+                if not has_rest:
+                    rk = restriction_keys[(dn - 1) % len(restriction_keys)]
+                    meal_slots = [
+                        add_minutes_to_wake_clock(wake_time, 60),
+                        add_minutes_to_wake_clock(wake_time, 300),
+                        add_minutes_to_wake_clock(wake_time, 540),
+                    ]
+                    st = meal_slots[(dn - 1) % 3]
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": st,
+                            "title": "SkinMax — nutrition nudge",
+                            "description": skinmax_restriction_reminder_body(rk),
+                            "task_type": "reminder",
+                            "duration_minutes": 2,
+                        }
+                    )
+                    blob = day_blob(tasks)
+
+            # 5) 1st of month: photo + check-in
+            if d.day == 1:
+                if "progress photo" not in blob and "monthly photo" not in blob:
+                    photo_time = mid_slot
+                    for x in tasks:
+                        if not isinstance(x, dict):
+                            continue
+                        if near_slot(x.get("time") or "", mid_slot, 20) and (
+                            "midday" in str(x.get("title", "")).lower()
+                            or "tip" in str(x.get("title", "")).lower()
+                        ):
+                            photo_time = add_minutes_to_clock(mid_slot, 20)
+                            break
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": photo_time,
+                            "title": "SkinMax — monthly progress photo",
+                            "description": "Same lighting/angle as last month — quick progress snapshot.",
+                            "task_type": "reminder",
+                            "duration_minutes": 3,
+                        }
+                    )
+                    blob = day_blob(tasks)
+                pm_slot = slots["pm_routine"]
+                chk_time = add_minutes_to_clock(pm_slot, 30)
+                if not any(
+                    k in blob
+                    for k in ("monthly check", "30-day", "30 day", "routine check-in", "how's your skin")
+                ):
+                    tasks.append(
+                        {
+                            "task_id": str(uuid.uuid4()),
+                            "time": chk_time,
+                            "title": "SkinMax — monthly check-in",
+                            "description": "How's your skin vs last month? Note texture, breakouts, and barrier — adjust routine if needed.",
+                            "task_type": "reminder",
+                            "duration_minutes": 5,
+                        }
+                    )
+
+            tasks.sort(key=lambda t: (t.get("time") or "00:00", t.get("title") or ""))
 
     def _generate_maxx_fallback(
         self,

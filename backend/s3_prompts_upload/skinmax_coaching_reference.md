@@ -10,8 +10,10 @@ TIMING (all derived from wake_time + sleep_time; never vague):
 
 BUDGET: 3–5 notifications/day min/max; AM + midday + PM are mandatory daily tasks.
 
-PM: alternate Retinoid night vs Rest night per ramp (weeks 1–2: Mon+Thu; 3–4: MWF; 5–8: EOD; 9+: nightly unless redness/unstarted rules). Exfoliation day = rest night.
+PM: alternate Retinoid night vs Rest night per ramp (weeks 1–2: Mon+Thu; 3–4: MWF; 5–8: EOD; 9+: nightly unless redness/unstarted rules). Exfoliation day = rest night. Purge reassurance ~day 14 after retinoid start.
+
+Midday: use the 7-day rotating tip lines from the full reference (Mon–Sun). No second ping if AM missed by AM+2h.
 
 COMBOS: primary concern drives retinoid; secondary adds AM active if safe. No BHA+retinoid same session; no AHA peel + retinoid same night; BP and retinoid different sessions.
 
-For full AM/PM product steps, conflict matrix, and monthly check-in branches, follow the user's active schedule tasks and the long reference if needed.
+For full AM/PM product steps, conflict matrix, and monthly check-in branches, use skinmax_notification_engine_reference.md.

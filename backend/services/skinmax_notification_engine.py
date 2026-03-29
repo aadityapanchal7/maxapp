@@ -7,9 +7,60 @@ Full reference: skinmax_notification_engine_reference.md (loaded at import).
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 _REF_FILE = Path(__file__).with_name("skinmax_notification_engine_reference.md")
+
+# Python weekday: Monday=0 … Sunday=6 — matches date.weekday()
+SKINMAX_MIDDAY_TIPS_BY_WEEKDAY = [
+    "Hands off your face — bacteria transfer causes breakouts.",
+    "Water check — aim for ~3L today. Dehydrated skin looks dull and textured.",
+    "Change your pillowcase this week? Dirty fabric causes breakouts and irritation.",
+    "Wipe your phone screen — it touches your face more than you think.",
+    "Stressed today? Cortisol spikes can flare skin. Take 5 deep breaths.",
+    "Wearing sunglasses? They protect the thinnest skin on your face from UV.",
+    "Check your diet today — inflammatory foods often show on skin within 24–48 hours.",
+]
+
+
+def skinmax_midday_tip_for_weekday(weekday: int) -> str:
+    return SKINMAX_MIDDAY_TIPS_BY_WEEKDAY[weekday % 7]
+
+
+def skinmax_dietary_restriction_keys(onboarding: dict[str, Any]) -> list[str]:
+    """Return ordered unique flags: dairy, sugar, seed_oils — from onboarding dietary_restrictions."""
+    ob = onboarding or {}
+    dr = ob.get("dietary_restrictions")
+    if dr is None:
+        return []
+    if isinstance(dr, list):
+        parts = [str(x).strip().lower() for x in dr if str(x).strip()]
+    else:
+        s = str(dr).strip().lower()
+        if not s or s in ("none", "no", "n/a", "nil", "nothing"):
+            return []
+        parts = [p.strip() for p in re.split(r"[,;]+", s) if p.strip()]
+    if not parts:
+        return []
+    blob = " ".join(parts)
+    out: list[str] = []
+    if any(k in blob for k in ("dairy", "milk", "lactose", "whey")):
+        out.append("dairy")
+    if "sugar" in blob:
+        out.append("sugar")
+    if any(k in blob for k in ("seed oil", "seed oils", "vegetable oil", "canola", "soybean oil")):
+        out.append("seed_oils")
+    return out
+
+
+def skinmax_restriction_reminder_body(flag: str) -> str:
+    m = {
+        "dairy": "Dairy can spike IGF-1 and trigger breakouts — check what's in your meal.",
+        "sugar": "Added sugar drives inflammation — often shows on skin within ~48 hours.",
+        "seed_oils": "Seed oils can be pro-inflammatory in excess — check what you're cooking with or ordering.",
+    }
+    return m.get(flag, m["sugar"])
 
 try:
     SKINMAX_NOTIFICATION_ENGINE_REFERENCE = _REF_FILE.read_text(encoding="utf-8")
@@ -31,11 +82,13 @@ TIMING (all derived from wake_time + sleep_time; never vague):
 
 BUDGET: 3–5 notifications/day min/max; AM + midday + PM are mandatory daily tasks.
 
-PM: alternate Retinoid night vs Rest night per ramp (weeks 1–2: Mon+Thu; 3–4: MWF; 5–8: EOD; 9+: nightly unless redness/unstarted rules). Exfoliation day = rest night.
+PM: alternate Retinoid night vs Rest night per ramp (weeks 1–2: Mon+Thu; 3–4: MWF; 5–8: EOD; 9+: nightly unless redness/unstarted rules). Exfoliation day = rest night. Purge reassurance ~day 14 after retinoid start.
+
+Midday: use the 7-day rotating tip lines from the full reference (Mon–Sun). No second ping if AM missed by AM+2h.
 
 COMBOS: primary concern drives retinoid; secondary adds AM active if safe. No BHA+retinoid same session; no AHA peel + retinoid same night; BP and retinoid different sessions.
 
-For full AM/PM product steps, conflict matrix, and monthly check-in branches, follow the user's active schedule tasks and the long reference if needed.
+For full AM/PM product steps, conflict matrix, and monthly check-in branches, use skinmax_notification_engine_reference.md.
 """
 
 
@@ -54,6 +107,20 @@ def _add_minutes(h: int, m: int, delta: int) -> tuple[int, int]:
 
 def _format_hm(h: int, m: int) -> str:
     return f"{h:02d}:{m:02d}"
+
+
+def add_minutes_to_wake_clock(wake_time: str, delta_minutes: int) -> str:
+    """wake_time HH:MM + delta minutes (wraps within 24h)."""
+    wh, wm = _parse_hm(wake_time)
+    nh, nm = _add_minutes(wh, wm, delta_minutes)
+    return _format_hm(nh, nm)
+
+
+def add_minutes_to_clock(time_str: str, delta_minutes: int) -> str:
+    """Any HH:MM + delta minutes (wraps within 24h)."""
+    h, m = _parse_hm(time_str)
+    nh, nm = _add_minutes(h, m, delta_minutes)
+    return _format_hm(nh, nm)
 
 
 def format_computed_anchor_times(wake_time: str, sleep_time: str) -> str:
@@ -140,6 +207,9 @@ SKINMAX_JSON_DIRECTIVES = """## SKINMAX — JSON SCHEDULE OUTPUT (MANDATORY)
 8. **1st of month**: progress photo at midday; routine check-in 30 min after PM time.
 9. For `sometimes` outdoor: if outside_today is No, you may still schedule a short "Going outside today?" reminder near AM+3h window or fold into AM description — do **not** schedule SPF reapply unless they would be going out.
 10. Use `task_type`: `routine` for AM/PM/exfoliation blocks, `reminder` for SPF/hydration/restriction/pillowcase/photo/check-in style pings.
+11. **Midday tip** descriptions must follow the **7-day rotating micro-tip copy** in the SkinMax notification engine reference (match weekday to the correct tip).
+12. **No AM chase:** do **not** schedule a follow-up task if the user missed AM — the reference forbids nagging after AM slot + 2h.
+13. **Restriction** tasks: max **1/day**; rotate meal slot (wake+1h / +5h / +9h) and rotate which restriction when several are opted in.
 """
 
 

@@ -52,19 +52,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency injection for database sessions
     Usage: db: AsyncSession = Depends(get_db)
+
+    Use a plain `yield` inside `async with` only. Extra try/finally + session.close()
+    duplicates the context manager exit and can break FastAPI's generator cleanup
+    (RuntimeError: generator didn't stop after athrow()).
     """
     async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        except BaseException:
-            # Failed flush/commit leaves session in "needs rollback" state; clear before close.
-            try:
-                await session.rollback()
-            except Exception:
-                pass
-            raise
-        finally:
-            await session.close()
+        yield session
 
 
 async def init_db():

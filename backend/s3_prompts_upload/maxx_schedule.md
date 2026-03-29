@@ -30,6 +30,22 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 - Higher workout days/week → place neck training after training days where possible
 - Gum beginners → shorter mastic sessions with same form rules
 
+## MINIMUM TASKS PER DAY — MANDATORY (do NOT generate fewer)
+
+**SkinMax:** minimum **3** tasks/day (AM routine, midday micro-tip, PM routine). Typical day has **4–5** tasks when including SPF reapply and/or hydration check. Weekly adds exfoliation (replaces PM on chosen day) + pillowcase (Sunday). Monthly: progress photo + check-in on the 1st.
+
+**HairMax (thinning/minoxidil stack):** minimum **4** tasks/day (finasteride, minoxidil AM, minoxidil PM, daily scalp micro-tip). Typical day has **4–5** tasks. Weekly: ketoconazole 2–3x/week on wash days; microneedling 1×/week (after month 4). Bi-weekly: progress photos. Monthly: check-in on the 1st.
+
+**HairMax (non-thinning):** minimum **3** tasks/day (wash routine reminder or oil/mask on treatment days, daily scalp micro-tip, PM hair care). Weekly: wash day tasks per hair type frequency.
+
+**HeightMax:** minimum **4** tasks/day (morning decompression, midday posture, evening decompression, sleep GH protocol). Typical: **5–7** with sprint days, nutrition, measurements.
+
+**BoneMax:** minimum **4** tasks/day (mewing morning, midday oral posture, masseter/chew, mewing night). Typical: **5–7** with fascia, neck, nutrition, symmetry.
+
+**FitMax:** minimum **3** tasks on rest days (morning nutrition, midday tip, evening closeout). Workout days: **5–6** (add pre-workout, post-workout, supplements). Weekly: weigh-in. Monthly: body check.
+
+CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. SkinMax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
+
 ## INSTRUCTIONS
 1. Create a schedule for {num_days} days.
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
@@ -42,9 +58,13 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 9. Keep daily routines consistent but vary weekly treatments, sprint sessions, and review tasks across days.
 10. Avoid stacking duplicate notification intent at the same clock time as generic pings the user may already get from another module (the system dedupes SMS, but schedules should still be sensible).
 11. Include brief motivational messages for each day.
+12. **IMPORTANT:** Every day MUST have at least the minimum number of tasks specified above. Read the NOTIFICATION ENGINE reference and include ALL mandatory daily tasks it lists. Short schedules with 1–2 tasks/day are wrong.
+13. Task descriptions should include specific product names, step-by-step instructions, or actionable copy from the notification engine reference — not vague one-liners.
 
 ## OUTPUT FORMAT
-Return ONLY valid JSON matching this structure (no markdown fences):
+Return ONLY valid JSON matching this structure (no markdown fences).
+Each day should have **at least 3–5 tasks** (more for full-stack modules). The example below is abbreviated — your actual output must include ALL mandatory daily tasks per the notification engine reference.
+
 {{
   "days": [
     {{
@@ -52,22 +72,46 @@ Return ONLY valid JSON matching this structure (no markdown fences):
       "tasks": [
         {{
           "task_id": "uuid-string",
-          "time": "07:00",
-          "title": "Morning Check-in",
-          "description": "Let me know you're awake! Say 'I'm awake' in chat.",
+          "time": "07:15",
+          "title": "AM Skincare Routine",
+          "description": "(1) CeraVe Foaming Cleanser (2) Paula's Choice 2% BHA — thin layer, dry 2 min (3) CeraVe Daily Lotion (4) EltaMD UV Clear SPF 46",
+          "task_type": "routine",
+          "duration_minutes": 12
+        }},
+        {{
+          "task_id": "uuid-string",
+          "time": "10:15",
+          "title": "SPF Reapply",
+          "description": "Reapply SPF — 3h since AM. Especially important if outdoors.",
+          "task_type": "reminder",
+          "duration_minutes": 3
+        }},
+        {{
+          "task_id": "uuid-string",
+          "time": "14:37",
+          "title": "Midday Micro-Tip",
+          "description": "Hands off face. Every touch transfers bacteria and oils.",
           "task_type": "reminder",
           "duration_minutes": 1
         }},
         {{
           "task_id": "uuid-string",
-          "time": "07:15",
-          "title": "AM Skincare Routine",
-          "description": "Gentle cleanser → serum → moisturizer → sunscreen",
+          "time": "16:37",
+          "title": "Hydration Check",
+          "description": "Water check — ~3L target today. Hydration supports skin barrier.",
+          "task_type": "reminder",
+          "duration_minutes": 1
+        }},
+        {{
+          "task_id": "uuid-string",
+          "time": "22:00",
+          "title": "PM Skincare — Retinoid Night",
+          "description": "(1) CeraVe Foaming Cleanser (2) Differin 0.1% — pea-sized, thin layer (3) Wait 20 min (4) CeraVe PM Lotion",
           "task_type": "routine",
-          "duration_minutes": 10
+          "duration_minutes": 25
         }}
       ],
-      "motivation_message": "Day 1! Your skin transformation starts now."
+      "motivation_message": "Day 1 — consistency compounds. every AM + PM you don't skip is another day closer."
     }}
   ]
 }}

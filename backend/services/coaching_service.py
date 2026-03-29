@@ -405,6 +405,7 @@ class CoachingService:
         bonemax_protocol_added = False
         heightmax_protocol_added = False
         hairmax_protocol_added = False
+        fitmax_protocol_added = False
         tz_name = onboarding.get("timezone", "UTC")
         try:
             user_tz = ZoneInfo(tz_name)
