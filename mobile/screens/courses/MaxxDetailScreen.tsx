@@ -51,14 +51,9 @@ function getModuleStatusLine(
     const dateStr = formatStartedDate(activeSchedule.created_at);
 
     if (maxxId === 'heightmax') {
-        const hc = ctx.height_components as Record<string, boolean> | undefined;
         const key = HEIGHT_TITLE_TO_KEY[moduleTitle];
         if (!key) return 'Not started';
-        if (!hc || Object.keys(hc).length === 0) {
-            return dateStr ? `Started ${dateStr}` : 'Started';
-        }
-        if (!(key in hc)) return 'Not started';
-        return hc[key] ? (dateStr ? `Started ${dateStr}` : 'Started') : 'Not started';
+        return dateStr ? `Started ${dateStr}` : 'Started';
     }
 
     if (maxxId === 'skinmax') {

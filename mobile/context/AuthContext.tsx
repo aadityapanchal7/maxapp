@@ -53,6 +53,8 @@ interface User {
         streak_days: number;
         bio?: string;
         avatar_url?: string;
+        master_schedule_streak?: number;
+        master_schedule_streak_last_perfect_date?: string | null;
     };
     first_scan_completed: boolean;
     is_admin: boolean;

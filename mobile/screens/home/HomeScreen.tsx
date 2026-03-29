@@ -33,6 +33,11 @@ export default function HomeScreen() {
     const [schedulesLoading, setSchedulesLoading] = useState(true);
     const [schedulesError, setSchedulesError] = useState<string | null>(null);
     const [completingTaskKey, setCompletingTaskKey] = useState<string | null>(null);
+    const [scheduleStreak, setScheduleStreak] = useState<{
+        current: number;
+        last_perfect_date?: string | null;
+        today_date?: string;
+    }>({ current: 0 });
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(20)).current;
@@ -88,8 +93,18 @@ export default function HomeScreen() {
             const maxxRes = await api.getMaxxes().catch(() => ({ maxes: [] as any[] }));
             const { labels, colors: colorMap } = buildMaxxMaps(maxxRes.maxes || []);
             const merged = mergeSchedules(full.schedules || [], labels, colorMap);
-            const today = new Date().toISOString().split('T')[0];
+            const today =
+                full.today_date ||
+                full.schedule_streak?.today_date ||
+                new Date().toISOString().split('T')[0];
             setScheduleRows(merged.byDate[today] || []);
+            if (full.schedule_streak) {
+                setScheduleStreak({
+                    current: full.schedule_streak.current ?? 0,
+                    last_perfect_date: full.schedule_streak.last_perfect_date,
+                    today_date: full.schedule_streak.today_date,
+                });
+            }
         } catch (e: any) {
             const msg =
                 e?.response?.data?.detail || e?.message || 'Could not load today’s tasks.';
@@ -157,6 +172,21 @@ export default function HomeScreen() {
                             </TouchableOpacity>
                         </View>
                     </View>
+
+                    {(scheduleStreak.current > 0 || scheduleRows.length > 0) && (
+                        <View style={styles.streakBanner}>
+                            <Text style={styles.streakBannerText}>
+                                {scheduleStreak.current > 0
+                                    ? `🔥 ${scheduleStreak.current} day${scheduleStreak.current === 1 ? '' : 's'} streak`
+                                    : '🔥 Finish every task today to start a streak'}
+                            </Text>
+                            {scheduleRows.length > 0 && scheduleStreak.current === 0 ? (
+                                <Text style={styles.streakBannerHint}>
+                                    All checkboxes across your programs — by the end of your day.
+                                </Text>
+                            ) : null}
+                        </View>
+                    )}
 
                     <View style={styles.todaySection}>
                         <View style={styles.todayHeader}>
@@ -281,8 +311,28 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     scrollContent: { paddingBottom: spacing.xxxl },
-    hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.lg },
+    hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm },
     heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    streakBanner: {
+        marginHorizontal: spacing.lg,
+        marginBottom: spacing.sm,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        paddingVertical: spacing.sm + 2,
+        paddingHorizontal: spacing.md,
+        ...shadows.sm,
+    },
+    streakBannerText: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: colors.foreground,
+    },
+    streakBannerHint: {
+        fontSize: 12,
+        color: colors.textMuted,
+        marginTop: 4,
+        lineHeight: 17,
+    },
     greeting: { fontSize: 13, color: colors.textMuted, marginBottom: 2, letterSpacing: 0.3 },
     userName: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
     profileButton: { padding: 2 },

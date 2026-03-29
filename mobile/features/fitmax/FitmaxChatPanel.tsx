@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
+import { ChatTypingIndicator } from '../../components/ChatTypingIndicator';
 import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
 import { parseFitmaxMessageUi } from './fitmax';
 import { FitmaxInlineCard } from './types';
@@ -24,7 +25,7 @@ interface Props {
 }
 
 const FITMAX_GREETING =
-  "hey, welcome to fitmax. before we build your plan, i need to know a bit about you ó this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, or something else?";
+  "hey, welcome to fitmax. before we build your plan, i need to know a bit about you ù this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, or something else?";
 
 export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenProgress, onOpenWorkout, onOpenModule }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -77,7 +78,7 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
     } catch (e) {
       console.error(e);
       clearTyping();
-      setMessages(prev => [...prev, { role: 'assistant', content: 'sorry ó i hit an issue. send that again and i got you.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'sorry ù i hit an issue. send that again and i got you.' }]);
     } finally {
       setLoading(false);
     }
@@ -107,7 +108,7 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
       return (
         <View style={styles.row}>
           <View style={[styles.bubble, styles.aiBubble]}>
-            <Text style={styles.typing}>typing...</Text>
+            <ChatTypingIndicator mode="schedule" style={styles.typing} />
           </View>
         </View>
       );

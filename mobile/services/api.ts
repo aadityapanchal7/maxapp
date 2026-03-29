@@ -602,7 +602,7 @@ class ApiService {
     }
 
     // Schedules
-    async generateSchedule(courseId: string, moduleNumber: number, numDays: number = 7, preferences?: any) {
+    async generateSchedule(courseId: string, moduleNumber: number, numDays: number = 30, preferences?: any) {
         const response = await this.client.post('schedules/generate', {
             course_id: courseId,
             module_number: moduleNumber,
@@ -617,7 +617,7 @@ class ApiService {
         wakeTime: string,
         sleepTime: string,
         outsideToday: boolean = false,
-        numDays: number = 7,
+        numDays: number = 30,
         heightComponents?: Record<string, boolean>,
     ) {
         const body: Record<string, unknown> = {
@@ -691,7 +691,11 @@ class ApiService {
         return response.data;
     }
 
-    async getActiveSchedulesFull(): Promise<{ schedules: any[] }> {
+    async getActiveSchedulesFull(): Promise<{
+        schedules: any[];
+        schedule_streak?: { current: number; last_perfect_date?: string | null; today_date: string };
+        today_date?: string;
+    }> {
         const response = await this.client.get('schedules/active/full');
         return response.data;
     }

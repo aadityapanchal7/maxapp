@@ -202,9 +202,9 @@ SKINMAX_JSON_DIRECTIVES = """## SKINMAX — JSON SCHEDULE OUTPUT (MANDATORY)
 3. Respect **quiet hours**: no tasks scheduled between sleep_time and wake_time.
 4. Keep **3–5 tasks per calendar day**. Minimum daily: AM routine, Midday tip, PM routine. Add SPF reapply / hydration / restriction only when rules say so.
 5. **Title + description** must reflect the correct concern protocol (AM steps, PM retinoid vs rest, exfoliation night copy when applicable).
-6. On **weekly exfoliation day** (default Wednesday if not in onboarding), PM task = exfoliation routine from reference (not standard PM).
-7. **Sunday**: add pillowcase reminder at midday time.
-8. **1st of month**: progress photo at midday; routine check-in 30 min after PM time.
+6. On **weekly exfoliation day** (default Wednesday if not in onboarding), PM task = exfoliation routine from reference (not standard PM) — **repeat every week** for the full generated day range (not only week one).
+7. **Sunday**: add pillowcase reminder at midday time (every Sunday in range).
+8. **1st of month**: progress photo at midday; routine check-in 30 min after PM time — on **every** calendar 1st in the generated range.
 9. For `sometimes` outdoor: if outside_today is No, you may still schedule a short "Going outside today?" reminder near AM+3h window or fold into AM description — do **not** schedule SPF reapply unless they would be going out.
 10. Use `task_type`: `routine` for AM/PM/exfoliation blocks, `reminder` for SPF/hydration/restriction/pillowcase/photo/check-in style pings.
 11. **Midday tip** descriptions must follow the **7-day rotating micro-tip copy** in the SkinMax notification engine reference (match weekday to the correct tip).

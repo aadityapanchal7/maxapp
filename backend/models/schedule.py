@@ -31,7 +31,7 @@ class ModuleGuideline(BaseModel):
     tips: List[str] = Field(default_factory=list, description="General coaching tips for the AI")
     difficulty_progression: str = Field(default="gradual", description="How to ramp intensity: gradual, aggressive, steady")
     focus_areas: List[str] = Field(default_factory=list, description="Body/face areas this module targets")
-    recommended_days: int = Field(default=7, ge=1, le=90, description="Recommended schedule length for this module")
+    recommended_days: int = Field(default=30, ge=1, le=90, description="Recommended schedule length for this module")
 
 
 class ScheduleTask(BaseModel):
@@ -74,7 +74,7 @@ class GenerateScheduleRequest(BaseModel):
     course_id: str
     module_number: int = Field(ge=1)
     preferences: Optional[SchedulePreferences] = None
-    num_days: int = Field(default=7, ge=1, le=90, description="Number of days to generate (overrides module default if set)")
+    num_days: int = Field(default=30, ge=1, le=90, description="Number of days to generate (overrides module default if set)")
 
 
 class GenerateMaxxScheduleRequest(BaseModel):
@@ -84,7 +84,7 @@ class GenerateMaxxScheduleRequest(BaseModel):
     sleep_time: str = Field(default="23:00", description="HH:MM")
     skin_concern: Optional[str] = Field(default=None, description="Explicit concern override: acne, pigmentation, texture, redness, aging")
     outside_today: bool = Field(default=False, description="Whether user plans to be outside today")
-    num_days: int = Field(default=7, ge=1, le=30)
+    num_days: int = Field(default=30, ge=1, le=90)
     # HeightMax: optional map of protocol keys -> include in schedule (from app toggles). Omit = all on.
     height_components: Optional[dict[str, bool]] = Field(
         default=None,

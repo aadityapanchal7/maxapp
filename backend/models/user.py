@@ -154,6 +154,11 @@ class UserProfile(BaseModel):
     improvement_percentage: float = Field(default=0.0)
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    # Consecutive local days with every master-schedule checkbox done (see schedule_streak.py)
+    master_schedule_streak: int = Field(default=0, ge=0)
+    master_schedule_streak_last_perfect_date: Optional[str] = Field(
+        default=None, description="YYYY-MM-DD in user's timezone when streak day was earned"
+    )
 
 
 class UserCreate(BaseModel):

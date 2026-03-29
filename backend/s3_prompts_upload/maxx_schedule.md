@@ -46,11 +46,24 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 
 CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. SkinMax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
 
+## MULTI-WEEK CADENCE (REQUIRED — you are generating **{num_days}** consecutive days)
+
+`day_number` 1 = first calendar day (today in the user's timezone). **Do not** pack weekly/biweekly/monthly items only into days 1–7; repeat them on the correct **weekdays and calendar dates** through day {num_days}.
+
+- **SkinMax:** Exfoliation PM on the user's exfoliation weekday **every week** in range. Sunday midday: pillowcase line (or merge into Sunday tip). **Every calendar 1st** in range: progress photo (midday) + routine check-in (PM + 30 min).
+- **HairMax (thinning stack):** Ketoconazole **2–3×/week** on fixed wash weekdays throughout. Microneedling **once per week** on the user's microneedling weekday (not same night as minoxidil); omit until month 4+ if ramp says so. **Bi-weekly progress photos** (e.g. every 14 days from day 1). **Every 1st:** monthly check-in (midday).
+- **HairMax (non-thinning):** Wash / treatment days on a repeating weekly pattern matching hair-type frequency.
+- **HeightMax:** Sprint pattern and **weekly height measure** on the same weekday each week (e.g. Sunday). **Every 1st:** monthly review when in range.
+- **BoneMax:** **Weekly** checkpoint (e.g. Monday): front/side progress snap or symmetry review. **Every 1st:** monthly bone check when in range.
+- **FitMax:** **Weekly weigh-in** on the same weekday each week. **Every 1st:** monthly body check when phase allows.
+
+Use `task_type` **`checkpoint`** for weekly/biweekly/monthly items. Keep descriptions short if needed so JSON stays valid for long horizons.
+
 ## INSTRUCTIONS
-1. Create a schedule for {num_days} days.
+1. Create a schedule for {num_days} days (include **every** day from 1 through {num_days} in the `days` array).
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
 3. Schedule morning tasks shortly after wake time and evening tasks with enough runway before sleep to actually get done.
-4. Spread weekly or higher-intensity tasks across different days.
+4. Spread weekly or higher-intensity tasks across different days, and **repeat** them each week (or every 14 days for bi-weekly) across the full {num_days}-day window.
 5. If the protocol involves outside exposure reminders, only add them when outside_today is true (SkinMax: follow outdoor_frequency rules in the SkinMax notification engine — not the same as this bullet for other maxxes).
 6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only. **Exception — SkinMax:** do NOT add a generic wake check-in; the AM routine at wake+15 is the first ping (unless another active module already owns wake — then stagger per MULTI-ACTIVE-MODULES). **Exception — BoneMax:** mewing morning reset at **wake** is the first ping. **Exception — HeightMax:** morning decompression at **wake+20** is the first HeightMax ping (merge with other modules per cross-module instructions when needed). **Exception — HairMax (thinning stack):** do NOT use a generic wake-only check-in; first pings are **finasteride (if oral path)** and/or **minoxidil at wake+15** per ramp phase (merge AM with SkinMax per HAIRMAX+SKINMAX when both active). **Exception — FitMax:** do NOT use a generic wake-only check-in; first daily FitMax anchor is **morning nutrition at wake+30** (merge with SkinMax AM when both active); on workout days add **pre-workout at workout−30m** (not a duplicate wake ping).
 7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
@@ -60,6 +73,7 @@ CRITICAL: If the notification engine reference specifies particular tasks as MAN
 11. Include brief motivational messages for each day.
 12. **IMPORTANT:** Every day MUST have at least the minimum number of tasks specified above. Read the NOTIFICATION ENGINE reference and include ALL mandatory daily tasks it lists. Short schedules with 1–2 tasks/day are wrong.
 13. Task descriptions should include specific product names, step-by-step instructions, or actionable copy from the notification engine reference — not vague one-liners.
+14. **SMS / push tone:** Titles and descriptions feed text reminders. Sound like a casual text from Max — not a dashboard. Avoid stiff patterns like `Category: Name — 2:22pm` or `Midday Tip: Hydration Goal` in titles. Use short, plain titles (`water check`, `PM routine`, `sprint warm-up`) and put detail in **description** as conversational sentences. The app shows clock times; SMS adds `around 2:22pm — …`.
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON matching this structure (no markdown fences).

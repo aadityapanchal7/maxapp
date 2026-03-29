@@ -1,29 +1,23 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
+import { ChatTypingIndicator, ChatTypingMode } from '../../components/ChatTypingIndicator';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
-interface Message { role: 'user' | 'assistant'; content: string; attachment_url?: string; attachment_type?: string; isTyping?: boolean; }
-
-/** Walk up to the root navigator (stack) so we can open screens registered as stack siblings of Main. */
-function navigateFromNestedToRoot(navigation: { getParent?: () => any }, routeName: string, params?: object) {
-    let nav: any = navigation;
-    for (let i = 0; i < 6; i++) {
-        const parent = nav?.getParent?.();
-        if (!parent) break;
-        nav = parent;
-    }
-    if (nav?.navigate) {
-        nav.navigate(routeName, params);
-    }
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+  attachment_url?: string;
+  attachment_type?: string;
+  isTyping?: boolean;
+  typingMode?: ChatTypingMode;
 }
 
 export default function MaxChatScreen() {
     const route = useRoute<any>();
-    const navigation = useNavigation<any>();
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -31,49 +25,36 @@ export default function MaxChatScreen() {
     const [selectedImage, setSelectedImage] = useState<string | null>(null);
     const flatListRef = useRef<FlatList>(null);
     const initScheduleHandled = useRef(false);
-    /** Heightmax: hide CTA after active schedule exists (chat or components screen). */
-    const [heightmaxScheduleExists, setHeightmaxScheduleExists] = useState(false);
+    /** Prevents auto "start schedule" running before history fetch finishes (otherwise setMessages(history) wipes the optimistic user line). */
+    const [historyReady, setHistoryReady] = useState(false);
 
-    const addTyping = () => setMessages(prev => [...prev.filter(m => !m.isTyping), { role: 'assistant', content: '', isTyping: true }]);
-    const removeTyping = () => setMessages(prev => prev.filter(m => !m.isTyping));
+    const addTyping = (mode: ChatTypingMode = 'default') =>
+        setMessages((prev) => [
+            ...prev.filter((m) => !m.isTyping),
+            { role: 'assistant', content: '', isTyping: true, typingMode: mode },
+        ]);
+    const removeTyping = () => setMessages((prev) => prev.filter((m) => !m.isTyping));
 
-    useEffect(() => { loadHistory(); }, []);
-
-    const refreshHeightmaxScheduleExists = useCallback(async () => {
-        if (route.params?.initSchedule !== 'heightmax') return;
-        try {
-            const res = await api.getMaxxSchedule('heightmax');
-            setHeightmaxScheduleExists(Boolean(res?.schedule?.id));
-        } catch {
-            setHeightmaxScheduleExists(false);
-        }
-    }, [route.params?.initSchedule]);
-
-    useFocusEffect(
-        useCallback(() => {
-            if (route.params?.initSchedule !== 'heightmax') {
-                setHeightmaxScheduleExists(false);
-                return;
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const { messages: history } = await api.getChatHistory();
+                if (!cancelled) setMessages(history || []);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                if (!cancelled) setHistoryReady(true);
             }
-            let cancelled = false;
-            (async () => {
-                try {
-                    const res = await api.getMaxxSchedule('heightmax');
-                    const has = Boolean(res?.schedule?.id);
-                    if (!cancelled) setHeightmaxScheduleExists(has);
-                } catch {
-                    if (!cancelled) setHeightmaxScheduleExists(false);
-                }
-            })();
-            return () => {
-                cancelled = true;
-            };
-        }, [route.params?.initSchedule]),
-    );
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         const initSchedule = route.params?.initSchedule;
-        if (!initSchedule) return;
+        if (!initSchedule || !historyReady) return;
         if (initScheduleHandled.current === initSchedule) return;
         if (loading) return;
         initScheduleHandled.current = initSchedule;
@@ -82,9 +63,7 @@ export default function MaxChatScreen() {
             `I want to start my ${maxxLabel} schedule.`,
             initSchedule,
         );
-    }, [route.params?.initSchedule, loading]);
-
-    const loadHistory = async () => { try { const { messages: history } = await api.getChatHistory(); setMessages(history || []); } catch (e) { console.error(e); } };
+    }, [route.params?.initSchedule, loading, historyReady]);
 
     const handlePickImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
@@ -94,13 +73,12 @@ export default function MaxChatScreen() {
     const sendMessageWithContext = async (msg: string, initContext?: string) => {
         if (!msg.trim() || loading) return;
         setLoading(true);
-        setMessages(prev => [...prev, { role: 'user', content: msg }]);
-        addTyping();
+        setMessages((prev) => [...prev, { role: 'user', content: msg }]);
+        addTyping(initContext ? 'schedule' : 'default');
         try {
             const { response } = await api.sendChatMessage(msg, undefined, undefined, initContext);
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
-            if (initContext === 'heightmax') await refreshHeightmaxScheduleExists();
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
             removeTyping();
@@ -127,8 +105,8 @@ export default function MaxChatScreen() {
             }
             setMessages(prev => [...prev, { role: 'user', content: userContent, attachment_url: attachmentUrl, attachment_type: attachmentType }]);
             setSelectedImage(null);
-            addTyping();
             const scheduleCtx = route.params?.initSchedule as string | undefined;
+            addTyping(scheduleCtx ? 'schedule' : 'default');
             const { response } = await api.sendChatMessage(
                 userContent,
                 attachmentUrl,
@@ -137,18 +115,8 @@ export default function MaxChatScreen() {
             );
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
-            if (route.params?.initSchedule === 'heightmax') await refreshHeightmaxScheduleExists();
         } catch (e) { console.error(e); removeTyping(); setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong.' }]); }
         finally { setLoading(false); setUploading(false); }
-    };
-
-    const TypingDots = () => {
-        const [dots, setDots] = React.useState('');
-        React.useEffect(() => {
-            const id = setInterval(() => setDots(d => d.length >= 3 ? '' : d + '.'), 400);
-            return () => clearInterval(id);
-        }, []);
-        return <Text style={styles.typingText}>typing{dots}</Text>;
     };
 
     const renderMessage = ({ item }: { item: Message }) => {
@@ -156,7 +124,7 @@ export default function MaxChatScreen() {
             return (
                 <View style={styles.messageRow}>
                     <View style={[styles.bubble, styles.assistantBubble, styles.typingBubble]}>
-                        <TypingDots />
+                        <ChatTypingIndicator mode={item.typingMode ?? 'default'} style={styles.typingText} />
                     </View>
                 </View>
             );
@@ -198,24 +166,14 @@ export default function MaxChatScreen() {
                     ref={flatListRef}
                     data={messages}
                     renderItem={renderMessage}
-                    keyExtractor={(item, i) => item.isTyping ? 'typing' : i.toString()}
+                    keyExtractor={(item, i) =>
+                        item.isTyping ? `typing-${item.typingMode ?? 'default'}` : i.toString()
+                    }
                     contentContainerStyle={[styles.messageList, messages.length === 0 && styles.messageListEmpty]}
                     onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
                     showsVerticalScrollIndicator={false}
                     ListEmptyComponent={ListEmpty}
                 />
-
-                {route.params?.initSchedule === 'heightmax' && !heightmaxScheduleExists && (
-                    <TouchableOpacity
-                        style={styles.heightPartsCta}
-                        activeOpacity={0.85}
-                        onPress={() => navigateFromNestedToRoot(navigation, 'HeightScheduleComponents')}
-                    >
-                        <Ionicons name="options-outline" size={20} color={colors.buttonText} />
-                        <Text style={styles.heightPartsCtaText}>customize height tracks</Text>
-                        <Ionicons name="chevron-forward" size={18} color={colors.buttonText} />
-                    </TouchableOpacity>
-                )}
 
                 <View style={styles.outerInputContainer}>
                     {selectedImage && (
@@ -331,23 +289,4 @@ const styles = StyleSheet.create({
     input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 10, paddingHorizontal: 8, maxHeight: 100 },
     sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center', marginLeft: 8, ...shadows.sm },
     disabledButton: { opacity: 0.35 },
-    heightPartsCta: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        marginHorizontal: spacing.md,
-        marginBottom: spacing.sm,
-        paddingVertical: 12,
-        paddingHorizontal: spacing.lg,
-        backgroundColor: colors.foreground,
-        borderRadius: borderRadius.lg,
-        ...shadows.md,
-    },
-    heightPartsCtaText: {
-        flex: 1,
-        fontSize: 15,
-        fontWeight: '600',
-        color: colors.buttonText,
-    },
 });

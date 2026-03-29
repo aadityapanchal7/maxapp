@@ -15,6 +15,9 @@ from models.schedule import (
 )
 from middleware.auth_middleware import require_paid_user
 from services.schedule_service import schedule_service, ScheduleLimitError
+from services.schedule_streak import sync_master_schedule_streak
+from models.sqlalchemy_models import User
+from uuid import UUID
 
 router = APIRouter(prefix="/schedules", tags=["Schedules"])
 
@@ -124,7 +127,9 @@ async def get_all_active_schedules_full(
 ):
     """Full schedule documents for all active modules (master schedule / merged week view)."""
     schedules = await schedule_service.get_all_active_schedules(current_user["id"], db)
-    return {"schedules": schedules}
+    user_row = await db.get(User, UUID(current_user["id"]))
+    streak = await sync_master_schedule_streak(user_row, schedules, db)
+    return {"schedules": schedules, "schedule_streak": streak, "today_date": streak.get("today_date")}
 
 
 @router.get("/{schedule_id}")

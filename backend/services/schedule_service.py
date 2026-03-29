@@ -35,11 +35,17 @@ from services.maxx_guidelines import (
     build_skinmax_prompt_section,
 )
 from models.sqlalchemy_models import User, UserSchedule, Scan
+from services.schedule_streak import sync_master_schedule_streak
 from models.rds_models import Course
 
 logger = logging.getLogger(__name__)
 
 MAX_ACTIVE_SCHEDULES = 2
+
+# Default horizon for new schedules (~1 month). LLM + fallbacks must repeat weekly/biweekly
+# checkpoints across all generated days, not only in week 1.
+DEFAULT_MAXX_SCHEDULE_DAYS = 30
+DEFAULT_COURSE_SCHEDULE_DAYS = 30
 
 
 class ScheduleLimitError(Exception):
@@ -77,7 +83,7 @@ Days to generate: {num_days}
 {user_history_context}
 
 ## INSTRUCTIONS
-1. Create a schedule for {num_days} days.
+1. Create a schedule for {num_days} days (include every day 1…{num_days}). If {num_days} > 7, repeat **weekly** checkpoints (e.g. weigh-in, wash day, progress photo) on the same weekday each week, and **bi-weekly** items every 14 days — not only in the first week.
 2. Space tasks throughout the day between wake and sleep times.
 3. Make each day slightly different to prevent boredom.
 4. Gradually increase intensity / duration over the days.
@@ -185,11 +191,24 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 
 CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. SkinMax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
 
+## MULTI-WEEK CADENCE (REQUIRED — you are generating **{num_days}** consecutive days)
+
+`day_number` 1 = first calendar day (today in the user's timezone). **Do not** pack weekly/biweekly/monthly items only into days 1–7; repeat them on the correct **weekdays and calendar dates** through day {num_days}.
+
+- **SkinMax:** Exfoliation PM on the user's exfoliation weekday **every week** in range. Sunday midday: pillowcase line (or merge into Sunday tip). **Every calendar 1st** in range: progress photo (midday) + routine check-in (PM + 30 min).
+- **HairMax (thinning stack):** Ketoconazole **2–3×/week** on fixed wash weekdays throughout. Microneedling **once per week** on the user's microneedling weekday (not same night as minoxidil); omit until month 4+ if ramp says so. **Bi-weekly progress photos** (e.g. every 14 days from day 1). **Every 1st:** monthly check-in (midday).
+- **HairMax (non-thinning):** Wash / treatment days on a repeating weekly pattern matching hair-type frequency.
+- **HeightMax:** Sprint pattern and **weekly height measure** on the same weekday each week (e.g. Sunday). **Every 1st:** monthly review when in range.
+- **BoneMax:** **Weekly** checkpoint (e.g. Monday): front/side progress snap or symmetry review. **Every 1st:** monthly bone check when in range.
+- **FitMax:** **Weekly weigh-in** on the same weekday each week. **Every 1st:** monthly body check when phase allows.
+
+Use `task_type` **`checkpoint`** for weekly/biweekly/monthly items. Keep descriptions short if needed so JSON stays valid for long horizons.
+
 ## INSTRUCTIONS
-1. Create a schedule for {num_days} days.
+1. Create a schedule for {num_days} days (include **every** day from 1 through {num_days} in the `days` array).
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
 3. Schedule morning tasks shortly after wake time and evening tasks with enough runway before sleep to actually get done.
-4. Spread weekly or higher-intensity tasks across different days.
+4. Spread weekly or higher-intensity tasks across different days, and **repeat** them each week (or every 14 days for bi-weekly) across the full {num_days}-day window.
 5. If the protocol involves outside exposure reminders, only add them when outside_today is true (SkinMax: follow outdoor_frequency rules in the SkinMax notification engine — not the same as this bullet for other maxxes).
 6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only. **Exception — SkinMax:** do NOT add a generic wake check-in; the AM routine at wake+15 is the first ping (unless another active module already owns wake — then stagger per MULTI-ACTIVE-MODULES). **Exception — BoneMax:** mewing morning reset at **wake** is the first ping. **Exception — HeightMax:** morning decompression at **wake+20** is the first HeightMax ping (merge with other modules per cross-module instructions when needed). **Exception — HairMax (thinning stack):** do NOT use a generic wake-only check-in; first pings are **finasteride (if oral path)** and/or **minoxidil at wake+15** per ramp phase (merge AM with SkinMax per HAIRMAX+SKINMAX when both active). **Exception — FitMax:** do NOT use a generic wake-only check-in; first daily FitMax anchor is **morning nutrition at wake+30** (merge with SkinMax AM when both active); on workout days add **pre-workout at workout−30m** (not a duplicate wake ping).
 7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
@@ -199,6 +218,7 @@ CRITICAL: If the notification engine reference specifies particular tasks as MAN
 11. Include brief motivational messages for each day.
 12. **IMPORTANT:** Every day MUST have at least the minimum number of tasks specified above. Read the NOTIFICATION ENGINE reference and include ALL mandatory daily tasks it lists. Short schedules with 1–2 tasks/day are wrong.
 13. Task descriptions should include specific product names, step-by-step instructions, or actionable copy from the notification engine reference — not vague one-liners.
+14. **SMS / push tone:** Titles and descriptions are used as the basis for text reminders. Write like a casual text from Max — not a dashboard. **Do not** use stiff patterns like `Category: Name — 2:22pm` or `Midday Tip: Hydration Goal` in titles. Prefer short titles (e.g. `water check`, `PM routine`, `sprint warm-up`) and put the real detail in **description** as plain, conversational sentences (lowercase ok). The app shows exact times; SMS will prefix something like `around 2:22pm — …`.
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON matching this structure (no markdown fences).
@@ -358,7 +378,7 @@ class ScheduleService:
         db: AsyncSession,
         rds_db: AsyncSession,
         preferences: Optional[dict] = None,
-        num_days: int = 7,
+        num_days: int = DEFAULT_COURSE_SCHEDULE_DAYS,
     ) -> dict:
         """Generate a personalised schedule for a user's course module."""
         await self._enforce_schedule_limit(
@@ -398,7 +418,7 @@ class ScheduleService:
         preferred_times = prefs.get("preferred_workout_times", ["08:00", "18:00"])
 
         guidelines = module.get("guidelines", {}) or {}
-        if num_days == 7 and guidelines.get("recommended_days"):
+        if num_days == DEFAULT_COURSE_SCHEDULE_DAYS and guidelines.get("recommended_days"):
             num_days = guidelines["recommended_days"]
 
         gen_tmpl = await asyncio.to_thread(
@@ -484,7 +504,7 @@ class ScheduleService:
         sleep_time: str = "23:00",
         skin_concern: Optional[str] = None,
         outside_today: bool = False,
-        num_days: int = 7,
+        num_days: int = DEFAULT_MAXX_SCHEDULE_DAYS,
         override_age: Optional[int] = None,
         override_sex: Optional[str] = None,
         override_height: Optional[str] = None,
@@ -1347,6 +1367,8 @@ class ScheduleService:
         start_date: date,
     ) -> dict:
         """Deterministic SkinMax-shaped days when Gemini fails (engine-aligned slot times)."""
+        from services.skinmax_notification_engine import add_minutes_to_clock
+
         ob = onboarding or {}
         freq = str(ob.get("outdoor_frequency", "sometimes")).lower()
         hydration_on = ob.get("skin_hydration_notifications", True)
@@ -1427,15 +1449,34 @@ class ScheduleService:
                 }
             )
 
-            tasks.sort(key=lambda t: t.get("time") or "00:00")
-            extra = ""
             if d.day == 1:
-                extra = " Monthly: progress photo at midday + check-in 30m after PM (add when AI schedule returns)."
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": slots["midday_tip"],
+                        "title": "SkinMax — monthly progress photo",
+                        "description": "Same lighting/angle as last month — quick snapshot.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 3,
+                    }
+                )
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": add_minutes_to_clock(slots["pm_routine"], 30),
+                        "title": "SkinMax — monthly check-in",
+                        "description": "Texture, breakouts, barrier — vs last month; tweak routine if needed.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
+
+            tasks.sort(key=lambda t: t.get("time") or "00:00")
             days.append(
                 {
                     "day_number": day_num,
                     "tasks": tasks,
-                    "motivation_message": f"Day {day_num} — SkinMax fallback: times follow wake/bed engine.{extra}",
+                    "motivation_message": f"Day {day_num} — SkinMax fallback: engine times; weekly exfoliation + monthly 1st checkpoints when applicable.",
                 }
             )
 
@@ -1886,6 +1927,38 @@ class ScheduleService:
         thinning_stack = concern in ("minoxidil", "dermastamp")
         topical_pm_slot = _bed_minus_mins(sleep_time, 120)
 
+        mn_raw = ob.get("hairmax_microneedling_weekday", 6)
+        if isinstance(mn_raw, str):
+            _k = mn_raw.strip().lower()[:3]
+            _dow_mn = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
+            mn_dow = _dow_mn.get(_k, 6)
+        else:
+            try:
+                mn_dow = int(mn_raw) % 7
+            except (TypeError, ValueError):
+                mn_dow = 6
+        mnt = (ob.get("hairmax_microneedling_time") or "").strip()
+        if mnt and ":" in mnt:
+            mn_slot = mnt[:5]
+        else:
+            mn_slot = slots["microneedling_default"]
+        mo_raw = ob.get("hairmax_months_on_treatment")
+        if mo_raw is None or str(mo_raw).strip() == "":
+            def _microneedling_ok(dn: int) -> bool:
+                return dn >= 8
+
+        else:
+            try:
+                _mo = int(mo_raw)
+
+                def _microneedling_ok(dn: int) -> bool:
+                    return _mo >= 4
+
+            except (TypeError, ValueError):
+
+                def _microneedling_ok(dn: int) -> bool:
+                    return dn >= 8
+
         days: list = []
         for day_num in range(1, num_days + 1):
             d = start_date + timedelta(days=day_num - 1)
@@ -1970,11 +2043,11 @@ class ScheduleService:
                     }
                 )
 
-            if thinning_stack and wd == 6 and day_num >= 8:
+            if thinning_stack and wd == mn_dow and _microneedling_ok(day_num):
                 tasks.append(
                     {
                         "task_id": str(uuid.uuid4()),
-                        "time": slots["microneedling_default"],
+                        "time": mn_slot,
                         "title": "HairMax — Microneedling session",
                         "description": "Weekly scalp session — not same night as minoxidil (shift if conflict); stagger vs face microneedling. Resume minox after ~24h safe window.",
                         "task_type": "checkpoint",
@@ -2179,6 +2252,17 @@ class ScheduleService:
                         "duration_minutes": 8,
                     }
                 )
+            if wd == 0:
+                tasks.append(
+                    {
+                        "task_id": str(uuid.uuid4()),
+                        "time": _add_minutes_to_str(slots["mewing_morning"], 180),
+                        "title": "BoneMax — Weekly checkpoint",
+                        "description": "Front + side snap; note jaw tension, symmetry, and masseter recovery vs last week.",
+                        "task_type": "checkpoint",
+                        "duration_minutes": 5,
+                    }
+                )
             tasks.sort(key=lambda t: t.get("time") or "00:00")
             days.append(
                 {
@@ -2263,7 +2347,13 @@ class ScheduleService:
             schedule.user_feedback = user_feedback
 
         await db.commit()
-        return {"status": "completed", "completion_stats": stats}
+
+        user_uuid = UUID(user_id)
+        user_row = await db.get(User, user_uuid)
+        all_schedules = await self.get_all_active_schedules(user_id, db)
+        streak = await sync_master_schedule_streak(user_row, all_schedules, db)
+
+        return {"status": "completed", "completion_stats": stats, "schedule_streak": streak}
 
     def _fallback_adapt_changes_summary(
         self, old_days: list, new_days: list, feedback: str

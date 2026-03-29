@@ -57,6 +57,8 @@ export default function MasterScheduleScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [scheduleStreak, setScheduleStreak] = useState({ current: 0 });
+  const [calendarTodayKey, setCalendarTodayKey] = useState('');
 
   const { labels: maxxLabels, colors: maxxColorMap } = useMemo(() => buildMaxxMaps(maxxes), [maxxes]);
 
@@ -74,6 +76,10 @@ export default function MasterScheduleScreen() {
       ]);
       setSchedules(full.schedules || []);
       setMaxxes(maxxRes.maxes || []);
+      if (full.schedule_streak) {
+        setScheduleStreak({ current: full.schedule_streak.current ?? 0 });
+      }
+      setCalendarTodayKey(full.today_date || full.schedule_streak?.today_date || '');
     } catch (e: any) {
       console.error('Master schedule load failed', e);
       setSchedules([]);
@@ -100,10 +106,10 @@ export default function MasterScheduleScreen() {
     }
     setSelectedDate((d) => {
       if (d && merged.dates.includes(d)) return d;
-      const today = new Date().toISOString().split('T')[0];
+      const today = calendarTodayKey || new Date().toISOString().split('T')[0];
       return merged.dates.includes(today) ? today : merged.dates[0];
     });
-  }, [merged.dates]);
+  }, [merged.dates, calendarTodayKey]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -127,7 +133,10 @@ export default function MasterScheduleScreen() {
 
   const handleComplete = async (scheduleId: string, taskId: string) => {
     try {
-      await api.completeScheduleTask(scheduleId, taskId);
+      const res = await api.completeScheduleTask(scheduleId, taskId);
+      if (res?.schedule_streak) {
+        setScheduleStreak({ current: res.schedule_streak.current ?? 0 });
+      }
       await load();
     } catch (e) {
       console.error('complete task', e);
@@ -281,6 +290,9 @@ export default function MasterScheduleScreen() {
       >
         <View style={styles.progressRow}>
           <Text style={styles.progressText}>
+            {scheduleStreak.current > 0
+              ? `🔥 ${scheduleStreak.current} day${scheduleStreak.current === 1 ? '' : 's'} streak · `
+              : ''}
             {completedCount}/{totalCount} completed
             {merged.legend.length > 0
               ? ` · ${merged.legend.length} program${merged.legend.length !== 1 ? 's' : ''}`

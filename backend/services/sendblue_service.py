@@ -15,6 +15,68 @@ logger = logging.getLogger(__name__)
 
 SENDBLUE_API = "https://api.sendblue.co/api"
 
+# Strip formal schedule labels so SMS reads like a text, not "Category — time. Body"
+_MODULE_TITLE_PREFIX = re.compile(
+    r"^(SkinMax|HairMax|HeightMax|BoneMax|FitMax)\s*[\u2014\-–]\s*",
+    re.I,
+)
+_FORMAL_SEGMENT_PREFIX = re.compile(
+    r"^(Midday\s+Tip|Hydration\s+Check|SPF\s+Reapply|Weekly\s+Weigh-?in)\s*:\s*",
+    re.I,
+)
+
+
+def _strip_schedule_title_labels(title: str) -> str:
+    t = (title or "").strip()
+    if not t:
+        return ""
+    t = _MODULE_TITLE_PREFIX.sub("", t)
+    t = _FORMAL_SEGMENT_PREFIX.sub("", t)
+    return t.strip()
+
+
+def _trim_sms_body(s: str, max_len: int) -> str:
+    s = (s or "").strip()
+    if len(s) <= max_len:
+        return s
+    cut = s[: max_len - 1]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut + "…"
+
+
+def _core_text_for_reminder(task_title: str, task_description: str) -> str:
+    """Prefer description (the actionable reference); fall back to cleaned title."""
+    d = (task_description or "").strip()
+    t = _strip_schedule_title_labels(task_title or "")
+    if len(d) >= 10:
+        return _trim_sms_body(d, 260)
+    if d and t:
+        if t.lower() in d.lower()[: min(60, len(d))]:
+            return _trim_sms_body(d, 260)
+        return _trim_sms_body(f"{t}: {d}", 260)
+    if t:
+        return _trim_sms_body(t, 260)
+    return "quick ping from your schedule."
+
+
+def _lowercase_casual_opening(s: str) -> str:
+    """Lowercase sentence case for a text-y vibe; skip product lists / odd casing."""
+    s = (s or "").strip()
+    if not s:
+        return s
+    if s[0] in "(0123456789•":
+        return s
+    m = re.match(r"^([A-Za-z']+)", s)
+    if m:
+        word = m.group(1)
+        caps = sum(1 for c in word if c.isupper())
+        if len(word) > 1 and caps > 1 and not word.isupper():
+            return s
+    if s[0].isalpha() and s[0].isupper() and len(s) > 1 and s[1].islower():
+        return s[0].lower() + s[1:]
+    return s
+
 
 def onboarding_allows_proactive_sms(onboarding: dict | None) -> bool:
     """Schedule reminders, scan-complete texts, coaching nudges — only after user has texted our line."""
@@ -181,31 +243,20 @@ class SendblueService:
         task_description: str,
         task_time: str,
     ) -> str:
-        title = (task_title or "").strip()
-        desc = (task_description or "").strip()
+        """
+        Casual single-line (or short) SMS: time as 'around 2:22pm - …', no 'Title — time. Essay'.
+        Schedule JSON title/description remain the source of truth in the app; this is delivery tone only.
+        """
         when = self._format_time_12h((task_time or "").strip())
-        if title:
-            body = title
-        elif desc:
-            body = desc.split("\n")[0].split(".")[0].strip()
-        elif when:
-            body = when
+        core = _lowercase_casual_opening(_core_text_for_reminder(task_title, task_description))
+        if when:
+            if when.lower() in core.lower():
+                body = core
+            else:
+                body = f"around {when} - {core}"
         else:
-            body = "Something you put on today's list."
-        if when and when.lower() not in body.lower():
-            body = f"{body} — {when}"
-        if title and desc:
-            first = desc.split(".")[0].strip()
-            if (
-                first
-                and first.lower() != title.lower()
-                and not first.lower().startswith(title.lower()[: min(15, len(title))])
-            ):
-                if len(body) + len(first) + 2 <= 300:
-                    body = f"{body}. {first}"
-        if len(body) > 300:
-            body = body[:297] + "…"
-        return body
+            body = core
+        return _trim_sms_body(body, 300)
 
     async def send_schedule_reminder(
         self,
@@ -240,9 +291,11 @@ class SendblueService:
                 ttime,
             )
             lines.append(line)
-        body = f"{len(tasks)} reminders: " + " | ".join(lines)
-        if len(body) > 320:
-            body = body[:317] + "…"
+        n = len(lines)
+        intro = "hey - couple things:" if n == 2 else f"hey - {n} quick things:"
+        body = intro + "\n\n" + "\n\n".join(lines)
+        if len(body) > 900:
+            body = body[:897] + "…"
         return bool(await self.send_sms(phone, body))
 
     async def send_coaching_sms(self, phone: str, message: str) -> bool:
