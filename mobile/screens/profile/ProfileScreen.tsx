@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import Constants from 'expo-constants';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -45,10 +44,6 @@ export default function ProfileScreen() {
     const [deletePassword, setDeletePassword] = useState('');
     const [deleteBusy, setDeleteBusy] = useState(false);
     const fadeAnim = useRef(new Animated.Value(0)).current;
-    const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
-    const supportEmail = extra.supportEmail || 'support@example.com';
-    const privacyUrl = extra.privacyPolicyUrl;
-    const termsUrl = extra.termsOfServiceUrl;
 
     useEffect(() => {
         loadData();
@@ -108,24 +103,6 @@ export default function ProfileScreen() {
     const openProgressArchiveAt = (index: number) => {
         setSelectedPhotoIndex(index);
         setProgressModalVisible(true);
-    };
-
-    const openUrl = async (url: string, label: string) => {
-        try {
-            await Linking.openURL(url);
-        } catch {
-            Alert.alert('Error', `Could not open ${label}.`);
-        }
-    };
-
-    const openSupport = async () => {
-        const subject = encodeURIComponent('Max app - support');
-        const mailto = `mailto:${supportEmail}?subject=${subject}`;
-        try {
-            await Linking.openURL(mailto);
-        } catch {
-            Alert.alert('Contact', `Email us at ${supportEmail}`);
-        }
     };
 
     const confirmDeleteAccount = async () => {
@@ -263,7 +240,14 @@ export default function ProfileScreen() {
                     <Ionicons name="arrow-back" size={20} color={colors.foreground} />
                 </TouchableOpacity>
                 <Text style={styles.topBarTitle}>Profile</Text>
-                <View style={{ width: 40 }} />
+                <TouchableOpacity
+                    onPress={() => navigation.navigate('Settings')}
+                    style={styles.backButton}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Settings"
+                >
+                    <Ionicons name="settings-outline" size={22} color={colors.foreground} />
+                </TouchableOpacity>
             </View>
 
             {loading ? (
@@ -351,34 +335,6 @@ export default function ProfileScreen() {
                             <Ionicons name="leaf-outline" size={22} color={colors.foreground} />
                             <Text style={styles.menuRowText}>Edit lifestyle</Text>
                             <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.menuRow, { marginTop: spacing.sm }]} onPress={() => navigation.navigate('LegalAndSafety')} activeOpacity={0.7}>
-                            <Ionicons name="shield-checkmark-outline" size={22} color={colors.foreground} />
-                            <Text style={styles.menuRowText}>Legal & safety</Text>
-                            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.menuRow, { marginTop: spacing.sm }]} onPress={openSupport} activeOpacity={0.7}>
-                            <Ionicons name="mail-outline" size={22} color={colors.foreground} />
-                            <Text style={styles.menuRowText}>Contact support</Text>
-                            <Ionicons name="open-outline" size={20} color={colors.textMuted} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.menuRow, { marginTop: spacing.sm }]}
-                            onPress={() => privacyUrl ? openUrl(privacyUrl, 'Privacy policy') : Alert.alert('Missing link', 'Privacy policy URL is not configured yet.')}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons name="document-text-outline" size={22} color={colors.foreground} />
-                            <Text style={styles.menuRowText}>Privacy policy</Text>
-                            <Ionicons name="open-outline" size={20} color={colors.textMuted} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.menuRow, { marginTop: spacing.sm }]}
-                            onPress={() => termsUrl ? openUrl(termsUrl, 'Terms of service') : Alert.alert('Missing link', 'Terms of service URL is not configured yet.')}
-                            activeOpacity={0.7}
-                        >
-                            <Ionicons name="reader-outline" size={22} color={colors.foreground} />
-                            <Text style={styles.menuRowText}>Terms of service</Text>
-                            <Ionicons name="open-outline" size={20} color={colors.textMuted} />
                         </TouchableOpacity>
                         <TouchableOpacity style={[styles.menuRow, styles.deleteRow]} onPress={() => setDeleteModalVisible(true)} activeOpacity={0.7}>
                             <Ionicons name="trash-outline" size={22} color={colors.error} />

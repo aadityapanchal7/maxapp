@@ -139,8 +139,8 @@ export default function LoginScreen() {
                         </Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={() => navigation.navigate('LegalAndSafety')} activeOpacity={0.6} style={styles.legalLink}>
-                        <Text style={styles.legalLinkText}>Privacy, support & safety</Text>
+                    <TouchableOpacity onPress={() => navigation.navigate('Settings')} activeOpacity={0.6} style={styles.legalLink}>
+                        <Text style={styles.legalLinkText}>Settings & policies</Text>
                     </TouchableOpacity>
                 </Animated.View>
             </KeyboardAvoidingView>

@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
-import { FITMAX_MODULES, fitmaxPhaseProgress } from '../../features/fitmax/modules';
+import { FITMAX_MODULES } from '../../features/fitmax/modules';
 import { defaultFitmaxMacroSummary, deriveCalorieLogFromMessages, fitmaxAccent } from '../../features/fitmax/fitmax';
 
 const MODULE_PHASE_ACCENTS: Record<string, string> = {
@@ -29,7 +29,6 @@ function modulePreview(content: string) {
 export default function FitmaxScreen() {
   const navigation = useNavigation<any>();
   const modules = useMemo(() => FITMAX_MODULES, []);
-  const progress = useMemo(() => fitmaxPhaseProgress(modules), [modules]);
   const [loadingSchedule, setLoadingSchedule] = useState(true);
   const [activeSchedule, setActiveSchedule] = useState<any>(null);
   const [activeCount, setActiveCount] = useState(0);
@@ -157,9 +156,6 @@ export default function FitmaxScreen() {
         </View>
 
         <Text style={styles.headerTitle}>Fitmax</Text>
-        <Text style={styles.headerDescription}>
-          Your course modules live here. Schedule changes happen with your coach in Chat.
-        </Text>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -212,14 +208,6 @@ export default function FitmaxScreen() {
               </TouchableOpacity>
             </>
           ) : null}
-        </View>
-
-        <View style={styles.progressCard}>
-          <Text style={styles.sectionLabel}>Course Progress</Text>
-          <Text style={styles.progressText}>{progress.currentPhase} - {progress.completed} of {progress.total} modules complete</Text>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${Math.max(4, progress.ratio * 100)}%` }]} />
-          </View>
         </View>
 
         <Text style={styles.modulesLabel}>Modules</Text>
@@ -279,7 +267,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#16a34a1f',
   },
   headerTitle: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5, paddingRight: 160 },
-  headerDescription: { ...typography.bodySmall, marginTop: spacing.xs, paddingRight: 160 },
   macroChip: {
     position: 'absolute',
     right: spacing.lg,
@@ -297,17 +284,6 @@ const styles = StyleSheet.create({
   macroChipMacros: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
   scroll: { flex: 1 },
   scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  sectionLabel: { ...typography.label, marginBottom: spacing.xs },
-  progressCard: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    padding: spacing.lg,
-    marginBottom: spacing.lg,
-    ...shadows.md,
-  },
-  progressText: { ...typography.bodySmall },
-  progressTrack: { marginTop: 8, height: 6, borderRadius: 999, backgroundColor: colors.surface, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: fitmaxAccent },
   scheduleActions: { marginBottom: spacing.lg, gap: spacing.md },
   scheduleButton: {
     flexDirection: 'row',

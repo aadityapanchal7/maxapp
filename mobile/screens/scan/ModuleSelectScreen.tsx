@@ -106,7 +106,9 @@ export default function ModuleSelectScreen() {
                             activeOpacity={0.85}
                             onPress={() => toggleMaxx(m.id)}
                         >
-                            <View style={[styles.dot, m.color ? { backgroundColor: m.color } : { backgroundColor: colors.foreground }]} />
+                            <View style={[styles.cardIcon, m.color ? { backgroundColor: m.color + '22' } : {}]}>
+                                <Ionicons name={(m.icon || 'book-outline') as any} size={22} color={m.color || colors.textSecondary} />
+                            </View>
                             <View style={styles.cardText}>
                                 <Text style={styles.cardTitle}>{m.label || m.id}</Text>
                                 {m.description ? (
@@ -161,7 +163,14 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
         ...shadows.sm,
     },
-    dot: { width: 10, height: 10, borderRadius: 5 },
+    cardIcon: {
+        width: 48,
+        height: 48,
+        borderRadius: borderRadius.md,
+        backgroundColor: colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     cardText: { flex: 1 },
     cardTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground },
     cardDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },

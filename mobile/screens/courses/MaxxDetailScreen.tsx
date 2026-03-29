@@ -8,7 +8,7 @@ import FitmaxScreen from './FitmaxScreen';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'];
 
-/** Same as HomeScreen: module titles if present, else concern labels (e.g. SkinMax). */
+/** Same as HomeScreen: module titles if present, else concern labels (e.g. skinmax concerns). */
 function getMaxxTagLabels(maxx: any): string[] {
     const modules = maxx.modules || [];
     if (modules.length > 0) {
@@ -18,14 +18,92 @@ function getMaxxTagLabels(maxx: any): string[] {
     return concerns.map((c: any) => c.label || c.id).filter(Boolean);
 }
 
+/** Heightmax module title → HEIGHTMAX_PROTOCOLS key (must match backend). */
+const HEIGHT_TITLE_TO_KEY: Record<string, string> = {
+    Posturemaxxing: 'posturemaxxing',
+    Sprintmaxxing: 'sprintmaxxing',
+    'Deep Sleep Routine': 'deep_sleep_routine',
+    'Decompress / Lengthen': 'decompress_lengthen',
+    'Height Killers': 'height_killers',
+    'Look Taller Instantly': 'look_taller_instantly',
+    'Height Fuel': 'height_fuel',
+    'Hormones to Max': 'hormones_to_max',
+};
+
+function formatStartedDate(iso: string | undefined): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Per-module line: "Not started" or "Started Mon Jan 1, 2026" using active schedule + context.
+ */
+function getModuleStatusLine(
+    maxxId: string,
+    moduleTitle: string,
+    activeSchedule: any | null,
+): string {
+    if (!activeSchedule) return 'Not started';
+
+    const ctx = activeSchedule.schedule_context || {};
+    const dateStr = formatStartedDate(activeSchedule.created_at);
+
+    if (maxxId === 'heightmax') {
+        const hc = ctx.height_components as Record<string, boolean> | undefined;
+        const key = HEIGHT_TITLE_TO_KEY[moduleTitle];
+        if (!key) return 'Not started';
+        if (!hc || Object.keys(hc).length === 0) {
+            return dateStr ? `Started ${dateStr}` : 'Started';
+        }
+        if (!(key in hc)) return 'Not started';
+        return hc[key] ? (dateStr ? `Started ${dateStr}` : 'Started') : 'Not started';
+    }
+
+    if (maxxId === 'skinmax') {
+        const concern = (ctx.selected_concern || ctx.skin_concern) as string | undefined;
+        const titleToConcern: Record<string, string> = {
+            'Acne / Congestion': 'acne',
+            'Pigmentation / Uneven Tone': 'pigmentation',
+            'Texture / Scarring': 'texture',
+            'Redness / Sensitivity': 'redness',
+            'Aging / Skin Quality': 'aging',
+        };
+        const mod = titleToConcern[moduleTitle];
+        if (!concern) return dateStr ? `Started ${dateStr}` : 'Started';
+        if (mod && mod === concern) return dateStr ? `Started ${dateStr}` : 'Started';
+        return 'Not started';
+    }
+
+    if (maxxId === 'hairmax') {
+        const concern = ctx.selected_concern as string | undefined;
+        const byConcern: Record<string, string[]> = {
+            wash_routine: ['Shampoo & Conditioner Basics', 'When to Wash'],
+            anti_dandruff: ['Shampoo & Conditioner Basics', 'When to Wash'],
+            oils_masks: ['Oils & Hair Masks'],
+            minoxidil: ['Minoxidil Protocol'],
+            dermastamp: ['Dermastamp / Dermaroller'],
+        };
+        const titles = concern ? byConcern[concern] : undefined;
+        if (!concern) return dateStr ? `Started ${dateStr}` : 'Started';
+        if (titles?.includes(moduleTitle)) return dateStr ? `Started ${dateStr}` : 'Started';
+        return 'Not started';
+    }
+
+    if (maxxId === 'bonemax') {
+        return dateStr ? `Started ${dateStr}` : 'Started';
+    }
+
+    return 'Not started';
+}
+
 export default function MaxxDetailScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
     const { maxxId } = route.params || {};
     const [maxx, setMaxx] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [expandedModule, setExpandedModule] = useState<number | null>(0);
-    const [showAllModules, setShowAllModules] = useState(false);
     const [activeSchedule, setActiveSchedule] = useState<any>(null);
     const [scheduleLoading, setScheduleLoading] = useState(false);
     const [activeCount, setActiveCount] = useState(0);
@@ -50,8 +128,6 @@ export default function MaxxDetailScreen() {
         try {
             const data = await api.getMaxx(maxxId);
             setMaxx(data);
-            setExpandedModule(0);
-            setShowAllModules(false);
             if (SCHEDULE_CAPABLE_MAXXES.includes(maxxId)) {
                 try {
                     const schedRes = await api.getMaxxSchedule(maxxId);
@@ -134,15 +210,10 @@ export default function MaxxDetailScreen() {
     const MAX_PILLS = 8;
     const previewPills = tagLabels.slice(0, MAX_PILLS);
     const morePillCount = tagLabels.length - previewPills.length;
-    const MODULE_PREVIEW = 3;
-    const isModulePreview =
-        modules.length > MODULE_PREVIEW && !showAllModules;
-    const modulesToRender = isModulePreview ? modules.slice(0, MODULE_PREVIEW) : modules;
-    const hiddenModuleCount = Math.max(0, modules.length - MODULE_PREVIEW);
 
     return (
         <View style={styles.container}>
-            <View style={[styles.header, maxx.color && { backgroundColor: maxx.color + '18' }]}>
+            <View style={[styles.headerBanner, maxx.color && { backgroundColor: maxx.color + '18' }]}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                     <Ionicons name="arrow-back" size={24} color={colors.foreground} />
                 </TouchableOpacity>
@@ -221,48 +292,16 @@ export default function MaxxDetailScreen() {
                     </View>
                 )}
 
-                {modulesToRender.map((mod: any, idx: number) => {
-                    const isExpanded = expandedModule === idx;
-                    const steps = mod.steps || [];
-                    return (
-                        <View key={idx} style={styles.moduleCard}>
-                            <TouchableOpacity
-                                style={styles.moduleHeader}
-                                onPress={() => setExpandedModule(isExpanded ? null : idx)}
-                                activeOpacity={0.7}
-                            >
-                                <View style={styles.moduleTitleRow}>
-                                    <Text style={styles.moduleTitle}>{mod.title}</Text>
-                                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={colors.textMuted} />
-                                </View>
-                                {mod.description ? <Text style={styles.moduleDesc} numberOfLines={2}>{mod.description}</Text> : null}
-                            </TouchableOpacity>
-
-                            {isExpanded && steps.length > 0 && (
-                                <View style={styles.stepsContainer}>
-                                    {steps.map((step: any, stepIdx: number) => (
-                                        <View key={stepIdx} style={styles.stepBlock}>
-                                            <Text style={styles.stepTitle}>{step.title}</Text>
-                                            <Text style={styles.stepContent}>{step.content}</Text>
-                                        </View>
-                                    ))}
-                                </View>
-                            )}
+                {modules.map((mod: any, idx: number) => (
+                    <View key={idx} style={styles.moduleCard}>
+                        <View style={styles.moduleRow}>
+                            <Text style={styles.moduleTitle}>{mod.title}</Text>
+                            <Text style={styles.moduleStatus}>
+                                {getModuleStatusLine(maxxId, mod.title, activeSchedule)}
+                            </Text>
                         </View>
-                    );
-                })}
-
-                {isModulePreview && hiddenModuleCount > 0 && (
-                    <TouchableOpacity
-                        style={styles.showMoreModules}
-                        onPress={() => setShowAllModules(true)}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={styles.showMoreModulesText}>
-                            and {hiddenModuleCount} more…
-                        </Text>
-                    </TouchableOpacity>
-                )}
+                    </View>
+                ))}
             </ScrollView>
         </View>
     );
@@ -274,12 +313,10 @@ const styles = StyleSheet.create({
     errorText: { color: colors.textSecondary, marginBottom: 12 },
     retryButton: { paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.surface, borderRadius: borderRadius.md },
     retryText: { color: colors.foreground, fontWeight: '600' },
-    header: {
+    headerBanner: {
         paddingTop: 56,
         paddingBottom: spacing.xl,
         paddingHorizontal: spacing.lg,
-        borderBottomLeftRadius: 24,
-        borderBottomRightRadius: 24,
     },
     backButton: { marginBottom: spacing.md },
     headerIcon: {
@@ -322,17 +359,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.textMuted,
     },
-    showMoreModules: {
-        paddingVertical: spacing.sm,
-        paddingHorizontal: spacing.md,
-        marginBottom: spacing.md,
-        alignSelf: 'flex-start',
-    },
-    showMoreModulesText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: colors.textMuted,
-    },
     moduleCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius.xl,
@@ -340,14 +366,12 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         ...shadows.md,
     },
-    moduleHeader: { padding: spacing.lg },
-    moduleTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    moduleTitle: { fontSize: 17, fontWeight: '600', color: colors.foreground, flex: 1 },
-    moduleDesc: { fontSize: 13, color: colors.textMuted, marginTop: 4, lineHeight: 20 },
-    stepsContainer: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, borderTopWidth: 1, borderTopColor: colors.border },
-    stepBlock: { paddingTop: spacing.lg },
-    stepTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground, marginBottom: 6 },
-    stepContent: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
+    moduleRow: {
+        padding: spacing.lg,
+        gap: 6,
+    },
+    moduleTitle: { fontSize: 17, fontWeight: '600', color: colors.foreground },
+    moduleStatus: { fontSize: 14, color: colors.textMuted, lineHeight: 20 },
     scheduleActions: {
         marginBottom: spacing.xl,
         gap: spacing.md,

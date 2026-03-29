@@ -498,8 +498,8 @@ FITMAX_CONCERNS = [
 
 MAXX_GUIDELINES = {
     "skinmax": {
-        "label": "SkinMax",
-        "description": "AI-personalised skincare schedule based on your skin type and concerns.",
+        "label": "skinmax",
+        "description": "Skincare and SPF routines.",
         "schedule_rules": {
             "engine": "skinmax_notification_engine_reference.md",
             "am_routine": "wake_time + 15 minutes (never generic 'morning' without deriving from wake)",
