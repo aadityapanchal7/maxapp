@@ -7,18 +7,7 @@ import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
 
-const MAX_TAG_PILLS = 3;
 const HOME_TODAY_TASK_PREVIEW = 3;
-
-/** Module step titles first (detail cards); else concern labels (e.g. SkinMax). */
-function getMaxxTagLabels(maxx: any): string[] {
-    const modules = maxx.modules || [];
-    if (modules.length > 0) {
-        return modules.map((m: any) => m.title).filter(Boolean);
-    }
-    const concerns = maxx.concerns || [];
-    return concerns.map((c: any) => c.label || c.id).filter(Boolean);
-}
 
 function formatTimeTo12Hour(time24: string) {
     if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24 || '';
@@ -247,44 +236,25 @@ export default function HomeScreen() {
                             {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length}</Text>}
                         </View>
 
-                        {activeMaxxes.map((maxx) => {
-                            const allTags = getMaxxTagLabels(maxx);
-                            const previewTags = allTags.slice(0, MAX_TAG_PILLS);
-                            const moreCount = allTags.length - previewTags.length;
-                            return (
-                                <TouchableOpacity
-                                    key={maxx.id}
-                                    style={styles.courseCard}
-                                    onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
-                                    activeOpacity={0.7}
-                                >
-                                    <View style={styles.courseRow}>
-                                        <View style={[styles.courseIcon, maxx.color ? { backgroundColor: maxx.color + '22' } : {}]}>
-                                            <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
-                                        </View>
-                                        <View style={styles.courseContent}>
-                                            <Text style={styles.courseTitle} numberOfLines={1}>{maxx.label}</Text>
-                                            <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 6, textAlign: 'left' }]} numberOfLines={2}>{maxx.description}</Text>
-                                            {previewTags.length > 0 && (
-                                                <View style={styles.moduleRow}>
-                                                    {previewTags.map((t, i) => (
-                                                        <View key={`${maxx.id}-tag-${i}`} style={styles.modulePill}>
-                                                            <Text style={styles.moduleText} numberOfLines={1}>{t}</Text>
-                                                        </View>
-                                                    ))}
-                                                    {moreCount > 0 && (
-                                                        <Text style={styles.moduleMoreHint} numberOfLines={1}>
-                                                            +{moreCount} more…
-                                                        </Text>
-                                                    )}
-                                                </View>
-                                            )}
-                                        </View>
-                                        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                        {activeMaxxes.map((maxx) => (
+                            <TouchableOpacity
+                                key={maxx.id}
+                                style={styles.courseCard}
+                                onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
+                                activeOpacity={0.7}
+                            >
+                                <View style={styles.courseRow}>
+                                    <View style={[styles.courseIcon, maxx.color ? { backgroundColor: maxx.color + '22' } : {}]}>
+                                        <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
                                     </View>
-                                </TouchableOpacity>
-                            );
-                        })}
+                                    <View style={styles.courseContent}>
+                                        <Text style={styles.courseTitle} numberOfLines={1}>{maxx.label}</Text>
+                                        <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]} numberOfLines={2}>{maxx.description}</Text>
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                                </View>
+                            </TouchableOpacity>
+                        ))}
 
                         {activeMaxxes.length === 0 && (
                             <TouchableOpacity style={styles.emptyCard} onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })} activeOpacity={0.7}>
@@ -423,38 +393,7 @@ const styles = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center',
     },
     courseContent: { flex: 1 },
-    courseTitle: { fontSize: 18, fontWeight: '700', color: colors.foreground, marginBottom: 8 },
-    progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    progressBar: { flex: 1, height: 6, backgroundColor: colors.borderLight, borderRadius: 3, overflow: 'hidden' },
-    progressFill: { height: '100%', backgroundColor: colors.foreground, borderRadius: 3 },
-    coursePercent: { fontSize: 13, fontWeight: '500', color: colors.textMuted, width: 40, textAlign: 'right' },
-    moduleRow: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: spacing.xs,
-        marginTop: spacing.sm,
-    },
-    modulePill: {
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 999,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.borderLight,
-    },
-    moduleText: {
-        fontSize: 10,
-        fontWeight: '600',
-        color: colors.textSecondary,
-        maxWidth: 130,
-    },
-    moduleMoreHint: {
-        fontSize: 10,
-        fontWeight: '600',
-        color: colors.textMuted,
-        alignSelf: 'center',
-        marginLeft: 2,
-    },
+    courseTitle: { fontSize: 18, fontWeight: '700', color: colors.foreground, marginBottom: 6 },
     emptyCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],

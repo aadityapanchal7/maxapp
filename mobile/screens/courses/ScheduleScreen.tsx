@@ -606,7 +606,13 @@ const styles = StyleSheet.create({
   generateButtonText: { ...typography.button },
 
   // Day selector
-  daySelectorContainer: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, gap: spacing.sm },
+  daySelectorContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
   dayPill: {
     alignItems: 'center',
     paddingHorizontal: 14,
@@ -636,11 +642,17 @@ const styles = StyleSheet.create({
   motivationText: { ...typography.bodySmall, color: colors.textPrimary, flex: 1, fontStyle: 'italic' },
 
   progressRow: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.md,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: spacing.md,
   },
-  progressText: { ...typography.caption, minWidth: 80 },
+  progressText: { ...typography.caption, textAlign: 'center', marginBottom: spacing.sm },
   progressBar: {
-    flex: 1, height: 4, backgroundColor: colors.border, borderRadius: 2, overflow: 'hidden',
+    width: '100%',
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    overflow: 'hidden',
   },
   progressFill: { height: '100%', backgroundColor: colors.success, borderRadius: 2 },
   fitmaxIndicatorCard: {

@@ -273,8 +273,8 @@ HEIGHTMAX_MODULES = [
 MAXX_SEEDS = [
     {
         "id": "skinmax",
-        "label": "SkinMax",
-        "description": "AI-personalised skincare schedule based on your skin type and concerns.",
+        "label": "skinmax",
+        "description": "Skincare and SPF routines.",
         "icon": "sparkles-outline",
         "color": "#8B5CF6",
         "modules": SKINMAX_MODULES,

@@ -219,7 +219,7 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
             >
                 <View style={styles.progressTopRow}>
                     <Text style={styles.progressTitle} numberOfLines={1} ellipsizeMode="tail">
-                        analyzing
+                        Analyzing
                     </Text>
                     <Text style={styles.progressPct}>{pctLabel}%</Text>
                 </View>
@@ -284,8 +284,9 @@ const styles = StyleSheet.create({
     },
     progressTopRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        justifyContent: 'center',
         alignItems: 'baseline',
+        gap: spacing.md,
         marginBottom: 4,
     },
     trackWrap: {
@@ -297,9 +298,6 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: colors.foreground,
         letterSpacing: -0.5,
-        textTransform: 'lowercase',
-        flex: 1,
-        marginRight: spacing.sm,
     },
     progressPct: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.5 },
     track: {
@@ -320,14 +318,27 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         minHeight: 200,
     },
-    stepsContainer: { alignSelf: 'stretch', alignItems: 'flex-start', marginBottom: spacing.xl },
-    stepRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md, gap: spacing.sm },
+    stepsContainer: { alignSelf: 'stretch', alignItems: 'center', marginBottom: spacing.xl },
+    stepRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+        gap: spacing.sm,
+        flexWrap: 'wrap',
+    },
     emptyIcon: { width: 16, height: 16 },
-    stepText: { fontSize: 15, color: colors.textMuted },
+    stepText: { fontSize: 15, color: colors.textMuted, textAlign: 'center', flexShrink: 1 },
     stepTextCompleted: { color: colors.foreground },
     stepTextActive: { color: colors.foreground, fontWeight: '600' },
     stepTextPending: { color: colors.textMuted },
-    dotsContainer: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xxl },
+    dotsContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        marginBottom: spacing.xxl,
+        alignSelf: 'center',
+    },
     dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.foreground },
     footer: {
         width: '100%',

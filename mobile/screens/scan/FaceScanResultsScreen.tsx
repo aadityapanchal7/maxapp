@@ -181,7 +181,7 @@ function ResultsRatingShareCard({
 }) {
     return (
         <View ref={cardRef} style={shareCardStyles.root} collapsable={false}>
-            <Text style={shareCardStyles.kicker}>AI FACIAL ANALYSIS</Text>
+            <Text style={shareCardStyles.kicker}>AI facial analysis</Text>
             {frontUri ? (
                 <View style={shareCardStyles.photoRing} collapsable={false}>
                     <Image
@@ -388,8 +388,10 @@ function ScanProcessingView() {
                     <Text style={styles.progressTitle}>Analyzing your scan</Text>
                     <Text style={styles.progressPct}>{pctLabel}%</Text>
                 </View>
-                <View style={styles.track} onLayout={onTrackLayout}>
-                    <Animated.View style={[styles.trackFill, { width: fillWidth }]} />
+                <View style={styles.loadingTrackWrap}>
+                    <View style={styles.track} onLayout={onTrackLayout}>
+                        <Animated.View style={[styles.trackFill, { width: fillWidth }]} />
+                    </View>
                 </View>
                 <Text style={styles.loadingSub}>Building your facial ratings…</Text>
             </View>
@@ -867,7 +869,12 @@ export default function FaceScanResultsScreen() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.background },
-    loadingRoot: { alignItems: 'stretch', paddingHorizontal: spacing.lg },
+    loadingRoot: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: spacing.lg,
+    },
     fetchingRoot: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
     fetchErrorText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md },
     fetchRetryBtn: {
@@ -877,15 +884,23 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.full,
     },
     fetchRetryText: { ...typography.button, color: colors.background },
-    loadingHeader: { marginBottom: spacing.md },
-    loadingSub: { fontSize: 14, color: colors.textSecondary, marginTop: spacing.sm },
+    loadingHeader: { marginBottom: spacing.md, width: '100%', maxWidth: 420, alignItems: 'center' },
+    loadingTrackWrap: { alignSelf: 'stretch', width: '100%', marginTop: spacing.sm },
+    loadingSub: {
+        fontSize: 14,
+        color: colors.textSecondary,
+        marginTop: spacing.sm,
+        textAlign: 'center',
+        alignSelf: 'stretch',
+    },
     progressTopRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
+        justifyContent: 'center',
         alignItems: 'baseline',
-        marginBottom: 10,
+        gap: spacing.md,
+        marginBottom: 4,
     },
-    progressTitle: { ...typography.h3, fontSize: 20 },
+    progressTitle: { ...typography.h3, fontSize: 20, textAlign: 'center' },
     progressPct: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.5 },
     track: {
         height: 10,
@@ -920,7 +935,15 @@ const styles = StyleSheet.create({
     },
     iconHit: { width: 40, height: 40, justifyContent: 'center' },
     headerTitle: { ...typography.h2 },
-    kicker: { ...typography.label, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.md },
+    kicker: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.textMuted,
+        letterSpacing: 0.6,
+        textAlign: 'center',
+        marginBottom: spacing.md,
+        textTransform: 'none',
+    },
     photoCard: {
         alignSelf: 'center',
         width: 200,

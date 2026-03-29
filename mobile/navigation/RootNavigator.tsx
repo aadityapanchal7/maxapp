@@ -22,6 +22,7 @@ import ScanDetailScreen from '../screens/scan/ScanDetailScreen';
 import PaymentScreen from '../screens/payment/PaymentScreen';
 import PaymentThankYouScreen from '../screens/payment/PaymentThankYouScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
+import SettingsScreen from '../screens/profile/SettingsScreen';
 import EditPersonalScreen from '../screens/profile/EditPersonalScreen';
 import PersonalInfoScreen from '../screens/profile/PersonalInfoScreen';
 import ProgressArchiveScreen from '../screens/profile/ProgressArchiveScreen';
@@ -39,7 +40,7 @@ import FitmaxProgressScreen from '../screens/courses/FitmaxProgressScreen';
 import FitmaxModuleScreen from '../screens/courses/FitmaxModuleScreen';
 import TabNavigator from './TabNavigator';
 import LandingScreen from '../screens/onboarding/LandingScreen';
-import LegalAndSafetyScreen from '../screens/legal/LegalAndSafetyScreen';
+import LegalDocumentScreen from '../screens/legal/LegalDocumentScreen';
 import AdminNavigator from './AdminNavigator';
 
 const Stack = createNativeStackNavigator();
@@ -97,7 +98,8 @@ export function RootNavigator() {
                     <Stack.Screen name="Login" component={LoginScreen} />
                     <Stack.Screen name="Signup" component={SignupScreen} />
                     <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
+                    <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} options={{ headerShown: false }} />
                 </>
             ) : user?.is_admin ? (
                 <>
@@ -112,7 +114,8 @@ export function RootNavigator() {
                     <Stack.Screen name="ScanDetail" component={ScanDetailScreen} />
                     <Stack.Screen name="Payment" component={PaymentScreen} />
                     <Stack.Screen name="PaymentThankYou" component={PaymentThankYouScreen} options={{ headerShown: false }} />
-                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
+                    <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} options={{ headerShown: false }} />
                 </>
             ) : (
                 <>
@@ -121,6 +124,7 @@ export function RootNavigator() {
                     <Stack.Screen name="SendblueConnect" component={SendblueConnectScreen} />
                     <Stack.Screen name="ModuleSelect" component={ModuleSelectScreen} />
                     <Stack.Screen name="Profile" component={ProfileScreen} />
+                    <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="EditPersonal" component={EditPersonalScreen} />
                     <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
                     <Stack.Screen name="ProgressArchive" component={ProgressArchiveScreen} options={{ headerShown: false }} />
@@ -140,7 +144,7 @@ export function RootNavigator() {
                     <Stack.Screen name="FitmaxCalorieLog" component={FitmaxCalorieLogScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="FitmaxProgress" component={FitmaxProgressScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="FitmaxModule" component={FitmaxModuleScreen} options={{ headerShown: false }} />
-                    <Stack.Screen name="LegalAndSafety" component={LegalAndSafetyScreen} />
+                    <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} options={{ headerShown: false }} />
                 </>
             )}
         </Stack.Navigator>

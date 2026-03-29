@@ -409,6 +409,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
     gap: spacing.sm,
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   dayPill: {
     alignItems: 'center',
@@ -441,15 +443,14 @@ const styles = StyleSheet.create({
   },
   taskList: { flex: 1, minHeight: 0, paddingHorizontal: spacing.lg },
   progressRow: {
-    flexDirection: 'row',
+    width: '100%',
     alignItems: 'center',
-    gap: spacing.md,
     marginBottom: spacing.md,
     marginTop: spacing.sm,
   },
-  progressText: { ...typography.caption, flexShrink: 0, minWidth: 80, maxWidth: '52%' },
+  progressText: { ...typography.caption, textAlign: 'center', marginBottom: spacing.sm },
   progressBar: {
-    flex: 1,
+    width: '100%',
     height: 4,
     backgroundColor: colors.border,
     borderRadius: 2,
