@@ -63,7 +63,7 @@ async def _sendblue_inbound_core(
     if not user:
         await sendblue_service.send_message(
             raw_number,
-            "hey — you're not on max yet. sign up in the app to get started: https://maxmaxmax.today",
+            "hey — don't think i've got you on max yet. grab the app here if you want in: https://maxmaxmax.today",
         )
         return
 
@@ -81,7 +81,7 @@ async def _sendblue_inbound_core(
     if not user.is_paid:
         await sendblue_service.send_message(
             raw_number,
-            "max: your subscription isn't active. open the app to subscribe — then text here anytime for coaching.",
+            "need an active sub to coach you from here — open max and subscribe, then we can go back and forth.",
         )
         return
 
@@ -114,8 +114,8 @@ async def _sendblue_inbound_core(
         text_for_model = body
         if first_thread_message:
             text_for_model = (
-                "[SYSTEM: This is the user's first text to this number. One short welcoming line, "
-                "then answer their message. Keep SMS concise.]\n\n"
+                "(internal: first message from them on this line — one warm short line, then answer. "
+                "Do not mention that it's their first text, SMS, or iMessage. Stay under ~3 short sentences.)\n\n"
                 + body
             )
         try:

@@ -28,12 +28,36 @@ export default function ForumsScreen() {
     const [newCategory, setNewCategory] = useState('general');
     const [newTags, setNewTags] = useState('');
 
-    useFocusEffect(React.useCallback(() => { loadForums(); }, [searchQuery]));
+    const loadForums = React.useCallback(async () => {
+        try {
+            setLoading(true);
+            const { forums: data } = await api.getChannels(searchQuery);
+            setForums(data || []);
+            if (data?.length > 0) {
+                setActiveChannelId((prev) => prev ?? data[0].id);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setLoading(false);
+        }
+    }, [searchQuery]);
 
-    const loadForums = async () => {
-        try { setLoading(true); const { forums: data } = await api.getChannels(searchQuery); setForums(data || []); if (data?.length > 0 && !activeChannelId) setActiveChannelId(data[0].id); }
-        catch (e) { console.error(e); } finally { setLoading(false); }
-    };
+    /** Debounce search so typing in the box does not fire a request per keystroke (slow/janky on device). */
+    useFocusEffect(
+        React.useCallback(() => {
+            let cancelled = false;
+            const delayMs = searchQuery.trim().length > 0 ? 350 : 0;
+            const t = setTimeout(() => {
+                if (cancelled) return;
+                void loadForums();
+            }, delayMs);
+            return () => {
+                cancelled = true;
+                clearTimeout(t);
+            };
+        }, [searchQuery, loadForums]),
+    );
 
     const handleChannelPress = (item: any) => {
         setActiveChannelId(item.id);

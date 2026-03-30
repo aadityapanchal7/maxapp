@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Union
 from config import settings
 from models.scan import TripleFullScanResult, UmaxTripleScanResult
 from services.prompt_loader import PromptKey, resolve_prompt
+from services.sms_reply_style import sms_chat_appendix
 
 from services.gemini_service import (
     MAX_CHAT_SYSTEM_PROMPT,
@@ -189,6 +190,7 @@ class OpenAIService:
         chat_history: List[dict],
         user_context: Optional[dict] = None,
         image_data: Optional[bytes] = None,
+        delivery_channel: str = "app",
     ) -> dict:
         context_str = user_context.get("coaching_context", "") if user_context else ""
         if not context_str and user_context:
@@ -219,6 +221,9 @@ class OpenAIService:
         )
         if context_str:
             chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
+        _sms_extra = sms_chat_appendix(delivery_channel)
+        if _sms_extra:
+            chat_prompt += "\n\n" + _sms_extra
 
         messages: list[dict] = [{"role": "system", "content": chat_prompt}]
 

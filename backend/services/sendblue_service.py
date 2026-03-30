@@ -57,7 +57,7 @@ def _core_text_for_reminder(task_title: str, task_description: str) -> str:
         return _trim_sms_body(f"{t}: {d}", 260)
     if t:
         return _trim_sms_body(t, 260)
-    return "quick ping from your schedule."
+    return "heads up — you've got this on your list today."
 
 
 def _lowercase_casual_opening(s: str) -> str:
@@ -217,9 +217,8 @@ class SendblueService:
     async def send_welcome(self, phone: str, first_name: str | None = None) -> bool:
         name = first_name or "there"
         msg = (
-            f"welcome to max, {name}! you're subscribed. "
-            f"text us anytime at this number for coaching (iMessage/SMS). "
-            f"open the app to pick your programs and dive in."
+            f"yo {name}, welcome to max — you're in. "
+            f"hop in the app to turn on your programs; ping me here anytime after that."
         )
         return bool(await self.send_sms(phone, msg))
 
@@ -230,7 +229,10 @@ class SendblueService:
         overall_score: float | None,
     ) -> bool:
         score_txt = f"{overall_score:.1f}" if overall_score is not None else "ready"
-        msg = f"max: your facial scan rating is in ({score_txt}/10 area). open the app for your full breakdown."
+        msg = (
+            f"your scan results are in (~{score_txt}/10 ballpark). "
+            f"open max for the full breakdown when you have a sec."
+        )
         return bool(await self.send_sms(phone, msg))
 
     async def send_whatsapp(self, phone: str, message: str) -> bool:
@@ -292,7 +294,7 @@ class SendblueService:
             )
             lines.append(line)
         n = len(lines)
-        intro = "hey - couple things:" if n == 2 else f"hey - {n} quick things:"
+        intro = "hey — a few things:" if n == 2 else f"hey — {n} things:"
         body = intro + "\n\n" + "\n\n".join(lines)
         if len(body) > 900:
             body = body[:897] + "…"

@@ -254,7 +254,7 @@ export default function HomeScreen() {
                                 style={styles.todaySeeMoreBtn}
                                 activeOpacity={0.7}
                             >
-                                <Text style={styles.todaySeeMoreText}>See more</Text>
+                                <Text style={styles.todaySeeMoreText}>Open full schedule</Text>
                                 <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
                             </TouchableOpacity>
                         ) : null}

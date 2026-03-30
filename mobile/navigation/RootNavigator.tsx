@@ -30,7 +30,6 @@ import CourseListScreen from '../screens/courses/CourseListScreen';
 import CourseDetailScreen from '../screens/courses/CourseDetailScreen';
 import ChapterViewScreen from '../screens/courses/ChapterViewScreen';
 import ScheduleScreen from '../screens/courses/ScheduleScreen';
-import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
 import MaxxDetailScreen from '../screens/courses/MaxxDetailScreen';
 import FitmaxPlanScreen from '../screens/courses/FitmaxPlanScreen';
 import FitmaxWorkoutTrackerScreen from '../screens/courses/FitmaxWorkoutTrackerScreen';

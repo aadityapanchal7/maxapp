@@ -21,6 +21,7 @@ from services.llm_sync import sync_llm_plain_text
 from models.sqlalchemy_models import User, UserCoachingState, UserSchedule, ChatHistory, Scan
 from db.sqlalchemy import AsyncSessionLocal
 from services.prompt_loader import PromptKey, resolve_prompt
+from services.sms_reply_style import SMS_OUTBOUND_LLM_APPENDIX
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ _COACHING_FITMAX_CHECK_IN_FALLBACK = """You are the Fitmax SMS coach. Write one 
 Tone: direct, knowledgeable, personal. Never generic.
 Max length: 3 sentences.
 Exactly one actionable point.
+Do not narrate that you're texting or reminding — just say the thing.
 
 User name: {name}
 Check-in type: {check_in_type}
@@ -86,10 +88,11 @@ User context:
 Check-in type: {check_in_type}{missed_line}
 
 Generate ONE short message (1-2 sentences max). Be casual, direct, no fluff. Match your tone to their situation — if they're slacking, call it out; if they're on a streak, hype them. Sound like a real person texting, not GPT.
+Do not say you're texting, reaching out, or sending a reminder — jump straight into the check-in.
 
 Message:"""
 
-_COACHING_BEDTIME_FALLBACK = """You are Max — the user's lookmaxxing coach. Send ONE SMS before their bedtime.
+_COACHING_BEDTIME_FALLBACK = """You are Max — the user's lookmaxxing coach. Send ONE text before their bedtime.
 
 User first name or handle: {name}
 
@@ -97,13 +100,13 @@ Context (trim mentally — stay brief):
 {context_snippet}
 
 Rules:
-- 1–3 short sentences max. Casual, direct, lowercase ok — like other Max check-ins. No corporate tone.
-- Say it's almost bedtime / wind-down in a natural way.
-- You MUST clearly tell them they can reply to THIS SAME TEXT THREAD with a selfie or progress picture to log today's progress (MMS). Do not say "only in the app" — SMS photo reply is the main CTA.
-- Do not analyze or judge their face; you're just collecting for their private archive.
+- 1–3 short sentences max. Casual, direct, lowercase ok. No corporate tone.
+- Wind-down / almost-bed vibe in a natural way — don't announce "this is your bedtime text".
+- If you mention a progress photo, one casual clause only (e.g. "pic back if you want today logged") — do not explain MMS or "this thread".
+- Do not analyze their face; archive-only vibe.
 - Under 300 characters if you can.
 
-Output ONLY the SMS body, no quotes."""
+Output ONLY the message body, no quotes."""
 
 
 class CoachingService:
@@ -668,8 +671,8 @@ class CoachingService:
         multi_module_sms_hint = ""
         if n_active_schedules > 1:
             multi_module_sms_hint = (
-                "\n\nThey have multiple active modules and get schedule task SMS. "
-                "Do not duplicate generic good-morning or vague check-in copy — one specific, additive angle only."
+                "\n\nThey run multiple programs and already get task pings. "
+                "Skip generic 'good morning' / vague check-in — one specific angle only."
             )
 
         fitmax_prompt = None
@@ -685,7 +688,7 @@ class CoachingService:
                 missed_today=missed_today,
                 context_str=context_str,
                 multi_module_sms_hint=multi_module_sms_hint,
-            )
+            ) + SMS_OUTBOUND_LLM_APPENDIX
 
         missed_line = (
             f"\nThey missed {missed_today} task(s) today." if missed_today > 0 else ""
@@ -701,7 +704,7 @@ class CoachingService:
             multi_module_sms_hint=multi_module_sms_hint,
             check_in_type=check_in_type,
             missed_line=missed_line,
-        )
+        ) + SMS_OUTBOUND_LLM_APPENDIX
 
         return fitmax_prompt, prompt
 
@@ -755,11 +758,10 @@ class CoachingService:
         bed_tmpl = await asyncio.to_thread(
             resolve_prompt, PromptKey.COACHING_BEDTIME, _COACHING_BEDTIME_FALLBACK
         )
-        prompt = bed_tmpl.format(name=name, context_snippet=context_str[:2500])
+        prompt = bed_tmpl.format(name=name, context_snippet=context_str[:2500]) + SMS_OUTBOUND_LLM_APPENDIX
 
         fallback = (
-            f"hey {name} — almost bedtime. if you want to log today's progress, just reply to this text "
-            "with a selfie or progress pic and i'll drop it in your archive."
+            f"hey {name} — winding down? pic back if you want today's progress in your archive, no pressure."
         )
         return prompt, fallback
 

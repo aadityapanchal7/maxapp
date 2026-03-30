@@ -9,6 +9,7 @@ import google.generativeai as genai
 from typing import Optional, List, Dict, Any, Tuple
 from config import settings
 from services.prompt_loader import PromptKey, resolve_prompt
+from services.sms_reply_style import sms_chat_appendix
 from models.scan import (
     FaceMetrics,
     ScanAnalysis,
@@ -965,7 +966,8 @@ class GeminiService:
         message: str,
         chat_history: List[dict],
         user_context: Optional[dict] = None,
-        image_data: Optional[bytes] = None
+        image_data: Optional[bytes] = None,
+        delivery_channel: str = "app",
     ) -> str:
         """
         Chat with Max persona
@@ -1003,6 +1005,9 @@ class GeminiService:
         )
         if context_str:
             chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
+        _sms_extra = sms_chat_appendix(delivery_channel)
+        if _sms_extra:
+            chat_prompt += "\n\n" + _sms_extra
         
         # Format history
         history_for_gemini = []

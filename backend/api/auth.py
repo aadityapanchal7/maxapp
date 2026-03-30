@@ -286,9 +286,8 @@ async def forgot_password_sms(
     await db.commit()
 
     msg = (
-        f"max — your password reset code is {code}. "
-        f"It expires in {_PASSWORD_RESET_OTP_TTL_MINUTES} minutes. "
-        "If you didn't ask for this, ignore this text."
+        f"max reset code: {code} (expires in {_PASSWORD_RESET_OTP_TTL_MINUTES} min). "
+        "ignore this if it wasn't you."
     )
     sent = await sendblue_service.send_sms(user.phone_number, msg)
     if not sent:

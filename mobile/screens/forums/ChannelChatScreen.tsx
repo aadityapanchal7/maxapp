@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, NativeSyntheticEvent, TextInputKeyPressEventData, Alert } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
 
 interface Message {
     id: string;
@@ -52,8 +52,10 @@ export default function ChannelChatScreen() {
     const navigation = useNavigation();
     const insets = useSafeAreaInsets();
     const route = useRoute<any>();
-    const { channelId, channelName } = route.params;
-    const [isAdminOnly, setIsAdminOnly] = useState(route.params.isAdminOnly || false);
+    const params = route.params ?? {};
+    const channelId = params.channelId as string | undefined;
+    const channelName = (params.channelName as string | undefined) ?? 'Channel';
+    const [isAdminOnly, setIsAdminOnly] = useState(!!params.isAdminOnly);
     const { user } = useAuth();
     const [messages, setMessages] = useState<Message[]>([]);
     const [loading, setLoading] = useState(true);
@@ -77,11 +79,15 @@ export default function ChannelChatScreen() {
     const LEGACY_UPVOTE = 'â¬†ï¸';
     const LEGACY_DOWNVOTE = 'â¬‡ï¸';
     const [pendingReactions, setPendingReactions] = useState<Record<string, boolean>>({});
+    const loadMessagesInFlight = useRef(false);
 
     useFocusEffect(useCallback(() => {
-        loadMessages();
-        const interval = !isSearching ? setInterval(loadMessages, 2000) : null;
-        return () => interval && clearInterval(interval);
+        if (!channelId) return;
+        void loadMessages();
+        const interval = !isSearching ? setInterval(() => { void loadMessages(); }, 8000) : null;
+        return () => {
+            if (interval) clearInterval(interval);
+        };
     }, [channelId, searchQuery, isSearching]));
 
     const parseTimestamp = (dateString: string) => {
@@ -103,7 +109,16 @@ export default function ChannelChatScreen() {
         return dt.toLocaleString();
     };
 
+    const formatShortTime = (dateString: string) => {
+        const dt = new Date(parseTimestamp(dateString));
+        if (Number.isNaN(dt.getTime())) return '';
+        return dt.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    };
+
     const loadMessages = async () => {
+        if (!channelId) return;
+        if (loadMessagesInFlight.current) return;
+        loadMessagesInFlight.current = true;
         try {
             const data = await api.getChannelMessages(channelId, 50, searchQuery);
             const sorted = (data.messages || []).slice().sort((a: Message, b: Message) => {
@@ -125,7 +140,7 @@ export default function ChannelChatScreen() {
             if (data.channel_category !== undefined) setChannelCategory(data.channel_category);
             if (data.channel_tags !== undefined) setChannelTags(data.channel_tags || []);
         }
-        catch (e) { console.error(e); } finally { setLoading(false); }
+        catch (e) { console.error(e); } finally { setLoading(false); loadMessagesInFlight.current = false; }
     };
 
     const handlePickImage = async () => { const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 }); if (!result.canceled) setSelectedImage(result.assets[0].uri); };
@@ -211,7 +226,9 @@ export default function ChannelChatScreen() {
 
     const getDisplayName = (message: Message) => {
         if (message.username && message.username.trim().length > 0) return message.username.trim();
-        return message.user_email.split('@')[0];
+        const email = message.user_email || '';
+        if (!email.includes('@')) return email.trim() || 'User';
+        return email.split('@')[0];
     };
 
     const submitReport = async (item: Message, reason: string) => {
@@ -273,6 +290,7 @@ export default function ChannelChatScreen() {
     };
 
     const renderMessage = ({ item, index }: { item: Message; index: number }) => {
+        const isReply = !!item.parent_id;
         const repliedMessage = item.parent_id ? messages.find(m => m.id === item.parent_id) : null;
         const isHighlighted = highlightedId === item.id;
         const prev = index > 0 ? messages[index - 1] : null;
@@ -369,6 +387,17 @@ export default function ChannelChatScreen() {
             </View>
         );
     };
+
+    if (!channelId) {
+        return (
+            <View style={[styles.container, styles.center]}>
+                <Text style={{ color: colors.foreground, textAlign: 'center', paddingHorizontal: spacing.lg }}>This channel could not be opened.</Text>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginTop: spacing.lg }} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                    <Text style={{ color: colors.info, fontWeight: '600' }}>Go back</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
     if (loading && messages.length === 0) return <View style={[styles.container, styles.center]}><ActivityIndicator size="large" color={colors.foreground} /></View>;
 

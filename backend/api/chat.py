@@ -2151,7 +2151,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         image_data = await storage_service.get_image(attachment_url)
     
     # --- LLM call ---
-    result = await llm_chat(message, history, user_context, image_data)
+    result = await llm_chat(message, history, user_context, image_data, channel)
     response_text = result.get("text", "")
     tool_calls = result.get("tool_calls", [])
     
