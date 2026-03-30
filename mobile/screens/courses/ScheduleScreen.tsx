@@ -4,8 +4,11 @@ import {
   ActivityIndicator, Alert, RefreshControl, Modal, TextInput, Platform,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
+import { queryKeys } from '../../lib/queryClient';
+import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { buildMaxxMaps, moduleColorForSchedule, moduleLabelForSchedule } from '../../utils/scheduleAggregation';
 
@@ -92,6 +95,7 @@ const formatTimeTo12Hour = (time24: string) => {
 export default function ScheduleScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+  const queryClient = useQueryClient();
   const { courseId, moduleNumber, courseTitle, scheduleId: paramScheduleId, maxxId } = route.params || {};
 
   const [schedule, setSchedule] = useState<Schedule | null>(null);
@@ -107,7 +111,8 @@ export default function ScheduleScreen() {
   const [editDescription, setEditDescription] = useState('');
   const [editDuration, setEditDuration] = useState('');
   const [saving, setSaving] = useState(false);
-  const [maxxes, setMaxxes] = useState<any[]>([]);
+  const maxxesQuery = useMaxxesQuery();
+  const maxxes = maxxesQuery.data?.maxes ?? [];
 
   const { labels: maxxLabels, colors: maxxColors } = useMemo(() => buildMaxxMaps(maxxes), [maxxes]);
   const scheduleModuleColor = useMemo(
@@ -121,10 +126,6 @@ export default function ScheduleScreen() {
 
   useEffect(() => {
     loadSchedule();
-  }, []);
-
-  useEffect(() => {
-    api.getMaxxes().then((r) => setMaxxes(r.maxes || [])).catch(() => setMaxxes([]));
   }, []);
 
   const loadSchedule = async () => {
@@ -185,6 +186,9 @@ export default function ScheduleScreen() {
     if (!schedule) return;
     try {
       await api.completeScheduleTask(schedule.id, taskId);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
+      const mid = schedule.maxx_id || maxxId;
+      if (mid) void queryClient.invalidateQueries({ queryKey: queryKeys.maxxSchedule(mid) });
       setSchedule(prev => {
         if (!prev) return prev;
         return {

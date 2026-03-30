@@ -1,9 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { useMaxxQuery, useMaxxScheduleQuery, useActiveSchedulesSummaryQuery } from '../../hooks/useAppQueries';
+import { queryKeys } from '../../lib/queryClient';
 import FitmaxScreen from './FitmaxScreen';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'];
@@ -93,64 +96,59 @@ function getModuleStatusLine(
     return 'Not started';
 }
 
+const STALE_FOCUS_MS = 25_000;
+
 export default function MaxxDetailScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
+    const queryClient = useQueryClient();
     const { maxxId } = route.params || {};
-    const [maxx, setMaxx] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-    const [activeSchedule, setActiveSchedule] = useState<any>(null);
-    const [scheduleLoading, setScheduleLoading] = useState(false);
-    const [activeCount, setActiveCount] = useState(0);
-    const [activeLabels, setActiveLabels] = useState<string[]>([]);
 
     const canSchedule = SCHEDULE_CAPABLE_MAXXES.includes(maxxId);
+
+    const maxxQuery = useMaxxQuery(maxxId);
+    const scheduleQuery = useMaxxScheduleQuery(maxxId, canSchedule);
+    const activeSummaryQuery = useActiveSchedulesSummaryQuery(canSchedule);
+
+    const maxx = maxxQuery.data ?? null;
+    const activeSchedule = scheduleQuery.data ?? null;
+    const activeCount = activeSummaryQuery.data?.count ?? 0;
+    const activeLabels = activeSummaryQuery.data?.labels ?? [];
+
+    const loading = !!maxxId && maxxQuery.isPending && !maxxQuery.data;
     const atLimit = !activeSchedule && activeCount >= 2;
 
-    useEffect(() => { loadData(); }, [maxxId]);
-
+    /** Refetch schedule/summary only when cache is stale — avoids hammering the API on every tab switch. */
     useFocusEffect(
-        React.useCallback(() => {
+        useCallback(() => {
+            if (!maxxId) return;
+            const now = Date.now();
+            if (now - maxxQuery.dataUpdatedAt > STALE_FOCUS_MS) void maxxQuery.refetch();
             if (canSchedule) {
-                api.getMaxxSchedule(maxxId).then(r => setActiveSchedule(r?.schedule || null)).catch(() => {});
-                api.getActiveSchedules().then(r => { setActiveCount(r.count); setActiveLabels(r.labels); }).catch(() => {});
+                if (now - scheduleQuery.dataUpdatedAt > STALE_FOCUS_MS) void scheduleQuery.refetch();
+                if (now - activeSummaryQuery.dataUpdatedAt > STALE_FOCUS_MS) void activeSummaryQuery.refetch();
             }
-        }, [maxxId])
+        }, [
+            maxxId,
+            canSchedule,
+            maxxQuery.dataUpdatedAt,
+            maxxQuery.refetch,
+            scheduleQuery.dataUpdatedAt,
+            scheduleQuery.refetch,
+            activeSummaryQuery.dataUpdatedAt,
+            activeSummaryQuery.refetch,
+        ]),
     );
 
-    const loadData = async () => {
-        if (!maxxId) { setLoading(false); return; }
-        try {
-            const data = await api.getMaxx(maxxId);
-            setMaxx(data);
-            if (SCHEDULE_CAPABLE_MAXXES.includes(maxxId)) {
-                try {
-                    const schedRes = await api.getMaxxSchedule(maxxId);
-                    if (schedRes?.schedule) setActiveSchedule(schedRes.schedule);
-                } catch {}
-                try {
-                    const activeRes = await api.getActiveSchedules();
-                    setActiveCount(activeRes.count);
-                    setActiveLabels(activeRes.labels);
-                } catch {}
-            }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const refetchMaxx = useCallback(() => void maxxQuery.refetch(), [maxxQuery]);
 
     const doStopSchedule = async () => {
         if (!activeSchedule) return;
         try {
             await api.stopSchedule(activeSchedule.id);
-            setActiveSchedule(null);
-            try {
-                const r = await api.getActiveSchedules();
-                setActiveCount(r.count);
-                setActiveLabels(r.labels);
-            } catch {}
+            await queryClient.invalidateQueries({ queryKey: queryKeys.maxxSchedule(maxxId) });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.activeSchedulesSummary });
+            await queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
         } catch (e) {
             if (Platform.OS === 'web') {
                 window.alert('Could not stop schedule. Try again.');
@@ -185,13 +183,21 @@ export default function MaxxDetailScreen() {
         );
     }
 
-    if (!maxx) {
+    if (!maxx && maxxQuery.isError) {
         return (
             <View style={[styles.container, styles.center]}>
                 <Text style={styles.errorText}>Failed to load maxx</Text>
-                <TouchableOpacity onPress={loadData} style={styles.retryButton}>
+                <TouchableOpacity onPress={refetchMaxx} style={styles.retryButton}>
                     <Text style={styles.retryText}>Retry</Text>
                 </TouchableOpacity>
+            </View>
+        );
+    }
+
+    if (!maxx) {
+        return (
+            <View style={[styles.container, styles.center]}>
+                <ActivityIndicator size="large" color={colors.foreground} />
             </View>
         );
     }

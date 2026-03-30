@@ -4,9 +4,11 @@ import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { RootNavigator } from './navigation/RootNavigator';
+import { queryClient } from './lib/queryClient';
 import { colors } from './theme/dark';
 
 function AppNavigator() {
@@ -38,13 +40,15 @@ export default function App() {
 
     return (
         <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
-            <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
-                <View style={[{ flex: 1, backgroundColor: colors.background }, webContainerStyle]}>
-                    <AuthProvider>
-                        <AppNavigator />
-                    </AuthProvider>
-                </View>
-            </SafeAreaProvider>
+            <QueryClientProvider client={queryClient}>
+                <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
+                    <View style={[{ flex: 1, backgroundColor: colors.background }, webContainerStyle]}>
+                        <AuthProvider>
+                            <AppNavigator />
+                        </AuthProvider>
+                    </View>
+                </SafeAreaProvider>
+            </QueryClientProvider>
         </GestureHandlerRootView>
     );
 }

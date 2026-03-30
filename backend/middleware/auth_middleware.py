@@ -83,6 +83,51 @@ async def get_current_user(
     }
 
 
+async def get_user_by_access_token(db: AsyncSession, token: str) -> Optional[dict]:
+    """Same user dict as get_current_user, for WebSockets (query-token auth). Returns None if invalid."""
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+        user_id: str = payload.get("sub")
+        token_type: str = payload.get("type")
+        if user_id is None or token_type != "access":
+            return None
+    except JWTError:
+        return None
+    try:
+        user_uuid = UUID(user_id)
+    except ValueError:
+        return None
+    result = await db.execute(select(User).where(User.id == user_uuid))
+    user = result.scalar_one_or_none()
+    if user is None:
+        return None
+    return {
+        "id": str(user.id),
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "username": user.username,
+        "created_at": user.created_at,
+        "is_paid": user.is_paid,
+        "is_admin": user.is_admin,
+        "subscription_status": user.subscription_status,
+        "subscription_id": user.subscription_id,
+        "subscription_end_date": user.subscription_end_date,
+        "stripe_customer_id": user.stripe_customer_id,
+        "onboarding": user.onboarding or {},
+        "profile": user.profile or {},
+        "first_scan_completed": user.first_scan_completed,
+        "phone_number": user.phone_number,
+        "last_username_change": user.last_username_change,
+        "schedule_preferences": user.schedule_preferences or {},
+        "last_progress_prompt_date": user.last_progress_prompt_date,
+    }
+
+
 async def get_current_admin_user(current_user: dict = Depends(get_current_user)) -> dict:
     """
     Verify user is an admin

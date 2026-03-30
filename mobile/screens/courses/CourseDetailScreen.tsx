@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 
 export default function CourseDetailScreen() {
     const navigation = useNavigation<any>();
@@ -42,7 +43,7 @@ export default function CourseDetailScreen() {
 
     return (
         <ScrollView style={styles.container}>
-            <Image source={{ uri: course.thumbnail_url }} style={styles.headerImage} />
+            <CachedImage uri={course.thumbnail_url} style={styles.headerImage} />
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}><Ionicons name="arrow-back" size={22} color="#fff" /></TouchableOpacity>
 
             <View style={styles.content}>

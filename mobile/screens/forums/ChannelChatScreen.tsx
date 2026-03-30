@@ -1,11 +1,13 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Image, NativeSyntheticEvent, TextInputKeyPressEventData, Alert } from 'react-native';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, NativeSyntheticEvent, TextInputKeyPressEventData, Alert, AppState } from 'react-native';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { CachedImage } from '../../components/CachedImage';
 import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
 
 interface Message {
@@ -70,7 +72,8 @@ export default function ChannelChatScreen() {
     const [channelDescription, setChannelDescription] = useState<string | null>(null);
     const [channelCategory, setChannelCategory] = useState<string | null>(null);
     const [channelTags, setChannelTags] = useState<string[]>([]);
-    const flatListRef = useRef<FlatList>(null);
+    const flatListRef = useRef<FlashListRef<Message>>(null);
+    const appStateRef = useRef(AppState.currentState);
     const isAdmin = user?.is_admin || false;
     const currentUserId = user?.id;
     const canPostTopLevel = !isAdminOnly || isAdmin;
@@ -80,14 +83,100 @@ export default function ChannelChatScreen() {
     const LEGACY_DOWNVOTE = 'â¬‡ï¸';
     const [pendingReactions, setPendingReactions] = useState<Record<string, boolean>>({});
     const loadMessagesInFlight = useRef(false);
+    const wsConnectedRef = useRef(false);
+
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (next) => {
+            appStateRef.current = next;
+        });
+        return () => sub.remove();
+    }, []);
+
+    const forumWsRef = useRef<WebSocket | null>(null);
+
+    useEffect(() => {
+        if (!channelId || isSearching) {
+            wsConnectedRef.current = false;
+            return;
+        }
+        let cancelled = false;
+        let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+        let attempt = 0;
+
+        const connect = () => {
+            void (async () => {
+                const url = await api.getForumChannelWebSocketUrl(channelId);
+                if (!url || cancelled) return;
+                const ws = new WebSocket(url);
+                forumWsRef.current = ws;
+                ws.onopen = () => {
+                    if (cancelled) return;
+                    wsConnectedRef.current = true;
+                    attempt = 0;
+                };
+                ws.onmessage = (e) => {
+                    try {
+                        const data = JSON.parse(String(e.data)) as {
+                            type?: string;
+                            message?: Message;
+                            message_id?: string;
+                            reactions?: Record<string, string[]>;
+                        };
+                        if (data.type === 'message' && data.message) {
+                            const m = data.message;
+                            setMessages((prev) => {
+                                if (prev.some((x) => x.id === m.id)) return prev;
+                                return sortMessagesChronological([...prev, m]);
+                            });
+                        } else if (data.type === 'reactions' && data.message_id && data.reactions) {
+                            const mid = data.message_id;
+                            const rx = data.reactions;
+                            setMessages((prev) =>
+                                prev.map((msg) => (msg.id === mid ? { ...msg, reactions: rx } : msg)),
+                            );
+                        }
+                    } catch {
+                        /* ignore malformed */
+                    }
+                };
+                ws.onerror = () => {
+                    wsConnectedRef.current = false;
+                };
+                ws.onclose = () => {
+                    wsConnectedRef.current = false;
+                    if (forumWsRef.current === ws) forumWsRef.current = null;
+                    if (cancelled) return;
+                    const delay = Math.min(30000, 1000 * Math.pow(2, attempt));
+                    attempt += 1;
+                    reconnectTimer = setTimeout(connect, delay);
+                };
+            })();
+        };
+
+        connect();
+        return () => {
+            cancelled = true;
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            wsConnectedRef.current = false;
+            try {
+                forumWsRef.current?.close();
+            } catch {
+                /* ignore */
+            }
+            forumWsRef.current = null;
+        };
+    }, [channelId, isSearching]);
 
     useFocusEffect(useCallback(() => {
         if (!channelId) return;
         void loadMessages();
-        const interval = !isSearching ? setInterval(() => { void loadMessages(); }, 8000) : null;
-        return () => {
-            if (interval) clearInterval(interval);
-        };
+        if (isSearching) return undefined;
+        const interval = setInterval(() => {
+            if (appStateRef.current !== 'active') return;
+            if (wsConnectedRef.current) return;
+            void loadMessages();
+        }, 12000);
+        return () => clearInterval(interval);
     }, [channelId, searchQuery, isSearching]));
 
     const parseTimestamp = (dateString: string) => {
@@ -146,6 +235,7 @@ export default function ChannelChatScreen() {
     const handlePickImage = async () => { const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 }); if (!result.canceled) setSelectedImage(result.assets[0].uri); };
 
     const handleSendMessage = async () => {
+        if (!channelId) return;
         if ((!messageText.trim() && !selectedImage) || sending) return;
         if (isAdminOnly && !isAdmin && !replyingTo) return;
         setSending(true); let attachmentUrl = undefined; let attachmentType = undefined;
@@ -185,6 +275,7 @@ export default function ChannelChatScreen() {
     };
 
     const handleToggleReaction = async (messageId: string, emoji: string) => {
+        if (!channelId) return;
         const reactionKey = `${messageId}:${emoji}`;
         if (pendingReactions[reactionKey]) return;
         setPendingReactions(prev => ({ ...prev, [reactionKey]: true }));
@@ -232,6 +323,7 @@ export default function ChannelChatScreen() {
     };
 
     const submitReport = async (item: Message, reason: string) => {
+        if (!channelId) return;
         try {
             const res = await api.reportChannelMessage(channelId, item.id, reason);
             Alert.alert('Report sent', res.message || 'Thank you. Our team will review this.');
@@ -285,7 +377,7 @@ export default function ChannelChatScreen() {
         const index = messages.findIndex((m) => m.id === messageId);
         if (index === -1) return;
         setHighlightedId(messageId);
-        flatListRef.current?.scrollToIndex({ index, animated: true });
+        flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
         setTimeout(() => setHighlightedId(null), 1800);
     };
 
@@ -304,7 +396,7 @@ export default function ChannelChatScreen() {
                 <View style={styles.msgAvatarSlot}>
                     {!groupWithPrev ? (
                         item.user_avatar_url ? (
-                            <Image source={{ uri: api.resolveAttachmentUrl(item.user_avatar_url) }} style={styles.msgAvatar} />
+                            <CachedImage uri={api.resolveAttachmentUrl(item.user_avatar_url)} style={styles.msgAvatar} />
                         ) : (
                             <View style={styles.msgAvatarFallback}>
                                 <Text style={styles.msgAvatarInitial}>{getDisplayName(item)[0]?.toUpperCase()}</Text>
@@ -335,7 +427,7 @@ export default function ChannelChatScreen() {
                     )}
                     {item.content ? <Text style={styles.messageText}>{item.content}</Text> : null}
                     {item.attachment_url && item.attachment_type === 'image' && (
-                        <Image source={{ uri: api.resolveAttachmentUrl(item.attachment_url) }} style={styles.attachmentImage} resizeMode="cover" />
+                        <CachedImage uri={api.resolveAttachmentUrl(item.attachment_url)} style={styles.attachmentImage} contentFit="contain" />
                     )}
                     {renderReactions(item)}
                     <View style={styles.messageActions}>
@@ -433,7 +525,17 @@ export default function ChannelChatScreen() {
                     )}
                 </View>
 
-                <FlatList ref={flatListRef} data={messages} renderItem={renderMessage} keyExtractor={(item) => item.id} contentContainerStyle={[styles.messagesList, { paddingBottom: insets.bottom + 24 }]} style={styles.messagesListContainer} onContentSizeChange={() => { if (!isSearching) flatListRef.current?.scrollToEnd({ animated: false }); }} onScrollToIndexFailed={(info) => { setTimeout(() => { flatListRef.current?.scrollToIndex({ index: info.index, animated: true }); }, 250); }} showsVerticalScrollIndicator={false}
+                <FlashList
+                    ref={flatListRef}
+                    data={messages}
+                    renderItem={renderMessage}
+                    keyExtractor={(item) => item.id}
+                    contentContainerStyle={[styles.messagesList, { paddingBottom: insets.bottom + 24 }]}
+                    style={styles.messagesListContainer}
+                    onContentSizeChange={() => {
+                        if (!isSearching) flatListRef.current?.scrollToEnd({ animated: false });
+                    }}
+                    showsVerticalScrollIndicator={false}
                     ListHeaderComponent={
                         !isSearching ? (
                             <View style={styles.threadHeader}>
@@ -486,7 +588,7 @@ export default function ChannelChatScreen() {
                                 </TouchableOpacity>
                             </View>
                         )}
-                        {selectedImage && <View style={styles.imagePreviewContainer}><Image source={{ uri: selectedImage }} style={styles.imagePreview} /><TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}><Ionicons name="close-circle" size={22} color={colors.error} /></TouchableOpacity>{uploading && <View style={styles.uploadOverlay}><ActivityIndicator color={colors.buttonText} /></View>}</View>}
+                        {selectedImage && <View style={styles.imagePreviewContainer}><CachedImage uri={selectedImage} style={styles.imagePreview} /><TouchableOpacity style={styles.removeImageBtn} onPress={() => setSelectedImage(null)}><Ionicons name="close-circle" size={22} color={colors.error} /></TouchableOpacity>{uploading && <View style={styles.uploadOverlay}><ActivityIndicator color={colors.buttonText} /></View>}</View>}
                         <View style={styles.inputContainer}>
                             <TouchableOpacity style={styles.attachBtn} onPress={handlePickImage} disabled={uploading}><Ionicons name="add-circle" size={24} color={colors.textMuted} /></TouchableOpacity>
                             <TextInput

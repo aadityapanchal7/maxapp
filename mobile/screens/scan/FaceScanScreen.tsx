@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -7,6 +7,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 import AnalyzingScreen from './AnalyzingScreen';
 
 const STEPS = [
@@ -190,7 +191,7 @@ export default function FaceScanScreen() {
 
             <View style={styles.cameraContainer}>
                 {hasCurrent ? (
-                    <Image source={{ uri: currentUri }} style={styles.preview} resizeMode="cover" />
+                    <CachedImage uri={currentUri} style={styles.preview} />
                 ) : (
                     <CameraView ref={cameraRef} style={styles.camera} facing="front" mode="picture" />
                 )}
@@ -198,7 +199,7 @@ export default function FaceScanScreen() {
 
             <View style={styles.actions}>
                 {!hasCurrent && (
-                    <View style={styles.captureRow}>
+                    <View style={styles.row}>
                         <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.85}>
                             <Ionicons name="camera" size={22} color={colors.background} style={{ marginRight: 8 }} />
                             <Text style={styles.primaryBtnText}>Capture</Text>

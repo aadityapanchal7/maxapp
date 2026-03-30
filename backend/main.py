@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from starlette.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 import os
 import traceback
@@ -44,6 +45,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+# Compress JSON responses (reduces payload size on slow links)
+app.add_middleware(GZipMiddleware, minimum_size=800)
 
 # CORS middleware — in dev allow any localhost origin so Expo web (e.g. :8081) works
 _cors_origins = settings.cors_origins_list

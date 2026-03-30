@@ -6,7 +6,6 @@ import {
     TouchableOpacity,
     ScrollView,
     ActivityIndicator,
-    Image,
     Platform,
     Animated,
     LayoutChangeEvent,
@@ -24,6 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 
 function parseOverall(analysis: any): number | null {
     if (!analysis) return null;
@@ -184,11 +184,10 @@ function ResultsRatingShareCard({
             <Text style={shareCardStyles.kicker}>AI facial analysis</Text>
             {frontUri ? (
                 <View style={shareCardStyles.photoRing} collapsable={false}>
-                    <Image
-                        source={{ uri: frontUri }}
+                    <CachedImage
+                        uri={frontUri}
                         style={shareCardStyles.photo}
-                        resizeMode="cover"
-                        onLoadEnd={onShareImageEvent}
+                        onLoad={onShareImageEvent}
                         onError={onShareImageEvent}
                     />
                 </View>
@@ -667,7 +666,7 @@ export default function FaceScanResultsScreen() {
 
                 {frontUri ? (
                     <View style={styles.photoCard}>
-                        <Image source={{ uri: frontUri }} style={styles.frontPhoto} resizeMode="cover" />
+                        <CachedImage uri={frontUri} style={styles.frontPhoto} />
                     </View>
                 ) : null}
 
@@ -850,7 +849,7 @@ export default function FaceScanResultsScreen() {
                 <View style={styles.shareCardOffscreen} pointerEvents="none" collapsable={false}>
                     <ResultsRatingShareCard
                         cardRef={shareCardRef}
-                        frontUri={frontUri}
+                        frontUri={frontUri ?? null}
                         ratingDisplay={ratingDisplay}
                         potentialDisplay={potentialDisplay}
                         ratingColorScore={ratingColorScore}

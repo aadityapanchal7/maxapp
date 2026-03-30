@@ -1,12 +1,12 @@
 import React, { useMemo, useRef } from 'react';
-import { StyleSheet, View, ViewStyle } from 'react-native';
+import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { Canvas, useFrame } from '@react-three/fiber/native';
 import * as THREE from 'three';
 
 type Props = {
     timer: number;
     active?: boolean;
-    style?: ViewStyle;
+    style?: StyleProp<ViewStyle>;
     width?: number;
     height?: number;
 };

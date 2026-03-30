@@ -1,13 +1,29 @@
-import { Platform } from 'react-native';
+import React, { Suspense, lazy } from 'react';
+import { Platform, View, ActivityIndicator, StyleProp, ViewStyle } from 'react-native';
 
-// TypeScript doesn't resolve Expo's platform extensions (e.g. .native/.web) by default.
-// We use a tiny runtime switch so both web + native builds pick the right implementation.
-const FaceGuide3D =
-    Platform.OS === 'web'
-        ? // eslint-disable-next-line @typescript-eslint/no-require-imports
-          require('./FaceGuide3D.web').default
-        : // eslint-disable-next-line @typescript-eslint/no-require-imports
-          require('./FaceGuide3D.native').default;
+export type FaceGuide3DProps = {
+    timer: number;
+    active?: boolean;
+    style?: StyleProp<ViewStyle>;
+    width?: number;
+    height?: number;
+};
 
-export default FaceGuide3D as typeof import('./FaceGuide3D.native').default;
+const FaceGuide3DInner = lazy(() =>
+    Platform.OS === 'web' ? import('./FaceGuide3D.web') : import('./FaceGuide3D.native'),
+);
 
+export default function FaceGuide3D(props: FaceGuide3DProps) {
+    const h = props.height ?? 320;
+    return (
+        <Suspense
+            fallback={
+                <View style={[props.style, { minHeight: h, justifyContent: 'center', alignItems: 'center' }]}>
+                    <ActivityIndicator />
+                </View>
+            }
+        >
+            <FaceGuide3DInner {...props} />
+        </Suspense>
+    );
+}

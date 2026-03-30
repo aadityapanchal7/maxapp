@@ -4,31 +4,26 @@ import { CommonActions, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+
+type MaxxCard = {
+    id: string;
+    label?: string;
+    color?: string;
+    icon?: string;
+    description?: string;
+};
 
 export default function ModuleSelectScreen() {
     const navigation = useNavigation<any>();
     const { user, refreshUser } = useAuth();
-    const [maxes, setMaxes] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const maxxesQuery = useMaxxesQuery();
+    const maxes = (maxxesQuery.data?.maxes ?? []) as MaxxCard[];
+    const loading = maxxesQuery.isPending && !maxxesQuery.data;
     const [finishing, setFinishing] = useState(false);
     /** Lowercase maxx ids to show on Home (same as onboarding.goals). */
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-    const load = useCallback(async () => {
-        try {
-            const res = await api.getMaxxes();
-            setMaxes(res.maxes || []);
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    React.useEffect(() => {
-        load();
-    }, [load]);
 
     const toggleMaxx = (id: string) => {
         const key = String(id || '').toLowerCase();

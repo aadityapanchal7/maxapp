@@ -8,12 +8,15 @@ import {
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
-import { useNavigation, useFocusEffect, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
+import { useMaxxesQuery, useActiveSchedulesFullQuery } from '../../hooks/useAppQueries';
+import { queryKeys } from '../../lib/queryClient';
 
 function formatTimeTo12Hour(time24: string) {
   if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24 || '';
@@ -49,16 +52,40 @@ export default function MasterScheduleScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const insets = useSafeAreaInsets();
+  const queryClient = useQueryClient();
   const isTab = route.name === 'MasterScheduleTab';
 
-  const [schedules, setSchedules] = useState<any[]>([]);
-  const [maxxes, setMaxxes] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const maxesQuery = useMaxxesQuery();
+  const schedulesQuery = useActiveSchedulesFullQuery();
+
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [scheduleStreak, setScheduleStreak] = useState({ current: 0 });
-  const [calendarTodayKey, setCalendarTodayKey] = useState('');
+
+  const schedules = schedulesQuery.data?.schedules ?? [];
+  const maxxes = maxesQuery.data?.maxes ?? [];
+  const loading =
+    (maxesQuery.isPending && !maxesQuery.data) || (schedulesQuery.isPending && !schedulesQuery.data);
+
+  const loadError = useMemo(() => {
+    if (schedulesQuery.isError && schedulesQuery.error) {
+      const e = schedulesQuery.error as { response?: { data?: { detail?: string } }; message?: string };
+      return String(e?.response?.data?.detail || e?.message || 'Could not load schedules.');
+    }
+    return null;
+  }, [schedulesQuery.isError, schedulesQuery.error]);
+
+  const scheduleStreak = useMemo(
+    () => ({ current: schedulesQuery.data?.schedule_streak?.current ?? 0 }),
+    [schedulesQuery.data?.schedule_streak?.current],
+  );
+
+  const calendarTodayKey = useMemo(
+    () =>
+      schedulesQuery.data?.today_date ||
+      schedulesQuery.data?.schedule_streak?.today_date ||
+      '',
+    [schedulesQuery.data?.today_date, schedulesQuery.data?.schedule_streak?.today_date],
+  );
 
   const { labels: maxxLabels, colors: maxxColorMap } = useMemo(() => buildMaxxMaps(maxxes), [maxxes]);
 
@@ -67,37 +94,9 @@ export default function MasterScheduleScreen() {
     [schedules, maxxLabels, maxxColorMap],
   );
 
-  const load = useCallback(async () => {
-    setLoadError(null);
-    try {
-      const [full, maxxRes] = await Promise.all([
-        api.getActiveSchedulesFull(),
-        api.getMaxxes().catch(() => ({ maxes: [] as any[] })),
-      ]);
-      setSchedules(full.schedules || []);
-      setMaxxes(maxxRes.maxes || []);
-      if (full.schedule_streak) {
-        setScheduleStreak({ current: full.schedule_streak.current ?? 0 });
-      }
-      setCalendarTodayKey(full.today_date || full.schedule_streak?.today_date || '');
-    } catch (e: any) {
-      console.error('Master schedule load failed', e);
-      setSchedules([]);
-      const msg =
-        e?.response?.data?.detail ||
-        e?.message ||
-        'Could not load schedules. Check your connection and try again.';
-      setLoadError(String(msg));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, [load]),
-  );
+  const refetchAll = useCallback(async () => {
+    await Promise.all([maxesQuery.refetch(), schedulesQuery.refetch()]);
+  }, [maxesQuery, schedulesQuery]);
 
   useEffect(() => {
     if (merged.dates.length === 0) {
@@ -113,9 +112,12 @@ export default function MasterScheduleScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
+    try {
+      await refetchAll();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchAll]);
 
   const goHome = () => {
     if (isTab) navigation.navigate('Home');
@@ -133,11 +135,8 @@ export default function MasterScheduleScreen() {
 
   const handleComplete = async (scheduleId: string, taskId: string) => {
     try {
-      const res = await api.completeScheduleTask(scheduleId, taskId);
-      if (res?.schedule_streak) {
-        setScheduleStreak({ current: res.schedule_streak.current ?? 0 });
-      }
-      await load();
+      await api.completeScheduleTask(scheduleId, taskId);
+      await queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
     } catch (e) {
       console.error('complete task', e);
     }
@@ -191,10 +190,7 @@ export default function MasterScheduleScreen() {
           <Text style={styles.emptySubtitle}>{loadError}</Text>
           <TouchableOpacity
             style={styles.primaryBtn}
-            onPress={async () => {
-              setLoading(true);
-              await load();
-            }}
+            onPress={() => void refetchAll()}
             activeOpacity={0.7}
           >
             <Text style={styles.primaryBtnText}>Try again</Text>

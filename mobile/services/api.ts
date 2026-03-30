@@ -66,6 +66,18 @@ class ApiService {
         return `${baseUrl}${url.startsWith('/') ? url : `/${url}`}`;
     }
 
+    /**
+     * WebSocket URL for forum channel realtime (access token in query).
+     * Uses wss when API base is https.
+     */
+    async getForumChannelWebSocketUrl(channelId: string): Promise<string | null> {
+        const token = await this.getToken();
+        if (!token) return null;
+        const base = API_BASE_URL.replace(/\/$/, '');
+        const wsRoot = base.replace(/^https:\/\//i, 'wss://').replace(/^http:\/\//i, 'ws://');
+        return `${wsRoot}/forums/ws/channel/${encodeURIComponent(channelId)}?token=${encodeURIComponent(token)}`;
+    }
+
     private async getToken(): Promise<string | null> {
         if (this.accessToken) return this.accessToken;
         return await getItemAsync('access_token');
@@ -484,14 +496,21 @@ class ApiService {
         return response.data;
     }
 
-    async getChatHistory() {
-        const response = await this.client.get('chat/history');
+    async getChatHistory(opts?: { limit?: number; offset?: number }) {
+        const params: Record<string, number> = {};
+        if (opts?.limit != null) params.limit = opts.limit;
+        if (opts?.offset != null) params.offset = opts.offset;
+        const response = await this.client.get('chat/history', { params });
         return response.data;
     }
 
     // Channels (Discord-like chat)
-    async getChannels(search?: string) {
-        const response = await this.client.get('forums', { params: { q: search } });
+    async getChannels(search?: string, opts?: { limit?: number; offset?: number }) {
+        const params: Record<string, string | number> = {};
+        if (search) params.q = search;
+        if (opts?.limit != null) params.limit = opts.limit;
+        if (opts?.offset != null) params.offset = opts.offset;
+        const response = await this.client.get('forums', { params });
         return response.data;
     }
 
