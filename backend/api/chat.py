@@ -2176,9 +2176,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                         feedback=feedback,
                     )
                     summary = adapt_result.get("changes_summary", "").strip()
-                    # Summary is always set (LLM or deterministic fallback)
+                    # If we actually adapted the schedule, prefer the deterministic summary
+                    # over any LLM text in `response_text` (prevents “hallucinated” changes).
                     if summary:
-                        response_text = (response_text + "\n\n" + summary).strip() if response_text else summary
+                        response_text = summary
             except Exception as e:
                 logger.exception("Schedule adaptation failed: %s", e)
 
@@ -2334,10 +2335,9 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                         await _persist_user_wake_sleep(user, db, str(final_wake), str(final_sleep))
                         onboarding = _merge_onboarding_with_schedule_prefs(user)
                         schedule_summary = _summarise_schedule(schedule)
-                        if not response_text.strip():
-                            response_text = schedule_summary
-                        else:
-                            response_text = f"{response_text.strip()}\n\n{schedule_summary}"
+                        # Avoid mixing LLM “text claims” with the real tool-produced summary.
+                        response_text = schedule_summary
+                        continue
                     except ScheduleLimitError as e:
                         names = ", ".join(e.active_labels)
                         response_text = (
@@ -2382,10 +2382,8 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                 await _persist_user_wake_sleep(user, db, str(final_wake), str(final_sleep))
                 onboarding = _merge_onboarding_with_schedule_prefs(user)
                 schedule_summary = _summarise_schedule(schedule)
-                if not response_text.strip():
-                    response_text = schedule_summary
-                else:
-                    response_text += f"\n\n{schedule_summary}"
+                # Avoid mixing LLM “text claims” with the real tool-produced summary.
+                response_text = schedule_summary
             except ScheduleLimitError as e:
                 names = ", ".join(e.active_labels)
                 response_text = (

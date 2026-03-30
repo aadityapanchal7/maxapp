@@ -102,11 +102,19 @@ async def list_channels(
         creators_map = {u.id: u for u in creators_result.scalars().all()}
 
     forums = []
-    for ch in channels:
-        count_result = await rds_db.execute(
-            select(func.count(ChannelMessage.id)).where(ChannelMessage.channel_id == ch.id)
+    channel_ids = [ch.id for ch in channels]
+    message_count_map: dict[str, int] = {}
+    if channel_ids:
+        counts_result = await rds_db.execute(
+            select(ChannelMessage.channel_id, func.count(ChannelMessage.id))
+            .where(ChannelMessage.channel_id.in_(channel_ids))
+            .group_by(ChannelMessage.channel_id)
         )
-        message_count = count_result.scalar() or 0
+        for cid, cnt in counts_result.all():
+            # cid is UUID; stringify for stable dict keys
+            message_count_map[str(cid)] = int(cnt or 0)
+
+    for ch in channels:
         creator = creators_map.get(ch.created_by) if ch.created_by else None
         forums.append({
             "id": str(ch.id),
@@ -117,7 +125,7 @@ async def list_channels(
             "category": ch.category,
             "tags": ch.tags or [],
             "is_admin_only": ch.is_admin_only,
-            "message_count": message_count,
+            "message_count": message_count_map.get(str(ch.id), 0),
             "created_by": str(ch.created_by) if ch.created_by else None,
             "created_by_username": creator.username if creator else None,
             "created_by_avatar_url": (creator.profile or {}).get("avatar_url") if creator else None,

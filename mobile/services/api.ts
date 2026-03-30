@@ -388,8 +388,8 @@ class ApiService {
         return response.data;
     }
 
-    async completeSendblueConnect() {
-        const response = await this.client.post('users/sendblue-connect/complete');
+    async completeSendblueConnect(prefs?: { sms_opt_in?: boolean; app_notifications_opt_in?: boolean }) {
+        const response = await this.client.post('users/sendblue-connect/complete', prefs ?? {});
         return response.data;
     }
 
