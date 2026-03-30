@@ -209,7 +209,7 @@ export default function ChannelChatScreen() {
         if (loadMessagesInFlight.current) return;
         loadMessagesInFlight.current = true;
         try {
-            const data = await api.getChannelMessages(channelId, 50, searchQuery);
+            const data = await api.getChannelMessages(channelId, 10, searchQuery);
             const sorted = (data.messages || []).slice().sort((a: Message, b: Message) => {
                 const aUp = (a.reactions?.[UPVOTE] || a.reactions?.[LEGACY_UPVOTE] || []).length;
                 const aDown = (a.reactions?.[DOWNVOTE] || a.reactions?.[LEGACY_DOWNVOTE] || []).length;
