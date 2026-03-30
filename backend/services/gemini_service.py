@@ -498,7 +498,29 @@ def _empty_psl_feature_cell() -> Dict[str, Any]:
     return {"score": 5.0, "tag": "Average", "notes": ""}
 
 
-def _build_fallback_psl_rating(ov: float, pot: float) -> Dict[str, Any]:
+def _psl_tag_from_feature_score(score: float) -> str:
+    """Approximate feature tag buckets for UI consistency."""
+    s = max(0.0, min(10.0, float(score)))
+    if s >= 7.8:
+        return "Elite"
+    if s >= 6.6:
+        return "Strong"
+    if s >= 5.6:
+        return "Above Average"
+    if s >= 4.6:
+        return "Average"
+    if s >= 3.6:
+        return "Below Average"
+    if s >= 2.6:
+        return "Weak"
+    return "Needs Work"
+
+
+def _build_fallback_psl_rating(
+    ov: float,
+    pot: float,
+    umax_metrics: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     fs_keys = (
         "eyes",
         "jaw",
@@ -514,6 +536,43 @@ def _build_fallback_psl_rating(ov: float, pot: float) -> Dict[str, Any]:
     feature_scores = {k: _empty_psl_feature_cell() for k in fs_keys}
     ov_c = round(max(0.0, min(10.0, ov)), 2)
     pot_c = round(max(0.0, min(10.0, pot)), 2)
+
+    if isinstance(umax_metrics, list) and umax_metrics:
+        by_id: Dict[str, Any] = {}
+        for m in umax_metrics:
+            if not isinstance(m, dict):
+                continue
+            mid = m.get("id")
+            if isinstance(mid, str):
+                by_id[mid] = m
+
+        def set_psl_cell(psl_key: str, score: Any) -> None:
+            try:
+                sc = float(score)
+            except Exception:
+                return
+            feature_scores[psl_key] = {
+                "score": max(0.0, min(10.0, sc)),
+                "tag": _psl_tag_from_feature_score(sc),
+                "notes": "",
+            }
+
+        # Map UMax metric ids to closest PSL breakdown keys.
+        if "eyes" in by_id:
+            set_psl_cell("eyes", by_id["eyes"].get("score"))
+        if "cheekbones" in by_id:
+            set_psl_cell("cheekbones", by_id["cheekbones"].get("score"))
+        if "nose" in by_id:
+            set_psl_cell("nose", by_id["nose"].get("score"))
+        if "skin" in by_id:
+            set_psl_cell("skin", by_id["skin"].get("score"))
+        if "symmetry" in by_id:
+            set_psl_cell("symmetry", by_id["symmetry"].get("score"))
+        if "jawline" in by_id:
+            # UMax has "jawline"; PSL wants jaw + chin.
+            set_psl_cell("jaw", by_id["jawline"].get("score"))
+            set_psl_cell("chin", by_id["jawline"].get("score"))
+
     return {
         "psl_score": ov_c,
         "psl_tier": "",
@@ -638,12 +697,38 @@ def _normalize_triple_full_result(parsed: TripleFullScanResult) -> Dict[str, Any
     return out
 
 
+_FALLBACK_PARSE_USER_MESSAGE = (
+    "Some detail fields could not be generated from this scan. Your summary scores are still shown."
+)
+
+
+def _user_safe_parse_note(note: str) -> str:
+    """Avoid surfacing Pydantic / validation traces in client-visible strings."""
+    n = (note or "").strip()
+    if not n:
+        return ""
+    low = n.lower()
+    if (
+        "validation error" in low
+        or "pydantic" in low
+        or "input_value" in low
+        or "field_type" in low
+        or "type=string_type" in low
+    ):
+        return _FALLBACK_PARSE_USER_MESSAGE
+    return n[:500]
+
+
 def _extend_umax_dict_with_full_defaults(base: Dict[str, Any], err_note: str = "") -> Dict[str, Any]:
     out = dict(base)
     ov = float(out.get("overall_score") or 5.0)
     out["potential_score"] = min(10.0, max(0.0, round(min(ov + 0.7, 9.8), 1)))
-    note = (err_note or "").strip()[:500]
-    pr = _build_fallback_psl_rating(ov, out["potential_score"])
+    note = _user_safe_parse_note(err_note or "")
+    pr = _build_fallback_psl_rating(
+        ov,
+        out["potential_score"],
+        umax_metrics=out.get("umax_metrics") if isinstance(out.get("umax_metrics"), list) else None,
+    )
     if note:
         pr["weakest_link"] = note[:500]
     out["psl_rating"] = pr

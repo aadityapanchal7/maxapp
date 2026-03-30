@@ -272,7 +272,6 @@ export default function OnboardingScreen() {
     const [hairFamily, setHairFamily] = useState('');
     const [hairLoss, setHairLoss] = useState('');
     const [hairTreatments, setHairTreatments] = useState('');
-    const [hairSides, setHairSides] = useState('');
 
     const [fitGoal, setFitGoal] = useState('');
     const [fitExperience, setFitExperience] = useState('');
@@ -392,7 +391,6 @@ export default function OnboardingScreen() {
             if (!hairFamily) return 'Family hair loss history?';
             if (!hairLoss) return 'Current hair loss status?';
             if (!hairTreatments) return 'Current treatments?';
-            if (!hairSides) return 'Side-effect sensitivity?';
         }
         if (currentSection === 'E') {
             if (!fitGoal) return 'Pick a fitness goal.';
@@ -477,16 +475,11 @@ export default function OnboardingScreen() {
             payload.hair_family_history = hairFamily;
             payload.hair_current_loss = hairLoss;
             payload.hair_treatments_current = hairTreatments;
-            payload.hair_side_effect_sensitivity = hairSides;
             if (hairLoss === 'yes_active' || hairLoss === 'starting') {
                 payload.hair_thinning = 'yes';
                 payload.thinning = 'yes';
             } else {
                 payload.hair_thinning = 'no';
-            }
-            if (hairSides === 'had_sides') {
-                payload.hairmax_fin_sensitive = true;
-                payload.hair_finasteride_sensitive = true;
             }
         }
         if (showBody) {
@@ -839,17 +832,6 @@ export default function OnboardingScreen() {
                 </TouchableOpacity>
             ))}
             {attemptD && !hairTreatments ? <Text style={styles.fieldErrorText}>Pick one.</Text> : null}
-
-            <Text style={styles.label}>Finasteride / sides</Text>
-            {[
-                { id: 'not_concerned', label: 'Not concerned' },
-                { id: 'somewhat', label: 'Somewhat concerned' },
-                { id: 'had_sides', label: 'Had sides before' },
-            ].map((x) => (
-                <TouchableOpacity key={x.id} style={[styles.listRow, hairSides === x.id && styles.listRowOn]} onPress={() => setHairSides(x.id)}>
-                    <Text style={[styles.listRowText, hairSides === x.id && styles.listRowTextOn]}>{x.label}</Text>
-                </TouchableOpacity>
-            ))}
         </View>
     );
 

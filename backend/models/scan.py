@@ -2,7 +2,7 @@
 Face Scan Models - Structured outputs for AI analysis
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any, Dict
 from datetime import datetime
 from enum import Enum
@@ -329,6 +329,15 @@ class UmaxMetricRow(BaseModel):
     score: float
     summary: str
 
+    @field_validator("id", "label", "summary", mode="before")
+    @classmethod
+    def _coerce_umax_metric_text(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, (int, float)):
+            return str(v)
+        return str(v).strip()
+
 
 class UmaxTripleScanResult(BaseModel):
     """Structured Gemini output for front + left + right photos."""
@@ -344,6 +353,16 @@ class PslFeatureCell(BaseModel):
     score: float
     tag: str
     notes: str
+
+    @field_validator("tag", "notes", mode="before")
+    @classmethod
+    def _coerce_feature_tag_notes(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        # Gemini sometimes emits numbers/null where we expect text.
+        if isinstance(v, (int, float)):
+            return str(v)
+        return str(v).strip()
 
 
 class PslFeatureScoresBlock(BaseModel):
@@ -365,6 +384,15 @@ class PslProportionsBlock(BaseModel):
     bigonial_bizygomatic_ratio: float
     fwhr: float
 
+    @field_validator("facial_thirds", mode="before")
+    @classmethod
+    def _coerce_facial_thirds(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, (int, float)):
+            return str(v)
+        return str(v).strip()
+
 
 class PslSideProfileBlock(BaseModel):
     maxillary_projection: str
@@ -373,6 +401,37 @@ class PslSideProfileBlock(BaseModel):
     submental_angle: str
     ricketts_e_line: str
     forward_head_posture: bool
+
+    @field_validator(
+        "maxillary_projection",
+        "mandibular_projection",
+        "gonial_angle",
+        "submental_angle",
+        "ricketts_e_line",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_profile_text(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, bool):
+            return "yes" if v else "no"
+        if isinstance(v, (int, float)):
+            return str(v)
+        return str(v).strip()
+
+    @field_validator("forward_head_posture", mode="before")
+    @classmethod
+    def _coerce_forward_head(cls, v: Any) -> bool:
+        if isinstance(v, bool):
+            return v
+        if v is None or v == "":
+            return False
+        if isinstance(v, (int, float)):
+            return bool(v)
+        if isinstance(v, str):
+            return v.strip().lower() in ("true", "1", "yes", "y")
+        return False
 
 
 class TripleFullScanResult(BaseModel):
@@ -400,6 +459,86 @@ class TripleFullScanResult(BaseModel):
     preview_blurb: str
     problems: List[str]
     suggested_modules: List[str]
+
+    @field_validator(
+        "psl_score",
+        "potential",
+        "appeal",
+        "masculinity_index",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_float_fields(cls, v: Any) -> float:
+        if v is None:
+            return 0.0
+        if isinstance(v, bool):
+            return float(v)
+        if isinstance(v, (int, float)):
+            return float(v)
+        try:
+            return float(str(v).strip())
+        except Exception:
+            return 0.0
+
+    @field_validator(
+        "ascension_time_months",
+        "age_score",
+        "mog_percentile",
+        "glow_up_potential",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_int_fields(cls, v: Any) -> int:
+        if v is None:
+            return 0
+        if isinstance(v, bool):
+            return int(v)
+        if isinstance(v, (int, float)):
+            return int(round(float(v)))
+        try:
+            return int(round(float(str(v).strip())))
+        except Exception:
+            return 0
+
+    @field_validator("aura_tags", "problems", "suggested_modules", mode="before")
+    @classmethod
+    def _coerce_list_of_strings(cls, v: Any) -> List[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            # If Gemini returns a single string instead of a list.
+            item = v.strip()
+            return [item] if item else []
+        if isinstance(v, list):
+            out: List[str] = []
+            for item in v:
+                if item is None:
+                    continue
+                if isinstance(item, (int, float)):
+                    s = str(item).strip()
+                else:
+                    s = str(item).strip()
+                if s:
+                    out.append(s)
+            return out
+        # Unknown shape; best-effort stringification so parse can proceed.
+        s = str(v).strip()
+        return [s] if s else []
+
+    @field_validator(
+        "weakest_link",
+        "archetype",
+        "psl_tier",
+        "preview_blurb",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_main_text(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, (int, float)):
+            return str(v)
+        return str(v).strip()
 
 
 # ============================================

@@ -60,7 +60,6 @@ function hydrateFromOnboarding(ob: Record<string, any>) {
     hairFamily: ob.hair_family_history || '',
     hairLoss: ob.hair_current_loss || '',
     hairTreatments: ob.hair_treatments_current || '',
-    hairSides: ob.hair_side_effect_sensitivity || '',
     fitGoal: ob.fitmax_primary_goal || ob.primary_goal || '',
     fitExperience: ob.fitmax_training_experience || ob.training_experience || 'beginner',
     fitEquipment: inferFitEquipmentFromOnboarding(ob),
@@ -124,7 +123,6 @@ export default function EditPersonalScreen() {
   const [hairFamily, setHairFamily] = useState(v2.hairFamily);
   const [hairLoss, setHairLoss] = useState(v2.hairLoss);
   const [hairTreatments, setHairTreatments] = useState(v2.hairTreatments);
-  const [hairSides, setHairSides] = useState(v2.hairSides);
   const [fitGoal, setFitGoal] = useState(v2.fitGoal);
   const [fitExperience, setFitExperience] = useState(v2.fitExperience);
   const [fitEquipment, setFitEquipment] = useState(v2.fitEquipment);
@@ -181,7 +179,6 @@ export default function EditPersonalScreen() {
     setHairFamily(h.hairFamily);
     setHairLoss(h.hairLoss);
     setHairTreatments(h.hairTreatments);
-    setHairSides(h.hairSides);
     setFitGoal(h.fitGoal);
     setFitExperience(h.fitExperience);
     setFitEquipment(h.fitEquipment);
@@ -270,20 +267,12 @@ export default function EditPersonalScreen() {
     onboardingData.hair_family_history = hairFamily;
     onboardingData.hair_current_loss = hairLoss;
     onboardingData.hair_treatments_current = hairTreatments;
-    onboardingData.hair_side_effect_sensitivity = hairSides;
     if (hairLoss === 'yes_active' || hairLoss === 'starting') {
       onboardingData.hair_thinning = 'yes';
       onboardingData.thinning = 'yes';
     } else if (hairLoss) {
       onboardingData.hair_thinning = 'no';
       onboardingData.thinning = 'no';
-    }
-    if (hairSides === 'had_sides') {
-      onboardingData.hairmax_fin_sensitive = true;
-      onboardingData.hair_finasteride_sensitive = true;
-    } else if (hairSides) {
-      onboardingData.hairmax_fin_sensitive = false;
-      onboardingData.hair_finasteride_sensitive = false;
     }
 
     onboardingData.fitmax_primary_goal = fitGoal;
@@ -581,16 +570,6 @@ export default function EditPersonalScreen() {
                   { id: 'other', label: 'Other' },
                 ].map((x) => (
                   <TouchableOpacity key={x.id} style={[styles.listCard, hairTreatments === x.id && styles.listCardSelected]} onPress={() => setHairTreatments(x.id)}>
-                    <Text style={styles.listLabel}>{x.label}</Text>
-                  </TouchableOpacity>
-                ))}
-                <Text style={styles.inputLabel}>FIN / SIDE EFFECTS</Text>
-                {[
-                  { id: 'not_concerned', label: 'Not concerned' },
-                  { id: 'somewhat', label: 'Somewhat concerned' },
-                  { id: 'had_sides', label: 'Had sides before' },
-                ].map((x) => (
-                  <TouchableOpacity key={x.id} style={[styles.listCard, hairSides === x.id && styles.listCardSelected]} onPress={() => setHairSides(x.id)}>
                     <Text style={styles.listLabel}>{x.label}</Text>
                   </TouchableOpacity>
                 ))}
