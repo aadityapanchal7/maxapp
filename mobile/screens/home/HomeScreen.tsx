@@ -125,7 +125,25 @@ export default function HomeScreen() {
     const userName = user?.first_name || user?.email?.split('@')[0] || 'there';
     const selectedGoals: string[] = (user?.onboarding?.goals || []).map((g: string) => g.toLowerCase());
 
-    const activeMaxxes = maxes.filter((m: { id?: string }) => selectedGoals.includes(m.id?.toLowerCase() ?? ''));
+    const activeIdSet = useMemo(() => new Set(selectedGoals), [selectedGoals]);
+    const activeMaxxes = useMemo(
+        () => maxes.filter((m: { id?: string }) => activeIdSet.has((m.id ?? '').toLowerCase())),
+        [maxes, activeIdSet],
+    );
+    const allMaxxesSorted = useMemo(() => {
+        const copy = maxes.slice();
+        copy.sort((a: any, b: any) => {
+            const aKey = String(a?.id ?? '').toLowerCase();
+            const bKey = String(b?.id ?? '').toLowerCase();
+            const aActive = activeIdSet.has(aKey);
+            const bActive = activeIdSet.has(bKey);
+            if (aActive === bActive) {
+                return String(a?.label ?? aKey).localeCompare(String(b?.label ?? bKey));
+            }
+            return aActive ? -1 : 1;
+        });
+        return copy;
+    }, [maxes, activeIdSet]);
 
     const completeTodayTask = async (row: MergedScheduleTask) => {
         if (row.status === 'completed') return;
@@ -253,14 +271,18 @@ export default function HomeScreen() {
 
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionLabel}>MY ACTIVE MAXXES</Text>
-                            {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length}</Text>}
+                            <Text style={styles.sectionLabel}>MY MAXXES</Text>
+                            {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length} active</Text>}
                         </View>
 
-                        {activeMaxxes.map((maxx: { id: string; color?: string; icon?: string; label?: string; description?: string }) => (
+                        {allMaxxesSorted.map((maxx: { id?: string; color?: string; icon?: string; label?: string; description?: string }) => {
+                            const idKey = String(maxx.id ?? '').toLowerCase();
+                            const isActive = activeIdSet.has(idKey);
+                            if (!maxx.id) return null;
+                            return (
                             <TouchableOpacity
                                 key={maxx.id}
-                                style={styles.courseCard}
+                                style={[styles.courseCard, !isActive && styles.courseCardInactive]}
                                 onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
                                 activeOpacity={0.7}
                             >
@@ -275,11 +297,17 @@ export default function HomeScreen() {
                                         <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]} numberOfLines={2}>
                                             {maxx.description}
                                         </Text>
+                                        {!isActive && (
+                                            <Text style={{ fontSize: 11, color: colors.textMuted, marginTop: 6 }}>
+                                                Not selected in your profile
+                                            </Text>
+                                        )}
                                     </View>
                                     <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                                 </View>
                             </TouchableOpacity>
-                        ))}
+                            );
+                        })}
 
                         {activeMaxxes.length === 0 && (
                             <TouchableOpacity
@@ -446,6 +474,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.lg,
         marginBottom: spacing.md,
         ...shadows.md,
+    },
+    courseCardInactive: {
+        opacity: 0.65,
     },
     courseRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     courseIcon: {

@@ -7,6 +7,20 @@ export function prefetchMainTabData(qc: QueryClient): void {
     void qc.prefetchQuery({
         queryKey: queryKeys.maxes,
         queryFn: () => api.getMaxxes(),
+    }).then((res: any) => {
+        const maxes: any[] = res?.maxes ?? [];
+        for (const m of maxes) {
+            const id = m?.id;
+            if (!id) continue;
+            void qc.prefetchQuery({
+                queryKey: queryKeys.maxx(id),
+                queryFn: () => api.getMaxx(id),
+            });
+            void qc.prefetchQuery({
+                queryKey: queryKeys.maxxSchedule(id),
+                queryFn: () => api.getMaxxSchedule(id),
+            });
+        }
     });
     void qc.prefetchQuery({
         queryKey: queryKeys.schedulesActiveFull,

@@ -7,12 +7,14 @@ import {
     Alert,
     ScrollView,
     Platform,
+    ActivityIndicator,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { WebView } from 'react-native-webview';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -75,6 +77,8 @@ export default function PaymentScreen() {
     const [checkoutLoading, setCheckoutLoading] = useState<'basic' | 'premium' | null>(null);
     const [devLoading, setDevLoading] = useState(false);
     const pollingRef = useRef(false);
+    const finishedRef = useRef(false);
+    const [checkoutUrlForWebView, setCheckoutUrlForWebView] = useState<string | null>(null);
 
     const stripeUrlsConfigured = useMemo(() => STRIPE_BASIC_URL.length > 0 && STRIPE_PREMIUM_URL.length > 0, []);
     const paymentReturnUrl = useMemo(() => getPaymentReturnUrl(), []);
@@ -105,6 +109,10 @@ export default function PaymentScreen() {
      * If paid, RootNavigator remounts (auth-paid) → Main — skip Thank You.
      */
     const finishAfterPayment = useCallback(async () => {
+        if (finishedRef.current) return;
+        finishedRef.current = true;
+        setCheckoutLoading(null);
+        setCheckoutUrlForWebView(null);
         try {
             let u = await refreshUser();
             if (!u?.is_paid) {
@@ -162,30 +170,17 @@ export default function PaymentScreen() {
                 return;
             }
 
-            /** iOS: SFSafari View Controller via expo-web-browser — standard for Stripe Payment Links. */
-            const authOpts = await WebBrowser.openAuthSessionAsync(checkoutUrl, paymentReturnUrl, {
-                preferEphemeralSession: true,
-                showInRecents: false,
-            });
-            WebBrowser.maybeCompleteAuthSession();
-
-            if (authOpts.type === 'success') {
-                await finishAfterPayment();
-            } else {
-                const u = await refreshUser().catch(() => null);
-                if (!u?.is_paid) {
-                    const becamePaid = await pollUntilPaid();
-                    if (!becamePaid) {
-                        navigation.navigate('PaymentThankYou');
-                    } else {
-                        await refreshUser();
-                    }
-                }
-            }
+            // Native: embed the Stripe Payment Link inside-app (no external browser).
+            finishedRef.current = false;
+            setCheckoutUrlForWebView(checkoutUrl);
+            setCheckoutLoading(null);
         } catch (e) {
             Alert.alert('Error', 'Could not open checkout. Try again.');
         } finally {
-            setCheckoutLoading(null);
+            // If we stayed on-native and mounted the WebView, keep `checkoutUrlForWebView`
+            // as the source of truth for whether checkout is visible.
+            // (So we only clear `checkoutLoading` here if the WebView wasn't opened.)
+            if (!checkoutUrlForWebView) setCheckoutLoading(null);
         }
     };
 
@@ -211,7 +206,13 @@ export default function PaymentScreen() {
     return (
         <View style={styles.container}>
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-                <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()} activeOpacity={0.7}>
+                <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => navigation.goBack()}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Back"
+                >
                     <Ionicons name="arrow-back" size={22} color={colors.foreground} />
                 </TouchableOpacity>
 
@@ -258,6 +259,8 @@ export default function PaymentScreen() {
                         activeOpacity={0.85}
                         onPress={() => openStripeCheckout(basicCheckoutUrl, 'basic')}
                         disabled={checkoutLoading !== null || devLoading}
+                        accessibilityRole="button"
+                        accessibilityLabel="Continue with Basic plan"
                     >
                         <Text style={[styles.buttonText, styles.buttonTextOnSurface]}>
                             {checkoutLoading === 'basic' ? 'Opening checkout…' : 'Continue with Basic'}
@@ -298,6 +301,8 @@ export default function PaymentScreen() {
                         activeOpacity={0.85}
                         onPress={() => openStripeCheckout(premiumCheckoutUrl, 'premium')}
                         disabled={checkoutLoading !== null || devLoading}
+                        accessibilityRole="button"
+                        accessibilityLabel="Continue with Premium plan"
                     >
                         <Text style={styles.buttonText}>
                             {checkoutLoading === 'premium' ? 'Opening checkout…' : 'Continue with Premium'}
@@ -320,6 +325,8 @@ export default function PaymentScreen() {
                         activeOpacity={0.85}
                         onPress={handleDevSkip}
                         disabled={devLoading || checkoutLoading !== null}
+                            accessibilityRole="button"
+                            accessibilityLabel="Developer skip payment"
                     >
                         <Text style={styles.devButtonText}>
                             {devLoading ? 'Activating…' : 'DEV: Skip payment & unlock'}
@@ -327,6 +334,46 @@ export default function PaymentScreen() {
                     </TouchableOpacity>
                 ) : null}
             </ScrollView>
+
+            {checkoutUrlForWebView && Platform.OS !== 'web' ? (
+                <View style={styles.webviewOverlay} pointerEvents="box-none">
+                    <View style={styles.webviewTopBar}>
+                        <TouchableOpacity
+                            onPress={() => {
+                                finishedRef.current = false;
+                                setCheckoutUrlForWebView(null);
+                                setCheckoutLoading(null);
+                            }}
+                            style={styles.webviewCloseBtn}
+                            accessibilityRole="button"
+                            accessibilityLabel="Close checkout"
+                        >
+                            <Ionicons name="close" size={20} color={colors.foreground} />
+                        </TouchableOpacity>
+                        <Text style={styles.webviewTopBarTitle}>Checkout</Text>
+                        <View style={{ width: 36 }} />
+                    </View>
+
+                    <WebView
+                        source={{ uri: checkoutUrlForWebView }}
+                        onNavigationStateChange={(nav) => {
+                            const url = nav?.url || '';
+                            if (url.includes('PaymentThankYou')) {
+                                void finishAfterPayment();
+                            }
+                        }}
+                        startInLoadingState
+                        renderLoading={() => (
+                            <View style={styles.webviewLoading}>
+                                <ActivityIndicator size="large" color={colors.foreground} />
+                            </View>
+                        )}
+                        javaScriptEnabled
+                        domStorageEnabled
+                        originWhitelist={['*']}
+                    />
+                </View>
+            ) : null}
         </View>
     );
 }
@@ -482,4 +529,28 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.textSecondary,
     },
+
+    webviewOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        backgroundColor: colors.background,
+        zIndex: 1000,
+    },
+    webviewTopBar: {
+        height: 56,
+        paddingHorizontal: spacing.lg,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.border,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    webviewTopBarTitle: { fontWeight: '700', color: colors.foreground },
+    webviewCloseBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    webviewLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

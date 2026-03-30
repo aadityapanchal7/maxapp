@@ -53,6 +53,12 @@ class ProgressPhotoBase64Body(BaseModel):
     image_base64: str
 
 
+class SendblueConnectCompleteBody(BaseModel):
+    """User preferences when finishing the Sendblue connect screen."""
+    sms_opt_in: Optional[bool] = None
+    app_notifications_opt_in: Optional[bool] = None
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_profile(current_user: dict = Depends(get_current_user)):
     """
@@ -100,6 +106,7 @@ async def complete_sendblue_connect(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     request: Request = None,
+    prefs: Optional[SendblueConnectCompleteBody] = None,
 ):
     """Mark post-pay Sendblue intro done — only after inbound SMS/iMessage confirmed (sendblue_sms_engaged)."""
     user_uuid = UUID(current_user["id"])
@@ -121,6 +128,14 @@ async def complete_sendblue_connect(
     # Dev-only escape hatch so local/dev builds can proceed without texting.
     if settings.debug and dev_skip:
         ob["sendblue_sms_engaged"] = True
+
+    # Store user opt-in/out preferences (defaults stay whatever was already on file).
+    if prefs is not None:
+        if prefs.sms_opt_in is not None:
+            ob["sendblue_sms_opt_in"] = prefs.sms_opt_in
+        if prefs.app_notifications_opt_in is not None:
+            ob["app_notifications_opt_in"] = prefs.app_notifications_opt_in
+
     ob["sendblue_connect_completed"] = True
     user.onboarding = ob
     user.updated_at = datetime.utcnow()

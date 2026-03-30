@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Platform,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
@@ -17,6 +18,13 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
 import { useMaxxesQuery, useActiveSchedulesFullQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
+import { useAuth } from '../../context/AuthContext';
+import { getItemAsync, setItemAsync } from '../../services/storage';
+import {
+  ensureAppNotificationPermission,
+  scheduleScheduleReminder,
+  cancelScheduleReminder,
+} from '../../services/localScheduleNotifications';
 
 function formatTimeTo12Hour(time24: string) {
   if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24 || '';
@@ -31,6 +39,18 @@ function formatTimeTo12Hour(time24: string) {
   } catch {
     return time24;
   }
+}
+
+function parseTimeToHHMM(time: string): { hh: number; mm: number } | null {
+  const s = (time || '').trim();
+  if (!s) return null;
+  // Expected: "HH:MM" (24h) coming from backend, but accept "H:MM".
+  const m24 = /^(\d{1,2}):(\d{2})$/.exec(s);
+  if (!m24) return null;
+  const hh = parseInt(m24[1], 10);
+  const mm = parseInt(m24[2], 10);
+  if (Number.isNaN(hh) || Number.isNaN(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null;
+  return { hh, mm };
 }
 
 function getTaskIcon(type: string) {
@@ -54,6 +74,11 @@ export default function MasterScheduleScreen() {
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const isTab = route.name === 'MasterScheduleTab';
+  const { user } = useAuth();
+  const appNotificationsOptIn = user?.onboarding?.app_notifications_opt_in !== false;
+
+  const notifIdMapRef = useRef<Record<string, string>>({});
+  const notifStorageKey = 'max_local_schedule_reminder_notif_map_v1';
 
   const maxesQuery = useMaxxesQuery();
   const schedulesQuery = useActiveSchedulesFullQuery();
@@ -110,6 +135,142 @@ export default function MasterScheduleScreen() {
     });
   }, [merged.dates, calendarTodayKey]);
 
+  // App notifications: schedule local reminder notifications for upcoming pending tasks.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (!appNotificationsOptIn) return;
+    if (!user?.is_paid) return;
+    if (loading) return;
+    if (!merged.dates.length) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const granted = await ensureAppNotificationPermission();
+        if (!granted || cancelled) return;
+
+        const stored = await getItemAsync(notifStorageKey);
+        let notifMap: Record<string, string> = {};
+        if (stored) {
+          try {
+            notifMap = JSON.parse(stored) || {};
+          } catch {
+            notifMap = {};
+          }
+        }
+        notifIdMapRef.current = notifMap;
+
+        const schedulePrefsById = new Map<string, any>();
+        for (const s of schedules) schedulePrefsById.set(s.id, s.preferences || {});
+
+        const pendingKeys = new Set<string>();
+        const pendingEntries: Record<string, { fireDate: Date; title: string; body: string }> = {};
+
+        const nowMs = Date.now();
+        const datesToConsider = merged.dates.slice(0, 14); // keep it bounded
+        const MAX_NOTIFICATIONS = 120;
+
+        for (const dateStr of datesToConsider) {
+          const dayTasks = merged.byDate[dateStr] || [];
+          for (const task of dayTasks) {
+            if (task.status !== 'pending') continue;
+            const parts = parseTimeToHHMM(task.time);
+            if (!parts) continue;
+
+            const key = `${task.scheduleId}:${task.task_id}`;
+            if (pendingKeys.size >= MAX_NOTIFICATIONS) break;
+
+            const hh = String(parts.hh).padStart(2, '0');
+            const mm = String(parts.mm).padStart(2, '0');
+            const scheduledAt = new Date(`${dateStr}T${hh}:${mm}:00`);
+            const prefs = schedulePrefsById.get(task.scheduleId) || {};
+            const offsetMin = prefs.notification_minutes_before ?? 5;
+            const fireDate = new Date(scheduledAt.getTime() - offsetMin * 60 * 1000);
+
+            // Skip anything already in the past (including notification lead-time).
+            if (fireDate.getTime() <= nowMs) continue;
+
+            pendingKeys.add(key);
+            pendingEntries[key] = {
+              fireDate,
+              title: task.moduleLabel ? `Max (${task.moduleLabel})` : 'Max',
+              body: task.description ? `${task.title}\n${task.description}` : task.title,
+            };
+          }
+        }
+
+        // Cancel notifications no longer pending.
+        const existingKeys = Object.keys(notifMap);
+        for (const key of existingKeys) {
+          if (!pendingKeys.has(key)) {
+            const existingId = notifMap[key];
+            if (existingId) await cancelScheduleReminder(existingId);
+            delete notifMap[key];
+          }
+        }
+
+        // Schedule new notifications.
+        for (const key of pendingKeys) {
+          if (notifMap[key]) continue;
+          const entry = pendingEntries[key];
+          if (!entry) continue;
+          const id = await scheduleScheduleReminder({
+            title: entry.title,
+            body: entry.body,
+            fireDate: entry.fireDate,
+          });
+          notifMap[key] = id;
+        }
+
+        notifIdMapRef.current = notifMap;
+        await setItemAsync(notifStorageKey, JSON.stringify(notifMap));
+      } catch (e) {
+        // Best-effort only: don't block schedule UI if scheduling fails.
+        console.error('Local notification scheduling failed:', e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appNotificationsOptIn, user?.id, user?.is_paid, loading, merged, schedules]);
+
+  // If the user opted out, cancel any previously scheduled local reminders.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (appNotificationsOptIn) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await getItemAsync(notifStorageKey);
+        let notifMap: Record<string, string> = {};
+        if (stored) {
+          try {
+            notifMap = JSON.parse(stored) || {};
+          } catch {
+            notifMap = {};
+          }
+        }
+        if (cancelled) return;
+
+        const ids = Object.values(notifMap);
+        for (const id of ids) {
+          if (id) await cancelScheduleReminder(id);
+        }
+
+        notifIdMapRef.current = {};
+        await setItemAsync(notifStorageKey, JSON.stringify({}));
+      } catch {
+        // Best-effort.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appNotificationsOptIn]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -132,10 +293,35 @@ export default function MasterScheduleScreen() {
   const tasksForDay = selectedDate ? merged.byDate[selectedDate] || [] : [];
   const completedCount = tasksForDay.filter((t) => t.status === 'completed').length;
   const totalCount = tasksForDay.length;
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+
+  const goToChatForTask = (task: MergedScheduleTask) => {
+    const initQuestion =
+      `Can you help me with this task?` +
+      `\n\nTask: ${task.title}` +
+      `\nProgram: ${task.moduleLabel}` +
+      `\nWhen: ${task.time}` +
+      `\nDetails: ${task.description}`;
+    if (isTab) {
+      navigation.navigate('Chat', { initQuestion });
+    } else {
+      navigation.navigate('Main', { screen: 'Chat', params: { initQuestion } });
+    }
+  };
 
   const handleComplete = async (scheduleId: string, taskId: string) => {
     try {
       await api.completeScheduleTask(scheduleId, taskId);
+
+      // Best-effort: cancel any locally scheduled notification for this task.
+      const notifKey = `${scheduleId}:${taskId}`;
+      const notifId = notifIdMapRef.current[notifKey];
+      if (notifId) {
+        await cancelScheduleReminder(notifId);
+        delete notifIdMapRef.current[notifKey];
+        await setItemAsync(notifStorageKey, JSON.stringify(notifIdMapRef.current));
+      }
+
       await queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
     } catch (e) {
       console.error('complete task', e);
@@ -266,6 +452,8 @@ export default function MasterScheduleScreen() {
               style={[styles.dayPill, isSelected && styles.dayPillActive, dayDone && styles.dayPillDone]}
               onPress={() => setSelectedDate(dateStr)}
               activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Select ${dayName} ${dayNum}`}
             >
               <Text style={[styles.dayPillLabel, isSelected && styles.dayPillLabelActive]}>{dayName}</Text>
               <Text style={[styles.dayPillNumber, isSelected && styles.dayPillNumberActive]}>{dayNum}</Text>
@@ -306,6 +494,7 @@ export default function MasterScheduleScreen() {
 
         {tasksForDay.map((task) => {
           const isDone = task.status === 'completed';
+          const isExpanded = expandedTaskId === task.task_id;
           return (
             <View key={`${task.scheduleId}-${task.task_id}`} style={[styles.taskCard, isDone && styles.taskCardDone]}>
               <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
@@ -315,13 +504,18 @@ export default function MasterScheduleScreen() {
                   if (!isDone) handleComplete(task.scheduleId, task.task_id);
                 }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={`Mark task complete: ${task.title}`}
+                    accessibilityState={{ checked: isDone }}
               >
                 {isDone && <Ionicons name="checkmark" size={14} color={colors.buttonText} />}
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.taskContent}
-                onPress={() => openScheduleDetail(task)}
+                onPress={() => setExpandedTaskId((prev) => (prev === task.task_id ? null : task.task_id))}
                 activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${task.title}`}
               >
                 <View style={styles.taskHeader}>
                   <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>
@@ -336,11 +530,25 @@ export default function MasterScheduleScreen() {
                   {task.moduleLabel}
                 </Text>
                 <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>{task.title}</Text>
-                <Text style={styles.taskDescription} numberOfLines={2}>
+                <Text style={styles.taskDescription} numberOfLines={isExpanded ? undefined : 2}>
                   {task.description}
                 </Text>
-                <Text style={styles.openHint}>Tap for full schedule →</Text>
+                <Text style={styles.openHint}>{isExpanded ? 'Tap to collapse' : 'Tap to expand'}</Text>
               </TouchableOpacity>
+
+              {isExpanded && (
+                <TouchableOpacity
+                  style={styles.askChatBtn}
+                  onPress={() => goToChatForTask(task)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Ask Max about ${task.title}`}
+                >
+                  <Ionicons name="chatbubbles" size={16} color={colors.buttonText} />
+                  <Text style={styles.askChatText}>Ask Max about this task</Text>
+                  <Ionicons name="arrow-forward" size={16} color={colors.buttonText} />
+                </TouchableOpacity>
+              )}
             </View>
           );
         })}
@@ -520,6 +728,21 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: 8,
     fontSize: 11,
+  },
+  askChatBtn: {
+    marginTop: spacing.sm,
+    marginLeft: spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.foreground,
+  },
+  askChatText: {
+    ...typography.button,
+    color: colors.buttonText,
   },
   emptyState: { flex: 1, paddingHorizontal: spacing.xl },
   emptyTitle: { ...typography.h2, marginTop: spacing.lg, marginBottom: spacing.sm, textAlign: 'center' },
