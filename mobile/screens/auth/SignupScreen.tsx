@@ -8,7 +8,6 @@ import {
     Alert,
     KeyboardAvoidingView,
     Platform,
-    Image,
     ScrollView,
     Animated,
     Modal,
@@ -21,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 import { PHONE_COUNTRIES, type PhoneCountry } from '../../constants/phoneCountryCodes';
 
 function signupErrorMessage(error: any): string {
@@ -139,7 +139,7 @@ export default function SignupScreen() {
                         <View style={styles.form}>
                             <TouchableOpacity style={styles.avatarContainer} onPress={pickImage} activeOpacity={0.8}>
                                 {avatarUri ? (
-                                    <Image source={{ uri: avatarUri }} style={styles.avatar} />
+                                    <CachedImage uri={avatarUri} style={styles.avatar} />
                                 ) : (
                                     <View style={styles.avatarPlaceholder}>
                                         <Ionicons name="camera-outline" size={24} color={colors.textMuted} />

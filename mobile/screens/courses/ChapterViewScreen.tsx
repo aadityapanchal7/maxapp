@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 
 export default function ChapterViewScreen() {
     const navigation = useNavigation();
@@ -37,7 +38,7 @@ export default function ChapterViewScreen() {
                         <VideoView style={styles.video} player={player} allowsFullscreen allowsPictureInPicture />
                     </View>
                 ) : chapter.type === 'image' && chapter.image_url ? (
-                    <View style={styles.imageContainer}><Image source={{ uri: chapter.image_url }} style={styles.contentImage} /></View>
+                    <View style={styles.imageContainer}><CachedImage uri={chapter.image_url} style={styles.contentImage} /></View>
                 ) : null}
 
                 <View style={styles.textContainer}>

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { ChatTypingIndicator } from '../../components/ChatTypingIndicator';
+import { CachedImage } from '../../components/CachedImage';
 import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
 import { parseFitmaxMessageUi } from './fitmax';
 import { FitmaxInlineCard } from './types';
@@ -25,7 +26,7 @@ interface Props {
 }
 
 const FITMAX_GREETING =
-  "hey, welcome to fitmax. before we build your plan, i need to know a bit about you ù this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, or something else?";
+  "hey, welcome to fitmax. before we build your plan, i need to know a bit about you ? this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, or something else?";
 
 export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenProgress, onOpenWorkout, onOpenModule }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -78,7 +79,7 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
     } catch (e) {
       console.error(e);
       clearTyping();
-      setMessages(prev => [...prev, { role: 'assistant', content: 'sorry ù i hit an issue. send that again and i got you.' }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: 'sorry ? i hit an issue. send that again and i got you.' }]);
     } finally {
       setLoading(false);
     }
@@ -121,7 +122,7 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
         <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.aiBubble, ui.kind === 'coaching_insight' && item.role === 'assistant' ? styles.coachingBubble : null]}>
           {!!item.content && <Text style={[styles.messageText, item.role === 'user' && styles.userText]}>{item.content}</Text>}
           {item.attachment_url && item.attachment_type === 'image' ? (
-            <Image source={{ uri: api.resolveAttachmentUrl(item.attachment_url) }} style={styles.image} />
+            <CachedImage uri={api.resolveAttachmentUrl(item.attachment_url)} style={styles.image} contentFit="contain" />
           ) : null}
           {item.role === 'assistant' && ui.cards.length > 0 ? <View style={styles.cardStack}>{ui.cards.map(renderCard)}</View> : null}
         </View>

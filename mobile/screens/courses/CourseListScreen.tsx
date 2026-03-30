@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 
 export default function CourseListScreen() {
     const navigation = useNavigation<any>();
@@ -15,7 +16,7 @@ export default function CourseListScreen() {
 
     const renderItem = ({ item }: { item: any }) => (
         <TouchableOpacity style={styles.courseCard} onPress={() => navigation.navigate('CourseDetail', { courseId: item.id })} activeOpacity={0.7}>
-            <Image source={{ uri: item.thumbnail_url || 'https://via.placeholder.com/300' }} style={styles.thumbnail} />
+            <CachedImage uri={item.thumbnail_url || 'https://via.placeholder.com/300'} style={styles.thumbnail} />
             <View style={styles.cardContent}>
                 <View style={styles.badgeContainer}>
                     <View style={styles.badge}><Text style={styles.badgeText}>{item.category.toUpperCase()}</Text></View>

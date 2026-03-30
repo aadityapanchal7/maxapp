@@ -2584,16 +2584,20 @@ async def trigger_check_in(
 @router.get("/history")
 async def get_chat_history(
     limit: int = 50,
+    offset: int = 0,
     current_user: dict = Depends(require_paid_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get in-app chat history only (SMS thread is excluded)."""
+    limit = min(max(limit, 1), 200)
+    offset = max(offset, 0)
     user_uuid = UUID(current_user["id"])
     result = await db.execute(
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
         .where(or_(ChatHistory.channel == "app", ChatHistory.channel.is_(None)))
         .order_by(ChatHistory.created_at.desc())
+        .offset(offset)
         .limit(limit)
     )
     rows = list(reversed(result.scalars().all()))

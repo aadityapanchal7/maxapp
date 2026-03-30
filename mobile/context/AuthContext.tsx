@@ -2,13 +2,15 @@
  * Auth Context - Global authentication state
  */
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { getItemAsync } from '../services/storage';
 import api from '../services/api';
 
 interface User {
     id: string;
     email: string;
+    /** Present when account was created with phone; read-only in profile. */
+    phone_number?: string;
     first_name?: string;
     last_name?: string;
     username?: string;
@@ -80,70 +82,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        checkAuth();
-    }, []);
-
-    const checkAuth = async () => {
+    const checkAuth = useCallback(async () => {
         try {
             const token = await getItemAsync('access_token');
             if (token) {
                 const userData = await api.getMe();
                 setUser(userData);
             }
-        } catch (error) {
+        } catch {
             await api.clearTokens();
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []);
 
-    const login = async (identifier: string, password: string) => {
+    useEffect(() => {
+        void checkAuth();
+    }, [checkAuth]);
+
+    const login = useCallback(async (identifier: string, password: string) => {
         await api.login(identifier, password);
         const userData = await api.getMe();
         setUser(userData);
-    };
+    }, []);
 
-    const signup = async (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => {
-        await api.signup(email, password, first_name, last_name, username, phone_number);
-        const userData = await api.getMe();
-        setUser(userData);
-    };
+    const signup = useCallback(
+        async (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => {
+            await api.signup(email, password, first_name, last_name, username, phone_number);
+            const userData = await api.getMe();
+            setUser(userData);
+        },
+        [],
+    );
 
-    const logout = async () => {
+    const logout = useCallback(async () => {
         await api.clearTokens();
         setUser(null);
-    };
+    }, []);
 
-    const refreshUser = async (): Promise<User> => {
+    const refreshUser = useCallback(async (): Promise<User> => {
         const userData = await api.getMe();
         setUser(userData);
         return userData;
-    };
+    }, []);
 
-    const deleteAccount = async (password: string) => {
+    const deleteAccount = useCallback(async (password: string) => {
         await api.deleteAccount(password);
         await api.clearTokens();
         setUser(null);
-    };
+    }, []);
 
-    return (
-        <AuthContext.Provider
-            value={{
-                user,
-                isLoading,
-                isAuthenticated: !!user,
-                isPaid: user?.is_paid ?? false,
-                login,
-                signup,
-                logout,
-                refreshUser,
-                deleteAccount,
-            }}
-        >
-            {children}
-        </AuthContext.Provider>
+    const value = useMemo<AuthContextType>(
+        () => ({
+            user,
+            isLoading,
+            isAuthenticated: !!user,
+            isPaid: user?.is_paid ?? false,
+            login,
+            signup,
+            logout,
+            refreshUser,
+            deleteAccount,
+        }),
+        [user, isLoading, login, signup, logout, refreshUser, deleteAccount],
     );
+
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

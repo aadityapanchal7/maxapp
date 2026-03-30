@@ -4,7 +4,6 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    Image,
     useWindowDimensions,
     Platform,
     ActivityIndicator,
@@ -15,6 +14,7 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
+import { CachedImage } from '../../components/CachedImage';
 import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
 
 function formatProgressDate(dateStr: string): string {
@@ -123,10 +123,10 @@ export default function ProgressArchiveScreen() {
                             onPress={() => openViewer(index)}
                             activeOpacity={0.9}
                         >
-                            <Image
-                                source={{ uri: api.resolveAttachmentUrl(item.image_url) }}
+                            <CachedImage
+                                uri={api.resolveAttachmentUrl(item.image_url)}
                                 style={styles.gridImage}
-                                resizeMode="cover"
+                                contentFit="cover"
                             />
                         </TouchableOpacity>
                     ))}
@@ -151,10 +151,10 @@ export default function ProgressArchiveScreen() {
                         </TouchableOpacity>
                         {photos[selectedIndex] && (
                             <View style={[styles.imageBox, { width: imageWidth, height: imageWidth * (4 / 3) }]}>
-                                <Image
-                                    source={{ uri: api.resolveAttachmentUrl(photos[selectedIndex].image_url) }}
+                                <CachedImage
+                                    uri={api.resolveAttachmentUrl(photos[selectedIndex].image_url)}
                                     style={[styles.slideImage, { width: imageWidth, height: imageWidth * (4 / 3) }]}
-                                    resizeMode="contain"
+                                    contentFit="contain"
                                 />
                             </View>
                         )}

@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, shadows } from '../theme/dark';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { queryClient } from '../lib/queryClient';
+import { prefetchMainTabData } from '../lib/prefetchMainTabData';
 
 import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
@@ -26,6 +28,10 @@ function ForumsStack() {
 
 export default function TabNavigator() {
     const insets = useSafeAreaInsets();
+
+    useEffect(() => {
+        prefetchMainTabData(queryClient);
+    }, []);
 
     return (
         <Tab.Navigator

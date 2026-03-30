@@ -1,11 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Image, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
+import { useMaxxesQuery, useActiveSchedulesFullQuery } from '../../hooks/useAppQueries';
+import { queryKeys } from '../../lib/queryClient';
+import { CachedImage } from '../../components/CachedImage';
 
 const HOME_TODAY_TASK_PREVIEW = 3;
 
@@ -26,25 +30,70 @@ function formatTimeTo12Hour(time24: string) {
 
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
+    const queryClient = useQueryClient();
     const { user, refreshUser } = useAuth();
-    const [maxes, setMaxes] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [scheduleRows, setScheduleRows] = useState<MergedScheduleTask[]>([]);
-    const [schedulesLoading, setSchedulesLoading] = useState(true);
-    const [schedulesError, setSchedulesError] = useState<string | null>(null);
+    const maxesQuery = useMaxxesQuery();
+    const schedulesQuery = useActiveSchedulesFullQuery();
+
     const [completingTaskKey, setCompletingTaskKey] = useState<string | null>(null);
-    const [scheduleStreak, setScheduleStreak] = useState<{
-        current: number;
-        last_perfect_date?: string | null;
-        today_date?: string;
-    }>({ current: 0 });
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(20)).current;
     const postPayRedirected = useRef(false);
 
+    const maxes = maxesQuery.data?.maxes ?? [];
+    const loading = maxesQuery.isPending && !maxesQuery.data;
+    const schedulesLoading = schedulesQuery.isPending && !schedulesQuery.data;
+
+    const { scheduleRows, scheduleStreak, schedulesError } = useMemo(() => {
+        const full = schedulesQuery.data;
+        if (!full) {
+            return {
+                scheduleRows: [] as MergedScheduleTask[],
+                scheduleStreak: { current: 0, last_perfect_date: undefined as string | null | undefined, today_date: undefined as string | undefined },
+                schedulesError: null as string | null,
+            };
+        }
+        try {
+            const { labels, colors: colorMap } = buildMaxxMaps(maxes);
+            const merged = mergeSchedules(full.schedules || [], labels, colorMap);
+            const today =
+                full.today_date ||
+                full.schedule_streak?.today_date ||
+                new Date().toISOString().split('T')[0];
+            const streak = full.schedule_streak
+                ? {
+                      current: full.schedule_streak.current ?? 0,
+                      last_perfect_date: full.schedule_streak.last_perfect_date,
+                      today_date: full.schedule_streak.today_date,
+                  }
+                : { current: 0 };
+            return {
+                scheduleRows: merged.byDate[today] || [],
+                scheduleStreak: streak,
+                schedulesError: null,
+            };
+        } catch (e: unknown) {
+            const msg =
+                (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail ||
+                (e as Error)?.message ||
+                'Could not load today’s tasks.';
+            return {
+                scheduleRows: [] as MergedScheduleTask[],
+                scheduleStreak: { current: 0 },
+                schedulesError: String(msg),
+            };
+        }
+    }, [schedulesQuery.data, maxes]);
+
+    const querySchedulesError =
+        schedulesQuery.isError && schedulesQuery.error
+            ? String((schedulesQuery.error as Error)?.message || 'Could not load today’s tasks.')
+            : null;
+    const displaySchedulesError = schedulesError || querySchedulesError;
+
     useEffect(() => {
-        if (!(user?.onboarding as any)?.post_subscription_onboarding) {
+        if (!(user?.onboarding as { post_subscription_onboarding?: boolean })?.post_subscription_onboarding) {
             postPayRedirected.current = false;
         }
     }, [user?.onboarding]);
@@ -54,7 +103,7 @@ export default function HomeScreen() {
             const ob = user?.onboarding as { post_subscription_onboarding?: boolean } | undefined;
             if (!ob?.post_subscription_onboarding || postPayRedirected.current) return;
             postPayRedirected.current = true;
-            (async () => {
+            void (async () => {
                 try {
                     await refreshUser();
                 } catch (e) {
@@ -66,68 +115,17 @@ export default function HomeScreen() {
         }, [user?.onboarding, navigation, refreshUser]),
     );
 
-    useFocusEffect(React.useCallback(() => { loadData(); }, []));
-
     useEffect(() => {
         Animated.parallel([
             Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
             Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
         ]).start();
-    }, []);
-
-    const loadData = async () => {
-        try {
-            const res = await api.getMaxxes();
-            setMaxes(res.maxes || []);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const loadTodaySchedules = async () => {
-        setSchedulesError(null);
-        try {
-            const full = await api.getActiveSchedulesFull();
-            const maxxRes = await api.getMaxxes().catch(() => ({ maxes: [] as any[] }));
-            const { labels, colors: colorMap } = buildMaxxMaps(maxxRes.maxes || []);
-            const merged = mergeSchedules(full.schedules || [], labels, colorMap);
-            const today =
-                full.today_date ||
-                full.schedule_streak?.today_date ||
-                new Date().toISOString().split('T')[0];
-            setScheduleRows(merged.byDate[today] || []);
-            if (full.schedule_streak) {
-                setScheduleStreak({
-                    current: full.schedule_streak.current ?? 0,
-                    last_perfect_date: full.schedule_streak.last_perfect_date,
-                    today_date: full.schedule_streak.today_date,
-                });
-            }
-        } catch (e: any) {
-            const msg =
-                e?.response?.data?.detail || e?.message || 'Could not load today’s tasks.';
-            setSchedulesError(String(msg));
-            setScheduleRows([]);
-        } finally {
-            setSchedulesLoading(false);
-        }
-    };
-
-    useFocusEffect(
-        React.useCallback(() => {
-            loadData();
-            setSchedulesLoading(true);
-            loadTodaySchedules();
-        }, []),
-    );
+    }, [fadeAnim, slideAnim]);
 
     const userName = user?.first_name || user?.email?.split('@')[0] || 'there';
     const selectedGoals: string[] = (user?.onboarding?.goals || []).map((g: string) => g.toLowerCase());
 
-    // Filter maxes from RDS down to only the ones the user selected
-    const activeMaxxes = maxes.filter(m => selectedGoals.includes(m.id?.toLowerCase()));
+    const activeMaxxes = maxes.filter((m: { id?: string }) => selectedGoals.includes(m.id?.toLowerCase() ?? ''));
 
     const completeTodayTask = async (row: MergedScheduleTask) => {
         if (row.status === 'completed') return;
@@ -136,11 +134,7 @@ export default function HomeScreen() {
         setCompletingTaskKey(key);
         try {
             await api.completeScheduleTask(row.scheduleId, row.task_id);
-            setScheduleRows((prev) =>
-                prev.map((r) =>
-                    r.scheduleId === row.scheduleId && r.task_id === row.task_id ? { ...r, status: 'completed' } : r,
-                ),
-            );
+            await queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
         } catch (e) {
             console.error('completeTodayTask', e);
         } finally {
@@ -161,8 +155,8 @@ export default function HomeScreen() {
                             <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7}>
                                 <View style={styles.profileIcon}>
                                     {user?.profile?.avatar_url ? (
-                                        <Image
-                                            source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }}
+                                        <CachedImage
+                                            uri={api.resolveAttachmentUrl(user.profile.avatar_url)}
                                             style={styles.profileAvatar}
                                         />
                                     ) : (
@@ -191,14 +185,10 @@ export default function HomeScreen() {
                     <View style={styles.todaySection}>
                         <View style={styles.todayHeader}>
                             <Text style={styles.todayLabel}>TODAY&apos;S TASKS</Text>
-                            {schedulesLoading ? (
-                                <ActivityIndicator size="small" color={colors.textMuted} />
-                            ) : null}
+                            {schedulesLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
                         </View>
-                        {schedulesError ? (
-                            <Text style={styles.todayError}>{schedulesError}</Text>
-                        ) : null}
-                        {!schedulesLoading && !schedulesError && scheduleRows.length === 0 ? (
+                        {displaySchedulesError ? <Text style={styles.todayError}>{displaySchedulesError}</Text> : null}
+                        {!schedulesLoading && !displaySchedulesError && scheduleRows.length === 0 ? (
                             <Text style={styles.todayEmpty}>No tasks scheduled for today across your active programs.</Text>
                         ) : null}
                         {scheduleRows.slice(0, HOME_TODAY_TASK_PREVIEW).map((row, idx) => {
@@ -206,10 +196,7 @@ export default function HomeScreen() {
                             const rowKey = `${row.scheduleId}-${row.task_id}`;
                             const busy = completingTaskKey === rowKey;
                             return (
-                                <View
-                                    key={rowKey}
-                                    style={[styles.todayRow, idx > 0 && styles.todayRowBorder]}
-                                >
+                                <View key={rowKey} style={[styles.todayRow, idx > 0 && styles.todayRowBorder]}>
                                     {done ? (
                                         <View style={styles.todayCheckHit} accessibilityRole="text" accessibilityLabel="Task completed">
                                             <View style={[styles.todayCheckCircle, styles.todayCheckDone]}>
@@ -240,15 +227,19 @@ export default function HomeScreen() {
                                         <View style={[styles.todayAccent, { backgroundColor: row.moduleColor }]} />
                                         <View style={styles.todayRowBody}>
                                             <Text style={styles.todayTime}>{formatTimeTo12Hour(row.time)}</Text>
-                                            <Text style={styles.todayTitle} numberOfLines={1}>{row.title}</Text>
-                                            <Text style={styles.todayModule} numberOfLines={1}>{row.moduleLabel}</Text>
+                                            <Text style={styles.todayTitle} numberOfLines={1}>
+                                                {row.title}
+                                            </Text>
+                                            <Text style={styles.todayModule} numberOfLines={1}>
+                                                {row.moduleLabel}
+                                            </Text>
                                         </View>
                                     </TouchableOpacity>
                                     <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                                 </View>
                             );
                         })}
-                        {!schedulesLoading && !schedulesError && scheduleRows.length > HOME_TODAY_TASK_PREVIEW ? (
+                        {!schedulesLoading && !displaySchedulesError && scheduleRows.length > HOME_TODAY_TASK_PREVIEW ? (
                             <TouchableOpacity
                                 onPress={() => navigation.navigate('MasterScheduleTab')}
                                 style={styles.todaySeeMoreBtn}
@@ -266,7 +257,7 @@ export default function HomeScreen() {
                             {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length}</Text>}
                         </View>
 
-                        {activeMaxxes.map((maxx) => (
+                        {activeMaxxes.map((maxx: { id: string; color?: string; icon?: string; label?: string; description?: string }) => (
                             <TouchableOpacity
                                 key={maxx.id}
                                 style={styles.courseCard}
@@ -278,8 +269,12 @@ export default function HomeScreen() {
                                         <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
                                     </View>
                                     <View style={styles.courseContent}>
-                                        <Text style={styles.courseTitle} numberOfLines={1}>{maxx.label}</Text>
-                                        <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]} numberOfLines={2}>{maxx.description}</Text>
+                                        <Text style={styles.courseTitle} numberOfLines={1}>
+                                            {maxx.label}
+                                        </Text>
+                                        <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]} numberOfLines={2}>
+                                            {maxx.description}
+                                        </Text>
                                     </View>
                                     <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                                 </View>
@@ -287,7 +282,11 @@ export default function HomeScreen() {
                         ))}
 
                         {activeMaxxes.length === 0 && (
-                            <TouchableOpacity style={styles.emptyCard} onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })} activeOpacity={0.7}>
+                            <TouchableOpacity
+                                style={styles.emptyCard}
+                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                                activeOpacity={0.7}
+                            >
                                 <Text style={styles.emptyTitle}>No Maxxes active</Text>
                                 <Text style={styles.emptyDesc}>Select a max goal in your profile to begin.</Text>
                                 <View style={styles.emptyButton}>
@@ -297,7 +296,11 @@ export default function HomeScreen() {
                         )}
 
                         {activeMaxxes.length > 0 && (
-                            <TouchableOpacity style={[styles.emptyButton, { marginTop: spacing.md, alignSelf: 'center' }]} onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })} activeOpacity={0.7}>
+                            <TouchableOpacity
+                                style={[styles.emptyButton, { marginTop: spacing.md, alignSelf: 'center' }]}
+                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                                activeOpacity={0.7}
+                            >
                                 <Text style={styles.emptyButtonText}>Add More Maxxes</Text>
                             </TouchableOpacity>
                         )}
@@ -337,8 +340,12 @@ const styles = StyleSheet.create({
     userName: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
     profileButton: { padding: 2 },
     profileIcon: {
-        width: 40, height: 40, borderRadius: 20,
-        backgroundColor: colors.foreground, alignItems: 'center', justifyContent: 'center',
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.foreground,
+        alignItems: 'center',
+        justifyContent: 'center',
         ...shadows.sm,
     },
     profileAvatar: { width: 40, height: 40, borderRadius: 20 },
@@ -424,9 +431,13 @@ const styles = StyleSheet.create({
     sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
     sectionLabel: { ...typography.label },
     sectionCount: {
-        fontSize: 11, fontWeight: '600', color: colors.textSecondary,
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.textSecondary,
         backgroundColor: colors.surface,
-        paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10,
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 10,
     },
     courseCard: {
         backgroundColor: colors.card,
@@ -438,9 +449,12 @@ const styles = StyleSheet.create({
     },
     courseRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     courseIcon: {
-        width: 48, height: 48, borderRadius: borderRadius.md,
+        width: 48,
+        height: 48,
+        borderRadius: borderRadius.md,
         backgroundColor: colors.surface,
-        alignItems: 'center', justifyContent: 'center',
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     courseContent: { flex: 1 },
     courseTitle: { fontSize: 18, fontWeight: '700', color: colors.foreground, marginBottom: 6 },

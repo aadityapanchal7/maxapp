@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { CachedImage } from '../../components/CachedImage';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
 const getImageModalWidth = (width: number) =>
@@ -257,7 +258,7 @@ export default function ProfileScreen() {
                     <View style={styles.header}>
                         <TouchableOpacity onPress={handleEditPress} style={styles.avatarContainer} activeOpacity={0.8}>
                             {user?.profile?.avatar_url ? (
-                                <Image source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }} style={styles.avatarImage} />
+                                <CachedImage uri={api.resolveAttachmentUrl(user.profile.avatar_url)} style={styles.avatarImage} />
                             ) : (
                                 <View style={styles.avatarPlaceholder}><Ionicons name="person" size={40} color={colors.textMuted} /></View>
                             )}
@@ -306,7 +307,7 @@ export default function ProfileScreen() {
                                             onPress={() => openProgressArchiveAt(index)}
                                             activeOpacity={0.9}
                                         >
-                                            <Image source={{ uri: api.resolveAttachmentUrl(item.image_url) }} style={styles.archiveGridImage} />
+                                            <CachedImage uri={api.resolveAttachmentUrl(item.image_url)} style={styles.archiveGridImage} />
                                         </TouchableOpacity>
                                     ))}
                                 </View>
@@ -361,7 +362,7 @@ export default function ProfileScreen() {
                         </View>
                         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.editModalScroll}>
                             <TouchableOpacity onPress={pickImage} style={styles.modalAvatarContainer}>
-                                {editAvatarUri ? <Image source={{ uri: editAvatarUri }} style={styles.modalAvatar} /> : user?.profile?.avatar_url ? <Image source={{ uri: api.resolveAttachmentUrl(user.profile.avatar_url) }} style={styles.modalAvatar} /> : <View style={styles.modalAvatarPlaceholder}><Ionicons name="camera" size={28} color={colors.textMuted} /></View>}
+                                {editAvatarUri ? <CachedImage uri={editAvatarUri} style={styles.modalAvatar} /> : user?.profile?.avatar_url ? <CachedImage uri={api.resolveAttachmentUrl(user.profile.avatar_url)} style={styles.modalAvatar} /> : <View style={styles.modalAvatarPlaceholder}><Ionicons name="camera" size={28} color={colors.textMuted} /></View>}
                                 <Text style={styles.changePhotoText}>Change Photo</Text>
                             </TouchableOpacity>
                             <Text style={styles.inputLabel}>FIRST NAME</Text>
@@ -432,10 +433,10 @@ export default function ProfileScreen() {
                         </TouchableOpacity>
                         {progressPhotos[selectedPhotoIndex] && (
                             <View style={[styles.progressImageBox, { width: imageModalWidth, height: imageModalWidth * (4 / 3) }]}>
-                                <Image
-                                    source={{ uri: api.resolveAttachmentUrl(progressPhotos[selectedPhotoIndex].image_url) }}
+                                <CachedImage
+                                    uri={api.resolveAttachmentUrl(progressPhotos[selectedPhotoIndex].image_url)}
                                     style={{ width: imageModalWidth, height: imageModalWidth * (4 / 3) }}
-                                    resizeMode="contain"
+                                    contentFit="contain"
                                 />
                             </View>
                         )}

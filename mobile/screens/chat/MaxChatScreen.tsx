@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
+import { useChatHistoryQuery } from '../../hooks/useAppQueries';
+import { queryKeys } from '../../lib/queryClient';
 import { ChatTypingIndicator, ChatTypingMode } from '../../components/ChatTypingIndicator';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -17,10 +22,13 @@ interface Message {
 
 export default function MaxChatScreen() {
     const route = useRoute<any>();
+    const queryClient = useQueryClient();
+    const chatHistoryQuery = useChatHistoryQuery();
     const [messages, setMessages] = useState<Message[]>([]);
+    const [historySeeded, setHistorySeeded] = useState(false);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
-    const flatListRef = useRef<FlatList>(null);
+    const flatListRef = useRef<FlashListRef<Message>>(null);
     const initScheduleHandled = useRef(false);
     /** Prevents auto "start schedule" running before history fetch finishes (otherwise setMessages(history) wipes the optimistic user line). */
     const [historyReady, setHistoryReady] = useState(false);
@@ -33,21 +41,17 @@ export default function MaxChatScreen() {
     const removeTyping = () => setMessages((prev) => prev.filter((m) => !m.isTyping));
 
     useEffect(() => {
-        let cancelled = false;
-        (async () => {
-            try {
-                const { messages: history } = await api.getChatHistory();
-                if (!cancelled) setMessages(history || []);
-            } catch (e) {
-                console.error(e);
-            } finally {
-                if (!cancelled) setHistoryReady(true);
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
+        if (!chatHistoryQuery.isSuccess || historySeeded) return;
+        setMessages(chatHistoryQuery.data ?? []);
+        setHistoryReady(true);
+        setHistorySeeded(true);
+    }, [chatHistoryQuery.isSuccess, chatHistoryQuery.data, historySeeded]);
+
+    useEffect(() => {
+        if (chatHistoryQuery.isError) {
+            setHistoryReady(true);
+        }
+    }, [chatHistoryQuery.isError]);
 
     useEffect(() => {
         const initSchedule = route.params?.initSchedule;
@@ -71,6 +75,7 @@ export default function MaxChatScreen() {
             const { response } = await api.sendChatMessage(msg, undefined, undefined, initContext);
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory });
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
             removeTyping();
@@ -96,6 +101,7 @@ export default function MaxChatScreen() {
             );
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            void queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory });
         } catch (e) { console.error(e); removeTyping(); setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong.' }]); }
         finally { setLoading(false); }
     };
@@ -116,7 +122,7 @@ export default function MaxChatScreen() {
                 <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
                     {item.content ? <Text style={[styles.messageText, item.role === 'user' && styles.userMessageText]}>{item.content}</Text> : null}
                     {item.attachment_url && item.attachment_type === 'image' && (
-                        <Image source={{ uri: api.resolveAttachmentUrl(item.attachment_url) }} style={styles.attachmentImage} resizeMode="cover" />
+                        <CachedImage uri={api.resolveAttachmentUrl(item.attachment_url)} style={styles.attachmentImage} contentFit="contain" />
                     )}
                 </View>
             </View>
@@ -143,18 +149,24 @@ export default function MaxChatScreen() {
                     <Text style={styles.subtitle}>Your lookmaxxing coach</Text>
                 </View>
 
-                <FlatList
-                    ref={flatListRef}
-                    data={messages}
-                    renderItem={renderMessage}
-                    keyExtractor={(item, i) =>
-                        item.isTyping ? `typing-${item.typingMode ?? 'default'}` : i.toString()
-                    }
-                    contentContainerStyle={[styles.messageList, messages.length === 0 && styles.messageListEmpty]}
-                    onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
-                    showsVerticalScrollIndicator={false}
-                    ListEmptyComponent={ListEmpty}
-                />
+                {!historyReady && chatHistoryQuery.isPending ? (
+                    <View style={styles.historyLoading}>
+                        <ActivityIndicator size="large" color={colors.foreground} />
+                    </View>
+                ) : (
+                    <FlashList
+                        ref={flatListRef}
+                        data={messages}
+                        renderItem={renderMessage}
+                        keyExtractor={(item, i) =>
+                            item.isTyping ? `typing-${item.typingMode ?? 'default'}` : i.toString()
+                        }
+                        contentContainerStyle={[styles.messageList, messages.length === 0 && styles.messageListEmpty]}
+                        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                        showsVerticalScrollIndicator={false}
+                        ListEmptyComponent={ListEmpty}
+                    />
+                )}
 
                 <View style={styles.outerInputContainer}>
                     <View style={styles.inputContainer}>
@@ -184,6 +196,7 @@ export default function MaxChatScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     keyboardView: { flex: 1 },
+    historyLoading: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: spacing.xxl },
     watermarkWrap: {
         ...StyleSheet.absoluteFillObject,
         justifyContent: 'center',

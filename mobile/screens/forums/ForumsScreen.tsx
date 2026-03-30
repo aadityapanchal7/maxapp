@@ -1,19 +1,34 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Modal } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { FlashList } from '@shopify/flash-list';
+import { useNavigation } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useChannelsQuery } from '../../hooks/useAppQueries';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+
+type ForumChannel = {
+    id: string;
+    name: string;
+    description?: string;
+    category?: string;
+    tags?: string[];
+    message_count?: number;
+    is_admin_only?: boolean;
+    created_by?: string;
+    created_at?: string;
+};
 
 export default function ForumsScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
+    const queryClient = useQueryClient();
     const { user } = useAuth() as any;
-    const [forums, setForums] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
     const [page, setPage] = useState<'official' | 'community'>('community');
     const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -28,51 +43,85 @@ export default function ForumsScreen() {
     const [newCategory, setNewCategory] = useState('general');
     const [newTags, setNewTags] = useState('');
 
-    const loadForums = React.useCallback(async () => {
-        try {
-            setLoading(true);
-            const { forums: data } = await api.getChannels(searchQuery);
-            setForums(data || []);
-            if (data?.length > 0) {
-                setActiveChannelId((prev) => prev ?? data[0].id);
-            }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            setLoading(false);
-        }
+    useEffect(() => {
+        const q = searchQuery.trim();
+        const delayMs = q.length > 0 ? 450 : 0;
+        const t = setTimeout(() => setDebouncedSearch(q), delayMs);
+        return () => clearTimeout(t);
     }, [searchQuery]);
 
-    /** Debounce search so typing in the box does not fire a request per keystroke (slow/janky on device). */
-    useFocusEffect(
-        React.useCallback(() => {
-            let cancelled = false;
-            const delayMs = searchQuery.trim().length > 0 ? 350 : 0;
-            const t = setTimeout(() => {
-                if (cancelled) return;
-                void loadForums();
-            }, delayMs);
-            return () => {
-                cancelled = true;
-                clearTimeout(t);
-            };
-        }, [searchQuery, loadForums]),
+    const channelsQuery = useChannelsQuery(debouncedSearch);
+    const forums = useMemo(() => channelsQuery.data ?? [], [channelsQuery.data]);
+    const loading = channelsQuery.isPending && forums.length === 0;
+
+    useEffect(() => {
+        if (forums.length === 0 || !channelsQuery.isSuccess) return;
+        setActiveChannelId((prev) => prev ?? forums[0].id);
+    }, [channelsQuery.isSuccess, forums]);
+
+    const handleChannelPress = useCallback(
+        (item: { id: string; name: string; is_admin_only?: boolean }) => {
+            setActiveChannelId(item.id);
+            navigation.navigate('ChannelChat', {
+                channelId: item.id,
+                channelName: item.name,
+                isAdminOnly: item.is_admin_only,
+            });
+        },
+        [navigation],
     );
 
-    const handleChannelPress = (item: any) => {
-        setActiveChannelId(item.id);
-        navigation.navigate('ChannelChat', { channelId: item.id, channelName: item.name, isAdminOnly: item.is_admin_only });
-    };
+    const renderChannel = useCallback(
+        ({ item: channel }: { item: any }) => {
+            const isOfficial = channel.is_admin_only;
+            const count = channel.message_count || 0;
+            return (
+                <View style={styles.contentWrap}>
+                    <TouchableOpacity
+                        style={[styles.channelRow, activeChannelId === channel.id && styles.channelRowActive]}
+                        onPress={() => handleChannelPress(channel)}
+                        activeOpacity={0.7}
+                    >
+                        <Text style={styles.channelHash} accessibilityLabel="Channel">
+                            #
+                        </Text>
+                        <View style={styles.channelMain}>
+                            <View style={styles.channelTitleLine}>
+                                <Text style={styles.channelName} numberOfLines={1}>
+                                    {channel.name}
+                                </Text>
+                                {channel.category ? (
+                                    <Text style={styles.categoryInline} numberOfLines={1}>
+                                        {' '}
+                                        · {channel.category}
+                                    </Text>
+                                ) : null}
+                                {isOfficial ? <Text style={styles.officialMark}> Official</Text> : null}
+                            </View>
+                            {channel.description ? (
+                                <Text style={styles.channelTopic} numberOfLines={1}>
+                                    {channel.description}
+                                </Text>
+                            ) : null}
+                        </View>
+                        <Text style={styles.channelStat}>{count}</Text>
+                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                    </TouchableOpacity>
+                </View>
+            );
+        },
+        [activeChannelId, handleChannelPress],
+    );
 
     const categoryOptions = useMemo(() => {
         const set = new Set<string>();
-        forums.forEach((f) => { if (f.category) set.add(f.category.toLowerCase()); });
+        forums.forEach((f: ForumChannel) => { if (f.category) set.add(f.category.toLowerCase()); });
         return Array.from(set);
     }, [forums]);
 
     const tagOptions = useMemo(() => {
         const set = new Set<string>();
-        forums.forEach((f) => { (f.tags || []).forEach((t: string) => set.add(t)); });
+        forums.forEach((f: ForumChannel) => { (f.tags || []).forEach((t: string) => set.add(t)); });
         return Array.from(set);
     }, [forums]);
 
@@ -82,21 +131,21 @@ export default function ForumsScreen() {
     };
 
     const filteredForums = useMemo(() => {
-        const official = forums.filter((f) => f.is_admin_only || f.name.toLowerCase().includes('announce') || f.name.toLowerCase().includes('welcome'));
-        const community = forums.filter((f) => !official.some((o: any) => o.id === f.id));
+        const official = forums.filter((f: ForumChannel) => f.is_admin_only || f.name.toLowerCase().includes('announce') || f.name.toLowerCase().includes('welcome'));
+        const community = forums.filter((f: ForumChannel) => !official.some((o: ForumChannel) => o.id === f.id));
         const base = page === 'official' ? official : community;
         let filtered = base;
         if (selectedCategories.length > 0) {
-            filtered = filtered.filter((f) => selectedCategories.includes((f.category || '').toLowerCase()));
+            filtered = filtered.filter((f: ForumChannel) => selectedCategories.includes((f.category || '').toLowerCase()));
         }
         if (selectedTags.length > 0) {
-            filtered = filtered.filter((f) => (f.tags || []).some((t: string) => selectedTags.includes(t)));
+            filtered = filtered.filter((f: ForumChannel) => (f.tags || []).some((t: string) => selectedTags.includes(t)));
         }
         if (onlyWithPosts) {
-            filtered = filtered.filter((f) => (f.message_count || 0) > 0);
+            filtered = filtered.filter((f: ForumChannel) => (f.message_count || 0) > 0);
         }
         if (onlyMine && user?.id) {
-            filtered = filtered.filter((f) => f.created_by === user.id);
+            filtered = filtered.filter((f: ForumChannel) => f.created_by === user.id);
         }
         if (sortMode === 'top') {
             return [...filtered].sort((a, b) => (b.message_count || 0) - (a.message_count || 0));
@@ -132,7 +181,7 @@ export default function ForumsScreen() {
             setNewDescription('');
             setNewTags('');
             setNewCategory('general');
-            loadForums();
+            await queryClient.invalidateQueries({ queryKey: ['channels'] });
         } catch (e) {
             console.error(e);
         }
@@ -233,60 +282,29 @@ export default function ForumsScreen() {
             {loading && forums.length === 0 ? (
                 <View style={styles.center}><ActivityIndicator size="large" color={colors.foreground} /></View>
             ) : (
-                <ScrollView
+                <FlashList
                     style={styles.list}
+                    data={filteredForums}
+                    keyExtractor={(item) => item.id}
                     showsVerticalScrollIndicator={false}
-                    contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
-                >
-                    <View style={styles.contentWrap}>
-                    {filteredForums.map(channel => {
-                        const isOfficial = channel.is_admin_only;
-                        const count = channel.message_count || 0;
-                        return (
-                            <TouchableOpacity
-                                key={channel.id}
-                                style={[styles.channelRow, activeChannelId === channel.id && styles.channelRowActive]}
-                                onPress={() => handleChannelPress(channel)}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={styles.channelHash} accessibilityLabel="Channel">
-                                    #
-                                </Text>
-                                <View style={styles.channelMain}>
-                                    <View style={styles.channelTitleLine}>
-                                        <Text style={styles.channelName} numberOfLines={1}>
-                                            {channel.name}
-                                        </Text>
-                                        {channel.category ? (
-                                            <Text style={styles.categoryInline} numberOfLines={1}>
-                                                {' '}
-                                                · {channel.category}
-                                            </Text>
-                                        ) : null}
-                                        {isOfficial ? <Text style={styles.officialMark}> Official</Text> : null}
-                                    </View>
-                                    {channel.description ? (
-                                        <Text style={styles.channelTopic} numberOfLines={1}>
-                                            {channel.description}
-                                        </Text>
-                                    ) : null}
-                                </View>
-                                <Text style={styles.channelStat}>{count}</Text>
-                                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
-                            </TouchableOpacity>
-                        );
-                    })}
-                    {filteredForums.length === 0 && (
-                        <View style={styles.empty}>
+                    contentContainerStyle={[
+                        styles.listContent,
+                        { paddingBottom: insets.bottom + 24 },
+                        filteredForums.length === 0 && styles.listContentEmpty,
+                    ]}
+                    renderItem={renderChannel}
+                    ListEmptyComponent={
+                        <View style={[styles.contentWrap, styles.empty]}>
                             <View style={styles.emptyIconWrap}>
                                 <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} />
                             </View>
                             <Text style={styles.emptyTitle}>No channels found</Text>
-                            <Text style={styles.emptySubtitle}>{searchQuery ? 'Try a different search' : 'Channels will appear here'}</Text>
+                            <Text style={styles.emptySubtitle}>
+                                {searchQuery ? 'Try a different search' : 'Channels will appear here'}
+                            </Text>
                         </View>
-                    )}
-                    </View>
-                </ScrollView>
+                    }
+                />
             )}
 
             <Modal animationType="fade" transparent visible={createVisible} onRequestClose={() => setCreateVisible(false)}>
@@ -441,6 +459,7 @@ const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     list: { flex: 1 },
     listContent: { paddingTop: spacing.sm },
+    listContentEmpty: { flexGrow: 1 },
     section: { marginBottom: spacing.xl },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
     sectionAccent: { width: 4, height: 18, borderRadius: 2, backgroundColor: colors.foreground, marginRight: spacing.sm },

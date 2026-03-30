@@ -2,14 +2,15 @@
 Channels API - Discord-like chat channels
 """
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, WebSocket, WebSocketDisconnect, Query
 from datetime import datetime
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
 from db import get_db, get_rds_db
-from middleware.auth_middleware import require_paid_user
+from middleware.auth_middleware import require_paid_user, get_user_by_access_token
+from services.forum_ws import forum_channel_broker
 from models.forum import ChannelCreate, MessageCreate, MessageReportCreate
 from services.storage_service import storage_service
 from models.rds_models import Forum, ChannelMessage
@@ -65,18 +66,32 @@ async def upload_chat_file(
 @router.get("")
 async def list_channels(
     q: str = None,
+    limit: int = 200,
+    offset: int = 0,
     current_user: dict = Depends(require_paid_user),
     rds_db: AsyncSession = Depends(get_rds_db),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Forum)
+    limit = min(max(limit, 1), 500)
+    offset = max(offset, 0)
+
+    filters = None
     if q:
-        query = query.where(
+        filters = (
             (Forum.name.ilike(f"%{q}%")) |
             (Forum.description.ilike(f"%{q}%")) |
             (Forum.slug.ilike(f"%{q}%"))
         )
-    query = query.order_by(Forum.order)
+    count_q = select(func.count()).select_from(Forum)
+    if filters is not None:
+        count_q = count_q.where(filters)
+    count_result = await rds_db.execute(count_q)
+    total = int(count_result.scalar() or 0)
+
+    query = select(Forum)
+    if filters is not None:
+        query = query.where(filters)
+    query = query.order_by(Forum.order).offset(offset).limit(limit)
     result = await rds_db.execute(query)
     channels = result.scalars().all()
 
@@ -108,7 +123,7 @@ async def list_channels(
             "created_by_avatar_url": (creator.profile or {}).get("avatar_url") if creator else None,
             "created_at": ch.created_at,
         })
-    return {"forums": forums}
+    return {"forums": forums, "total": total, "limit": limit, "offset": offset}
 
 
 @router.get("/{channel_id}/messages")
@@ -231,24 +246,25 @@ async def send_message(
     await rds_db.refresh(message)
 
     user = await db.get(User, UUID(current_user["id"]))
-    
-    return {
-        "message": {
-            "id": str(message.id),
-            "channel_id": channel_id,
-            "user_id": current_user["id"],
-            "user_email": user.email.split("@")[0] if user else "Unknown",
-            "username": user.username if user else None,
-            "user_avatar_url": (user.profile or {}).get("avatar_url") if user else None,
-            "content": normalized_content,
-            "attachment_url": data.attachment_url,
-            "attachment_type": data.attachment_type,
-            "parent_id": data.parent_id,
-            "reactions": {},
-            "created_at": message.created_at,
-            "is_admin": current_user.get("is_admin", False)
-        }
+
+    out_message = {
+        "id": str(message.id),
+        "channel_id": channel_id,
+        "user_id": current_user["id"],
+        "user_email": user.email.split("@")[0] if user else "Unknown",
+        "username": user.username if user else None,
+        "user_avatar_url": (user.profile or {}).get("avatar_url") if user else None,
+        "content": normalized_content,
+        "attachment_url": data.attachment_url,
+        "attachment_type": data.attachment_type,
+        "parent_id": data.parent_id,
+        "reactions": {},
+        "created_at": message.created_at,
+        "is_admin": current_user.get("is_admin", False),
     }
+    await forum_channel_broker.broadcast(channel_id, {"type": "message", "message": out_message})
+
+    return {"message": out_message}
 
 
 @router.post("/{channel_id}/messages/{message_id}/reactions")
@@ -301,7 +317,12 @@ async def toggle_reaction(
 
     message.reactions = reactions
     await rds_db.commit()
-    
+
+    await forum_channel_broker.broadcast(
+        channel_id,
+        {"type": "reactions", "message_id": message_id, "reactions": reactions},
+    )
+
     return {"reactions": reactions}
 
 
@@ -386,4 +407,48 @@ async def create_channel(
     await rds_db.commit()
     await rds_db.refresh(channel)
     return {"channel_id": str(channel.id)}
+
+
+@router.websocket("/ws/channel/{channel_id}")
+async def forum_channel_websocket(
+    websocket: WebSocket,
+    channel_id: str,
+    token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    rds_db: AsyncSession = Depends(get_rds_db),
+):
+    """Realtime updates for channel messages and reactions (same-process fan-out)."""
+    user = await get_user_by_access_token(db, token)
+    if not user:
+        await websocket.close(code=1008)
+        return
+    if not user.get("is_admin"):
+        if not user.get("is_paid"):
+            await websocket.close(code=1008)
+            return
+        sub_end = user.get("subscription_end_date")
+        if sub_end and isinstance(sub_end, datetime):
+            if sub_end < datetime.utcnow():
+                await websocket.close(code=1008)
+                return
+
+    try:
+        channel_uuid = UUID(channel_id)
+    except ValueError:
+        await websocket.close(code=1008)
+        return
+
+    channel_result = await rds_db.execute(select(Forum).where(Forum.id == channel_uuid))
+    if not channel_result.scalar_one_or_none():
+        await websocket.close(code=1008)
+        return
+
+    await forum_channel_broker.connect(channel_id, websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await forum_channel_broker.disconnect(channel_id, websocket)
 

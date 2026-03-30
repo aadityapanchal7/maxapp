@@ -75,7 +75,6 @@ export default function StripeEmbeddedCheckout({
                     <Text style={styles.closeText}>Cancel</Text>
                 </TouchableOpacity>
             </View>
-            {/* @ts-expect-error RN Web maps nativeID to DOM id */}
             <View nativeID="stripe-embedded-root" style={styles.mount} />
         </View>
     );
