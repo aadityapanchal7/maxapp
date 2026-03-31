@@ -662,6 +662,11 @@ export default function FaceScanResultsScreen() {
                     <View style={styles.iconHit} />
                 </View>
 
+                <Text style={styles.medicalDisclaimer}>
+                    Not medical advice. For general wellness insights only—not for diagnosis or treatment. See a qualified
+                    professional for medical decisions.
+                </Text>
+
                 <Text style={styles.kicker}>AI facial analysis</Text>
 
                 {frontUri ? (
@@ -934,6 +939,14 @@ const styles = StyleSheet.create({
     },
     iconHit: { width: 40, height: 40, justifyContent: 'center' },
     headerTitle: { ...typography.h2 },
+    medicalDisclaimer: {
+        fontSize: 11,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 16,
+        marginBottom: spacing.sm,
+        paddingHorizontal: spacing.xs,
+    },
     kicker: {
         fontSize: 11,
         fontWeight: '600',

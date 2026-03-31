@@ -112,8 +112,13 @@ class Settings(BaseSettings):
     debug: bool = Field(default=True)
     api_version: str = Field(default="v1")
     
-    # CORS
-    cors_origins: str = Field(default="http://localhost:3000,http://localhost:8081")
+    # CORS — comma-separated; Expo web uses :8081 (also matched by localhost regex in main.py when not production)
+    cors_origins: str = Field(
+        default=(
+            "http://localhost:3000,http://localhost:8081,http://127.0.0.1:8081,"
+            "http://localhost:19006,http://127.0.0.1:19006"
+        )
+    )
     
     # Rate Limiting
     rate_limit_requests: int = Field(default=100)

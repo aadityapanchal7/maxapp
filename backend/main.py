@@ -49,9 +49,16 @@ app = FastAPI(
 # Compress JSON responses (reduces payload size on slow links)
 app.add_middleware(GZipMiddleware, minimum_size=800)
 
-# CORS middleware — in dev allow any localhost origin so Expo web (e.g. :8081) works
+# CORS: explicit origins from CORS_ORIGINS, plus any http(s) localhost port when not production.
+# (Expo web is often :8081; DEBUG=false alone would previously drop the regex and break signup from web.)
 _cors_origins = settings.cors_origins_list
-_cors_regex = r"https?://(localhost|127\.0\.0\.1)(:\d+)?$" if getattr(settings, "debug", True) else None
+_app_env = (getattr(settings, "app_env", "") or "").strip().lower()
+_allow_localhost_regex = _app_env != "production" or getattr(settings, "debug", False)
+_cors_regex = (
+    r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+    if _allow_localhost_regex
+    else None
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,

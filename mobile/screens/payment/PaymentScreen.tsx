@@ -220,8 +220,9 @@ export default function PaymentScreen() {
                     <Text style={styles.kicker}>SUBSCRIBE</Text>
                     <Text style={styles.title}>Choose Basic or Premium</Text>
                     <Text style={styles.subtitle}>
-                        Checkout opens in a secure browser (Safari on iOS). Price and renewal are shown on Stripe before you pay.
-                        Configure the same return URL on both Payment Links in the Stripe Dashboard.
+                        On this app, checkout opens in a secure in-app view (native) or your browser (web). Price and renewal
+                        are shown on Stripe before you pay. Use the same return URL on both Payment Links in the Stripe
+                        Dashboard.
                     </Text>
                 </View>
 
@@ -315,8 +316,24 @@ export default function PaymentScreen() {
                 )}
 
                 <Text style={styles.disclaimer}>
-                    Manage billing from Stripe emails or customer portal. For App Store distribution, confirm subscription
-                    rules with Apple and your counsel—Stripe checkout is typical for web or companion flows.
+                    Manage billing from Stripe emails or your customer portal where applicable. Apple’s App Store Review
+                    Guidelines (see{' '}
+                    <Text
+                        style={styles.disclaimerLink}
+                        onPress={() =>
+                            void WebBrowser.openBrowserAsync(
+                                'https://developer.apple.com/app-store/review/guidelines/#business',
+                            )
+                        }
+                        accessibilityRole="link"
+                    >
+                        Business — Payments
+                    </Text>
+                    ) generally require{' '}
+                    <Text style={styles.disclaimerEmphasis}>In-App Purchase</Text> to unlock digital features in apps
+                    distributed on the App Store. Card checkout via Stripe is common for web; if you ship this build on the
+                    iOS App Store, implement StoreKit (or an Apple-approved exception) with qualified counsel—do not rely
+                    on this screen alone for App Store compliance.
                 </Text>
 
                 {SHOW_DEV_SKIP_CONTROLS ? (
@@ -514,7 +531,15 @@ const styles = StyleSheet.create({
         color: colors.textMuted,
         textAlign: 'center',
         marginTop: spacing.md,
+        lineHeight: 18,
     },
+    disclaimerLink: {
+        color: colors.foreground,
+        fontWeight: '600',
+        textDecorationLine: 'underline',
+        textDecorationColor: colors.foreground,
+    },
+    disclaimerEmphasis: { fontWeight: '700', color: colors.textSecondary },
     devButton: {
         marginTop: spacing.lg,
         borderRadius: borderRadius.full,
