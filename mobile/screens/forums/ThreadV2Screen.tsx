@@ -76,7 +76,7 @@ function sortByTime(a: Post, b: Post): number {
     return at - bt;
 }
 
-/** Depth-first: OP, then replies under each parent; collapse groups of 2+ replies behind one row until expanded. */
+/** Depth-first: OP, then replies under each parent; all direct replies collapsed behind one row until expanded (including a single reply). */
 function buildThreadRows(posts: Post[], expanded: Record<string, boolean>): ThreadRow[] {
     if (posts.length === 0) return [];
     const sorted = [...posts].sort(sortByTime);
@@ -101,14 +101,10 @@ function buildThreadRows(posts: Post[], expanded: Record<string, boolean>): Thre
         rows.push({ key: `post-${p.id}`, kind: 'post', post: p, depth });
         const kids = childrenOf[p.id] || [];
         if (kids.length === 0) return;
-        if (kids.length > 1) {
-            rows.push({ key: `collapsed-${p.id}`, kind: 'collapsed', parentId: p.id, count: kids.length, depth });
-            if (expanded[p.id]) {
-                for (const k of kids) walk(k, depth + 1);
-            }
-            return;
+        rows.push({ key: `collapsed-${p.id}`, kind: 'collapsed', parentId: p.id, count: kids.length, depth });
+        if (expanded[p.id]) {
+            for (const k of kids) walk(k, depth + 1);
         }
-        walk(kids[0], depth + 1);
     }
 
     for (const r of rootList) walk(r, 0);
@@ -294,7 +290,9 @@ export default function ThreadV2Screen() {
                     >
                         <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={12} color={colors.textMuted} />
                         <Text style={styles.collapsedText}>
-                            {isOpen ? 'Hide replies' : `${item.count} replies`}
+                            {isOpen
+                                ? 'Hide replies'
+                                : `${item.count} ${item.count === 1 ? 'reply' : 'replies'}`}
                         </Text>
                     </TouchableOpacity>
                 </View>
