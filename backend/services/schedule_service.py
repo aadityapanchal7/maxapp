@@ -33,6 +33,7 @@ from services.maxx_guidelines import (
     build_hairmax_prompt_section,
     build_heightmax_prompt_section,
     build_skinmax_prompt_section,
+    resolve_hair_concern,
 )
 from models.sqlalchemy_models import User, UserSchedule, Scan
 from services.schedule_streak import sync_master_schedule_streak
@@ -179,7 +180,9 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 
 **Skinmax:** minimum **3** tasks/day (AM routine, midday micro-tip, PM routine). Typical day has **4–5** tasks when including SPF reapply and/or hydration check. Weekly adds exfoliation (replaces PM on chosen day) + pillowcase (Sunday). Monthly: progress photo + check-in on the 1st.
 
-**HairMax (thinning/minoxidil stack):** minimum **4** tasks/day (finasteride, minoxidil AM, minoxidil PM, daily scalp micro-tip). Typical day has **4–5** tasks. Weekly: ketoconazole 2–3x/week on wash days; microneedling 1×/week (after month 4). Bi-weekly: progress photos. Monthly: check-in on the 1st.
+**HairMax (thinning/minoxidil stack):** minimum **4** tasks/day (finasteride or topical finasteride per user path, minoxidil AM, minoxidil PM, daily scalp micro-tip). Typical day has **4–5** tasks. Weekly: ketoconazole 2–3x/week on wash days; microneedling 1×/week (after month 4). Bi-weekly: progress photos. Monthly: check-in on the 1st.
+
+**HairMax — NO HALLUCINATED SKIN ROUTINES:** Do **not** put SkinMax-only tasks (face SPF, face retinoid/Differin, generic **AM/PM face skincare** routines) on this schedule **unless** ACTIVE MODULE: SKINMAX is explicitly listed in MULTI-ACTIVE / combo sections. When HairMax runs alone, every task must be scalp/hair/wash/minox/fin/keto/photo/check-in — never a standalone \"AM Skincare Routine\" for the face.
 
 **HairMax (non-thinning):** minimum **3** tasks/day (wash routine reminder or oil/mask on treatment days, daily scalp micro-tip, PM hair care). Weekly: wash day tasks per hair type frequency.
 
@@ -218,7 +221,7 @@ Use `task_type` **`checkpoint`** for weekly/biweekly/monthly items. Keep descrip
 11. Include brief motivational messages for each day.
 12. **IMPORTANT:** Every day MUST have at least the minimum number of tasks specified above. Read the NOTIFICATION ENGINE reference and include ALL mandatory daily tasks it lists. Short schedules with 1–2 tasks/day are wrong.
 13. Task descriptions should include specific product names, step-by-step instructions, or actionable copy from the notification engine reference — not vague one-liners.
-14. **SMS / push tone:** Titles and descriptions are used as the basis for text reminders. Write like a casual text from Max — not a dashboard. **Do not** use stiff patterns like `Category: Name — 2:22pm` or `Midday Tip: Hydration Goal` in titles. Prefer short titles (e.g. `water check`, `PM routine`, `sprint warm-up`) and put the real detail in **description** as plain, conversational sentences (lowercase ok). The app shows exact times; SMS will prefix something like `around 2:22pm — …`.
+14. **SMS / push tone:** Titles and descriptions are used as the basis for text reminders. Write like a casual text from Max — not a dashboard. **Do not** use stiff patterns like `Category: Name — 2:22pm` or `Midday Tip: Hydration Goal` in titles. Prefer short titles (e.g. `water check`, `PM routine`, `sprint warm-up`) and put the real detail in **description** as plain, conversational sentences (lowercase ok). The app shows exact times; SMS copy should read like a normal reminder text (no explicit time prefix).
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON matching this structure (no markdown fences).
@@ -546,6 +549,23 @@ class ScheduleService:
                 from services.fitmax_notification_engine import resolve_fitmax_phase
 
                 concern = resolve_fitmax_phase(onboarding)
+        elif maxx_id == "hairmax":
+            proto_keys = set((guideline.get("protocols") or {}).keys())
+            explicit = (skin_concern or "").strip()
+            if explicit and explicit in proto_keys:
+                concern_resolved = explicit
+            else:
+                ht_raw = (override_hair_type or onboarding.get("hair_type") or "") or ""
+                ht_key = str(ht_raw).strip().lower()
+                th_raw = override_thinning if override_thinning is not None else (
+                    onboarding.get("hair_thinning")
+                    if onboarding.get("hair_thinning") is not None
+                    else onboarding.get("thinning")
+                )
+                thin_s = str(th_raw).strip().lower() if th_raw is not None else ""
+                has_thinning = thin_s in ("yes", "y", "true", "1")
+                concern_resolved = resolve_hair_concern(ht_key or None, explicit_concern=None, has_thinning=has_thinning)
+            concern = concern_resolved
         else:
             concern = resolve_concern(guideline, skin_type, skin_concern)
 
@@ -869,6 +889,36 @@ class ScheduleService:
                     outside_today=outside_today,
                     start_date=start_date,
                 )
+            elif maxx_id == "hairmax":
+                ob_m = dict(onboarding or {})
+                if override_hair_type:
+                    ob_m["hair_type"] = override_hair_type
+                if override_scalp_state:
+                    ob_m["scalp_state"] = override_scalp_state
+                if override_daily_styling is not None:
+                    ob_m["daily_styling"] = override_daily_styling
+                if override_thinning is not None:
+                    ob_m["thinning"] = override_thinning
+                    ob_m["hair_thinning"] = override_thinning
+                if self._hairmax_llm_output_should_replace(
+                    schedule_data,
+                    concern=concern,
+                    onboarding=ob_m,
+                    other_maxx_ids=other_maxx_ids,
+                ):
+                    logger.warning(
+                        "HairMax schedule from LLM failed validation; replacing with engine fallback "
+                        "(concern=%s)",
+                        concern,
+                    )
+                    schedule_data = self._generate_hairmax_fallback(
+                        num_days,
+                        wake_time,
+                        sleep_time,
+                        concern=concern,
+                        onboarding=ob_m,
+                        start_date=start_date,
+                    )
         for day in schedule_data.get("days", []):
             day_num = day.get("day_number", 1)
             day["date"] = (start_date + timedelta(days=day_num - 1)).isoformat()
@@ -1009,11 +1059,196 @@ class ScheduleService:
             user_feedback=[],
             completion_stats={"completed": 0, "total": 0, "skipped": 0},
         )
+        if user:
+            ob_new = dict(user.onboarding or {})
+            touched = False
+            if maxx_id == "hairmax":
+                if override_hair_type and str(override_hair_type).strip():
+                    ob_new["hair_type"] = str(override_hair_type).strip()
+                    touched = True
+                if override_scalp_state and str(override_scalp_state).strip():
+                    ob_new["scalp_state"] = str(override_scalp_state).strip()
+                    touched = True
+                if override_daily_styling is not None and str(override_daily_styling).strip():
+                    ob_new["daily_styling"] = str(override_daily_styling).strip().lower()
+                    touched = True
+                if override_thinning is not None and str(override_thinning).strip():
+                    t = str(override_thinning).strip().lower()
+                    if t in ("yes", "no"):
+                        ob_new["thinning"] = t
+                        ob_new["hair_thinning"] = t
+                        touched = True
+            elif maxx_id == "bonemax":
+                if override_workout_frequency and str(override_workout_frequency).strip():
+                    ob_new["bonemax_workout_frequency"] = str(override_workout_frequency).strip()
+                    touched = True
+                for key, val in (
+                    ("bonemax_tmj_history", override_tmj_history),
+                    ("bonemax_mastic_gum_regular", override_mastic_gum_regular),
+                    ("bonemax_heavy_screen_time", override_heavy_screen_time),
+                ):
+                    if val is not None and str(val).strip():
+                        ob_new[key] = str(val).strip().lower()
+                        touched = True
+            elif maxx_id == "heightmax":
+                if override_age is not None:
+                    try:
+                        ob_new["age"] = int(float(override_age))
+                    except (TypeError, ValueError):
+                        pass
+                    else:
+                        touched = True
+                if override_sex and str(override_sex).strip():
+                    ob_new["gender"] = str(override_sex).strip()
+                    touched = True
+                if override_height and str(override_height).strip():
+                    ob_new["height"] = str(override_height).strip()
+                    touched = True
+            if touched:
+                user.onboarding = ob_new
+                flag_modified(user, "onboarding")
+                user.updated_at = datetime.utcnow()
         db.add(schedule_row)
         await db.commit()
         await db.refresh(schedule_row)
 
         return self._schedule_to_dict(schedule_row)
+
+    def _hairmax_llm_output_should_replace(
+        self,
+        schedule_data: dict,
+        *,
+        concern: str,
+        onboarding: dict,
+        other_maxx_ids: Optional[list[str]] = None,
+    ) -> bool:
+        """
+        True if Gemini output is missing mandatory HairMax tasks, has face-only skincare
+        without SkinMax, or otherwise diverges from the notification engine baseline.
+        In that case we substitute the deterministic engine fallback (no vague / wrong module tasks).
+        """
+        has_skinmax = bool(other_maxx_ids and "skinmax" in other_maxx_ids)
+        thinning_stack = concern in ("minoxidil", "dermastamp")
+        days = schedule_data.get("days")
+        if not isinstance(days, list) or len(days) == 0:
+            return True
+
+        def _day_blob(ts: list) -> str:
+            parts: list[str] = []
+            for t in ts:
+                if not isinstance(t, dict):
+                    continue
+                parts.append(str(t.get("title") or ""))
+                parts.append(str(t.get("description") or ""))
+            return " ".join(parts).lower()
+
+        d0 = days[0]
+        if not isinstance(d0, dict):
+            return True
+        tasks0 = d0.get("tasks")
+        if not isinstance(tasks0, list):
+            return True
+        b0 = _day_blob(tasks0)
+        ob = onboarding or {}
+        topical_only = bool(ob.get("hair_topical_fin_only") or ob.get("hairmax_topical_fin_only"))
+
+        if thinning_stack:
+            if len(tasks0) < 4:
+                return True
+            mo = b0.count("minoxidil") + b0.count("minox")
+            if mo < 2:
+                return True
+            fin_ok = any(
+                x in b0
+                for x in (
+                    "finasteride",
+                    "topical fin",
+                    "topical finasteride",
+                    "topical fin.",
+                    "hairmax — fin",
+                )
+            ) or any(
+                "fin" in str(t.get("title") or "").lower()
+                and "minoxidil" not in str(t.get("title") or "").lower()
+                for t in tasks0
+                if isinstance(t, dict)
+            )
+            if topical_only:
+                if "topical" not in b0 and "topical fin" not in b0:
+                    return True
+            elif not fin_ok:
+                return True
+            if not any(
+                k in b0
+                for k in (
+                    "scalp",
+                    "micro-tip",
+                    "micro tip",
+                    "hair tip",
+                    "crown",
+                    "part hair",
+                )
+            ):
+                return True
+        else:
+            if len(tasks0) < 3:
+                return True
+            if not any(
+                k in b0
+                for k in (
+                    "wash",
+                    "shampoo",
+                    "scalp",
+                    "conditioner",
+                    "co-wash",
+                    "cowash",
+                    "ketoconazole",
+                )
+            ):
+                return True
+
+        if not has_skinmax:
+            for t in tasks0:
+                if not isinstance(t, dict):
+                    continue
+                title = (t.get("title") or "").lower()
+                desc = (t.get("description") or "").lower()
+                if any(x in title for x in ("spf", "sunscreen", "retinoid", "differin", "adapalene")):
+                    return True
+                if ("spf" in desc or "sunscreen" in desc) and "scalp" not in desc and "hair" not in desc:
+                    return True
+                if ("skincare" in title or "skin care" in title or "face routine" in title) and (
+                    "scalp" not in title
+                    and "hair" not in title
+                    and "minoxidil" not in title
+                    and "minox" not in title
+                ):
+                    return True
+
+        if thinning_stack:
+            week_blob = ""
+            for d in days[: min(7, len(days))]:
+                if not isinstance(d, dict):
+                    continue
+                for t in d.get("tasks") or []:
+                    if isinstance(t, dict):
+                        week_blob += f"{t.get('title', '')} {t.get('description', '')}"
+            week_blob = week_blob.lower()
+            if not any(
+                k in week_blob
+                for k in (
+                    "keto",
+                    "ketoconazole",
+                    "shampoo",
+                    "wash day",
+                    "wash —",
+                    "medicated shampoo",
+                    "cleansing wash",
+                )
+            ):
+                return True
+
+        return False
 
     def _augment_skinmax_llm_schedule(
         self,

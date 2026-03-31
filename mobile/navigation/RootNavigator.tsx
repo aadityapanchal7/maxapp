@@ -26,6 +26,7 @@ import SettingsScreen from '../screens/profile/SettingsScreen';
 import EditPersonalScreen from '../screens/profile/EditPersonalScreen';
 import PersonalInfoScreen from '../screens/profile/PersonalInfoScreen';
 import ProgressArchiveScreen from '../screens/profile/ProgressArchiveScreen';
+import FaceScanArchiveScreen from '../screens/profile/FaceScanArchiveScreen';
 import CourseListScreen from '../screens/courses/CourseListScreen';
 import CourseDetailScreen from '../screens/courses/CourseDetailScreen';
 import ChapterViewScreen from '../screens/courses/ChapterViewScreen';
@@ -118,6 +119,7 @@ export function RootNavigator() {
             ) : (
                 <>
                     <Stack.Screen name="Main" component={TabNavigator} />
+                    <Stack.Screen name="FaceScan" component={FaceScanScreen} />
                     <Stack.Screen name="FaceScanResults" component={FaceScanResultsScreen} />
                     <Stack.Screen name="SendblueConnect" component={SendblueConnectScreen} />
                     <Stack.Screen name="ModuleSelect" component={ModuleSelectScreen} />
@@ -126,6 +128,7 @@ export function RootNavigator() {
                     <Stack.Screen name="EditPersonal" component={EditPersonalScreen} />
                     <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
                     <Stack.Screen name="ProgressArchive" component={ProgressArchiveScreen} options={{ headerShown: false }} />
+                    <Stack.Screen name="FaceScanArchive" component={FaceScanArchiveScreen} options={{ headerShown: false }} />
 
                     <Stack.Screen name="CourseList" component={CourseListScreen} />
                     <Stack.Screen name="CourseDetail" component={CourseDetailScreen} options={{ headerShown: false }} />

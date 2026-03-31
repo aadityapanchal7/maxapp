@@ -119,7 +119,7 @@ async def _sendblue_inbound_core(
                 + body
             )
         try:
-            response_text = await process_chat_message(
+            response_text, _choices = await process_chat_message(
                 user_id=user_id_str,
                 message_text=text_for_model,
                 db=db,

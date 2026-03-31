@@ -83,6 +83,56 @@ async def _run_rds_column_migrations():
         "ALTER TABLE maxes ADD COLUMN IF NOT EXISTS concern_question TEXT",
         "ALTER TABLE maxes ADD COLUMN IF NOT EXISTS concerns JSONB DEFAULT '[]'",
         "ALTER TABLE maxes ADD COLUMN IF NOT EXISTS protocol_prompt_template TEXT",
+
+        # ------------------------------------------------------------------
+        # Forums v2 (classic threads) — safe additive migrations
+        # ------------------------------------------------------------------
+        "ALTER TABLE forum_categories ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE forum_categories ADD COLUMN IF NOT EXISTS \"order\" INTEGER DEFAULT 0",
+        "ALTER TABLE forum_categories ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+
+        "ALTER TABLE forum_subforums ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE forum_subforums ADD COLUMN IF NOT EXISTS \"order\" INTEGER DEFAULT 0",
+        "ALTER TABLE forum_subforums ADD COLUMN IF NOT EXISTS access_tier VARCHAR DEFAULT 'public'",
+        "ALTER TABLE forum_subforums ADD COLUMN IF NOT EXISTS is_read_only BOOLEAN DEFAULT false",
+        "ALTER TABLE forum_subforums ADD COLUMN IF NOT EXISTS created_by UUID",
+        "ALTER TABLE forum_subforums ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+
+        # Older dev schema used forum_id; keep it but add subforum_id.
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS subforum_id UUID",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS tags JSONB DEFAULT '[]'",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS is_sticky BOOLEAN DEFAULT false",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS reply_count INTEGER DEFAULT 0",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS last_post_at TIMESTAMPTZ DEFAULT now()",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS last_post_user_id UUID",
+        "ALTER TABLE forum_threads ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+        # Legacy compatibility: v2 thread creation does not use these chat-era fields.
+        "ALTER TABLE forum_threads ALTER COLUMN forum_id DROP NOT NULL",
+        "ALTER TABLE forum_threads ALTER COLUMN content DROP NOT NULL",
+        # Backfill subforum_id from forum_id when present
+        "UPDATE forum_threads SET subforum_id = forum_id WHERE subforum_id IS NULL AND forum_id IS NOT NULL",
+
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS entities JSONB DEFAULT '{}'",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS attachment_url TEXT",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS attachment_type VARCHAR",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS parent_post_id UUID",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS score INTEGER DEFAULT 0",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS upvotes INTEGER DEFAULT 0",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS downvotes INTEGER DEFAULT 0",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+        "ALTER TABLE forum_posts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now()",
+
+        "ALTER TABLE forum_post_votes ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+        "ALTER TABLE forum_thread_watches ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+
+        "ALTER TABLE forum_notifications ADD COLUMN IF NOT EXISTS payload JSONB DEFAULT '{}'",
+        "ALTER TABLE forum_notifications ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false",
+        "ALTER TABLE forum_notifications ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
+
+        "ALTER TABLE forum_post_reports ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'open'",
+        "ALTER TABLE forum_post_reports ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
     ]
     try:
         async with rds_engine.begin() as conn:

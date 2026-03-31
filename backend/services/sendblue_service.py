@@ -47,8 +47,8 @@ def _trim_sms_body(s: str, max_len: int) -> str:
 
 def _core_text_for_reminder(task_title: str, task_description: str) -> str:
     """Prefer description (the actionable reference); fall back to cleaned title."""
-    d = (task_description or "").strip()
-    t = _strip_schedule_title_labels(task_title or "")
+    d = (task_description or "").replace("*", "").strip()
+    t = _strip_schedule_title_labels((task_title or "").replace("*", ""))
     if len(d) >= 10:
         return _trim_sms_body(d, 260)
     if d and t:
@@ -251,19 +251,11 @@ class SendblueService:
         task_time: str,
     ) -> str:
         """
-        Casual single-line (or short) SMS: time as 'around 2:22pm - …', no 'Title — time. Essay'.
+        Casual single-line (or short) SMS: no explicit time prefix, reads like a normal reminder text.
         Schedule JSON title/description remain the source of truth in the app; this is delivery tone only.
         """
-        when = self._format_time_12h((task_time or "").strip())
         core = _lowercase_casual_opening(_core_text_for_reminder(task_title, task_description))
-        if when:
-            if when.lower() in core.lower():
-                body = core
-            else:
-                body = f"around {when} - {core}"
-        else:
-            body = core
-        return _trim_sms_body(body, 300)
+        return _trim_sms_body(core, 300)
 
     async def send_schedule_reminder(
         self,

@@ -23,6 +23,10 @@ from db.sqlalchemy import AsyncSessionLocal
 from services.prompt_loader import PromptKey, resolve_prompt
 from services.sms_reply_style import SMS_OUTBOUND_LLM_APPENDIX
 
+
+def _strip_asterisks_outbound(text: str) -> str:
+    return (text or "").replace("*", "")
+
 logger = logging.getLogger(__name__)
 
 
@@ -735,12 +739,14 @@ class CoachingService:
 
         if fitmax_prompt:
             try:
-                return await asyncio.to_thread(sync_llm_plain_text, fitmax_prompt)
+                raw = await asyncio.to_thread(sync_llm_plain_text, fitmax_prompt)
+                return _strip_asterisks_outbound(raw)
             except Exception as e:
                 logger.error(f"Fitmax check-in generation failed: {e}")
 
         try:
-            return await asyncio.to_thread(sync_llm_plain_text, general_prompt)
+            raw = await asyncio.to_thread(sync_llm_plain_text, general_prompt)
+            return _strip_asterisks_outbound(raw)
         except Exception as e:
             logger.error(f"Check-in generation failed: {e}")
             return "yo, checking in — how you doing today?"
@@ -784,11 +790,11 @@ class CoachingService:
         try:
             text = await asyncio.to_thread(sync_llm_plain_text, prompt)
             if text:
-                return text
+                return _strip_asterisks_outbound(text)
         except Exception as e:
             logger.error("Bedtime progress prompt generation failed: %s", e)
 
-        return fallback
+        return _strip_asterisks_outbound(fallback)
 
 
 coaching_service = CoachingService()

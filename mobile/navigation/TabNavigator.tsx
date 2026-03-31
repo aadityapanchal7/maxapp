@@ -10,8 +10,12 @@ import { prefetchMainTabData } from '../lib/prefetchMainTabData';
 
 import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
-import ForumsScreen from '../screens/forums/ForumsScreen';
-import ChannelChatScreen from '../screens/forums/ChannelChatScreen';
+import ForumsHomeV2Screen from '../screens/forums/ForumsHomeV2Screen';
+import SubforumThreadsV2Screen from '../screens/forums/SubforumThreadsV2Screen';
+import ThreadV2Screen from '../screens/forums/ThreadV2Screen';
+import NewThreadV2Screen from '../screens/forums/NewThreadV2Screen';
+import ForumNotificationsV2Screen from '../screens/forums/ForumNotificationsV2Screen';
+import CreateSubforumV2Screen from '../screens/forums/CreateSubforumV2Screen';
 import MasterScheduleScreen from '../screens/courses/MasterScheduleScreen';
 
 const Tab = createBottomTabNavigator();
@@ -20,8 +24,12 @@ const Stack = createNativeStackNavigator();
 function ForumsStack() {
     return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="ForumsList" component={ForumsScreen} />
-            <Stack.Screen name="ChannelChat" component={ChannelChatScreen} />
+            <Stack.Screen name="ForumsHomeV2" component={ForumsHomeV2Screen} />
+            <Stack.Screen name="SubforumThreadsV2" component={SubforumThreadsV2Screen} />
+            <Stack.Screen name="ThreadV2" component={ThreadV2Screen} />
+            <Stack.Screen name="NewThreadV2" component={NewThreadV2Screen} />
+            <Stack.Screen name="ForumNotificationsV2" component={ForumNotificationsV2Screen} />
+            <Stack.Screen name="CreateSubforumV2" component={CreateSubforumV2Screen} />
         </Stack.Navigator>
     );
 }

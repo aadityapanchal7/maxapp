@@ -21,8 +21,10 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
 /** Stripe Payment Links — override with EXPO_PUBLIC_STRIPE_BASIC_LINK / EXPO_PUBLIC_STRIPE_PREMIUM_LINK. Legacy: EXPO_PUBLIC_STRIPE_PAYMENT_LINK maps to Premium only. */
-const STRIPE_BASIC_FALLBACK = 'https://buy.stripe.com/8x25kD0Zpdra9RH7vKbII04';
-const STRIPE_PREMIUM_FALLBACK = 'https://buy.stripe.com/6oU4gz7nNdra0h79DSbII03';
+// Chadlite (basic) — $3.99/mo
+const STRIPE_BASIC_FALLBACK = 'https://buy.stripe.com/14A4gz5fFdrae7XaHWbII06';
+// Chad (premium) — $5.99/mo
+const STRIPE_PREMIUM_FALLBACK = 'https://buy.stripe.com/6oU6oH23t1Is8ND17mbII05';
 
 const STRIPE_BASIC_URL = (process.env.EXPO_PUBLIC_STRIPE_BASIC_LINK?.trim() || STRIPE_BASIC_FALLBACK).trim();
 const STRIPE_PREMIUM_URL = (
@@ -235,12 +237,16 @@ export default function PaymentScreen() {
                         pointerEvents="none"
                     />
                     <View style={styles.planHeader}>
-                        <Text style={styles.planName}>Basic</Text>
+                        <Text style={styles.planName}>Chadlite</Text>
                         <View style={styles.planTag}>
                             <Text style={styles.planTagText}>Core access</Text>
                         </View>
                     </View>
                     <Text style={styles.planSub}>Essential maxxes, forums, and your first scan.</Text>
+                    <View style={styles.priceRow}>
+                        <Text style={styles.price}>$3.99</Text>
+                        <Text style={styles.priceLabel}>/mo</Text>
+                    </View>
                     <View style={styles.featureList}>
                         {BASIC_FEATURES.map((feature, idx) => (
                             <View key={idx} style={styles.featureItem}>
@@ -278,12 +284,16 @@ export default function PaymentScreen() {
                         pointerEvents="none"
                     />
                     <View style={styles.planHeader}>
-                        <Text style={styles.planName}>Premium</Text>
+                        <Text style={styles.planName}>Chad</Text>
                         <View style={[styles.planTag, styles.planTagAccent]}>
                             <Text style={styles.planTagTextAccent}>Full stack</Text>
                         </View>
                     </View>
                     <Text style={styles.planSub}>Influencer access, daily scans, and the full library.</Text>
+                    <View style={styles.priceRow}>
+                        <Text style={styles.price}>$5.99</Text>
+                        <Text style={styles.priceLabel}>/mo</Text>
+                    </View>
                     <View style={styles.featureList}>
                         {PREMIUM_FEATURES.map((feature, idx) => (
                             <View key={idx} style={styles.featureItem}>

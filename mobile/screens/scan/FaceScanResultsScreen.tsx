@@ -404,6 +404,8 @@ export default function FaceScanResultsScreen() {
     const route = useRoute<any>();
     const { isPaid, refreshUser, user } = useAuth() as any;
     const postPayParam = !!(route.params as RouteParams)?.postPay;
+    const scanIdParam = (route.params as any)?.scanId as string | undefined;
+    const viewingHistory = !!scanIdParam;
     const postSubscriptionOnboarding = !!(user?.onboarding as { post_subscription_onboarding?: boolean } | undefined)
         ?.post_subscription_onboarding;
 
@@ -425,7 +427,7 @@ export default function FaceScanResultsScreen() {
                     console.error(e);
                 }
             }
-            const result = await api.getLatestScan();
+            const result = scanIdParam ? await api.getScanById(scanIdParam) : await api.getLatestScan();
             if (result?.is_unlocked) {
                 try {
                     await refreshUser();
@@ -440,7 +442,7 @@ export default function FaceScanResultsScreen() {
         } finally {
             setHydrating(false);
         }
-    }, [postPayParam, refreshUser]);
+    }, [postPayParam, refreshUser, scanIdParam]);
 
     useEffect(() => {
         bootstrap();
@@ -451,7 +453,7 @@ export default function FaceScanResultsScreen() {
             setProcessing(true);
             const interval = setInterval(async () => {
                 try {
-                    const result = await api.getLatestScan();
+                    const result = scanIdParam ? await api.getScanById(scanIdParam) : await api.getLatestScan();
                     setScan(result);
                     if (result.processing_status !== 'processing') {
                         setProcessing(false);
@@ -463,15 +465,15 @@ export default function FaceScanResultsScreen() {
             }, 3000);
             return () => clearInterval(interval);
         }
-    }, [scan?.processing_status]);
+    }, [scan?.processing_status, scanIdParam]);
 
     const a = scan?.analysis;
     /** API sets is_unlocked from DB — fixes empty screen when JWT context lags after payment */
     const treatAsPaid = isPaid === true || scan?.is_unlocked === true;
     const locked = !treatAsPaid;
     /** After pay, user must pick programs — use server flag so CTA is correct even before Home re-pushes `postPay`. */
-    const chooseProgramsFlow = !locked && postSubscriptionOnboarding;
-    const postPay = postPayParam || chooseProgramsFlow;
+    // Only run the post-pay onboarding CTA when explicitly deep-linked from payment.
+    const postPay = !!postPayParam && !locked && postSubscriptionOnboarding;
     /** After Stripe activate we set this false so user texts the Sendblue line before continuing. */
     const sendbluePending =
         treatAsPaid &&
@@ -526,7 +528,7 @@ export default function FaceScanResultsScreen() {
             return;
         }
         if (navigation.canGoBack()) navigation.goBack();
-        else navigation.navigate('FeaturesIntro');
+        else navigation.navigate('Main');
     };
 
     const serverProcessing = scan?.processing_status === 'processing';
@@ -834,17 +836,21 @@ export default function FaceScanResultsScreen() {
                     </View>
                 ) : null}
 
-                <TouchableOpacity style={styles.cta} onPress={onPrimaryCta} activeOpacity={0.88}>
-                    <Text style={styles.ctaText}>
-                        {locked ? 'Unlock plan' : postPay ? 'Choose your programs' : 'Continue'}
-                    </Text>
-                    <Ionicons name={locked ? 'lock-open-outline' : 'arrow-forward'} size={20} color={colors.background} />
-                </TouchableOpacity>
+                {!viewingHistory ? (
+                    <>
+                        <TouchableOpacity style={styles.cta} onPress={onPrimaryCta} activeOpacity={0.88}>
+                            <Text style={styles.ctaText}>
+                                {locked ? 'Unlock plan' : postPay ? 'Choose your programs' : 'Continue'}
+                            </Text>
+                            <Ionicons name={locked ? 'lock-open-outline' : 'arrow-forward'} size={20} color={colors.background} />
+                        </TouchableOpacity>
 
-                {!locked && !postPay ? (
-                    <TouchableOpacity style={styles.secondaryCta} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
-                        <Text style={styles.secondaryCtaText}>Skip to home</Text>
-                    </TouchableOpacity>
+                        {!locked && !postPay ? (
+                            <TouchableOpacity style={styles.secondaryCta} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
+                                <Text style={styles.secondaryCtaText}>Skip to home</Text>
+                            </TouchableOpacity>
+                        ) : null}
+                    </>
                 ) : null}
 
                 {locked ? <Text style={styles.priceHint}>Full analysis with membership · $9.99/mo</Text> : null}

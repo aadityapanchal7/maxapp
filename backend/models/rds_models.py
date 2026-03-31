@@ -122,6 +122,163 @@ class ChannelMessage(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Forum v2 (classic threads)
+# ---------------------------------------------------------------------------
+
+
+class ForumCategory(Base):
+    __tablename__ = "forum_categories"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False, unique=True)
+    slug = Column(String, nullable=False, unique=True)
+    description = Column(Text)
+    order = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_categories_order", order),
+    )
+
+
+class ForumSubforum(Base):
+    __tablename__ = "forum_subforums"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("forum_categories.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+    slug = Column(String, nullable=False, unique=True)
+    description = Column(Text)
+    order = Column(Integer, default=0)
+    access_tier = Column(String, default="public")  # public | premium
+    is_read_only = Column(Boolean, default=False)
+    created_by = Column(UUID(as_uuid=True))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_subforums_category_id", category_id),
+        Index("idx_forum_subforums_order", order),
+        Index("idx_forum_subforums_access_tier", access_tier),
+    )
+
+
+class ForumThread(Base):
+    __tablename__ = "forum_threads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subforum_id = Column(UUID(as_uuid=True), ForeignKey("forum_subforums.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    title = Column(String, nullable=False)
+    tags = Column(JSON, default=list)
+    is_sticky = Column(Boolean, default=False)
+    is_locked = Column(Boolean, default=False)
+    view_count = Column(Integer, default=0)
+    reply_count = Column(Integer, default=0)
+    last_post_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    last_post_user_id = Column(UUID(as_uuid=True))
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_threads_subforum_id", subforum_id),
+        Index("idx_forum_threads_last_post_at", last_post_at),
+        Index("idx_forum_threads_user_id", user_id),
+        Index("idx_forum_threads_sticky", is_sticky),
+    )
+
+
+class ForumPost(Base):
+    __tablename__ = "forum_posts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id = Column(UUID(as_uuid=True), ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    content = Column(Text, nullable=False)
+    entities = Column(JSON, default=dict)  # mentions, quote refs, etc.
+    attachment_url = Column(Text)
+    attachment_type = Column(String)
+    parent_post_id = Column(UUID(as_uuid=True))
+    score = Column(Integer, default=0)
+    upvotes = Column(Integer, default=0)
+    downvotes = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_posts_thread_id", thread_id),
+        Index("idx_forum_posts_user_id", user_id),
+        Index("idx_forum_posts_created_at", created_at),
+        Index("idx_forum_posts_score", score),
+    )
+
+
+class ForumPostVote(Base):
+    __tablename__ = "forum_post_votes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    value = Column(Integer, nullable=False)  # +1 or -1
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_post_votes_post_id", post_id),
+        Index("idx_forum_post_votes_user_id", user_id),
+        Index("uq_forum_post_votes_post_user", post_id, user_id, unique=True),
+    )
+
+
+class ForumThreadWatch(Base):
+    __tablename__ = "forum_thread_watches"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    thread_id = Column(UUID(as_uuid=True), ForeignKey("forum_threads.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_thread_watches_thread_id", thread_id),
+        Index("idx_forum_thread_watches_user_id", user_id),
+        Index("uq_forum_thread_watches_thread_user", thread_id, user_id, unique=True),
+    )
+
+
+class ForumNotification(Base):
+    __tablename__ = "forum_notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), nullable=False)
+    type = Column(String, nullable=False)  # reply | mention | quote | watch
+    entity_id = Column(UUID(as_uuid=True), nullable=False)  # thread_id or post_id
+    actor_user_id = Column(UUID(as_uuid=True))
+    payload = Column(JSON, default=dict)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_notifications_user_id", user_id),
+        Index("idx_forum_notifications_created_at", created_at),
+        Index("idx_forum_notifications_is_read", is_read),
+    )
+
+
+class ForumPostReport(Base):
+    __tablename__ = "forum_post_reports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id = Column(UUID(as_uuid=True), ForeignKey("forum_posts.id", ondelete="CASCADE"), nullable=False)
+    reporter_user_id = Column(UUID(as_uuid=True), nullable=False)
+    reason = Column(Text)
+    status = Column(String, default="open")  # open | resolved | dismissed
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("idx_forum_post_reports_post_id", post_id),
+        Index("idx_forum_post_reports_reporter_user_id", reporter_user_id),
+        Index("idx_forum_post_reports_status", status),
+    )
+
+
 class Event(Base):
     """Live events"""
     __tablename__ = "events"

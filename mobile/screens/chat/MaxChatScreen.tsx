@@ -28,6 +28,7 @@ export default function MaxChatScreen() {
     const [historySeeded, setHistorySeeded] = useState(false);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [serverChoices, setServerChoices] = useState<string[]>([]);
     const flatListRef = useRef<FlashListRef<Message>>(null);
     const initScheduleHandled = useRef(false);
     const initQuestionHandled = useRef<string | null>(null);
@@ -79,12 +80,14 @@ export default function MaxChatScreen() {
     const sendMessageWithContext = async (msg: string, initContext?: string) => {
         if (!msg.trim() || loading) return;
         setLoading(true);
+        setServerChoices([]);
         setMessages((prev) => [...prev, { role: 'user', content: msg }]);
         addTyping(initContext ? 'schedule' : 'default');
         try {
-            const { response } = await api.sendChatMessage(msg, undefined, undefined, initContext);
+            const { response, choices } = await api.sendChatMessage(msg, undefined, undefined, initContext);
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            setServerChoices(Array.isArray(choices) ? choices : []);
             void queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory });
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
@@ -95,15 +98,19 @@ export default function MaxChatScreen() {
         }
     };
 
-    const sendMessage = async () => {
-        if (!input.trim() || loading) return;
-        const userContent = input.trim();
-        setLoading(true); setInput('');
+    const sendMessage = async (presetArg?: unknown) => {
+        const fromPreset = typeof presetArg === 'string' ? presetArg.trim() : '';
+        const fromInput = String(input ?? '').trim();
+        const userContent = fromPreset || fromInput;
+        if (!userContent || loading) return;
+        setLoading(true);
+        setServerChoices([]);
+        if (!fromPreset) setInput('');
         try {
             setMessages(prev => [...prev, { role: 'user', content: userContent }]);
             const scheduleCtx = route.params?.initSchedule as string | undefined;
             addTyping(scheduleCtx ? 'schedule' : 'default');
-            const { response } = await api.sendChatMessage(
+            const { response, choices } = await api.sendChatMessage(
                 userContent,
                 undefined,
                 undefined,
@@ -111,10 +118,15 @@ export default function MaxChatScreen() {
             );
             removeTyping();
             setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            setServerChoices(Array.isArray(choices) ? choices : []);
             void queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory });
         } catch (e) { console.error(e); removeTyping(); setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong.' }]); }
         finally { setLoading(false); }
     };
+
+    const quickReplies = serverChoices
+        .map((c) => (typeof c === 'string' ? c.trim() : String(c ?? '').trim()))
+        .filter((c) => c.length > 0);
 
     const renderMessage = ({ item }: { item: Message }) => {
         if (item.isTyping) {
@@ -179,6 +191,20 @@ export default function MaxChatScreen() {
                 )}
 
                 <View style={styles.outerInputContainer}>
+                    {!loading && quickReplies.length > 0 && (
+                        <View style={styles.quickReplyRow}>
+                            {quickReplies.map((choice) => (
+                                <TouchableOpacity
+                                    key={choice}
+                                    style={styles.quickReplyButton}
+                                    onPress={() => sendMessage(choice)}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={styles.quickReplyText}>{choice}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
                     <View style={styles.inputContainer}>
                         <TextInput
                             style={styles.input}
@@ -191,7 +217,7 @@ export default function MaxChatScreen() {
                         />
                         <TouchableOpacity
                             style={[styles.sendButton, !input.trim() && styles.disabledButton]}
-                            onPress={sendMessage}
+                            onPress={() => void sendMessage()}
                             disabled={!input.trim() || loading}
                         >
                             {loading ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={18} color={colors.buttonText} />}
@@ -261,6 +287,25 @@ const styles = StyleSheet.create({
         borderTopWidth: 1,
         borderTopColor: colors.border,
         backgroundColor: colors.background,
+    },
+    quickReplyRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: spacing.sm,
+        marginBottom: spacing.sm,
+    },
+    quickReplyButton: {
+        backgroundColor: colors.card,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: borderRadius.full,
+        paddingHorizontal: 14,
+        paddingVertical: 9,
+    },
+    quickReplyText: {
+        color: colors.textPrimary,
+        fontSize: 13,
+        fontWeight: '600',
     },
     inputContainer: {
         flexDirection: 'row',

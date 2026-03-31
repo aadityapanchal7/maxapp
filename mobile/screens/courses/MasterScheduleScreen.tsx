@@ -46,7 +46,6 @@ function formatTimeTo12Hour(time24: string) {
 function parseTimeToHHMM(time: string): { hh: number; mm: number } | null {
   const s = (time || '').trim();
   if (!s) return null;
-  // Expected: "HH:MM" (24h) coming from backend, but accept "H:MM".
   const m24 = /^(\d{1,2}):(\d{2})$/.exec(s);
   if (!m24) return null;
   const hh = parseInt(m24[1], 10);
@@ -135,6 +134,7 @@ export default function MasterScheduleScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
+  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   const schedules = schedulesQuery.data?.schedules ?? [];
   const maxxes = maxesQuery.data?.maxes ?? [];
@@ -343,7 +343,6 @@ export default function MasterScheduleScreen() {
   const tasksForDay = selectedDate ? merged.byDate[selectedDate] || [] : [];
   const completedCount = tasksForDay.filter((t) => t.status === 'completed').length;
   const totalCount = tasksForDay.length;
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
 
   const goToChatForTask = (task: MergedScheduleTask) => {
     const initQuestion =
@@ -410,10 +409,12 @@ export default function MasterScheduleScreen() {
     title,
     subtitle,
     headerRight,
+    legend,
   }: {
     title: string;
     subtitle?: string;
     headerRight?: ReactNode;
+    legend?: ReactNode;
   }) => (
     <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
       {isTab ? (
@@ -432,6 +433,7 @@ export default function MasterScheduleScreen() {
             {subtitle}
           </Text>
         ) : null}
+        {legend ? <View style={styles.legendWrap}>{legend}</View> : null}
       </View>
       <View style={styles.headerRightSlot}>{headerRight ?? <View style={styles.headerSide} />}</View>
     </View>
@@ -450,10 +452,14 @@ export default function MasterScheduleScreen() {
   if (loadError) {
     return (
       <View style={styles.container}>
-        <HeaderChrome title="Master schedule" headerRight={headerStreakRight} />
+        <HeaderChrome
+          title="Schedule"
+          subtitle="All your active tasks"
+          headerRight={headerStreakRight}
+        />
         <View style={[styles.emptyState, styles.center]}>
           <Ionicons name="cloud-offline-outline" size={56} color={colors.error} />
-          <Text style={styles.emptyTitle}>Couldn&apos;t load schedules</Text>
+          <Text style={styles.emptyTitle}>Couldn&apos;t load your schedule</Text>
           <Text style={styles.emptySubtitle}>{loadError}</Text>
           <TouchableOpacity
             style={styles.primaryBtn}
@@ -471,16 +477,15 @@ export default function MasterScheduleScreen() {
     return (
       <View style={styles.container}>
         <HeaderChrome
-          title="Master schedule"
-          subtitle="All tasks across your active programs"
+          title="Schedule"
+          subtitle="All your active tasks, in one place"
           headerRight={headerStreakRight}
         />
         <View style={[styles.emptyState, styles.center]}>
           <Ionicons name="layers-outline" size={64} color={colors.textMuted} />
           <Text style={styles.emptyTitle}>No active schedules</Text>
           <Text style={styles.emptySubtitle}>
-            Start a schedule from each Maxx on Home. When you have one or more running, every task shows up here,
-            color-coded by program.
+            Start a schedule from a Maxx on Home. Once it&apos;s active, it&apos;ll show up here automatically.
           </Text>
           <TouchableOpacity style={styles.primaryBtn} onPress={goHome} activeOpacity={0.7}>
             <Text style={styles.primaryBtnText}>Go to Home</Text>
@@ -512,148 +517,157 @@ export default function MasterScheduleScreen() {
   return (
     <View style={styles.container}>
       <HeaderChrome
-        title="Master schedule"
-        subtitle="All tasks across your active programs"
+        title="Schedule"
+        subtitle="All your active tasks, in one place"
         headerRight={headerStreakRight}
+        legend={legendChips}
       />
       {legendChips ? <View style={styles.legendBar}>{legendChips}</View> : null}
 
       <View style={styles.bodyBelowHeader}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.dayStripScroll}
-        contentContainerStyle={styles.daySelectorContainer}
-      >
-        {merged.dates.map((dateStr) => {
-          const isSelected = dateStr === selectedDate;
-          const date = new Date(dateStr + 'T00:00:00');
-          const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-          const dayNum = date.getDate();
-          const dayTasks = merged.byDate[dateStr] || [];
-          const dayDone = dayTasks.length > 0 && dayTasks.every((t) => t.status === 'completed');
-          return (
-            <TouchableOpacity
-              key={dateStr}
-              style={[styles.dayPill, isSelected && styles.dayPillActive, dayDone && styles.dayPillDone]}
-              onPress={() => setSelectedDate(dateStr)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityLabel={`Select ${dayName} ${dayNum}`}
-            >
-              <Text style={[styles.dayPillLabel, isSelected && styles.dayPillLabelActive]}>{dayName}</Text>
-              <Text style={[styles.dayPillNumber, isSelected && styles.dayPillNumberActive]}>{dayNum}</Text>
-              {dayDone && <View style={styles.dayCompleteDot} />}
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.dayStripScroll}
+          contentContainerStyle={styles.daySelectorContainer}
+        >
+          {merged.dates.map((dateStr) => {
+            const isSelected = dateStr === selectedDate;
+            const date = new Date(dateStr + 'T00:00:00');
+            const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+            const dayNum = date.getDate();
+            const dayTasks = merged.byDate[dateStr] || [];
+            const dayDone = dayTasks.length > 0 && dayTasks.every((t) => t.status === 'completed');
+            return (
+              <TouchableOpacity
+                key={dateStr}
+                style={[styles.dayPill, isSelected && styles.dayPillActive, dayDone && styles.dayPillDone]}
+                onPress={() => setSelectedDate(dateStr)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Select ${dayName} ${dayNum}`}
+              >
+                <Text style={[styles.dayPillLabel, isSelected && styles.dayPillLabelActive]}>{dayName}</Text>
+                <Text style={[styles.dayPillNumber, isSelected && styles.dayPillNumberActive]}>{dayNum}</Text>
+                {dayDone && <View style={styles.dayCompleteDot} />}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
-      <ScrollView
-        style={styles.taskList}
-        contentContainerStyle={{ paddingBottom: 100 }}
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.foreground} />
-        }
-      >
-        <View style={styles.progressRow}>
-          <Text style={styles.progressText}>
-            {completedCount}/{totalCount} completed
-            {merged.legend.length > 0
-              ? ` · ${merged.legend.length} program${merged.legend.length !== 1 ? 's' : ''}`
-              : ''}
-          </Text>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` },
-              ]}
-            />
+        <ScrollView
+          style={styles.taskList}
+          contentContainerStyle={{ paddingBottom: 100 }}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.foreground} />
+          }
+        >
+          <View style={styles.progressRow}>
+            <Text style={styles.progressText}>
+              {scheduleStreak.current > 0
+                ? `🔥 ${scheduleStreak.current} day${scheduleStreak.current === 1 ? '' : 's'} streak · `
+                : ''}
+              {completedCount}/{totalCount} completed
+              {merged.legend.length > 0
+                ? ` · ${merged.legend.length} program${merged.legend.length !== 1 ? 's' : ''}`
+                : ''}
+            </Text>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` },
+                ]}
+              />
+            </View>
           </View>
-        </View>
 
-        {tasksForDay.map((task) => {
-          const isDone = task.status === 'completed';
-          const isExpanded = expandedTaskId === task.task_id;
-          return (
-            <View key={`${task.scheduleId}-${task.task_id}`} style={[styles.taskCard, isDone && styles.taskCardDone]}>
-              <View style={styles.taskCardInner}>
-                <View style={styles.accentColumn}>
-                  <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
-                </View>
-                <View style={styles.taskCardMainCol}>
-                  <View style={styles.taskTopRow}>
-                    <TouchableOpacity
-                      style={[styles.taskCheck, isDone && styles.taskCheckDone]}
-                      onPress={() => void toggleTaskComplete(task)}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      accessibilityRole="checkbox"
-                      accessibilityLabel={isDone ? `Mark task not done: ${task.title}` : `Mark task done: ${task.title}`}
-                      accessibilityState={{ checked: isDone }}
-                    >
-                      {isDone ? (
-                        <Ionicons name="checkmark" size={14} color={colors.buttonText} />
-                      ) : null}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.taskMainPress}
-                      onPress={() => setExpandedTaskId((prev) => (prev === task.task_id ? null : task.task_id))}
-                      activeOpacity={0.75}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${task.title}`}
-                    >
-                      <View style={styles.taskHeader}>
-                        <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>
-                          {formatTimeTo12Hour(task.time)}
-                        </Text>
-                        <View style={styles.taskHeaderRight}>
-                          <View style={styles.taskTypeBadge}>
-                            <Ionicons name={getTaskIcon(task.task_type) as any} size={12} color={colors.textMuted} />
-                            <Text style={styles.taskTypeText}>{task.duration_minutes}m</Text>
-                          </View>
-                          <Ionicons
-                            name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                            size={16}
-                            color={colors.textMuted}
-                          />
-                        </View>
-                      </View>
-                      <Text style={styles.taskModuleLabel} numberOfLines={1}>
-                        {task.moduleLabel}
-                      </Text>
-                      <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]} numberOfLines={isExpanded ? undefined : 2}>
-                        {task.title}
-                      </Text>
-                    </TouchableOpacity>
+          {tasksForDay.map((task) => {
+            const isDone = task.status === 'completed';
+            const isExpanded = expandedTaskId === task.task_id;
+            return (
+              <View key={`${task.scheduleId}-${task.task_id}`} style={[styles.taskCard, isDone && styles.taskCardDone]}>
+                <View style={styles.taskCardInner}>
+                  <View style={styles.accentColumn}>
+                    <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
                   </View>
-
-                  {isExpanded && (
-                    <View style={styles.taskExpanded}>
-                      {task.description ? (
-                        <Text style={styles.taskDescriptionFull}>{task.description}</Text>
-                      ) : null}
+                  <View style={styles.taskCardMainCol}>
+                    <View style={styles.taskTopRow}>
                       <TouchableOpacity
-                        style={styles.askChatRow}
-                        onPress={() => goToChatForTask(task)}
+                        style={[styles.taskCheck, isDone && styles.taskCheckDone]}
+                        onPress={() => void toggleTaskComplete(task)}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityRole="checkbox"
+                        accessibilityLabel={
+                          isDone ? `Mark task not done: ${task.title}` : `Mark task done: ${task.title}`
+                        }
+                        accessibilityState={{ checked: isDone }}
+                      >
+                        {isDone ? (
+                          <Ionicons name="checkmark" size={14} color={colors.buttonText} />
+                        ) : null}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.taskMainPress}
+                        onPress={() => setExpandedTaskId((prev) => (prev === task.task_id ? null : task.task_id))}
                         activeOpacity={0.75}
                         accessibilityRole="button"
-                        accessibilityLabel={`Ask Max about ${task.title}`}
+                        accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${task.title}`}
                       >
-                        <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.foreground} />
-                        <Text style={styles.askChatLabel}>Ask Max</Text>
-                        <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                        <View style={styles.taskHeader}>
+                          <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>
+                            {formatTimeTo12Hour(task.time)}
+                          </Text>
+                          <View style={styles.taskHeaderRight}>
+                            <View style={styles.taskTypeBadge}>
+                              <Ionicons name={getTaskIcon(task.task_type) as any} size={12} color={colors.textMuted} />
+                              <Text style={styles.taskTypeText}>{task.duration_minutes}m</Text>
+                            </View>
+                            <Ionicons
+                              name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                              size={16}
+                              color={colors.textMuted}
+                            />
+                          </View>
+                        </View>
+                        <Text style={styles.taskModuleLabel} numberOfLines={1}>
+                          {task.moduleLabel}
+                        </Text>
+                        <Text
+                          style={[styles.taskTitle, isDone && styles.taskTitleDone]}
+                          numberOfLines={isExpanded ? undefined : 2}
+                        >
+                          {task.title}
+                        </Text>
                       </TouchableOpacity>
                     </View>
-                  )}
+
+                    {isExpanded && (
+                      <View style={styles.taskExpanded}>
+                        {task.description ? (
+                          <Text style={styles.taskDescriptionFull}>{task.description}</Text>
+                        ) : null}
+                        <TouchableOpacity
+                          style={styles.askChatRow}
+                          onPress={() => goToChatForTask(task)}
+                          activeOpacity={0.75}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Ask Max about ${task.title}`}
+                        >
+                          <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.foreground} />
+                          <Text style={styles.askChatLabel}>Ask Max</Text>
+                          <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
-            </View>
-          );
-        })}
-      </ScrollView>
+            );
+          })}
+        </ScrollView>
       </View>
     </View>
   );
@@ -686,7 +700,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  headerTitle: { ...typography.h3, textAlign: 'center', width: '100%' },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+    color: colors.foreground,
+    textAlign: 'center',
+    width: '100%',
+  },
   subhead: {
     ...typography.bodySmall,
     color: colors.textMuted,
@@ -694,6 +715,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
     width: '100%',
+  },
+  legendWrap: {
+    width: '100%',
+    maxHeight: 22,
+    overflow: 'hidden',
   },
   legendBar: {
     paddingBottom: spacing.sm,

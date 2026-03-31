@@ -28,7 +28,7 @@ export default function ProfileScreen() {
     const gridColumns = Platform.OS === 'web' ? (winWidth > 800 ? 3 : winWidth > 500 ? 2 : 3) : 3;
     const gridItemWidth = `${100 / gridColumns}%` as any;
     const imageModalWidth = getImageModalWidth(winWidth);
-    const { user, logout, refreshUser, deleteAccount } = useAuth();
+    const { user, logout, refreshUser, deleteAccount, isPaid } = useAuth();
     const [loading, setLoading] = useState(true);
     const [progressPhotos, setProgressPhotos] = useState<any[]>([]);
     const [progressModalVisible, setProgressModalVisible] = useState(false);
@@ -327,6 +327,13 @@ export default function ProfileScreen() {
 
                     {/* Settings - minimal list */}
                     <View style={styles.section}>
+                        {isPaid ? (
+                            <TouchableOpacity style={[styles.menuRow, { marginBottom: spacing.sm }]} onPress={() => navigation.navigate('FaceScanArchive')} activeOpacity={0.7}>
+                                <Ionicons name="scan-outline" size={22} color={colors.foreground} />
+                                <Text style={styles.menuRowText}>Face scans</Text>
+                                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        ) : null}
                         <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('PersonalInfo')} activeOpacity={0.7}>
                             <Ionicons name="id-card-outline" size={22} color={colors.foreground} />
                             <Text style={styles.menuRowText}>Edit personal info</Text>

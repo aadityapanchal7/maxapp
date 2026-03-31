@@ -5,6 +5,7 @@ import { queryKeys } from '../lib/queryClient';
 const STALE_MAXXES_MS = 5 * 60 * 1000;
 const STALE_SCHEDULES_FULL_MS = 60 * 1000;
 const STALE_CHANNELS_MS = 2 * 60 * 1000;
+const STALE_FORUM_V2_MS = 60 * 1000;
 const STALE_CHAT_HISTORY_MS = 60 * 1000;
 const STALE_MAXX_MS = 3 * 60 * 1000;
 
@@ -63,6 +64,67 @@ export function useChannelsQuery(searchTrimmed: string) {
         },
         placeholderData: keepPreviousData,
         staleTime: STALE_CHANNELS_MS,
+    });
+}
+
+export function useForumV2CategoriesQuery() {
+    return useQuery({
+        queryKey: queryKeys.forumV2Categories,
+        queryFn: async () => {
+            const res = await api.getForumV2Categories();
+            return res?.categories ?? [];
+        },
+        staleTime: STALE_FORUM_V2_MS,
+    });
+}
+
+export function useForumV2SubforumsQuery(categoryId: string | null) {
+    return useQuery({
+        queryKey: queryKeys.forumV2Subforums(categoryId),
+        queryFn: async () => {
+            const res = await api.getForumV2Subforums(categoryId ?? undefined);
+            return res?.subforums ?? [];
+        },
+        staleTime: STALE_FORUM_V2_MS,
+    });
+}
+
+export function useForumV2ThreadsQuery(args: { subforumId: string; sort: 'new' | 'hot' | 'top'; q: string; tag: string }) {
+    const { subforumId, sort, q, tag } = args;
+    return useQuery({
+        queryKey: queryKeys.forumV2Threads(subforumId, sort, q, tag),
+        queryFn: async () => {
+            const res = await api.getForumV2Threads(subforumId, { sort, q, tag, limit: 30, offset: 0 });
+            return res ?? { threads: [], total: 0, subforum: null };
+        },
+        enabled: !!subforumId,
+        placeholderData: keepPreviousData,
+        staleTime: STALE_FORUM_V2_MS,
+    });
+}
+
+export function useForumV2PostsQuery(args: { threadId: string; sort: 'new' | 'top' }) {
+    const { threadId, sort } = args;
+    return useQuery({
+        queryKey: queryKeys.forumV2Posts(threadId, sort),
+        queryFn: async () => {
+            const res = await api.getForumV2Posts(threadId, { sort, limit: 80, offset: 0 });
+            return res ?? { posts: [], total: 0, thread: null };
+        },
+        enabled: !!threadId,
+        placeholderData: keepPreviousData,
+        staleTime: STALE_FORUM_V2_MS,
+    });
+}
+
+export function useForumV2NotificationsQuery(unreadOnly: boolean) {
+    return useQuery({
+        queryKey: queryKeys.forumV2Notifications(unreadOnly),
+        queryFn: async () => {
+            const res = await api.getForumV2Notifications({ unread_only: unreadOnly, limit: 80, offset: 0 });
+            return res?.notifications ?? [];
+        },
+        staleTime: STALE_FORUM_V2_MS,
     });
 }
 

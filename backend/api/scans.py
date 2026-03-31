@@ -3,7 +3,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -113,14 +113,30 @@ async def upload_scan_triple(
 ):
     """
     Three still photos (front, left profile, right profile) → UMax-style 6 metrics + overall.
-    One completed scan per user (enforced here and in the app).
+    Non-premium: one completed scan per user.
+    Premium: one scan per day.
     """
     user_uuid = UUID(current_user["id"])
     uid_str = str(user_uuid)
 
     user_row = await db.get(User, user_uuid)
-    if user_row and user_row.first_scan_completed:
+    is_paid = bool(current_user.get("is_paid", False))
+    if user_row and user_row.first_scan_completed and not is_paid:
         raise HTTPException(status_code=400, detail="You have already completed your face scan.")
+    if is_paid:
+        # Enforce one scan per day (UTC) for premium users
+        now = datetime.utcnow()
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        today_res = await db.execute(
+            select(Scan.id)
+            .where(Scan.user_id == user_uuid)
+            .where(Scan.created_at >= day_start)
+            .where(Scan.created_at < day_end)
+            .limit(1)
+        )
+        if today_res.first():
+            raise HTTPException(status_code=429, detail="You already completed a face scan today. Try again tomorrow.")
 
     onboarding_ctx = json.dumps(user_row.onboarding or {}, default=str) if user_row else "{}"
 
@@ -139,7 +155,7 @@ async def upload_scan_triple(
     scan_row = Scan(
         user_id=user_uuid,
         created_at=datetime.utcnow(),
-        is_unlocked=current_user.get("is_paid", False),
+        is_unlocked=is_paid,
         processing_status="processing",
         scan_type="triple_gemini",
         images={"front": front_url, "left": left_url, "right": right_url},

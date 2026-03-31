@@ -8,7 +8,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -135,6 +135,13 @@ async def _reply_today_completed_tasks_summary(user_id: str, onboarding: dict, d
     body = "\n".join(lines[:15])
     extra = f"\n…+{len(lines) - 15} more" if len(lines) > 15 else ""
     return f"here's what you checked off today:\n{body}{extra}"
+
+
+def _finalize_assistant_message(text: str) -> str:
+    """User-facing chat: no markdown asterisks; lowercase Max voice."""
+    if not text:
+        return text
+    return text.replace("*", "").lower()
 
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -1253,6 +1260,59 @@ def _normalize_hair_yes_no(val) -> Optional[str]:
     return None
 
 
+def _quick_replies_from_response(text: str) -> list[str]:
+    s = (text or "").strip().lower()
+    if not s:
+        return []
+
+    def _dedupe(items: list[str]) -> list[str]:
+        out: list[str] = []
+        seen = set()
+        for raw in items:
+            v = raw.strip()
+            if not v:
+                continue
+            k = v.lower()
+            if k in seen:
+                continue
+            seen.add(k)
+            out.append(v)
+        return out
+
+    if "straight, wavy, curly, or coily" in s or "what's your hair type" in s:
+        return ["straight", "wavy", "curly", "coily"]
+    if "normal, dry/flaky, oily/greasy, or itchy" in s or "how's your scalp" in s:
+        return ["normal", "dry/flaky", "oily/greasy", "itchy"]
+    if "beginner, intermediate, or advanced" in s:
+        return ["beginner", "intermediate", "advanced"]
+    if "fat loss, muscle gain, recomp, maintenance, or performance" in s or (
+        "main goal right now" in s and ("losing fat" in s or "building muscle" in s)
+    ):
+        return ["fat loss", "muscle gain", "recomp", "maintenance", "performance"]
+    if "sedentary, lightly active, moderately active, or very active" in s:
+        return ["sedentary", "lightly active", "moderately active", "very active"]
+    if "how many days per week" in s or "workout frequency" in s:
+        return ["1-2", "3-4", "5+"]
+    if "what's your biological sex" in s:
+        return ["male", "female"]
+    if "planning to be outside much today" in s or "outside much today" in s:
+        return ["yes", "no"]
+    if "acne" in s and "dark spots" in s and "dryness" in s and "oil control" in s:
+        return ["acne", "dark spots", "dryness", "oil control", "anti-aging"]
+    if "products or styling most days" in s:
+        return ["yes", "no"]
+    if "noticing any thinning" in s or "thinning or a receding" in s:
+        return ["yes", "no"]
+    if ("ever had tmj" in s or "jaw pain" in s) and "yes or no" in s:
+        return ["yes", "no"]
+    if "mastic or hard gum" in s and "yes or no" in s:
+        return ["yes", "no"]
+    if "computer or phone" in s and "many hours" in s:
+        return ["yes", "no"]
+
+    return []
+
+
 def _chat_history_channel_clause(channel: str):
     """Filter chat_history rows: app UI only sees 'app' (and legacy NULL); SMS uses its own thread."""
     if channel == "sms":
@@ -1274,11 +1334,12 @@ async def process_chat_message(
     attachment_url: Optional[str] = None,
     attachment_type: Optional[str] = None,
     channel: str = "app",
-) -> str:
+) -> Tuple[str, list[str]]:
     """
     Core chat logic shared by the HTTP endpoint and the SMS webhook.
     Persists app turns to ChatHistory (channel=app). SMS turns are not persisted.
     In-app GET /history shows app (and legacy NULL channel) only.
+    Returns (assistant_text, quick_reply_choices). Choices are only for active module schedule onboarding.
     """
     from services.schedule_service import schedule_service, ScheduleLimitError
     user_uuid = UUID(user_id)
@@ -1388,7 +1449,7 @@ async def process_chat_message(
             db.add(user_message)
             db.add(assistant_message)
         await db.commit()
-        return response_text
+        return _finalize_assistant_message(response_text), []
 
     # --- Init context / maxx schedule onboarding ---
     message = message_text
@@ -1579,7 +1640,8 @@ async def process_chat_message(
                     db.add(user_message)
                     db.add(assistant_message)
                 await db.commit()
-                return response_text
+                ft = _finalize_assistant_message(response_text)
+                return ft, _quick_replies_from_response(ft)
 
             # Onboarding complete and no fitmax schedule yet -> generate + summarize
             if not fitmax_schedule and not missing:
@@ -1594,13 +1656,15 @@ async def process_chat_message(
                 user.updated_at = datetime.utcnow()
 
                 try:
+                    fw_fm = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
+                    fs_fm = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
                     schedule = await schedule_service.generate_maxx_schedule(
                         user_id=user_id,
                         maxx_id="fitmax",
                         db=db,
                         rds_db=rds_db if rds_db else None,
-                        wake_time="07:00",
-                        sleep_time="23:00",
+                        wake_time=str(fw_fm),
+                        sleep_time=str(fs_fm),
                         skin_concern=plan["goal_label"],
                         outside_today=False,
                     )
@@ -1638,7 +1702,7 @@ async def process_chat_message(
                     db.add(user_message)
                     db.add(assistant_message)
                 await db.commit()
-                return response_text
+                return _finalize_assistant_message(response_text), []
 
     # --- Hairmax chat onboarding (deterministic, same pattern as fitmax) ---
     if run_hairmax_onboarding:
@@ -1719,7 +1783,8 @@ async def process_chat_message(
                 db.add(user_message)
                 db.add(assistant_message)
             await db.commit()
-            return response_text
+            ft = _finalize_assistant_message(response_text)
+            return ft, _quick_replies_from_response(ft)
 
         if not hairmax_schedule_active and not missing:
             profile.pop("hairmax_chat_setup", None)
@@ -1748,7 +1813,7 @@ async def process_chat_message(
                 )
                 user_context["active_maxx_schedule"] = schedule
                 schedule_summary = _summarise_schedule(schedule)
-                response_text = f"your hairmax schedule is locked in.\n\n{schedule_summary}"
+                response_text = schedule_summary
             except ScheduleLimitError as e:
                 names = ", ".join(e.active_labels)
                 response_text = (
@@ -1774,7 +1839,7 @@ async def process_chat_message(
                 db.add(user_message)
                 db.add(assistant_message)
             await db.commit()
-            return response_text
+            return _finalize_assistant_message(response_text), []
 
     # --- Fitmax meal logging from natural language (average macro lookup) ---
     if user:
@@ -1821,8 +1886,9 @@ async def process_chat_message(
                 db.add(user_message)
                 db.add(assistant_message)
             await db.commit()
-            return response_text
+            return _finalize_assistant_message(response_text), []
 
+    existing_maxx = None
     if maxx_id:
         try:
             existing_maxx = await schedule_service.get_maxx_schedule(user_id, maxx_id, db=db)
@@ -1875,7 +1941,7 @@ async def process_chat_message(
                 await _persist_user_wake_sleep(user, db, str(final_wake), str(final_sleep))
                 schedule_summary = _summarise_schedule(schedule)
                 response_text = (
-                    "your heightmax schedule is locked in. open the **Schedule** tab for reminders.\n\n"
+                    "your heightmax schedule is locked in. open the schedule tab for reminders.\n\n"
                     f"{schedule_summary}"
                 )
             except ScheduleLimitError as e:
@@ -1905,7 +1971,7 @@ async def process_chat_message(
                 db.add(user_message)
                 db.add(assistant_message)
             await db.commit()
-            return response_text
+            return _finalize_assistant_message(response_text), []
 
         if existing_maxx:
             user_context["active_maxx_schedule"] = existing_maxx
@@ -1965,7 +2031,7 @@ HOW TO RUN THE FLOW
 
    the backend then creates the full schedule — same as other maxx modules.
 
-4) after generate_maxx_schedule returns, your reply should be short: confirm heightmax is locked in and they should open the **Schedule** tab for reminders. optional one line on what HeightMax focuses on (sleep, posture/decompression, sprints, nutrition habits) if they seem unsure. never mention toggles, "below", or buttons.
+4) after generate_maxx_schedule returns, your reply should be short: confirm heightmax is locked in and they should open the schedule tab for reminders. optional one line on what HeightMax focuses on (sleep, posture/decompression, sprints, nutrition habits) if they seem unsure. never mention toggles, "below", or buttons. never use * or ** (no markdown).
 
 STYLE
 - same tone as skinmax/fitmax: friendly, casual, not overly motivational.
@@ -2039,6 +2105,7 @@ flow for a new hairmax schedule:
 4) after generate_maxx_schedule runs and the backend appends a schedule summary, confirm in your usual short style, e.g.:
    - "your hairmax schedule is locked in. check your schedule tab."
    do not invent new tasks or times; the backend already scheduled everything.
+   never use * or ** in your reply (no markdown bold).
 
 style:
 - same as other maxx modules: friendly, casual, short.
@@ -2523,7 +2590,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         except Exception as e:
             print(f"Tone detection failed: {e}")
 
-    return response_text
+    choices_out: list[str] = []
+    if maxx_id and not existing_maxx:
+        choices_out = _quick_replies_from_response(response_text)
+    return response_text, choices_out
 
 
 @router.post("/message", response_model=ChatResponse)
@@ -2534,7 +2604,7 @@ async def send_message(
     rds_db: AsyncSession | None = Depends(get_rds_db_optional),
 ):
     """Send message to Max AI (in-app)"""
-    response_text = await process_chat_message(
+    response_text, choices = await process_chat_message(
         user_id=current_user["id"],
         message_text=data.message,
         db=db,
@@ -2543,7 +2613,7 @@ async def send_message(
         attachment_url=data.attachment_url,
         attachment_type=data.attachment_type,
     )
-    return ChatResponse(response=response_text)
+    return ChatResponse(response=response_text, choices=choices)
 
 
 @router.post("/trigger-check-in")
@@ -2615,7 +2685,8 @@ def _summarise_schedule(schedule: dict) -> str:
 
     first_day = days[0]
     tasks = first_day.get("tasks", [])
-    lines = [f"your {schedule.get('course_title', 'schedule')} is locked in. day 1:"]
+    title = (schedule.get("course_title") or schedule.get("maxx_id") or "schedule").strip()
+    lines = [f"your {title} schedule is locked in.", "", "day 1:"]
     for t in tasks[:5]:
         lines.append(f"  {t.get('time', '??:??')} — {t.get('title', 'Task')}")
     if len(tasks) > 5:
