@@ -193,25 +193,58 @@ def _fitmax_missing_fields(profile: dict) -> list[str]:
     return [f for f in FITMAX_REQUIRED_FIELDS if profile.get(f) in (None, "", [])]
 
 
+FITMAX_QUESTION_MAP: dict[str, tuple[str, list[str]]] = {
+    "goal": (
+        "what's your main goal right now — fat loss, muscle gain, recomp, maintenance, or performance?",
+        ["fat loss", "muscle gain", "recomp", "maintenance", "performance"],
+    ),
+    "experience_level": (
+        "what's your training experience level: beginner, intermediate, or advanced?",
+        ["beginner", "intermediate", "advanced"],
+    ),
+    "height_cm": ("quick stats check — what's your height (cm or ft/in)?", []),
+    "weight_kg": ("what's your current body weight?", []),
+    "age": ("how old are you?", []),
+    "biological_sex": (
+        "what's your biological sex (male/female)?",
+        ["male", "female"],
+    ),
+    "equipment": (
+        "what do you have available to train with?",
+        ["full gym", "dumbbells", "no equipment"],
+    ),
+    "days_per_week": (
+        "how many days per week can you realistically train?",
+        ["3", "4", "5", "6"],
+    ),
+    "session_minutes": (
+        "what session length can you commit to most days (minutes)?",
+        ["30", "45", "60", "90"],
+    ),
+    "daily_activity_level": (
+        "outside the gym, what's your daily activity like: sedentary, lightly active, moderately active, or very active?",
+        ["sedentary", "lightly active", "moderately active", "very active"],
+    ),
+    "dietary_restrictions": (
+        "any dietary restrictions i should account for?",
+        ["none", "vegan", "vegetarian", "gluten-free", "lactose-free"],
+    ),
+}
+
+
 def _fitmax_next_question(profile: dict) -> str:
     missing = _fitmax_missing_fields(profile)
     if not missing:
         return ""
-    field = missing[0]
-    prompts = {
-        "goal": "what's your main goal right now — fat loss, muscle gain, recomp, maintenance, or performance?",
-        "experience_level": "what's your training experience level: beginner, intermediate, or advanced?",
-        "height_cm": "quick stats check — what's your height (cm or ft/in)?",
-        "weight_kg": "what's your current body weight?",
-        "age": "how old are you?",
-        "biological_sex": "what's your biological sex (male/female)?",
-        "equipment": "what do you have available to train with?",
-        "days_per_week": "how many days per week can you realistically train?",
-        "session_minutes": "what session length can you commit to most days (minutes)?",
-        "daily_activity_level": "outside the gym, what's your daily activity like: sedentary, lightly active, moderately active, or very active?",
-        "dietary_restrictions": "any dietary restrictions i should account for?",
-    }
-    return prompts[field]
+    return FITMAX_QUESTION_MAP[missing[0]][0]
+
+
+def _fitmax_next_choices(profile: dict) -> list[str]:
+    """Return quick-reply button labels for the next missing FitMax field."""
+    missing = _fitmax_missing_fields(profile)
+    if not missing:
+        return []
+    return list(FITMAX_QUESTION_MAP[missing[0]][1])
 
 
 def _to_cm_from_text(text: str) -> Optional[float]:
@@ -293,17 +326,39 @@ def _hairmax_missing_fields(profile: dict) -> list[str]:
     return [f for f in HAIRMAX_REQUIRED_FIELDS if profile.get(f) in (None, "", [])]
 
 
+HAIRMAX_QUESTION_MAP: dict[str, tuple[str, list[str]]] = {
+    "hair_type": (
+        "what's your hair type — straight, wavy, curly, or coily?",
+        ["straight", "wavy", "curly", "coily"],
+    ),
+    "scalp_state": (
+        "how's your scalp: normal, dry/flaky, oily/greasy, or itchy?",
+        ["normal", "dry/flaky", "oily/greasy", "itchy"],
+    ),
+    "daily_styling": (
+        "do you use hair products or styling most days? yes or no.",
+        ["yes", "no"],
+    ),
+    "thinning": (
+        "noticing any thinning or receding hairline? yes or no.",
+        ["yes", "no"],
+    ),
+}
+
+
 def _hairmax_next_question(profile: dict) -> str:
     missing = _hairmax_missing_fields(profile)
     if not missing:
         return ""
-    prompts = {
-        "hair_type": "what's your hair type — straight, wavy, curly, or coily?",
-        "scalp_state": "how's your scalp: normal, dry/flaky, oily/greasy, or itchy?",
-        "daily_styling": "do you use hair products or styling most days? yes or no.",
-        "thinning": "noticing any thinning or receding hairline? yes or no.",
-    }
-    return prompts[missing[0]]
+    return HAIRMAX_QUESTION_MAP[missing[0]][0]
+
+
+def _hairmax_next_choices(profile: dict) -> list[str]:
+    """Return quick-reply button labels for the next missing HairMax field."""
+    missing = _hairmax_missing_fields(profile)
+    if not missing:
+        return []
+    return list(HAIRMAX_QUESTION_MAP[missing[0]][1])
 
 
 def _extract_hairmax_updates(message: str, current: dict) -> dict:
@@ -517,7 +572,13 @@ def _extract_fitmax_updates(message: str, current: dict) -> dict:
     elif re.search(r"\bfemale\b|\bwoman\b", s):
         updates["biological_sex"] = "female"
 
-    if any(k in s for k in ["dumbbell", "barbell", "bench", "machine", "gym", "cable", "bands", "bodyweight", "home"]):
+    equipment_keywords = [
+        "dumbbell", "dumbbells", "barbell", "bench", "machine", "gym", "cable", "bands",
+        "bodyweight", "home", "kettlebell", "pull-up", "pullup", "pull up", "trx", "resistance",
+        "rack", "smith", "plates", "weights", "nothing", "none", "no equipment", "everything",
+        "full gym", "full", "basic", "minimal", "calisthenics", "rings", "studio",
+    ]
+    if any(k in s for k in equipment_keywords):
         updates["equipment"] = s
 
     days_match = re.search(
@@ -1291,10 +1352,16 @@ def _quick_replies_from_response(text: str) -> list[str]:
         return ["fat loss", "muscle gain", "recomp", "maintenance", "performance"]
     if "sedentary, lightly active, moderately active, or very active" in s:
         return ["sedentary", "lightly active", "moderately active", "very active"]
+    if "what do you have available to train" in s or "equipment" in s and "available" in s:
+        return ["full gym", "dumbbells", "no equipment"]
     if "how many days per week" in s or "workout frequency" in s:
-        return ["1-2", "3-4", "5+"]
-    if "what's your biological sex" in s:
+        return ["3", "4", "5", "6"]
+    if "session length" in s or "how long" in s and ("session" in s or "workout" in s):
+        return ["30", "45", "60", "90"]
+    if "what's your biological sex" in s or "biological sex" in s:
         return ["male", "female"]
+    if "dietary restriction" in s:
+        return ["none", "vegan", "vegetarian", "gluten-free", "lactose-free"]
     if "planning to be outside much today" in s or "outside much today" in s:
         return ["yes", "no"]
     if "acne" in s and "dark spots" in s and "dryness" in s and "oil control" in s:
@@ -1569,7 +1636,11 @@ async def process_chat_message(
         missing_next = _fitmax_missing_fields(fitmax_profile)
         if missing_next:
             nxt = missing_next[0]
-            if nxt == "days_per_week" and "days_per_week" not in updates:
+            if nxt == "equipment" and "equipment" not in updates:
+                raw = (message_text or "").strip()
+                if raw:
+                    updates["equipment"] = raw.lower()
+            elif nxt == "days_per_week" and "days_per_week" not in updates:
                 d = _parse_days_per_week_reply(message_text)
                 if d is not None:
                     updates["days_per_week"] = d
@@ -1581,6 +1652,16 @@ async def process_chat_message(
                 act = _parse_daily_activity_short_reply(message_text)
                 if act is not None:
                     updates["daily_activity_level"] = act
+            elif nxt == "dietary_restrictions" and "dietary_restrictions" not in updates:
+                raw = (message_text or "").strip()
+                if raw:
+                    updates["dietary_restrictions"] = raw.lower()
+            elif nxt == "biological_sex" and "biological_sex" not in updates:
+                raw = (message_text or "").strip().lower()
+                if raw in ("male", "m", "man", "guy", "boy"):
+                    updates["biological_sex"] = "male"
+                elif raw in ("female", "f", "woman", "girl"):
+                    updates["biological_sex"] = "female"
         if updates:
             fitmax_profile.update(updates)
             profile["fitmax_profile"] = fitmax_profile
@@ -1612,8 +1693,10 @@ async def process_chat_message(
             if not fitmax_schedule and missing:
                 if not any(fitmax_profile.values()):
                     response_text = "hey, welcome to fitmax. before we build your plan, i need to know a bit about you — this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, maintain, or performance?"
+                    choices_for_step = ["fat loss", "muscle gain", "recomp", "maintenance", "performance"]
                 else:
                     response_text = _fitmax_next_question(fitmax_profile)
+                    choices_for_step = _fitmax_next_choices(fitmax_profile)
 
                 if channel == "sms" and user:
                     prof = dict(user.profile or {})
@@ -1641,7 +1724,7 @@ async def process_chat_message(
                     db.add(assistant_message)
                 await db.commit()
                 ft = _finalize_assistant_message(response_text)
-                return ft, _quick_replies_from_response(ft)
+                return ft, choices_for_step
 
             # Onboarding complete and no fitmax schedule yet -> generate + summarize
             if not fitmax_schedule and not missing:
@@ -1764,6 +1847,7 @@ async def process_chat_message(
                 )
             else:
                 response_text = _hairmax_next_question(hairmax_profile)
+            choices_for_step = _hairmax_next_choices(hairmax_profile)
 
             if _persist_chat_history(channel):
                 user_message = ChatHistory(
@@ -1784,7 +1868,7 @@ async def process_chat_message(
                 db.add(assistant_message)
             await db.commit()
             ft = _finalize_assistant_message(response_text)
-            return ft, _quick_replies_from_response(ft)
+            return ft, choices_for_step
 
         if not hairmax_schedule_active and not missing:
             profile.pop("hairmax_chat_setup", None)

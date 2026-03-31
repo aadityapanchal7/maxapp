@@ -26,11 +26,19 @@ export function prefetchMainTabData(qc: QueryClient): void {
         queryKey: queryKeys.schedulesActiveFull,
         queryFn: () => api.getActiveSchedulesFull(),
     });
+    // v2 forums (categories + subforums) — primary Forums tab
     void qc.prefetchQuery({
-        queryKey: queryKeys.channels(''),
+        queryKey: queryKeys.forumV2Categories,
         queryFn: async () => {
-            const res = await api.getChannels('', { limit: 200, offset: 0 });
-            return res?.forums ?? [];
+            const res = await api.getForumV2Categories();
+            return res?.categories ?? [];
+        },
+    });
+    void qc.prefetchQuery({
+        queryKey: queryKeys.forumV2Subforums(null),
+        queryFn: async () => {
+            const res = await api.getForumV2Subforums();
+            return res?.subforums ?? [];
         },
     });
     void qc.prefetchQuery({

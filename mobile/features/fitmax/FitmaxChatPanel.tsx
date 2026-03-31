@@ -34,6 +34,7 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
   const [loading, setLoading] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [serverChoices, setServerChoices] = useState<string[]>([]);
   const listRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -66,6 +67,7 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
     if (!msg || loading) return;
 
     setLoading(true);
+    setServerChoices([]);
     if (!textOverride) setInput('');
 
     const userMessage: Message = { role: 'user', content: msg, created_at: new Date().toISOString() };
@@ -73,9 +75,10 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
     withTyping();
 
     try {
-      const { response } = await api.sendChatMessage(msg, undefined, undefined, 'fitmax');
+      const { response, choices } = await api.sendChatMessage(msg, undefined, undefined, 'fitmax');
       clearTyping();
       setMessages(prev => [...prev, { role: 'assistant', content: response, created_at: new Date().toISOString() }]);
+      setServerChoices(Array.isArray(choices) ? choices : []);
     } catch (e) {
       console.error(e);
       clearTyping();
@@ -160,6 +163,16 @@ export default function FitmaxChatPanel({ onOpenPlan, onOpenCalorieLog, onOpenPr
         showsVerticalScrollIndicator={false}
       />
 
+      {!loading && serverChoices.length > 0 && (
+        <View style={styles.choiceRow}>
+          {serverChoices.map((choice) => (
+            <TouchableOpacity key={choice} style={styles.choiceChip} onPress={() => sendMessage(choice)} activeOpacity={0.75}>
+              <Text style={styles.choiceChipText}>{choice}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
       <View style={styles.quickRow}>
         {quickActions.map(action => (
           <TouchableOpacity key={action.id} style={styles.quickChip} onPress={() => sendMessage(action.label)} activeOpacity={0.75}>
@@ -217,6 +230,16 @@ const styles = StyleSheet.create({
   inlineTitle: { fontSize: 13, fontWeight: '700', color: colors.foreground },
   inlineSubtitle: { ...typography.caption, marginTop: 4 },
   inlineCta: { marginTop: 6, fontSize: 12, fontWeight: '600', color: '#0f766e' },
+  choiceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
+  choiceChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  choiceChipText: { fontSize: 13, fontWeight: '600', color: colors.textPrimary },
   quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   quickChip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: borderRadius.full, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   quickChipText: { fontSize: 11, color: colors.textSecondary },

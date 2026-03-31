@@ -41,7 +41,8 @@ from models.rds_models import Course
 
 logger = logging.getLogger(__name__)
 
-MAX_ACTIVE_SCHEDULES = 2
+MAX_ACTIVE_SCHEDULES_BASIC = 2
+MAX_ACTIVE_SCHEDULES_PREMIUM = 3
 
 # Default horizon for new schedules (~1 month). LLM + fallbacks must repeat weekly/biweekly
 # checkpoints across all generated days, not only in week 1.
@@ -312,11 +313,13 @@ class ScheduleService:
         schedules = result.scalars().all()
         return [self._schedule_to_dict(s) for s in schedules]
 
-    async def _enforce_schedule_limit(self, user_id: str, db: AsyncSession, replacing_maxx_id: str | None = None, replacing_course_module: tuple | None = None):
+    async def _enforce_schedule_limit(self, user_id: str, db: AsyncSession, replacing_maxx_id: str | None = None, replacing_course_module: tuple | None = None, subscription_tier: str | None = None):
         """
-        Raise ScheduleLimitError if adding a new schedule would exceed MAX_ACTIVE_SCHEDULES.
+        Raise ScheduleLimitError if adding a new schedule would exceed the tier limit.
         Doesn't count the schedule being *replaced* (same maxx_id or same course+module).
         """
+        tier = (subscription_tier or "basic").lower()
+        limit = MAX_ACTIVE_SCHEDULES_PREMIUM if tier == "premium" else MAX_ACTIVE_SCHEDULES_BASIC
         user_uuid = UUID(user_id)
         result = await db.execute(
             select(UserSchedule).where(
@@ -333,7 +336,7 @@ class ScheduleService:
                 if str(getattr(s, "course_id", "")) == cid and getattr(s, "module_number", None) == mnum:
                     continue
             filtered.append(s)
-        if len(filtered) >= MAX_ACTIVE_SCHEDULES:
+        if len(filtered) >= limit:
             labels = []
             for s in filtered:
                 labels.append(getattr(s, "maxx_id", None) or getattr(s, "course_title", None) or "module")
@@ -382,10 +385,11 @@ class ScheduleService:
         rds_db: AsyncSession,
         preferences: Optional[dict] = None,
         num_days: int = DEFAULT_COURSE_SCHEDULE_DAYS,
+        subscription_tier: str | None = None,
     ) -> dict:
         """Generate a personalised schedule for a user's course module."""
         await self._enforce_schedule_limit(
-            user_id, db, replacing_course_module=(course_id, module_number)
+            user_id, db, replacing_course_module=(course_id, module_number), subscription_tier=subscription_tier,
         )
         try:
             course_uuid = UUID(course_id)
@@ -520,9 +524,10 @@ class ScheduleService:
         override_mastic_gum_regular: Optional[str] = None,
         override_heavy_screen_time: Optional[str] = None,
         height_components: Optional[dict] = None,
+        subscription_tier: str | None = None,
     ) -> dict:
         """Generate a personalised recurring schedule for a maxx module."""
-        await self._enforce_schedule_limit(user_id, db, replacing_maxx_id=maxx_id)
+        await self._enforce_schedule_limit(user_id, db, replacing_maxx_id=maxx_id, subscription_tier=subscription_tier)
         if maxx_id == "heightmax" and height_components is not None and len(height_components) > 0:
             if not any(bool(v) for v in height_components.values()):
                 raise ValueError("Select at least one height schedule component")

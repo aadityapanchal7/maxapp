@@ -6,6 +6,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { getItemAsync } from '../services/storage';
 import api from '../services/api';
 
+type SubscriptionTier = 'basic' | 'premium' | null;
+
 interface User {
     id: string;
     email: string;
@@ -17,6 +19,7 @@ interface User {
     /** ISO timestamp — used for 2-week username change cooldown */
     last_username_change?: string | null;
     is_paid: boolean;
+    subscription_tier?: SubscriptionTier;
     onboarding: {
         completed: boolean;
         goals: string[];
@@ -67,6 +70,8 @@ interface AuthContextType {
     isLoading: boolean;
     isAuthenticated: boolean;
     isPaid: boolean;
+    isPremium: boolean;
+    subscriptionTier: SubscriptionTier;
     login: (identifier: string, password: string) => Promise<void>;
     signup: (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => Promise<void>;
     logout: () => Promise<void>;
@@ -132,19 +137,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
     }, []);
 
+    const subscriptionTier: SubscriptionTier = (user?.subscription_tier as SubscriptionTier) ?? null;
+
     const value = useMemo<AuthContextType>(
         () => ({
             user,
             isLoading,
             isAuthenticated: !!user,
             isPaid: user?.is_paid ?? false,
+            isPremium: user?.is_admin || (user?.is_paid && subscriptionTier === 'premium') || false,
+            subscriptionTier,
             login,
             signup,
             logout,
             refreshUser,
             deleteAccount,
         }),
-        [user, isLoading, login, signup, logout, refreshUser, deleteAccount],
+        [user, isLoading, subscriptionTier, login, signup, logout, refreshUser, deleteAccount],
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     stripe_publishable_key: str = Field(default="")
     stripe_webhook_secret: str = Field(default="")
     stripe_price_id: str = Field(default="")
+    stripe_basic_price_id: str = Field(default="")
+    stripe_premium_price_id: str = Field(default="")
     subscription_price_monthly: float = Field(default=9.99)
     subscription_currency: str = Field(default="usd")
     

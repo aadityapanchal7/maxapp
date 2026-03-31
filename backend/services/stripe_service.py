@@ -2,10 +2,13 @@
 Stripe Service - Subscription-based payments
 """
 
+import logging
 import stripe
 from typing import Optional, Tuple
 from datetime import datetime
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class StripeService:
@@ -101,10 +104,42 @@ class StripeService:
             settings.stripe_webhook_secret
         )
     
+    def _resolve_tier_from_session(self, session) -> str:
+        """Determine subscription tier (basic/premium) from a checkout session's line items."""
+        basic_id = (settings.stripe_basic_price_id or "").strip()
+        premium_id = (settings.stripe_premium_price_id or "").strip()
+
+        try:
+            line_items = stripe.checkout.Session.list_line_items(session.id, limit=5)
+            for item in line_items.data:
+                price_id = getattr(item.price, "id", None) if item.price else None
+                if not price_id:
+                    continue
+                if basic_id and price_id == basic_id:
+                    return "basic"
+                if premium_id and price_id == premium_id:
+                    return "premium"
+                product_id = getattr(item.price, "product", None)
+                if product_id:
+                    product = stripe.Product.retrieve(product_id)
+                    name = (product.name or "").lower()
+                    if "premium" in name or "chad" == name.strip():
+                        return "premium"
+                    if "basic" in name or "chadlite" in name:
+                        return "basic"
+        except Exception as e:
+            logger.warning("Could not resolve tier from checkout session line items: %s", e)
+
+        # Fallback: use metadata or default to premium
+        tier_meta = (getattr(session, "metadata", None) or {}).get("tier", "").lower()
+        if tier_meta in ("basic", "premium"):
+            return tier_meta
+        return "premium"
+
     async def handle_webhook_event(self, event: stripe.Event) -> dict:
         """
-        Process Stripe webhook events
-        Returns dict with user_id and subscription status updates
+        Process Stripe webhook events.
+        Returns dict with user_id, subscription status updates, and resolved tier.
         """
         event_type = event.type
         data = event.data.object
@@ -114,13 +149,15 @@ class StripeService:
             "user_id": None,
             "subscription_id": None,
             "status": None,
-            "action": None
+            "action": None,
+            "tier": None,
         }
         
         if event_type == "checkout.session.completed":
             result["user_id"] = data.metadata.get("user_id")
             result["subscription_id"] = data.subscription
             result["action"] = "activate"
+            result["tier"] = self._resolve_tier_from_session(data)
             
         elif event_type == "customer.subscription.created":
             result["user_id"] = data.metadata.get("user_id")

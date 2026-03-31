@@ -39,6 +39,7 @@ async def generate_schedule(
             rds_db=rds_db,
             preferences=data.preferences.model_dump() if data.preferences else None,
             num_days=data.num_days,
+            subscription_tier=current_user.get("subscription_tier"),
         )
         return {"schedule": schedule}
     except ScheduleLimitError as e:
@@ -69,6 +70,7 @@ async def generate_maxx_schedule(
             outside_today=data.outside_today,
             num_days=data.num_days,
             height_components=data.height_components,
+            subscription_tier=current_user.get("subscription_tier"),
         )
         return {"schedule": schedule}
     except ScheduleLimitError as e:
@@ -117,7 +119,9 @@ async def get_all_active_schedules(
     count, labels = await schedule_service.get_active_schedule_count(
         current_user["id"], db
     )
-    return {"count": count, "labels": labels, "max": 2}
+    tier = (current_user.get("subscription_tier") or "basic").lower()
+    max_active = 3 if tier == "premium" else 2
+    return {"count": count, "labels": labels, "max": max_active}
 
 
 @router.get("/active/full")

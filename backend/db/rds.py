@@ -134,11 +134,20 @@ async def _run_rds_column_migrations():
         "ALTER TABLE forum_post_reports ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT 'open'",
         "ALTER TABLE forum_post_reports ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT now()",
     ]
+    unique_constraints = [
+        ("forum_post_reports", "uq_forum_post_report_reporter", "post_id, reporter_user_id"),
+    ]
     try:
         async with rds_engine.begin() as conn:
             await conn.execute(text("SET lock_timeout = '5s'"))
             for sql in migrations:
                 await conn.execute(text(sql))
+            for table, name, cols in unique_constraints:
+                await conn.execute(text(
+                    f"DO $$ BEGIN "
+                    f"ALTER TABLE {table} ADD CONSTRAINT {name} UNIQUE ({cols}); "
+                    f"EXCEPTION WHEN duplicate_table THEN NULL; END $$;"
+                ))
         print("[OK] RDS column migrations applied")
     except Exception as e:
         print(f"[INFO] RDS column migration note: {e}")

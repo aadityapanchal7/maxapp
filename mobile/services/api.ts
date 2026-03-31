@@ -422,9 +422,8 @@ class ApiService {
         return response.data;
     }
 
-    async testActivateSubscription() {
-        // Dev only: Activate subscription without Stripe webhook
-        const response = await this.client.post('payments/test-activate');
+    async testActivateSubscription(tier: 'basic' | 'premium' = 'premium') {
+        const response = await this.client.post('payments/test-activate', { tier });
         return response.data;
     }
 

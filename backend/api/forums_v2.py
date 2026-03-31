@@ -61,9 +61,16 @@ def _coerce_uuid(raw: str, *, label: str) -> UUID:
 
 
 def _require_subforum_access(subforum: ForumSubforum, viewer: dict) -> None:
-    tier = (subforum.access_tier or "public").lower()
-    if tier == "premium" and not bool(viewer.get("is_paid")) and not bool(viewer.get("is_admin")):
-        raise HTTPException(status_code=402, detail="Premium forum. Upgrade to access.")
+    board_tier = (subforum.access_tier or "public").lower()
+    if board_tier == "public":
+        return
+    if bool(viewer.get("is_admin")):
+        return
+    if not bool(viewer.get("is_paid")):
+        raise HTTPException(status_code=402, detail="Premium forum. Subscribe to access.")
+    user_tier = (viewer.get("subscription_tier") or "basic").lower()
+    if board_tier == "premium" and user_tier != "premium":
+        raise HTTPException(status_code=403, detail="Premium forum. Upgrade to Premium to access.")
 
 
 def _normalize_tags(tags: list[str] | None) -> list[str]:
@@ -756,16 +763,33 @@ async def report_post(
     post = await rds_db.get(ForumPost, pid)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+
+    uid = _coerce_uuid(current_user["id"], label="user_id")
+
+    existing = (
+        await rds_db.execute(
+            select(ForumPostReport)
+            .where(ForumPostReport.post_id == pid)
+            .where(ForumPostReport.reporter_user_id == uid)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return {"ok": True, "message": "Already reported"}
+
     reason = (data.reason or "").strip()
     rds_db.add(
         ForumPostReport(
             post_id=pid,
-            reporter_user_id=_coerce_uuid(current_user["id"], label="user_id"),
+            reporter_user_id=uid,
             reason=reason,
             status="open",
             created_at=datetime.now(timezone.utc),
         )
     )
-    await rds_db.commit()
+    try:
+        await rds_db.commit()
+    except IntegrityError:
+        await rds_db.rollback()
+        return {"ok": True, "message": "Already reported"}
     return {"ok": True}
 

@@ -60,6 +60,11 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
+    return _user_dict(user)
+
+
+def _user_dict(user: User) -> dict:
+    """Build the standard user dict returned by auth dependencies."""
     return {
         "id": str(user.id),
         "email": user.email,
@@ -69,6 +74,7 @@ async def get_current_user(
         "created_at": user.created_at,
         "is_paid": user.is_paid,
         "is_admin": user.is_admin,
+        "subscription_tier": user.subscription_tier,
         "subscription_status": user.subscription_status,
         "subscription_id": user.subscription_id,
         "subscription_end_date": user.subscription_end_date,
@@ -105,27 +111,7 @@ async def get_user_by_access_token(db: AsyncSession, token: str) -> Optional[dic
     user = result.scalar_one_or_none()
     if user is None:
         return None
-    return {
-        "id": str(user.id),
-        "email": user.email,
-        "first_name": user.first_name,
-        "last_name": user.last_name,
-        "username": user.username,
-        "created_at": user.created_at,
-        "is_paid": user.is_paid,
-        "is_admin": user.is_admin,
-        "subscription_status": user.subscription_status,
-        "subscription_id": user.subscription_id,
-        "subscription_end_date": user.subscription_end_date,
-        "stripe_customer_id": user.stripe_customer_id,
-        "onboarding": user.onboarding or {},
-        "profile": user.profile or {},
-        "first_scan_completed": user.first_scan_completed,
-        "phone_number": user.phone_number,
-        "last_username_change": user.last_username_change,
-        "schedule_preferences": user.schedule_preferences or {},
-        "last_progress_prompt_date": user.last_progress_prompt_date,
-    }
+    return _user_dict(user)
 
 
 async def get_current_admin_user(current_user: dict = Depends(get_current_user)) -> dict:
@@ -155,7 +141,7 @@ async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Op
 
 async def require_paid_user(current_user: dict = Depends(get_current_user)) -> dict:
     """
-    Verify user has active subscription (admins are always allowed)
+    Verify user has active subscription — any tier (admins always allowed).
     """
     if current_user.get("is_admin", False):
         return current_user
@@ -166,7 +152,6 @@ async def require_paid_user(current_user: dict = Depends(get_current_user)) -> d
             detail="Active subscription required"
         )
     
-    # Check subscription end date
     sub_end = current_user.get("subscription_end_date")
     if sub_end and isinstance(sub_end, datetime):
         if sub_end < datetime.utcnow():
@@ -175,4 +160,36 @@ async def require_paid_user(current_user: dict = Depends(get_current_user)) -> d
                 detail="Subscription has expired"
             )
     
+    return current_user
+
+
+async def require_premium_user(current_user: dict = Depends(get_current_user)) -> dict:
+    """
+    Verify user has a *premium* subscription (admins always allowed).
+    Basic-tier users get a 403 pointing them to upgrade.
+    """
+    if current_user.get("is_admin", False):
+        return current_user
+
+    if not current_user.get("is_paid", False):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Active subscription required"
+        )
+
+    sub_end = current_user.get("subscription_end_date")
+    if sub_end and isinstance(sub_end, datetime):
+        if sub_end < datetime.utcnow():
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Subscription has expired"
+            )
+
+    tier = (current_user.get("subscription_tier") or "").lower()
+    if tier != "premium":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Premium subscription required. Upgrade to access this feature."
+        )
+
     return current_user

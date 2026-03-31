@@ -39,7 +39,12 @@ export default function NewThreadV2Screen() {
                 tags: tagList,
             });
             const threadId = res?.thread_id || res?.threadId || res?.thread || res?.id || res?.thread_id;
-            await queryClient.invalidateQueries({ queryKey: queryKeys.forumV2Threads(subforumId, 'new', '', '') });
+            await queryClient.invalidateQueries({
+                predicate: (query) => {
+                    const key = query.queryKey;
+                    return Array.isArray(key) && key[0] === 'forumV2' && key[1] === 'threads' && key[2] === subforumId;
+                },
+            });
             if (threadId) {
                 navigation.replace('ThreadV2', { threadId, threadTitle: t });
             } else {

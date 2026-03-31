@@ -219,6 +219,7 @@ class UserResponse(BaseModel):
     last_username_change: Optional[datetime] = None
     created_at: datetime
     is_paid: bool = False
+    subscription_tier: Optional[str] = None
     subscription_status: Optional[str] = None
     subscription_end_date: Optional[datetime] = None
     onboarding: OnboardingData = Field(default_factory=OnboardingData)

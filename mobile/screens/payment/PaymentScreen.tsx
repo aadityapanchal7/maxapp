@@ -94,7 +94,7 @@ export default function PaymentScreen() {
             for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
                 try {
                     const u = await refreshUser();
-                    if (u?.is_paid) return true;
+                    if (u?.is_paid && u?.subscription_tier) return true;
                 } catch {
                     /* retry */
                 }
@@ -186,23 +186,26 @@ export default function PaymentScreen() {
         }
     };
 
-    const handleDevSkip = async () => {
-        try {
-            setDevLoading(true);
-            await api.testActivateSubscription();
-            const u = await refreshUser();
-            if (!u?.is_paid) {
-                navigation.navigate('PaymentThankYou');
+    const handleDevSkip = (tier: 'basic' | 'premium' = 'premium') => {
+        const doActivate = async () => {
+            try {
+                setDevLoading(true);
+                await api.testActivateSubscription(tier);
+                const u = await refreshUser();
+                if (!u?.is_paid) {
+                    navigation.navigate('PaymentThankYou');
+                }
+            } catch (error: any) {
+                const msg =
+                    error?.response?.data?.detail ||
+                    error?.message ||
+                    (error?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
+                Alert.alert('Error', String(msg));
+            } finally {
+                setDevLoading(false);
             }
-        } catch (error: any) {
-            const msg =
-                error?.response?.data?.detail ||
-                error?.message ||
-                (error?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
-            Alert.alert('Error', String(msg));
-        } finally {
-            setDevLoading(false);
-        }
+        };
+        void doActivate();
     };
 
     return (
@@ -347,18 +350,32 @@ export default function PaymentScreen() {
                 </Text>
 
                 {SHOW_DEV_SKIP_CONTROLS ? (
-                    <TouchableOpacity
-                        style={styles.devButton}
-                        activeOpacity={0.85}
-                        onPress={handleDevSkip}
-                        disabled={devLoading || checkoutLoading !== null}
+                    <View style={styles.devRow}>
+                        <TouchableOpacity
+                            style={styles.devButton}
+                            activeOpacity={0.85}
+                            onPress={() => handleDevSkip('basic')}
+                            disabled={devLoading || checkoutLoading !== null}
                             accessibilityRole="button"
-                            accessibilityLabel="Developer skip payment"
-                    >
-                        <Text style={styles.devButtonText}>
-                            {devLoading ? 'Activating…' : 'DEV: Skip payment & unlock'}
-                        </Text>
-                    </TouchableOpacity>
+                            accessibilityLabel="Developer skip basic"
+                        >
+                            <Text style={styles.devButtonText}>
+                                {devLoading ? 'Activating…' : 'DEV: Basic'}
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.devButton}
+                            activeOpacity={0.85}
+                            onPress={() => handleDevSkip('premium')}
+                            disabled={devLoading || checkoutLoading !== null}
+                            accessibilityRole="button"
+                            accessibilityLabel="Developer skip premium"
+                        >
+                            <Text style={styles.devButtonText}>
+                                {devLoading ? 'Activating…' : 'DEV: Premium'}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
                 ) : null}
             </ScrollView>
 
@@ -550,8 +567,9 @@ const styles = StyleSheet.create({
         textDecorationColor: colors.foreground,
     },
     disclaimerEmphasis: { fontWeight: '700', color: colors.textSecondary },
+    devRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
     devButton: {
-        marginTop: spacing.lg,
+        flex: 1,
         borderRadius: borderRadius.full,
         paddingVertical: spacing.sm,
         alignItems: 'center',

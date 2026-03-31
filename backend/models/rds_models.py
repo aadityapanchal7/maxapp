@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     ForeignKey,
     Index,
+    UniqueConstraint,
     JSON,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -273,6 +274,7 @@ class ForumPostReport(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
     __table_args__ = (
+        UniqueConstraint("post_id", "reporter_user_id", name="uq_forum_post_report_reporter"),
         Index("idx_forum_post_reports_post_id", post_id),
         Index("idx_forum_post_reports_reporter_user_id", reporter_user_id),
         Index("idx_forum_post_reports_status", status),

@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request, Depends
 from datetime import datetime
 from uuid import UUID
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from db import get_db
@@ -66,6 +67,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         user = await db.get(User, user_uuid)
         if user:
             user.is_paid = True
+            user.subscription_tier = result.get("tier") or "premium"
             user.subscription_id = result.get("subscription_id")
             user.subscription_status = "active"
             ob = dict(user.onboarding or {})
@@ -95,20 +97,30 @@ async def get_subscription_status(current_user: dict = Depends(get_current_user)
     return {"is_active": sub.get("status") == "active" if sub else False, "subscription": sub}
 
 
+class TestActivateBody(BaseModel):
+    tier: str = "premium"
+
+
 @router.post("/test-activate")
 async def test_activate_subscription(
+    body: TestActivateBody = TestActivateBody(),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     DEV ONLY: Manually activate subscription for testing.
     This bypasses Stripe webhooks which don't work on localhost.
+    Accepts optional `tier` body param: "basic" or "premium" (default).
     """
     from config import settings
     env = (settings.app_env or "").lower()
     if env not in ("development", "dev") and not getattr(settings, "debug", False):
         raise HTTPException(status_code=403, detail="Only available in development mode")
     
+    tier = body.tier.lower().strip() if body.tier else "premium"
+    if tier not in ("basic", "premium"):
+        tier = "premium"
+
     user_id = current_user["id"]
     
     try:
@@ -116,6 +128,7 @@ async def test_activate_subscription(
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
         user.is_paid = True
+        user.subscription_tier = tier
         user.subscription_status = "active"
         ob = dict(user.onboarding or {})
         ob["post_subscription_onboarding"] = True
@@ -135,4 +148,4 @@ async def test_activate_subscription(
         logger.error(f"test-activate failed: {e}")
         raise HTTPException(status_code=500, detail=f"Activation failed: {e}")
     
-    return {"status": "activated", "message": "Subscription activated for testing"}
+    return {"status": "activated", "tier": tier, "message": f"Subscription activated as {tier} for testing"}

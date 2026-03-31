@@ -23,7 +23,7 @@ type Subforum = {
 export default function ForumsHomeV2Screen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
-    const { user } = useAuth() as any;
+    const { user, isPremium } = useAuth() as any;
     const catsQ = useForumV2CategoriesQuery();
     const subsQ = useForumV2SubforumsQuery(null);
 
@@ -31,14 +31,12 @@ export default function ForumsHomeV2Screen() {
     const subforums: Subforum[] = useMemo(() => subsQ.data ?? [], [subsQ.data]);
     const loading = (catsQ.isPending && categories.length === 0) || (subsQ.isPending && subforums.length === 0);
 
-    const canAccessPremium = !!user?.is_paid || !!user?.is_admin;
+    const canAccessPremium = isPremium;
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
     const subsByCategory = useMemo(() => {
         const m = new Map<string, Subforum[]>();
         for (const s of subforums) {
-            const tier = (s.access_tier ?? 'public').toLowerCase();
-            if (tier === 'premium' && !canAccessPremium) continue;
             const arr = m.get(s.category_id) ?? [];
             arr.push(s);
             m.set(s.category_id, arr);
@@ -48,7 +46,7 @@ export default function ForumsHomeV2Screen() {
             m.set(k, arr);
         }
         return m;
-    }, [subforums, canAccessPremium]);
+    }, [subforums]);
 
     const openSubforum = (s: Subforum) => {
         const tier = (s.access_tier ?? 'public').toLowerCase();
@@ -113,18 +111,26 @@ export default function ForumsHomeV2Screen() {
                                 {!collapsed[c.id] ? (
                                     <View style={styles.card}>
                                         {boards.map((s) => {
+                                            const isPremiumBoard = (s.access_tier ?? 'public').toLowerCase() === 'premium';
+                                            const isLocked = isPremiumBoard && !canAccessPremium;
                                             return (
                                                 <TouchableOpacity
                                                     key={s.id}
-                                                    style={styles.boardRow}
+                                                    style={[styles.boardRow, isLocked && styles.boardRowLocked]}
                                                     onPress={() => openSubforum(s)}
                                                     activeOpacity={0.8}
                                                 >
                                                     <View style={styles.boardMain}>
                                                         <View style={styles.boardTitleRow}>
-                                                            <Text style={styles.boardName} numberOfLines={1}>
+                                                            <Text style={[styles.boardName, isLocked && styles.boardNameLocked]} numberOfLines={1}>
                                                                 {s.name}
                                                             </Text>
+                                                            {isPremiumBoard ? (
+                                                                <View style={styles.premiumBadge}>
+                                                                    <Ionicons name={isLocked ? 'lock-closed' : 'star'} size={10} color={colors.background} />
+                                                                    <Text style={styles.premiumBadgeText}>PREMIUM</Text>
+                                                                </View>
+                                                            ) : null}
                                                             {s.is_read_only ? <Text style={styles.readOnly}>read-only</Text> : null}
                                                         </View>
                                                         {s.description ? (
@@ -136,7 +142,7 @@ export default function ForumsHomeV2Screen() {
                                                             {(s.thread_count ?? 0).toString()} threads
                                                         </Text>
                                                     </View>
-                                                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                                                    <Ionicons name={isLocked ? 'lock-closed' : 'chevron-forward'} size={18} color={colors.textMuted} />
                                                 </TouchableOpacity>
                                             );
                                         })}
@@ -216,7 +222,19 @@ const styles = StyleSheet.create({
     },
     boardMain: { flex: 1, paddingRight: 10 },
     boardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-    boardName: { color: colors.foreground, fontSize: 14, fontWeight: '800', maxWidth: '80%' },
+    boardRowLocked: { opacity: 0.65 },
+    boardName: { color: colors.foreground, fontSize: 14, fontWeight: '800', maxWidth: '70%' },
+    boardNameLocked: { color: colors.textMuted },
+    premiumBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        backgroundColor: colors.foreground,
+        borderRadius: 6,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+    premiumBadgeText: { color: colors.background, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
     boardDesc: { color: colors.textMuted, fontSize: 12, marginTop: 6, lineHeight: 16 },
     meta: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
     readOnly: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },

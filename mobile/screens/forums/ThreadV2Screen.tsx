@@ -37,6 +37,8 @@ export default function ThreadV2Screen() {
     const [text, setText] = useState('');
     const [sending, setSending] = useState(false);
     const [quotePostId, setQuotePostId] = useState<string | null>(null);
+    const [watching, setWatching] = useState(false);
+    const [watchLoading, setWatchLoading] = useState(false);
     const listRef = useRef<FlashListRef<Post>>(null);
 
     const postsQ = useForumV2PostsQuery({ threadId, sort });
@@ -64,6 +66,18 @@ export default function ThreadV2Screen() {
             Alert.alert('couldn’t reply', String(msg2));
         } finally {
             setSending(false);
+        }
+    };
+
+    const toggleWatch = async () => {
+        setWatchLoading(true);
+        try {
+            const res = await api.watchForumV2Thread(threadId, !watching);
+            setWatching(!!res?.watching);
+        } catch {
+            Alert.alert('error', 'couldn\'t update watch');
+        } finally {
+            setWatchLoading(false);
         }
     };
 
@@ -163,8 +177,8 @@ export default function ThreadV2Screen() {
                     <TouchableOpacity
                         onPress={async () => {
                             try {
-                                await api.reportForumV2Post(item.id, 'reported from app');
-                                Alert.alert('reported', 'thanks. we’ll review it.');
+                                const reportRes = await api.reportForumV2Post(item.id, 'reported from app');
+                                Alert.alert('reported', reportRes?.message === 'Already reported' ? 'you already reported this post.' : 'thanks. we’ll review it.');
                             } catch {
                                 Alert.alert('error', 'couldn’t report');
                             }
@@ -192,6 +206,14 @@ export default function ThreadV2Screen() {
                     </Text>
                     <Text style={styles.subtitle}>{posts.length.toString()} posts</Text>
                 </View>
+                <TouchableOpacity
+                    onPress={toggleWatch}
+                    disabled={watchLoading}
+                    style={[styles.watchBtn, watching && styles.watchBtnActive]}
+                    activeOpacity={0.85}
+                >
+                    <Ionicons name={watching ? 'eye' : 'eye-outline'} size={16} color={watching ? colors.background : colors.textSecondary} />
+                </TouchableOpacity>
                 <View style={styles.sortRow}>
                     {(['new', 'top'] as const).map((k) => (
                         <TouchableOpacity
@@ -279,6 +301,17 @@ const styles = StyleSheet.create({
     },
     title: { color: colors.foreground, fontSize: 16, fontWeight: '900' },
     subtitle: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+    watchBtn: {
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.surfaceLight,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    watchBtnActive: { backgroundColor: colors.foreground, borderColor: colors.foreground },
     sortRow: { flexDirection: 'row', gap: 8 },
     sortPill: {
         paddingHorizontal: 10,

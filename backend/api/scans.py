@@ -121,10 +121,18 @@ async def upload_scan_triple(
 
     user_row = await db.get(User, user_uuid)
     is_paid = bool(current_user.get("is_paid", False))
-    if user_row and user_row.first_scan_completed and not is_paid:
-        raise HTTPException(status_code=400, detail="You have already completed your face scan.")
-    if is_paid:
-        # Enforce one scan per day (UTC) for premium users
+    tier = (current_user.get("subscription_tier") or "").lower()
+    is_premium = is_paid and tier == "premium"
+
+    if not is_paid:
+        if user_row and user_row.first_scan_completed:
+            raise HTTPException(status_code=400, detail="You have already completed your free face scan. Subscribe to scan again.")
+    elif not is_premium:
+        # Basic tier: 1 scan included (the initial one)
+        if user_row and user_row.first_scan_completed:
+            raise HTTPException(status_code=400, detail="Basic plan includes 1 scan. Upgrade to Premium for daily scans.")
+    else:
+        # Premium tier: one scan per day (UTC)
         now = datetime.utcnow()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)

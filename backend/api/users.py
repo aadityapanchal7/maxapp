@@ -73,6 +73,7 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         last_username_change=current_user.get("last_username_change"),
         created_at=current_user["created_at"],
         is_paid=current_user.get("is_paid", False),
+        subscription_tier=current_user.get("subscription_tier"),
         subscription_status=current_user.get("subscription_status"),
         subscription_end_date=current_user.get("subscription_end_date"),
         onboarding=OnboardingData(**current_user.get("onboarding", {})),

@@ -42,6 +42,7 @@ class User(Base):
 
     is_paid = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)
+    subscription_tier = Column(String, default=None)  # null (free), 'basic', 'premium'
     subscription_status = Column(String)
     subscription_id = Column(String, unique=True)
     subscription_end_date = Column(DateTime(timezone=True))
