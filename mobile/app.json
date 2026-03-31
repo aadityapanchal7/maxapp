@@ -9,7 +9,7 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0D0D0D"
+      "backgroundColor": "#FFFFFF"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -17,6 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cannon.mobile",
+      "buildNumber": "2",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Max uses your photo library to attach images in community channels, chat, and profile or progress photos.",
         "NSPhotoLibraryAddUsageDescription": "Max saves your face scan from results to your photo library when you choose Save to photos."
@@ -68,7 +69,7 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "e88cbff0-beda-47c1-a763-5a81698030bd"
+        "projectId": "f3fa5d9c-7073-4b53-9376-6b2f693c6a39"
       },
       "supportEmail": "mog.max123@gmail.com",
       "privacyPolicyUrl": "https://maxmaxmax.today/legal/privacy",

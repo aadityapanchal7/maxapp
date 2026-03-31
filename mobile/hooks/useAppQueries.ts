@@ -89,6 +89,19 @@ export function useForumV2SubforumsQuery(categoryId: string | null) {
     });
 }
 
+export function useForumV2SearchQuery(q: string) {
+    const trimmed = q.trim();
+    return useQuery({
+        queryKey: queryKeys.forumV2Search(trimmed),
+        queryFn: async () => {
+            const res = await api.searchForumV2Threads({ q: trimmed, limit: 40, offset: 0 });
+            return res?.threads ?? [];
+        },
+        enabled: trimmed.length >= 2,
+        staleTime: STALE_FORUM_V2_MS,
+    });
+}
+
 export function useForumV2ThreadsQuery(args: { subforumId: string; sort: 'new' | 'hot' | 'top'; q: string; tag: string }) {
     const { subforumId, sort, q, tag } = args;
     return useQuery({

@@ -24,6 +24,7 @@ export const queryKeys = {
     forumV2Threads: (subforumId: string, sort: string, q: string, tag: string) =>
         ['forumV2', 'threads', subforumId, sort, q, tag] as const,
     forumV2Posts: (threadId: string, sort: string) => ['forumV2', 'posts', threadId, sort] as const,
+    forumV2Search: (q: string) => ['forumV2', 'search', q] as const,
     forumV2Notifications: (unreadOnly: boolean) => ['forumV2', 'notifications', unreadOnly ? 'unread' : 'all'] as const,
     chatHistory: ['chat', 'history'] as const,
 };

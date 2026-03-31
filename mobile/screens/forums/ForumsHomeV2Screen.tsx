@@ -1,11 +1,20 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useMemo, useState, useEffect } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    ScrollView,
+    ActivityIndicator,
+    TextInput,
+    FlatList,
+} from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
-import { useForumV2CategoriesQuery, useForumV2SubforumsQuery } from '../../hooks/useAppQueries';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { useForumV2CategoriesQuery, useForumV2SubforumsQuery, useForumV2SearchQuery } from '../../hooks/useAppQueries';
+import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
 
 type Category = { id: string; name: string; slug: string; description?: string; order?: number };
 type Subforum = {
@@ -20,12 +29,28 @@ type Subforum = {
     last_activity?: string;
 };
 
+type SearchHit = {
+    id: string;
+    title: string;
+    subforum?: { id: string; name: string; slug?: string };
+};
+
 export default function ForumsHomeV2Screen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
-    const { user, isPremium } = useAuth() as any;
+    const { isPremium } = useAuth() as any;
     const catsQ = useForumV2CategoriesQuery();
     const subsQ = useForumV2SubforumsQuery(null);
+
+    const [searchInput, setSearchInput] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 400);
+        return () => clearTimeout(t);
+    }, [searchInput]);
+
+    const searchQ = useForumV2SearchQuery(debouncedSearch);
+    const searchHits: SearchHit[] = useMemo(() => (searchQ.data ?? []) as SearchHit[], [searchQ.data]);
 
     const categories: Category[] = useMemo(() => catsQ.data ?? [], [catsQ.data]);
     const subforums: Subforum[] = useMemo(() => subsQ.data ?? [], [subsQ.data]);
@@ -60,33 +85,81 @@ export default function ForumsHomeV2Screen() {
         setCollapsed((prev) => ({ ...prev, [categoryId]: !prev[categoryId] }));
     };
 
+    const openThread = (hit: SearchHit) => {
+        navigation.navigate('ThreadV2', { threadId: hit.id, threadTitle: hit.title });
+    };
+
+    const showSearchResults = debouncedSearch.length >= 2;
+
     return (
         <View style={styles.container}>
             <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
                 <View style={styles.headerRow}>
                     <Text style={styles.title}>Forums</Text>
-                    <View style={styles.headerActions}>
-                        <TouchableOpacity
-                            style={styles.pill}
-                            onPress={() => navigation.navigate('CreateSubforumV2')}
-                            activeOpacity={0.8}
-                        >
-                            <Ionicons name="add" size={16} color={colors.textSecondary} />
-                            <Text style={styles.pillText}>Create board</Text>
+                    <TouchableOpacity
+                        style={styles.iconBtn}
+                        onPress={() => navigation.navigate('ForumNotificationsV2')}
+                        activeOpacity={0.8}
+                    >
+                        <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
+                    </TouchableOpacity>
+                </View>
+                <View style={styles.searchRow}>
+                    <Ionicons name="search" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search all threads…"
+                        placeholderTextColor={colors.textMuted}
+                        value={searchInput}
+                        onChangeText={setSearchInput}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        clearButtonMode="while-editing"
+                    />
+                    {searchInput.length > 0 ? (
+                        <TouchableOpacity onPress={() => setSearchInput('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Ionicons name="close-circle" size={18} color={colors.textMuted} />
                         </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.iconBtn}
-                            onPress={() => navigation.navigate('ForumNotificationsV2')}
-                            activeOpacity={0.8}
-                        >
-                            <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
-                        </TouchableOpacity>
-                    </View>
+                    ) : null}
                 </View>
                 <Text style={styles.subTitle}>pick a board. post something useful.</Text>
             </View>
 
-            {loading ? (
+            {showSearchResults ? (
+                <View style={styles.searchBody}>
+                    {searchQ.isPending ? (
+                        <View style={styles.loadingWrap}>
+                            <ActivityIndicator size="large" color={colors.foreground} />
+                        </View>
+                    ) : searchHits.length === 0 ? (
+                        <View style={styles.emptySearch}>
+                            <Text style={styles.emptySearchText}>No threads match “{debouncedSearch}”</Text>
+                        </View>
+                    ) : (
+                        <FlatList
+                            data={searchHits}
+                            keyExtractor={(item) => item.id}
+                            contentContainerStyle={styles.searchList}
+                            keyboardShouldPersistTaps="handled"
+                            renderItem={({ item }) => (
+                                <TouchableOpacity style={styles.searchHitRow} onPress={() => openThread(item)} activeOpacity={0.85}>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.searchHitTitle} numberOfLines={2}>
+                                            {item.title}
+                                        </Text>
+                                        {item.subforum?.name ? (
+                                            <Text style={styles.searchHitMeta} numberOfLines={1}>
+                                                {item.subforum.name}
+                                            </Text>
+                                        ) : null}
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                                </TouchableOpacity>
+                            )}
+                        />
+                    )}
+                </View>
+            ) : loading ? (
                 <View style={styles.loadingWrap}>
                     <ActivityIndicator size="large" color={colors.foreground} />
                 </View>
@@ -138,9 +211,7 @@ export default function ForumsHomeV2Screen() {
                                                                 {s.description}
                                                             </Text>
                                                         ) : null}
-                                                        <Text style={styles.meta}>
-                                                            {(s.thread_count ?? 0).toString()} threads
-                                                        </Text>
+                                                        <Text style={styles.meta}>{(s.thread_count ?? 0).toString()} threads</Text>
                                                     </View>
                                                     <Ionicons name={isLocked ? 'lock-closed' : 'chevron-forward'} size={18} color={colors.textMuted} />
                                                 </TouchableOpacity>
@@ -169,7 +240,18 @@ const styles = StyleSheet.create({
     headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     title: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.4 },
     subTitle: { marginTop: 6, color: colors.textMuted, fontSize: 12 },
-    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    searchRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: spacing.md,
+        paddingHorizontal: spacing.md,
+        height: 44,
+        borderRadius: borderRadius.lg,
+        backgroundColor: colors.surfaceLight,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    searchInput: { flex: 1, color: colors.foreground, fontSize: 15, paddingVertical: 8 },
     iconBtn: {
         width: 36,
         height: 36,
@@ -180,18 +262,20 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.border,
     },
-    pill: {
+    searchBody: { flex: 1 },
+    searchList: { padding: spacing.lg, paddingBottom: spacing.xxl },
+    searchHitRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 10,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: colors.surfaceLight,
-        borderWidth: 1,
-        borderColor: colors.border,
+        paddingVertical: spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.border,
+        gap: 8,
     },
-    pillText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
+    searchHitTitle: { color: colors.foreground, fontSize: 15, fontWeight: '700' },
+    searchHitMeta: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
+    emptySearch: { padding: spacing.xl, alignItems: 'center' },
+    emptySearchText: { color: colors.textMuted, fontSize: 14 },
     loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     scroll: { padding: spacing.lg, paddingBottom: spacing.xxl },
     section: { marginBottom: spacing.lg },
@@ -239,4 +323,3 @@ const styles = StyleSheet.create({
     meta: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
     readOnly: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
 });
-

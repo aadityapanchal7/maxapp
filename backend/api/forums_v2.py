@@ -73,6 +73,14 @@ def _require_subforum_access(subforum: ForumSubforum, viewer: dict) -> None:
         raise HTTPException(status_code=403, detail="Premium forum. Upgrade to Premium to access.")
 
 
+def _can_access_subforum_row(subforum: ForumSubforum, viewer: dict) -> bool:
+    try:
+        _require_subforum_access(subforum, viewer)
+        return True
+    except HTTPException:
+        return False
+
+
 def _normalize_tags(tags: list[str] | None) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
@@ -217,7 +225,72 @@ async def create_subforum(
     rds_db.add(row)
     await rds_db.commit()
     await rds_db.refresh(row)
-    return {"id": str(row.id), "slug": row.slug}
+    return {"id": str(row.id), "slug": row.slug    }
+
+
+@router.get("/search/threads")
+async def search_threads_global(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(30, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    current_user: dict = Depends(get_current_user),
+    rds_db: AsyncSession = Depends(get_rds_db),
+    db: AsyncSession = Depends(get_db),
+):
+    """Search thread titles across all boards the viewer can access."""
+    needle = f"%{q.strip()}%"
+    qq = (
+        select(ForumThread, ForumSubforum)
+        .join(ForumSubforum, ForumThread.subforum_id == ForumSubforum.id)
+        .where(ForumThread.title.ilike(needle))
+        .order_by(ForumThread.last_post_at.desc(), ForumThread.created_at.desc())
+    )
+    res = await rds_db.execute(qq.limit(400))
+    rows = res.all()
+
+    filtered: list[tuple[ForumThread, ForumSubforum]] = []
+    for t, sub in rows:
+        if _can_access_subforum_row(sub, current_user):
+            filtered.append((t, sub))
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+
+    uids = list({t.user_id for t, _ in page})
+    users_map: dict[UUID, User] = {}
+    if uids:
+        ures = await db.execute(select(User).where(User.id.in_(uids)))
+        users_map = {u.id: u for u in ures.scalars().all()}
+
+    return {
+        "threads": [
+            {
+                "id": str(t.id),
+                "subforum_id": str(sub.id),
+                "title": t.title,
+                "tags": t.tags or [],
+                "is_sticky": bool(t.is_sticky),
+                "is_locked": bool(t.is_locked),
+                "view_count": int(t.view_count or 0),
+                "reply_count": int(t.reply_count or 0),
+                "last_post_at": t.last_post_at,
+                "created_at": t.created_at,
+                "created_by": str(t.user_id),
+                "created_by_username": (users_map.get(t.user_id).username if users_map.get(t.user_id) else None),
+                "subforum": {
+                    "id": str(sub.id),
+                    "name": sub.name,
+                    "slug": sub.slug,
+                    "access_tier": (sub.access_tier or "public").lower(),
+                    "is_read_only": bool(sub.is_read_only),
+                },
+            }
+            for t, sub in page
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.get("/subforums/{subforum_id}/threads")
@@ -517,6 +590,8 @@ async def create_post(
         qp = await rds_db.get(ForumPost, quote_post_uuid)
         if not qp or qp.thread_id != tid:
             raise HTTPException(status_code=400, detail="Invalid quote_post_id")
+        if parent_post_uuid is None:
+            parent_post_uuid = quote_post_uuid
 
     ent = _extract_entities(text, quote_post_id=str(quote_post_uuid) if quote_post_uuid else None)
     now = datetime.now(timezone.utc)

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, ActivityIndicator, Platform, type ViewStyle } from 'react-native';
+import { View, Platform, type ViewStyle } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { RootNavigator } from './navigation/RootNavigator';
 import { queryClient } from './lib/queryClient';
 import { colors } from './theme/dark';
+import MaxLoadingView from './components/MaxLoadingView';
 
 function AppNavigator() {
     const { isAuthenticated } = useAuth();
@@ -28,11 +29,7 @@ export default function App() {
     });
 
     if (!fontsLoaded) {
-        return (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
-                <ActivityIndicator size="large" color={colors.accent} />
-            </View>
-        );
+        return <MaxLoadingView />;
     }
 
     const webContainerStyle: ViewStyle =

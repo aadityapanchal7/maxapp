@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Platform,
 } from 'react-native';
@@ -27,6 +26,7 @@ import {
   cancelScheduleReminder,
 } from '../../services/localScheduleNotifications';
 import { StreakFireBadge } from '../../components/StreakFireBadge';
+import MaxLoadingView from '../../components/MaxLoadingView';
 
 function formatTimeTo12Hour(time24: string) {
   if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24 || '';
@@ -41,6 +41,17 @@ function formatTimeTo12Hour(time24: string) {
   } catch {
     return time24;
   }
+}
+
+/** Avoid showing “Skinmax” twice when the title already starts with the module label. */
+function stripDuplicateModulePrefix(title: string, moduleLabel: string): string {
+  const t = (title || '').trim();
+  const m = (moduleLabel || '').trim();
+  if (!m || !t) return t;
+  const escaped = m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${escaped}\\s*([·•|\\-–:]\\s*)?`, 'i');
+  const stripped = t.replace(re, '').trim();
+  return stripped.length > 0 ? stripped : t;
 }
 
 function parseTimeToHHMM(time: string): { hh: number; mm: number } | null {
@@ -442,11 +453,7 @@ export default function MasterScheduleScreen() {
   const headerStreakRight = <StreakFireBadge streakDays={scheduleStreak.current} />;
 
   if (loading) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color={colors.foreground} />
-      </View>
-    );
+    return <MaxLoadingView />;
   }
 
   if (loadError) {
@@ -522,7 +529,6 @@ export default function MasterScheduleScreen() {
         headerRight={headerStreakRight}
         legend={legendChips}
       />
-      {legendChips ? <View style={styles.legendBar}>{legendChips}</View> : null}
 
       <View style={styles.bodyBelowHeader}>
         <ScrollView
@@ -601,7 +607,9 @@ export default function MasterScheduleScreen() {
                         hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         accessibilityRole="checkbox"
                         accessibilityLabel={
-                          isDone ? `Mark task not done: ${task.title}` : `Mark task done: ${task.title}`
+                          isDone
+                            ? `Mark task not done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
+                            : `Mark task done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
                         }
                         accessibilityState={{ checked: isDone }}
                       >
@@ -614,7 +622,7 @@ export default function MasterScheduleScreen() {
                         onPress={() => setExpandedTaskId((prev) => (prev === task.task_id ? null : task.task_id))}
                         activeOpacity={0.75}
                         accessibilityRole="button"
-                        accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${task.title}`}
+                        accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
                       >
                         <View style={styles.taskHeader}>
                           <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>
@@ -639,7 +647,7 @@ export default function MasterScheduleScreen() {
                           style={[styles.taskTitle, isDone && styles.taskTitleDone]}
                           numberOfLines={isExpanded ? undefined : 2}
                         >
-                          {task.title}
+                          {stripDuplicateModulePrefix(task.title, task.moduleLabel)}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -654,7 +662,7 @@ export default function MasterScheduleScreen() {
                           onPress={() => goToChatForTask(task)}
                           activeOpacity={0.75}
                           accessibilityRole="button"
-                          accessibilityLabel={`Ask Max about ${task.title}`}
+                          accessibilityLabel={`Ask Max about ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
                         >
                           <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.foreground} />
                           <Text style={styles.askChatLabel}>Ask Max</Text>
@@ -720,11 +728,6 @@ const styles = StyleSheet.create({
     width: '100%',
     maxHeight: 22,
     overflow: 'hidden',
-  },
-  legendBar: {
-    paddingBottom: spacing.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.borderLight,
   },
   legendScroll: {
     flexGrow: 0,

@@ -4,8 +4,8 @@
 
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { ActivityIndicator, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
+import MaxLoadingView from '../components/MaxLoadingView';
 import { colors } from '../theme/dark';
 
 // Screens
@@ -48,11 +48,7 @@ export function RootNavigator() {
     const { user, isLoading, isAuthenticated, isPaid } = useAuth();
 
     if (isLoading) {
-        return (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
-                <ActivityIndicator size="large" color={colors.accent} />
-            </View>
-        );
+        return <MaxLoadingView />;
     }
 
     const onboardingCompleted = user?.onboarding?.completed === true;

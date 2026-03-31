@@ -573,6 +573,14 @@ class ApiService {
         return response.data;
     }
 
+    async searchForumV2Threads(opts: { q: string; limit?: number; offset?: number }): Promise<any> {
+        const params: any = { q: opts.q };
+        if (opts.limit != null) params.limit = opts.limit;
+        if (opts.offset != null) params.offset = opts.offset;
+        const response = await this.client.get('forums/v2/search/threads', { params });
+        return response.data;
+    }
+
     async createForumV2Subforum(data: { category_id: string; name: string; description?: string }): Promise<{ id: string; slug: string } | any> {
         const response = await this.client.post('forums/v2/subforums', data);
         return response.data;
@@ -621,7 +629,16 @@ class ApiService {
         return response.data;
     }
 
-    async replyForumV2Thread(threadId: string, data: { content: string; quote_post_id?: string; attachment_url?: string; attachment_type?: string }) {
+    async replyForumV2Thread(
+        threadId: string,
+        data: {
+            content: string;
+            quote_post_id?: string;
+            parent_post_id?: string;
+            attachment_url?: string;
+            attachment_type?: string;
+        },
+    ) {
         const response = await this.client.post(`forums/v2/threads/${encodeURIComponent(threadId)}/posts`, data);
         return response.data;
     }

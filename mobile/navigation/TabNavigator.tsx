@@ -15,7 +15,6 @@ import SubforumThreadsV2Screen from '../screens/forums/SubforumThreadsV2Screen';
 import ThreadV2Screen from '../screens/forums/ThreadV2Screen';
 import NewThreadV2Screen from '../screens/forums/NewThreadV2Screen';
 import ForumNotificationsV2Screen from '../screens/forums/ForumNotificationsV2Screen';
-import CreateSubforumV2Screen from '../screens/forums/CreateSubforumV2Screen';
 import MasterScheduleScreen from '../screens/courses/MasterScheduleScreen';
 
 const Tab = createBottomTabNavigator();
@@ -29,7 +28,6 @@ function ForumsStack() {
             <Stack.Screen name="ThreadV2" component={ThreadV2Screen} />
             <Stack.Screen name="NewThreadV2" component={NewThreadV2Screen} />
             <Stack.Screen name="ForumNotificationsV2" component={ForumNotificationsV2Screen} />
-            <Stack.Screen name="CreateSubforumV2" component={CreateSubforumV2Screen} />
         </Stack.Navigator>
     );
 }
