@@ -7,6 +7,7 @@ from .payments import router as payments_router
 from .courses import router as courses_router
 from .events import router as events_router
 from .forums import router as forums_router
+from .forums_v2 import router as forums_v2_router
 from .chat import router as chat_router
 from .leaderboard import router as leaderboard_router
 from .admin import router as admin_router

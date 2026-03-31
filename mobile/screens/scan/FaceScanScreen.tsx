@@ -51,7 +51,7 @@ export default function FaceScanScreen() {
 
     /** One face scan per account — block repeat visits to this screen. */
     useLayoutEffect(() => {
-        if (user?.first_scan_completed) {
+        if (user?.first_scan_completed && !isPaid) {
             navigation.dispatch(
                 CommonActions.reset({
                     index: 0,
@@ -60,6 +60,32 @@ export default function FaceScanScreen() {
             );
         }
     }, [user?.first_scan_completed, isPaid, navigation]);
+
+    // Premium daily limit: if you already scanned today, show a message and bounce back.
+    useEffect(() => {
+        const run = async () => {
+            if (!isPaid) return;
+            try {
+                const latest = await api.getLatestScan();
+                const ts = latest?.created_at ? new Date(latest.created_at) : null;
+                if (!ts || Number.isNaN(ts.getTime())) return;
+                const now = new Date();
+                const sameDay =
+                    ts.getFullYear() === now.getFullYear() &&
+                    ts.getMonth() === now.getMonth() &&
+                    ts.getDate() === now.getDate();
+                if (sameDay) {
+                    Alert.alert('Daily face scan', 'You already did your face scan today. Come back tomorrow.');
+                    if (navigation.canGoBack()) {
+                        navigation.goBack();
+                    }
+                }
+            } catch {
+                // ignore
+            }
+        };
+        void run();
+    }, [isPaid, navigation]);
 
     const capture = async () => {
         try {

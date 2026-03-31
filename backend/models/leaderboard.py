@@ -61,6 +61,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     """Chat response"""
     response: str
+    choices: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

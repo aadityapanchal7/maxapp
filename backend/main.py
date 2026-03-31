@@ -18,6 +18,7 @@ from api import (
     auth_router, users_router, scans_router, payments_router,
     courses_router, events_router, forums_router, chat_router, leaderboard_router,
     admin_router, notifications_router, schedules_router, maxes_router,
+    forums_v2_router,
     sendblue_webhook_router,
 )
 
@@ -87,6 +88,7 @@ app.include_router(payments_router, prefix="/api")
 app.include_router(courses_router, prefix="/api")
 app.include_router(events_router, prefix="/api")
 app.include_router(forums_router, prefix="/api")
+app.include_router(forums_v2_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(leaderboard_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")

@@ -183,10 +183,10 @@ export default function MasterScheduleScreen() {
   if (loadError) {
     return (
       <View style={styles.container}>
-        <HeaderChrome title="Master schedule" />
+        <HeaderChrome title="Schedule" subtitle="All your active tasks" />
         <View style={[styles.emptyState, styles.center]}>
           <Ionicons name="cloud-offline-outline" size={56} color={colors.error} />
-          <Text style={styles.emptyTitle}>Couldn&apos;t load schedules</Text>
+          <Text style={styles.emptyTitle}>Couldn&apos;t load your schedule</Text>
           <Text style={styles.emptySubtitle}>{loadError}</Text>
           <TouchableOpacity
             style={styles.primaryBtn}
@@ -203,13 +203,12 @@ export default function MasterScheduleScreen() {
   if (schedules.length === 0 || merged.dates.length === 0) {
     return (
       <View style={styles.container}>
-        <HeaderChrome title="Master schedule" subtitle="All tasks across your active programs" />
+        <HeaderChrome title="Schedule" subtitle="All your active tasks, in one place" />
         <View style={[styles.emptyState, styles.center]}>
           <Ionicons name="layers-outline" size={64} color={colors.textMuted} />
           <Text style={styles.emptyTitle}>No active schedules</Text>
           <Text style={styles.emptySubtitle}>
-            Start a schedule from each Maxx on Home. When you have one or more running, every task shows up here,
-            color-coded by program.
+            Start a schedule from a Maxx on Home. Once it&apos;s active, it&apos;ll show up here automatically.
           </Text>
           <TouchableOpacity style={styles.primaryBtn} onPress={goHome} activeOpacity={0.7}>
             <Text style={styles.primaryBtnText}>Go to Home</Text>
@@ -241,8 +240,8 @@ export default function MasterScheduleScreen() {
   return (
     <View style={styles.container}>
       <HeaderChrome
-        title="Master schedule"
-        subtitle="All tasks across your active programs"
+        title="Schedule"
+        subtitle="All your active tasks, in one place"
         legend={legendChips}
       />
 
@@ -373,7 +372,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   backButton: { width: 40, padding: spacing.xs },
-  headerTitle: { ...typography.h3, textAlign: 'center', width: '100%' },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+    color: colors.foreground,
+    textAlign: 'center',
+    width: '100%',
+  },
   subhead: {
     ...typography.bodySmall,
     color: colors.textMuted,

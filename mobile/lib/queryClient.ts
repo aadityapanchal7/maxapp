@@ -19,5 +19,11 @@ export const queryKeys = {
     activeSchedulesSummary: ['activeSchedules', 'summary'] as const,
     /** Forums channel list; `q` is trimmed search (empty = full list). */
     channels: (q: string) => ['channels', q] as const,
+    forumV2Categories: ['forumV2', 'categories'] as const,
+    forumV2Subforums: (categoryId: string | null) => ['forumV2', 'subforums', categoryId ?? 'all'] as const,
+    forumV2Threads: (subforumId: string, sort: string, q: string, tag: string) =>
+        ['forumV2', 'threads', subforumId, sort, q, tag] as const,
+    forumV2Posts: (threadId: string, sort: string) => ['forumV2', 'posts', threadId, sort] as const,
+    forumV2Notifications: (unreadOnly: boolean) => ['forumV2', 'notifications', unreadOnly ? 'unread' : 'all'] as const,
     chatHistory: ['chat', 'history'] as const,
 };

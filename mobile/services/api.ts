@@ -485,7 +485,12 @@ class ApiService {
     }
 
     // Chat
-    async sendChatMessage(message: string, attachmentUrl?: string, attachmentType?: string, initContext?: string) {
+    async sendChatMessage(
+        message: string,
+        attachmentUrl?: string,
+        attachmentType?: string,
+        initContext?: string,
+    ): Promise<{ response: string; choices?: string[] }> {
         const body: any = {
             message,
             attachment_url: attachmentUrl,
@@ -554,6 +559,101 @@ class ApiService {
     // Legacy alias for getChannels
     async getForums() {
         return this.getChannels();
+    }
+
+    // Forums v2 (classic threads)
+    async getForumV2Categories(): Promise<{ categories: any[] }> {
+        const response = await this.client.get('forums/v2/categories');
+        return response.data;
+    }
+
+    async getForumV2Subforums(categoryId?: string): Promise<{ subforums: any[] }> {
+        const params: any = {};
+        if (categoryId) params.category_id = categoryId;
+        const response = await this.client.get('forums/v2/subforums', { params });
+        return response.data;
+    }
+
+    async createForumV2Subforum(data: { category_id: string; name: string; description?: string }): Promise<{ id: string; slug: string } | any> {
+        const response = await this.client.post('forums/v2/subforums', data);
+        return response.data;
+    }
+
+    async getForumV2Threads(
+        subforumId: string,
+        opts?: { sort?: 'new' | 'hot' | 'top'; q?: string; tag?: string; limit?: number; offset?: number },
+    ): Promise<any> {
+        const params: any = {};
+        if (opts?.sort) params.sort = opts.sort;
+        if (opts?.q) params.q = opts.q;
+        if (opts?.tag) params.tag = opts.tag;
+        if (opts?.limit != null) params.limit = opts.limit;
+        if (opts?.offset != null) params.offset = opts.offset;
+        const response = await this.client.get(`forums/v2/subforums/${encodeURIComponent(subforumId)}/threads`, { params });
+        return response.data;
+    }
+
+    async getForumV2Thread(threadId: string): Promise<any> {
+        const response = await this.client.get(`forums/v2/threads/${encodeURIComponent(threadId)}`);
+        return response.data;
+    }
+
+    async getForumV2Posts(
+        threadId: string,
+        opts?: { sort?: 'new' | 'top'; limit?: number; offset?: number },
+    ): Promise<any> {
+        const params: any = {};
+        if (opts?.sort) params.sort = opts.sort;
+        if (opts?.limit != null) params.limit = opts.limit;
+        if (opts?.offset != null) params.offset = opts.offset;
+        const response = await this.client.get(`forums/v2/threads/${encodeURIComponent(threadId)}/posts`, { params });
+        return response.data;
+    }
+
+    async createForumV2Thread(data: {
+        subforum_id: string;
+        title: string;
+        body: string;
+        tags?: string[];
+        attachment_url?: string;
+        attachment_type?: string;
+    }): Promise<{ thread_id: string; post_id: string } | any> {
+        const response = await this.client.post('forums/v2/threads', data);
+        return response.data;
+    }
+
+    async replyForumV2Thread(threadId: string, data: { content: string; quote_post_id?: string; attachment_url?: string; attachment_type?: string }) {
+        const response = await this.client.post(`forums/v2/threads/${encodeURIComponent(threadId)}/posts`, data);
+        return response.data;
+    }
+
+    async voteForumV2Post(postId: string, value: 1 | -1) {
+        const response = await this.client.post(`forums/v2/posts/${encodeURIComponent(postId)}/vote`, { value });
+        return response.data;
+    }
+
+    async watchForumV2Thread(threadId: string, watch: boolean) {
+        const response = await this.client.post(`forums/v2/threads/${encodeURIComponent(threadId)}/watch`, null, { params: { watch } });
+        return response.data;
+    }
+
+    async reportForumV2Post(postId: string, reason: string) {
+        const response = await this.client.post(`forums/v2/posts/${encodeURIComponent(postId)}/report`, { reason });
+        return response.data;
+    }
+
+    async getForumV2Notifications(opts?: { unread_only?: boolean; limit?: number; offset?: number }) {
+        const params: any = {};
+        if (opts?.unread_only) params.unread_only = true;
+        if (opts?.limit != null) params.limit = opts.limit;
+        if (opts?.offset != null) params.offset = opts.offset;
+        const response = await this.client.get('forums/v2/notifications', { params });
+        return response.data;
+    }
+
+    async markForumV2NotificationRead(notificationId: string) {
+        const response = await this.client.post(`forums/v2/notifications/${encodeURIComponent(notificationId)}/read`);
+        return response.data;
     }
 
     // Leaderboard
