@@ -444,7 +444,7 @@ class CoachingService:
                     sched_str += " | outside_today: unknown — ask user each morning"
             parts.append(sched_str)
 
-            # --- SkinMax notification engine + protocol (for skin Q&A & SMS alignment) ---
+            # --- Skinmax notification engine + protocol (for skin Q&A & SMS alignment) ---
             if s.maxx_id == "skinmax" and not skinmax_protocol_added:
                 concern = ctx.get("skin_concern", "aging")
                 wt = ctx.get("wake_time") or onboarding.get("wake_time") or "07:00"

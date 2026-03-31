@@ -24,7 +24,7 @@ If user indicated **“had sides before”** or **“very concerned”:** **skip
 
 ### Daily notification (oral path)
 
-**1×/day** — default **wake + 30–45 min** (merge with SkinMax AM when both active per cross-module section).
+**1×/day** — default **wake + 30–45 min** (merge with Skinmax AM when both active per cross-module section).
 
 ---
 
@@ -75,7 +75,7 @@ If user indicated **“had sides before”** or **“very concerned”:** **skip
 
 - **1×/week** on user-chosen day (default **Sunday**), time default **bed − 120 min** or user preference.
 - **Post-session:** **~24 h later** — gentle care; **no minoxidil** until safe window (~24h) per protocol.
-- **Never same day** as **face** microneedling if SkinMax active — **stagger** (e.g. scalp Sunday, face Wednesday).
+- **Never same day** as **face** microneedling if Skinmax active — **stagger** (e.g. scalp Sunday, face Wednesday).
 
 ---
 
@@ -119,7 +119,7 @@ On wash days, optional log: shower hair catcher — **Less / Same / More** vs la
 
 ## KETOCONAZOLE SHAMPOO
 
-**2–3×/week** on wash days — **not** daily. Can double as **anti-dandruff** benefit alongside SkinMax.
+**2–3×/week** on wash days — **not** daily. Can double as **anti-dandruff** benefit alongside Skinmax.
 
 ---
 
@@ -188,7 +188,7 @@ Hard cap **10 notifications/day** across **all** active modules.
 - **PM:** scalp minox → **~30 min dry** → PM skincare; merge when timing aligns.
 - **Microneedling:** **never** scalp + face **same day** — stagger.
 - **Tretinoin:** same molecule for face and scalp can align **same nights** if user adds scalp tretinoin (derm-directed).
-- **Ketoconazole** wash: dandruff crossover for SkinMax.
+- **Ketoconazole** wash: dandruff crossover for Skinmax.
 
 ---
 

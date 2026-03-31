@@ -91,7 +91,7 @@ Use **body fat band + primary goal** to assign one phase:
 
 - **FitMax + BoneMax:** no neck in FitMax lifts; no duplicate posture tips in FitMax; face pulls stay.  
 - **FitMax + HeightMax:** sprints = cardio, no extra cardio; after heavy squat/DL copy: optional 2 min dead hang; merge protein targets.  
-- **FitMax + SkinMax:** merge **morning nutrition + AM skin** into one block when times align; midday add line: leanness helps skin (inflammation).  
+- **FitMax + Skinmax:** merge **morning nutrition + AM skin** into one block when times align; midday add line: leanness helps skin (inflammation).  
 - **FitMax + HairMax:** creatine ↔ hair note (DHT concern, mixed evidence) when creatine tip would fire.  
 
 ---

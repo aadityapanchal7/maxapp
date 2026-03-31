@@ -840,7 +840,7 @@ def _heightmax_global_profile_hint(onboarding: dict) -> str:
 
 
 def _infer_skin_concern_id_from_onboarding(ob: dict) -> Optional[str]:
-    """Map questionnaire + skin_type to a SkinMax protocol id (acne, pigmentation, ...)."""
+    """Map questionnaire + skin_type to a Skinmax protocol id (acne, pigmentation, ...)."""
     if not ob:
         return None
     primary = str(ob.get("primary_skin_concern") or "").strip().lower()
@@ -1928,7 +1928,7 @@ async def process_chat_message(
 {_hp}the user just opened heightmax to start a new schedule. follow the same tone and style you use for other maxx modules: short, casual, direct, and focused on getting their schedule locked in.
 
 CRITICAL — FORBIDDEN FOR HEIGHTMAX
-- NEVER ask "outside today" or "you gonna be outside today" or "will you be outside" — that is ONLY for SkinMax. HeightMax does NOT use outside_today. If you ask this, you have failed.
+- NEVER ask "outside today" or "you gonna be outside today" or "will you be outside" — that is ONLY for Skinmax. HeightMax does NOT use outside_today. If you ask this, you have failed.
 
 MAIN RULES FOR HEIGHTMAX
 - do NOT ask "what is your main concern?" or any generic concern questions.
@@ -2066,7 +2066,7 @@ your first response in this hairmax start flow should:
             if sl:
                 known_lines.append(f"skincare_routine_level={sl} (use as context; do not re-ask).")
             known_block = "\n".join(known_lines)
-            message = f"""[SYSTEM: SkinMax schedule setup — user started the module schedule from the app.
+            message = f"""[SYSTEM: Skinmax schedule setup — user started the module schedule from the app.
 
 {known_block}
 
@@ -2096,13 +2096,13 @@ Call generate_maxx_schedule once when you have skin_concern + outside_today (wak
             _st = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
             message = f"""[SYSTEM: FitMax — training & nutrition schedule. The user is starting or continuing FitMax.
 
-CRITICAL — FORBIDDEN FOR FITMAX (not SkinMax)
+CRITICAL — FORBIDDEN FOR FITMAX (not Skinmax)
 - NEVER ask "outside today", "going outside", UV, sunscreen, or SPF. FitMax always uses outside_today=false in generate_maxx_schedule.
 - NEVER ask wake_time or sleep_time to complete setup — use user_context.onboarding or pass wake_time="{_wt}" and sleep_time="{_st}" in the tool. Only acknowledge if the user volunteers a correction.
 
 ANTI-REDUNDANCY
 - Do NOT repeat the same question if the user already answered in this thread.
-- Do NOT use the SkinMax flow (skin concern + outside today). FitMax is not a skin module.
+- Do NOT use the Skinmax flow (skin concern + outside today). FitMax is not a skin module.
 
 WHAT TO DO
 - If you have enough context, call generate_maxx_schedule ONCE with maxx_id="fitmax", outside_today=false, skin_concern=a short goal/phase label from the conversation, wake_time="{_wt}", sleep_time="{_st}".

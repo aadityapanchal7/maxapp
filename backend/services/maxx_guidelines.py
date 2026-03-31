@@ -22,7 +22,7 @@ SKIN_TYPE_TO_CONCERN = {
 }
 
 # ---------------------------------------------------------------------------
-# SkinMax protocols keyed by concern
+# Skinmax protocols keyed by concern
 # ---------------------------------------------------------------------------
 SKINMAX_PROTOCOLS = {
     "acne": {
@@ -498,8 +498,8 @@ FITMAX_CONCERNS = [
 
 MAXX_GUIDELINES = {
     "skinmax": {
-        "label": "skinmax",
-        "description": "Skincare and gut health",
+        "label": "Skinmax",
+        "description": "skincare and your inner glow",
         "schedule_rules": {
             "engine": "skinmax_notification_engine_reference.md",
             "am_routine": "wake_time + 15 minutes (never generic 'morning' without deriving from wake)",
@@ -627,7 +627,7 @@ Blackpilled truth: {blackpill}
             "minoxidil_pm": "bed_time − 90 minutes",
             "finasteride_daily": "typically wake + 30–45 min (user-adjustable); topical fin at night if oral skipped",
             "ketoconazole": "2–3×/week on wash days only",
-            "microneedling": "1×/week; not same night as minoxidil (24h); stagger vs face microneedling if SkinMax active",
+            "microneedling": "1×/week; not same night as minoxidil (24h); stagger vs face microneedling if Skinmax active",
             "midday": "midpoint(wake+15, bed−60) for monthly check-in (1st) and rotating tips",
             "bloodwork": "Baseline ~3d after oral fin start, +180d, +365d — not daily",
             "treatment_ramp": "M1 fin+keto → M2–3 +minox 2× → M4+ microneedling",
@@ -675,11 +675,11 @@ Blackpilled truth: {blackpill}
         "schedule_rules": {
             "engine": "bonemax_notification_engine_reference.md",
             "mewing_morning": "wake_time — first ping of the day",
-            "mewing_midday": "midpoint(wake+15min, bed−60min) — same active-day logic as SkinMax midday",
+            "mewing_midday": "midpoint(wake+15min, bed−60min) — same active-day logic as Skinmax midday",
             "mewing_night": "bed_time − 30 minutes — bundles sleep optimization + nasal night notes",
             "facial_exercises": "wake + 15 minutes",
             "fascia_morning": "wake + 20 minutes",
-            "fascia_evening": "bed − 90 minutes, 4–5×/week; skip on SkinMax retinoid/exfol nights when applicable",
+            "fascia_evening": "bed − 90 minutes, 4–5×/week; skip on Skinmax retinoid/exfol nights when applicable",
             "masseter_default": "user-chosen or wake + 2 hours",
             "nasal_check": "midday mewing + 2h (2× if screen 6+h, max 2/day)",
             "neck_training": "15 min after workout end on workout days; chin tucks in midday mewing on non-workout days",
@@ -750,7 +750,7 @@ def build_skinmax_prompt_section(
     for_coaching: bool = False,
 ) -> str:
     """
-    Build SkinMax text for Gemini schedule generation or coaching context.
+    Build Skinmax text for Gemini schedule generation or coaching context.
     When for_coaching=True, use a shorter notification-engine excerpt to save tokens.
     """
     from services.skinmax_notification_engine import (
@@ -842,8 +842,8 @@ def build_bonemax_prompt_section(
     if "skinmax" in oids:
         combo = (
             "\n## ACTIVE MODULE: SKINMAX\n"
-            "Merge overlapping windows per engine: **one** morning notification combining mewing morning reset + SkinMax AM when timing aligns; "
-            "**one** evening block combining mewing night check (bed−30) + SkinMax PM when appropriate. "
+            "Merge overlapping windows per engine: **one** morning notification combining mewing morning reset + Skinmax AM when timing aligns; "
+            "**one** evening block combining mewing night check (bed−30) + Skinmax PM when appropriate. "
             "Hard cap **10** total notifications/day — drop lowest-priority items first.\n"
         )
     if "fitmax" in oids:
@@ -999,7 +999,7 @@ def build_fitmax_prompt_section(
     if "skinmax" in oids:
         combo += (
             "\n## ACTIVE MODULE: SKINMAX\n"
-            "Merge **morning nutrition** with **SkinMax AM** into **one** notification when windows align. "
+            "Merge **morning nutrition** with **Skinmax AM** into **one** notification when windows align. "
             "Midday FitMax tip may add: leanness lowers systemic inflammation — helps skin clarity. Cap **10**/day.\n"
         )
     if "hairmax" in oids:
@@ -1116,7 +1116,7 @@ def build_hairmax_prompt_section(
 ## SCHEDULE RULES (concern-specific baseline)
 - Wash frequency depends on hair type: straight/wavy 2-3x/week, curly less often with optional co-wash
 - Minoxidil: **AM wake+15**, **PM bed−90** per HairMax engine (not vague "night skincare")
-- Microneedling / dermastamp: 1×/week max; never same night as minoxidil (24h gap); stagger vs SkinMax face microneedling
+- Microneedling / dermastamp: 1×/week max; never same night as minoxidil (24h gap); stagger vs Skinmax face microneedling
 - Oil treatments: 1-2x/week, evening before wash day as overnight treatment
 - Anti-dandruff / keto: 2-3x/week when indicated — can align with ketoconazole hair protocol
 - Conditioner on strands only unless designed for scalp

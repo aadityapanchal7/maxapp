@@ -177,7 +177,7 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 
 ## MINIMUM TASKS PER DAY — MANDATORY (do NOT generate fewer)
 
-**SkinMax:** minimum **3** tasks/day (AM routine, midday micro-tip, PM routine). Typical day has **4–5** tasks when including SPF reapply and/or hydration check. Weekly adds exfoliation (replaces PM on chosen day) + pillowcase (Sunday). Monthly: progress photo + check-in on the 1st.
+**Skinmax:** minimum **3** tasks/day (AM routine, midday micro-tip, PM routine). Typical day has **4–5** tasks when including SPF reapply and/or hydration check. Weekly adds exfoliation (replaces PM on chosen day) + pillowcase (Sunday). Monthly: progress photo + check-in on the 1st.
 
 **HairMax (thinning/minoxidil stack):** minimum **4** tasks/day (finasteride, minoxidil AM, minoxidil PM, daily scalp micro-tip). Typical day has **4–5** tasks. Weekly: ketoconazole 2–3x/week on wash days; microneedling 1×/week (after month 4). Bi-weekly: progress photos. Monthly: check-in on the 1st.
 
@@ -189,13 +189,13 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 
 **FitMax:** minimum **3** tasks on rest days (morning nutrition, midday tip, evening closeout). Workout days: **5–6** (add pre-workout, post-workout, supplements). Weekly: weigh-in. Monthly: body check.
 
-CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. SkinMax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
+CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. Skinmax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
 
 ## MULTI-WEEK CADENCE (REQUIRED — you are generating **{num_days}** consecutive days)
 
 `day_number` 1 = first calendar day (today in the user's timezone). **Do not** pack weekly/biweekly/monthly items only into days 1–7; repeat them on the correct **weekdays and calendar dates** through day {num_days}.
 
-- **SkinMax:** Exfoliation PM on the user's exfoliation weekday **every week** in range. Sunday midday: pillowcase line (or merge into Sunday tip). **Every calendar 1st** in range: progress photo (midday) + routine check-in (PM + 30 min).
+- **Skinmax:** Exfoliation PM on the user's exfoliation weekday **every week** in range. Sunday midday: pillowcase line (or merge into Sunday tip). **Every calendar 1st** in range: progress photo (midday) + routine check-in (PM + 30 min).
 - **HairMax (thinning stack):** Ketoconazole **2–3×/week** on fixed wash weekdays throughout. Microneedling **once per week** on the user's microneedling weekday (not same night as minoxidil); omit until month 4+ if ramp says so. **Bi-weekly progress photos** (e.g. every 14 days from day 1). **Every 1st:** monthly check-in (midday).
 - **HairMax (non-thinning):** Wash / treatment days on a repeating weekly pattern matching hair-type frequency.
 - **HeightMax:** Sprint pattern and **weekly height measure** on the same weekday each week (e.g. Sunday). **Every 1st:** monthly review when in range.
@@ -209,8 +209,8 @@ Use `task_type` **`checkpoint`** for weekly/biweekly/monthly items. Keep descrip
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
 3. Schedule morning tasks shortly after wake time and evening tasks with enough runway before sleep to actually get done.
 4. Spread weekly or higher-intensity tasks across different days, and **repeat** them each week (or every 14 days for bi-weekly) across the full {num_days}-day window.
-5. If the protocol involves outside exposure reminders, only add them when outside_today is true (SkinMax: follow outdoor_frequency rules in the SkinMax notification engine — not the same as this bullet for other maxxes).
-6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only. **Exception — SkinMax:** do NOT add a generic wake check-in; the AM routine at wake+15 is the first ping (unless another active module already owns wake — then stagger per MULTI-ACTIVE-MODULES). **Exception — BoneMax:** mewing morning reset at **wake** is the first ping. **Exception — HeightMax:** morning decompression at **wake+20** is the first HeightMax ping (merge with other modules per cross-module instructions when needed). **Exception — HairMax (thinning stack):** do NOT use a generic wake-only check-in; first pings are **finasteride (if oral path)** and/or **minoxidil at wake+15** per ramp phase (merge AM with SkinMax per HAIRMAX+SKINMAX when both active). **Exception — FitMax:** do NOT use a generic wake-only check-in; first daily FitMax anchor is **morning nutrition at wake+30** (merge with SkinMax AM when both active); on workout days add **pre-workout at workout−30m** (not a duplicate wake ping).
+5. If the protocol involves outside exposure reminders, only add them when outside_today is true (Skinmax: follow outdoor_frequency rules in the Skinmax notification engine — not the same as this bullet for other maxxes).
+6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only. **Exception — Skinmax:** do NOT add a generic wake check-in; the AM routine at wake+15 is the first ping (unless another active module already owns wake — then stagger per MULTI-ACTIVE-MODULES). **Exception — BoneMax:** mewing morning reset at **wake** is the first ping. **Exception — HeightMax:** morning decompression at **wake+20** is the first HeightMax ping (merge with other modules per cross-module instructions when needed). **Exception — HairMax (thinning stack):** do NOT use a generic wake-only check-in; first pings are **finasteride (if oral path)** and/or **minoxidil at wake+15** per ramp phase (merge AM with Skinmax per HAIRMAX+SKINMAX when both active). **Exception — FitMax:** do NOT use a generic wake-only check-in; first daily FitMax anchor is **morning nutrition at wake+30** (merge with Skinmax AM when both active); on workout days add **pre-workout at workout−30m** (not a duplicate wake ping).
 7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
 8. task_type "routine" = core habit block, "reminder" = cue or anti-habit push, "checkpoint" = weekly treatment, harder session, or review.
 9. Keep daily routines consistent but vary weekly treatments, sprint sessions, and review tasks across days.
@@ -673,8 +673,8 @@ class ScheduleService:
         if maxx_id == "bonemax" and "skinmax" in other_maxx_ids:
             multi_module_instruction += (
                 "\n## BONEMAX + SKINMAX\n"
-                "Merge morning mewing reset + SkinMax AM into **one** notification when both would land near wake; "
-                "merge mewing night check (bed−30) + SkinMax PM when both land in the pre-bed window. "
+                "Merge morning mewing reset + Skinmax AM into **one** notification when both would land near wake; "
+                "merge mewing night check (bed−30) + Skinmax PM when both land in the pre-bed window. "
                 "**Max 10 notifications/day** across modules — drop lowest-priority tasks first per BoneMax engine.\n"
             )
         elif maxx_id == "skinmax" and "bonemax" in other_maxx_ids:
@@ -729,7 +729,7 @@ class ScheduleService:
         if maxx_id == "fitmax" and "skinmax" in other_maxx_ids:
             multi_module_instruction += (
                 "\n## FITMAX + SKINMAX\n"
-                "Merge **wake+30** FitMax morning nutrition with SkinMax AM into **one** notification when possible.\n"
+                "Merge **wake+30** FitMax morning nutrition with Skinmax AM into **one** notification when possible.\n"
             )
         elif maxx_id == "skinmax" and "fitmax" in other_maxx_ids:
             multi_module_instruction += (
@@ -1026,7 +1026,7 @@ class ScheduleService:
         start_date: date,
     ) -> None:
         """
-        SkinMax LLM output often returns only AM / midday / PM. Enrich with engine slots
+        Skinmax LLM output often returns only AM / midday / PM. Enrich with engine slots
         (hydration, SPF / outdoor prompt, dietary nudge, monthly checkpoints) when missing.
         """
         from services.skinmax_notification_engine import (
@@ -1126,7 +1126,7 @@ class ScheduleService:
                     {
                         "task_id": str(uuid.uuid4()),
                         "time": hyd,
-                        "title": "SkinMax — hydration check",
+                        "title": "Skinmax — hydration check",
                         "description": "Water check — aim for ~3L today for barrier and glow.",
                         "task_type": "reminder",
                         "duration_minutes": 2,
@@ -1151,7 +1151,7 @@ class ScheduleService:
                         {
                             "task_id": str(uuid.uuid4()),
                             "time": spf_slot,
-                            "title": "SkinMax — SPF reapply",
+                            "title": "Skinmax — SPF reapply",
                             "description": "Reapply SPF ~3h after your AM routine (per your outdoor plan).",
                             "task_type": "reminder",
                             "duration_minutes": 5,
@@ -1164,7 +1164,7 @@ class ScheduleService:
                         {
                             "task_id": str(uuid.uuid4()),
                             "time": spf_slot,
-                            "title": "SkinMax — going outside today?",
+                            "title": "Skinmax — going outside today?",
                             "description": (
                                 "If yes, plan SPF reapply ~3h after AM. If not, you can skip an extra reapply."
                             ),
@@ -1200,7 +1200,7 @@ class ScheduleService:
                         {
                             "task_id": str(uuid.uuid4()),
                             "time": st,
-                            "title": "SkinMax — nutrition nudge",
+                            "title": "Skinmax — nutrition nudge",
                             "description": skinmax_restriction_reminder_body(rk),
                             "task_type": "reminder",
                             "duration_minutes": 2,
@@ -1225,7 +1225,7 @@ class ScheduleService:
                         {
                             "task_id": str(uuid.uuid4()),
                             "time": photo_time,
-                            "title": "SkinMax — monthly progress photo",
+                            "title": "Skinmax — monthly progress photo",
                             "description": "Same lighting/angle as last month — quick progress snapshot.",
                             "task_type": "reminder",
                             "duration_minutes": 3,
@@ -1242,7 +1242,7 @@ class ScheduleService:
                         {
                             "task_id": str(uuid.uuid4()),
                             "time": chk_time,
-                            "title": "SkinMax — monthly check-in",
+                            "title": "Skinmax — monthly check-in",
                             "description": "How's your skin vs last month? Note texture, breakouts, and barrier — adjust routine if needed.",
                             "task_type": "reminder",
                             "duration_minutes": 5,
@@ -1366,7 +1366,7 @@ class ScheduleService:
         onboarding: dict,
         start_date: date,
     ) -> dict:
-        """Deterministic SkinMax-shaped days when Gemini fails (engine-aligned slot times)."""
+        """Deterministic Skinmax-shaped days when Gemini fails (engine-aligned slot times)."""
         from services.skinmax_notification_engine import add_minutes_to_clock
 
         ob = onboarding or {}
@@ -1391,15 +1391,15 @@ class ScheduleService:
                 {
                     "task_id": str(uuid.uuid4()),
                     "time": slots["am_routine"],
-                    "title": "SkinMax — AM routine",
-                    "description": "AM steps per your concern: cleanser → actives → moisturizer → SPF (see SkinMax protocol).",
+                    "title": "Skinmax — AM routine",
+                    "description": "AM steps per your concern: cleanser → actives → moisturizer → SPF (see Skinmax protocol).",
                     "task_type": "routine",
                     "duration_minutes": 12,
                 },
                 {
                     "task_id": str(uuid.uuid4()),
                     "time": slots["midday_tip"],
-                    "title": "SkinMax — midday micro-tip",
+                    "title": "Skinmax — midday micro-tip",
                     "description": "7-day rotation tip (hands off face, water, pillowcase, phone, stress, sunglasses, diet).",
                     "task_type": "reminder",
                     "duration_minutes": 2,
@@ -1411,7 +1411,7 @@ class ScheduleService:
                     {
                         "task_id": str(uuid.uuid4()),
                         "time": slots["spf_reapply"],
-                        "title": "SkinMax — SPF reapply",
+                        "title": "Skinmax — SPF reapply",
                         "description": "Reapply SPF ~3h after AM routine (per outdoor plan).",
                         "task_type": "reminder",
                         "duration_minutes": 5,
@@ -1422,7 +1422,7 @@ class ScheduleService:
                     {
                         "task_id": str(uuid.uuid4()),
                         "time": slots["hydration"],
-                        "title": "SkinMax — hydration check",
+                        "title": "Skinmax — hydration check",
                         "description": "Water check — steady hydration supports skin barrier.",
                         "task_type": "reminder",
                         "duration_minutes": 1,
@@ -1435,9 +1435,9 @@ class ScheduleService:
                     "task_id": str(uuid.uuid4()),
                     "time": slots["pm_routine"],
                     "title": (
-                        "SkinMax — weekly exfoliation (PM)"
+                        "Skinmax — weekly exfoliation (PM)"
                         if is_exfol
-                        else "SkinMax — PM routine"
+                        else "Skinmax — PM routine"
                     ),
                     "description": (
                         "Exfoliation night per your concern — no retinoid. Limit time, rinse, moisturize."
@@ -1454,7 +1454,7 @@ class ScheduleService:
                     {
                         "task_id": str(uuid.uuid4()),
                         "time": slots["midday_tip"],
-                        "title": "SkinMax — monthly progress photo",
+                        "title": "Skinmax — monthly progress photo",
                         "description": "Same lighting/angle as last month — quick snapshot.",
                         "task_type": "checkpoint",
                         "duration_minutes": 3,
@@ -1464,7 +1464,7 @@ class ScheduleService:
                     {
                         "task_id": str(uuid.uuid4()),
                         "time": add_minutes_to_clock(slots["pm_routine"], 30),
-                        "title": "SkinMax — monthly check-in",
+                        "title": "Skinmax — monthly check-in",
                         "description": "Texture, breakouts, barrier — vs last month; tweak routine if needed.",
                         "task_type": "checkpoint",
                         "duration_minutes": 5,
@@ -1476,7 +1476,7 @@ class ScheduleService:
                 {
                     "day_number": day_num,
                     "tasks": tasks,
-                    "motivation_message": f"Day {day_num} — SkinMax fallback: engine times; weekly exfoliation + monthly 1st checkpoints when applicable.",
+                    "motivation_message": f"Day {day_num} — Skinmax fallback: engine times; weekly exfoliation + monthly 1st checkpoints when applicable.",
                 }
             )
 
@@ -2084,7 +2084,7 @@ class ScheduleService:
                 {
                     "day_number": day_num,
                     "tasks": tasks,
-                    "motivation_message": f"Day {day_num} — HairMax fallback: ramp phases + SkinMax merge rules apply when stacked.",
+                    "motivation_message": f"Day {day_num} — HairMax fallback: ramp phases + Skinmax merge rules apply when stacked.",
                 }
             )
 
@@ -2213,7 +2213,7 @@ class ScheduleService:
                         "task_id": str(uuid.uuid4()),
                         "time": slots["fascia_evening"],
                         "title": "BoneMax — Evening fascia / lymph",
-                        "description": "2–3 min; jawline/cheeks/neck; finish downward to collarbone. Skip if SkinMax retinoid/exfol same night.",
+                        "description": "2–3 min; jawline/cheeks/neck; finish downward to collarbone. Skip if Skinmax retinoid/exfol same night.",
                         "task_type": "routine",
                         "duration_minutes": 4,
                     }
@@ -2354,6 +2354,59 @@ class ScheduleService:
         streak = await sync_master_schedule_streak(user_row, all_schedules, db)
 
         return {"status": "completed", "completion_stats": stats, "schedule_streak": streak}
+
+    def _recalc_completion_stats_from_days(self, days: list) -> dict:
+        """Derive completion_stats from task statuses (keeps totals accurate when uncompleting)."""
+        total = 0
+        completed = 0
+        skipped = 0
+        for day in days or []:
+            for task in day.get("tasks", []):
+                total += 1
+                st = task.get("status") or "pending"
+                if st == "completed":
+                    completed += 1
+                elif st == "skipped":
+                    skipped += 1
+        return {"completed": completed, "total": total, "skipped": skipped}
+
+    async def uncomplete_task(self, user_id: str, schedule_id: str, task_id: str, db: AsyncSession) -> dict:
+        """Mark a completed task as pending again (master schedule toggle)."""
+        schedule = await self._load_schedule(schedule_id, user_id, db)
+        if not schedule:
+            raise ValueError("Schedule not found")
+
+        updated = False
+        days = schedule.days or []
+        for day in days:
+            for task in day.get("tasks", []):
+                if task.get("task_id") == task_id:
+                    if task.get("status") != "completed":
+                        raise ValueError("Task is not completed")
+                    task["status"] = "pending"
+                    task.pop("completed_at", None)
+                    updated = True
+                    break
+            if updated:
+                break
+
+        if not updated:
+            raise ValueError("Task not found in schedule")
+
+        stats = self._recalc_completion_stats_from_days(days)
+        schedule.days = days
+        flag_modified(schedule, "days")
+        schedule.completion_stats = stats
+        schedule.updated_at = datetime.utcnow()
+
+        await db.commit()
+
+        user_uuid = UUID(user_id)
+        user_row = await db.get(User, user_uuid)
+        all_schedules = await self.get_all_active_schedules(user_id, db)
+        streak = await sync_master_schedule_streak(user_row, all_schedules, db)
+
+        return {"status": "pending", "completion_stats": stats, "schedule_streak": streak}
 
     def _fallback_adapt_changes_summary(
         self, old_days: list, new_days: list, feedback: str

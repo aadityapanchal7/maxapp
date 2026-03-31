@@ -680,6 +680,11 @@ class ApiService {
         return response.data;
     }
 
+    async uncompleteScheduleTask(scheduleId: string, taskId: string) {
+        const response = await this.client.put(`schedules/${scheduleId}/tasks/${taskId}/pending`, {});
+        return response.data;
+    }
+
     async updateSchedulePreferences(preferences: any) {
         const response = await this.client.put('schedules/preferences', preferences);
         return response.data;

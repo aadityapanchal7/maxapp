@@ -58,7 +58,7 @@ def _max_chat_tools_openai() -> list[dict]:
                         "maxx_id": {"type": "string", "description": "skinmax, heightmax, hairmax, fitmax, bonemax"},
                         "wake_time": {"type": "string"},
                         "sleep_time": {"type": "string"},
-                        "outside_today": {"type": "boolean", "description": "SkinMax only; false for other modules"},
+                        "outside_today": {"type": "boolean", "description": "Skinmax only; false for other modules"},
                         "skin_concern": {"type": "string"},
                         "age": {"type": "integer"},
                         "sex": {"type": "string"},

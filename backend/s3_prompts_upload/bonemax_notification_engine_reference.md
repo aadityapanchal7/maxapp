@@ -18,14 +18,14 @@ All times derive from **wake_time** and **sleep_time** (bed). No vague "morning"
 | Slot | Rule |
 |------|------|
 | **Mewing Morning Reset** | **Wake time** — first thing, before anything else |
-| **Mewing Midday Reset** | **Midpoint** of active day — same formula as SkinMax midday: midpoint between **(wake + 15 min)** and **(bed − 60 min)** |
+| **Mewing Midday Reset** | **Midpoint** of active day — same formula as Skinmax midday: midpoint between **(wake + 15 min)** and **(bed − 60 min)** |
 | **Mewing Night Check** | **Bed − 30 minutes** — anchor for sleep optimization copy (Module 7) |
 | **Masseter Session** | User-chosen time, or default **wake + 2 hours** — once daily |
 | **Facial Exercises** | **Wake + 15 minutes** — stacks after morning mewing reset (5 min block) |
 | **Nasal Breathing Check** | **Midday mewing reset + 2 hours** — once daily (twice if screen time 6+ h: midday + afternoon; max 2×/day) |
 | **Neck Training** | **15 minutes after workout end** on workout days only. **Non–workout days:** chin tucks **bundled into midday mewing** notification (not separate). On workout days after full neck session, **omit** chin tucks from midday |
-| **Fascia / Lymph — Morning** | **Wake + 20 minutes** (after mewing reset; after skin AM if they have SkinMax) |
-| **Fascia / Lymph — Evening** | **Bed − 90 minutes** — **4–5×/week**, not nightly. If user has SkinMax: **skip** on retinoid nights or exfoliation nights. If no SkinMax: **5×/week** with **Wednesday + Sunday off** as rest pattern |
+| **Fascia / Lymph — Morning** | **Wake + 20 minutes** (after mewing reset; after skin AM if they have Skinmax) |
+| **Fascia / Lymph — Evening** | **Bed − 90 minutes** — **4–5×/week**, not nightly. If user has Skinmax: **skip** on retinoid nights or exfoliation nights. If no Skinmax: **5×/week** with **Wednesday + Sunday off** as rest pattern |
 | **Symmetry Check** | **Once daily** at a **variable** time between midday and evening; **rotate** symmetry tips on a **weekly** cycle |
 | **Quiet hours** | **No** notifications between **bed** and **wake** |
 
@@ -57,7 +57,7 @@ All times derive from **wake_time** and **sleep_time** (bed). No vague "morning"
 
 ## MODULE 5 — FASCIA / LYMPH
 
-**Wake+20:** ~90s tap + drain + optional contrast. **Bed−90:** 2–3 min evening routine; tool-optional. Skip evening on SkinMax retinoid/exfol nights when applicable.
+**Wake+20:** ~90s tap + drain + optional contrast. **Bed−90:** 2–3 min evening routine; tool-optional. Skip evening on Skinmax retinoid/exfol nights when applicable.
 
 ## MODULE 6 — NASAL BREATHING
 
@@ -91,9 +91,9 @@ All times derive from **wake_time** and **sleep_time** (bed). No vague "morning"
 - **Phase 2 (weeks 3–4):** Phase 1 + Facial 1 + Nasal 1 → **~8/day**  
 - **Phase 3 (week 5+):** Phase 2 + Neck (workout days) + Fascia 2 (morning + evening 4–5×) + Nutrition if opted in → real average **~8–9** after evening skips  
 
-**SkinMax + BoneMax:** merge **morning** (mewing reset + skin AM) and **evening** (mewing night + skin PM) into **combined** notifications when same window.
+**Skinmax + BoneMax:** merge **morning** (mewing reset + skin AM) and **evening** (mewing night + skin PM) into **combined** notifications when same window.
 
-**Hard cap: 10 notifications/day** across all modules. If over, drop lowest priority first: hydration (SkinMax), meal chewing reminders, second drainage session, etc.
+**Hard cap: 10 notifications/day** across all modules. If over, drop lowest priority first: hydration (Skinmax), meal chewing reminders, second drainage session, etc.
 
 **Snooze / skip:** 30 min snooze; skip = no nag; **7 days** inactive on a module → one check-in message offering to turn module off.
 

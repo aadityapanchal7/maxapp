@@ -78,7 +78,7 @@ class GenerateScheduleRequest(BaseModel):
 
 
 class GenerateMaxxScheduleRequest(BaseModel):
-    """Request to generate a maxx-based schedule (e.g. SkinMax)"""
+    """Request to generate a maxx-based schedule (e.g. Skinmax)"""
     maxx_id: str = Field(description="e.g. 'skinmax', 'hairmax'")
     wake_time: str = Field(default="07:00", description="HH:MM")
     sleep_time: str = Field(default="23:00", description="HH:MM")

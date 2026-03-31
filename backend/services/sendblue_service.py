@@ -17,7 +17,7 @@ SENDBLUE_API = "https://api.sendblue.co/api"
 
 # Strip formal schedule labels so SMS reads like a text, not "Category — time. Body"
 _MODULE_TITLE_PREFIX = re.compile(
-    r"^(SkinMax|HairMax|HeightMax|BoneMax|FitMax)\s*[\u2014\-–]\s*",
+    r"^(?:Skinmax|SkinMax|HairMax|HeightMax|BoneMax|FitMax)\s*[\u2014\-–]\s*",
     re.I,
 )
 _FORMAL_SEGMENT_PREFIX = re.compile(

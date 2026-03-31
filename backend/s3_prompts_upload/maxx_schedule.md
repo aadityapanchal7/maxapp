@@ -32,7 +32,7 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 
 ## MINIMUM TASKS PER DAY — MANDATORY (do NOT generate fewer)
 
-**SkinMax:** minimum **3** tasks/day (AM routine, midday micro-tip, PM routine). Typical day has **4–5** tasks when including SPF reapply and/or hydration check. Weekly adds exfoliation (replaces PM on chosen day) + pillowcase (Sunday). Monthly: progress photo + check-in on the 1st.
+**Skinmax:** minimum **3** tasks/day (AM routine, midday micro-tip, PM routine). Typical day has **4–5** tasks when including SPF reapply and/or hydration check. Weekly adds exfoliation (replaces PM on chosen day) + pillowcase (Sunday). Monthly: progress photo + check-in on the 1st.
 
 **HairMax (thinning/minoxidil stack):** minimum **4** tasks/day (finasteride, minoxidil AM, minoxidil PM, daily scalp micro-tip). Typical day has **4–5** tasks. Weekly: ketoconazole 2–3x/week on wash days; microneedling 1×/week (after month 4). Bi-weekly: progress photos. Monthly: check-in on the 1st.
 
@@ -44,13 +44,13 @@ When building a BoneMax schedule, USE the BoneMax profile lines in USER CONTEXT 
 
 **FitMax:** minimum **3** tasks on rest days (morning nutrition, midday tip, evening closeout). Workout days: **5–6** (add pre-workout, post-workout, supplements). Weekly: weigh-in. Monthly: body check.
 
-CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. SkinMax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
+CRITICAL: If the notification engine reference specifies particular tasks as MANDATORY DAILY (e.g. Skinmax AM + midday + PM, or HairMax minoxidil AM + PM), you MUST include them every single day. A schedule with only 1–2 tasks/day is WRONG — go back and re-read the notification engine reference and add all required tasks.
 
 ## MULTI-WEEK CADENCE (REQUIRED — you are generating **{num_days}** consecutive days)
 
 `day_number` 1 = first calendar day (today in the user's timezone). **Do not** pack weekly/biweekly/monthly items only into days 1–7; repeat them on the correct **weekdays and calendar dates** through day {num_days}.
 
-- **SkinMax:** Exfoliation PM on the user's exfoliation weekday **every week** in range. Sunday midday: pillowcase line (or merge into Sunday tip). **Every calendar 1st** in range: progress photo (midday) + routine check-in (PM + 30 min).
+- **Skinmax:** Exfoliation PM on the user's exfoliation weekday **every week** in range. Sunday midday: pillowcase line (or merge into Sunday tip). **Every calendar 1st** in range: progress photo (midday) + routine check-in (PM + 30 min).
 - **HairMax (thinning stack):** Ketoconazole **2–3×/week** on fixed wash weekdays throughout. Microneedling **once per week** on the user's microneedling weekday (not same night as minoxidil); omit until month 4+ if ramp says so. **Bi-weekly progress photos** (e.g. every 14 days from day 1). **Every 1st:** monthly check-in (midday).
 - **HairMax (non-thinning):** Wash / treatment days on a repeating weekly pattern matching hair-type frequency.
 - **HeightMax:** Sprint pattern and **weekly height measure** on the same weekday each week (e.g. Sunday). **Every 1st:** monthly review when in range.
@@ -64,8 +64,8 @@ Use `task_type` **`checkpoint`** for weekly/biweekly/monthly items. Keep descrip
 2. Use the protocol and schedule rules for this maxx, not skincare assumptions unless the protocol explicitly says so.
 3. Schedule morning tasks shortly after wake time and evening tasks with enough runway before sleep to actually get done.
 4. Spread weekly or higher-intensity tasks across different days, and **repeat** them each week (or every 14 days for bi-weekly) across the full {num_days}-day window.
-5. If the protocol involves outside exposure reminders, only add them when outside_today is true (SkinMax: follow outdoor_frequency rules in the SkinMax notification engine — not the same as this bullet for other maxxes).
-6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only. **Exception — SkinMax:** do NOT add a generic wake check-in; the AM routine at wake+15 is the first ping (unless another active module already owns wake — then stagger per MULTI-ACTIVE-MODULES). **Exception — BoneMax:** mewing morning reset at **wake** is the first ping. **Exception — HeightMax:** morning decompression at **wake+20** is the first HeightMax ping (merge with other modules per cross-module instructions when needed). **Exception — HairMax (thinning stack):** do NOT use a generic wake-only check-in; first pings are **finasteride (if oral path)** and/or **minoxidil at wake+15** per ramp phase (merge AM with SkinMax per HAIRMAX+SKINMAX when both active). **Exception — FitMax:** do NOT use a generic wake-only check-in; first daily FitMax anchor is **morning nutrition at wake+30** (merge with SkinMax AM when both active); on workout days add **pre-workout at workout−30m** (not a duplicate wake ping).
+5. If the protocol involves outside exposure reminders, only add them when outside_today is true (Skinmax: follow outdoor_frequency rules in the Skinmax notification engine — not the same as this bullet for other maxxes).
+6. Morning entry: follow MULTI-ACTIVE-MODULES above. If none, include one short morning check-in at wake time; if multi-module rules apply, do NOT duplicate a generic wake/good-morning SMS—stagger or use the first concrete task only. **Exception — Skinmax:** do NOT add a generic wake check-in; the AM routine at wake+15 is the first ping (unless another active module already owns wake — then stagger per MULTI-ACTIVE-MODULES). **Exception — BoneMax:** mewing morning reset at **wake** is the first ping. **Exception — HeightMax:** morning decompression at **wake+20** is the first HeightMax ping (merge with other modules per cross-module instructions when needed). **Exception — HairMax (thinning stack):** do NOT use a generic wake-only check-in; first pings are **finasteride (if oral path)** and/or **minoxidil at wake+15** per ramp phase (merge AM with Skinmax per HAIRMAX+SKINMAX when both active). **Exception — FitMax:** do NOT use a generic wake-only check-in; first daily FitMax anchor is **morning nutrition at wake+30** (merge with Skinmax AM when both active); on workout days add **pre-workout at workout−30m** (not a duplicate wake ping).
 7. Each task must have: task_id (uuid), time (HH:MM in 24h), title, description, task_type (routine/reminder/checkpoint), duration_minutes.
 8. task_type "routine" = core habit block, "reminder" = cue or anti-habit push, "checkpoint" = weekly treatment, harder session, or review.
 9. Keep daily routines consistent but vary weekly treatments, sprint sessions, and review tasks across days.
