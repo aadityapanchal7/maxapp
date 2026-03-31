@@ -3,8 +3,11 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Platfo
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as Linking from 'expo-linking';
+import Constants from 'expo-constants';
 import { colors, spacing, typography, shadows } from '../../theme/dark';
 import type { LegalDocId } from '../legal/legalDocuments';
+import { LEGAL_SUPPORT_EMAIL } from '../legal/legalConstants';
 
 const POLICY_ROWS: { id: LegalDocId; title: string; icon: ComponentProps<typeof Ionicons>['name'] }[] = [
     { id: 'privacy', title: 'Privacy policy', icon: 'document-text-outline' },
@@ -16,9 +19,17 @@ const POLICY_ROWS: { id: LegalDocId; title: string; icon: ComponentProps<typeof 
 export default function SettingsScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
+    const supportEmail =
+        String((Constants.expoConfig?.extra as { supportEmail?: string } | undefined)?.supportEmail || '').trim() ||
+        LEGAL_SUPPORT_EMAIL;
 
     const openDoc = (document: LegalDocId) => {
         navigation.navigate('LegalDocument', { document });
+    };
+
+    const openSupport = () => {
+        const q = `subject=${encodeURIComponent('Max app support')}`;
+        void Linking.openURL(`mailto:${encodeURIComponent(supportEmail)}?${q}`);
     };
 
     return (
@@ -32,6 +43,21 @@ export default function SettingsScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+                <Pressable
+                    onPress={openSupport}
+                    style={({ pressed }) => [styles.docPress, pressed && styles.docPressPressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Contact support"
+                >
+                    <Ionicons name="mail-outline" size={16} color={colors.textMuted} style={styles.docIcon} />
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.docLink}>Contact support</Text>
+                        <Text style={styles.supportEmailHint} numberOfLines={1}>
+                            {supportEmail}
+                        </Text>
+                    </View>
+                    <Ionicons name="open-outline" size={16} color={colors.textMuted} />
+                </Pressable>
                 {POLICY_ROWS.map((row) => (
                     <Pressable
                         key={row.id}
@@ -68,7 +94,7 @@ const styles = StyleSheet.create({
     docPress: {
         flexDirection: 'row',
         alignItems: 'center',
-        alignSelf: 'flex-start',
+        alignSelf: 'stretch',
         paddingVertical: spacing.sm,
         paddingRight: spacing.md,
         gap: spacing.sm,
@@ -81,5 +107,11 @@ const styles = StyleSheet.create({
         lineHeight: 20,
         textDecorationLine: 'underline',
         textDecorationColor: colors.textMuted,
+    },
+    supportEmailHint: {
+        fontSize: 11,
+        color: colors.textMuted,
+        opacity: 0.85,
+        marginTop: 2,
     },
 });

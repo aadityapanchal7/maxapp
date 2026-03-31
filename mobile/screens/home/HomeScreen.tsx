@@ -10,6 +10,8 @@ import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../ut
 import { useMaxxesQuery, useActiveSchedulesFullQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
 import { CachedImage } from '../../components/CachedImage';
+import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
+import { StreakFireBadge } from '../../components/StreakFireBadge';
 
 const HOME_TODAY_TASK_PREVIEW = 3;
 
@@ -125,7 +127,14 @@ export default function HomeScreen() {
     const userName = user?.first_name || user?.email?.split('@')[0] || 'there';
     const selectedGoals: string[] = (user?.onboarding?.goals || []).map((g: string) => g.toLowerCase());
 
-    const activeMaxxes = maxes.filter((m: { id?: string }) => selectedGoals.includes(m.id?.toLowerCase() ?? ''));
+    const activeIdSet = useMemo(() => new Set(selectedGoals), [selectedGoals]);
+    const activeMaxxes = useMemo(() => {
+        const filtered = maxes.filter((m: { id?: string }) => activeIdSet.has((m.id ?? '').toLowerCase()));
+        filtered.sort((a: any, b: any) =>
+            getMaxxDisplayLabel(a).localeCompare(getMaxxDisplayLabel(b)),
+        );
+        return filtered;
+    }, [maxes, activeIdSet]);
 
     const completeTodayTask = async (row: MergedScheduleTask) => {
         if (row.status === 'completed') return;
@@ -148,39 +157,36 @@ export default function HomeScreen() {
                 <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
                     <View style={styles.hero}>
                         <View style={styles.heroTop}>
-                            <View>
+                            <View style={styles.heroTextBlock}>
                                 <Text style={styles.greeting}>Welcome back,</Text>
                                 <Text style={styles.userName}>{userName}</Text>
                             </View>
-                            <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7}>
-                                <View style={styles.profileIcon}>
-                                    {user?.profile?.avatar_url ? (
-                                        <CachedImage
-                                            uri={api.resolveAttachmentUrl(user.profile.avatar_url)}
-                                            style={styles.profileAvatar}
-                                        />
-                                    ) : (
-                                        <Text style={styles.profileInitial}>{(user?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase()}</Text>
-                                    )}
-                                </View>
-                            </TouchableOpacity>
+                            <View style={styles.heroActions}>
+                                {(scheduleStreak.current > 0 || scheduleRows.length > 0) && (
+                                    <TouchableOpacity
+                                        onPress={() => navigation.navigate('MasterScheduleTab')}
+                                        activeOpacity={0.75}
+                                        accessibilityRole="button"
+                                        accessibilityLabel={`Streak ${scheduleStreak.current} days. Open schedule.`}
+                                    >
+                                        <StreakFireBadge streakDays={scheduleStreak.current} variant="hero" />
+                                    </TouchableOpacity>
+                                )}
+                                <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7}>
+                                    <View style={styles.profileIcon}>
+                                        {user?.profile?.avatar_url ? (
+                                            <CachedImage
+                                                uri={api.resolveAttachmentUrl(user.profile.avatar_url)}
+                                                style={styles.profileAvatar}
+                                            />
+                                        ) : (
+                                            <Text style={styles.profileInitial}>{(user?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase()}</Text>
+                                        )}
+                                    </View>
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     </View>
-
-                    {(scheduleStreak.current > 0 || scheduleRows.length > 0) && (
-                        <View style={styles.streakBanner}>
-                            <Text style={styles.streakBannerText}>
-                                {scheduleStreak.current > 0
-                                    ? `🔥 ${scheduleStreak.current} day${scheduleStreak.current === 1 ? '' : 's'} streak`
-                                    : '🔥 Finish every task today to start a streak'}
-                            </Text>
-                            {scheduleRows.length > 0 && scheduleStreak.current === 0 ? (
-                                <Text style={styles.streakBannerHint}>
-                                    All checkboxes across your programs — by the end of your day.
-                                </Text>
-                            ) : null}
-                        </View>
-                    )}
 
                     <View style={styles.todaySection}>
                         <View style={styles.todayHeader}>
@@ -253,33 +259,36 @@ export default function HomeScreen() {
 
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionLabel}>MY ACTIVE MAXXES</Text>
-                            {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length}</Text>}
+                            <Text style={styles.sectionLabel}>MY MAXXES</Text>
+                            {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length} active</Text>}
                         </View>
 
-                        {activeMaxxes.map((maxx: { id: string; color?: string; icon?: string; label?: string; description?: string }) => (
-                            <TouchableOpacity
-                                key={maxx.id}
-                                style={styles.courseCard}
-                                onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
-                                activeOpacity={0.7}
-                            >
-                                <View style={styles.courseRow}>
-                                    <View style={[styles.courseIcon, maxx.color ? { backgroundColor: maxx.color + '22' } : {}]}>
-                                        <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
+                        {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string; label?: string; description?: string }) => {
+                            if (!maxx.id) return null;
+                            return (
+                                <TouchableOpacity
+                                    key={maxx.id}
+                                    style={styles.courseCard}
+                                    onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={styles.courseRow}>
+                                        <View style={[styles.courseIcon, maxx.color ? { backgroundColor: maxx.color + '22' } : {}]}>
+                                            <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
+                                        </View>
+                                        <View style={styles.courseContent}>
+                                            <Text style={styles.courseTitle} numberOfLines={1}>
+                                                {getMaxxDisplayLabel(maxx)}
+                                            </Text>
+                                            <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]} numberOfLines={2}>
+                                                {getMaxxDisplayDescription(maxx) ?? maxx.description}
+                                            </Text>
+                                        </View>
+                                        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                                     </View>
-                                    <View style={styles.courseContent}>
-                                        <Text style={styles.courseTitle} numberOfLines={1}>
-                                            {maxx.label}
-                                        </Text>
-                                        <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]} numberOfLines={2}>
-                                            {maxx.description}
-                                        </Text>
-                                    </View>
-                                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                                </View>
-                            </TouchableOpacity>
-                        ))}
+                                </TouchableOpacity>
+                            );
+                        })}
 
                         {activeMaxxes.length === 0 && (
                             <TouchableOpacity
@@ -315,27 +324,9 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     scrollContent: { paddingBottom: spacing.xxxl },
     hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm },
-    heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    streakBanner: {
-        marginHorizontal: spacing.lg,
-        marginBottom: spacing.sm,
-        backgroundColor: colors.card,
-        borderRadius: borderRadius.xl,
-        paddingVertical: spacing.sm + 2,
-        paddingHorizontal: spacing.md,
-        ...shadows.sm,
-    },
-    streakBannerText: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: colors.foreground,
-    },
-    streakBannerHint: {
-        fontSize: 12,
-        color: colors.textMuted,
-        marginTop: 4,
-        lineHeight: 17,
-    },
+    heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
+    heroTextBlock: { flex: 1, minWidth: 0 },
+    heroActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     greeting: { fontSize: 13, color: colors.textMuted, marginBottom: 2, letterSpacing: 0.3 },
     userName: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
     profileButton: { padding: 2 },

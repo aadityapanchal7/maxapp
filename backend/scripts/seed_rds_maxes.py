@@ -273,8 +273,8 @@ HEIGHTMAX_MODULES = [
 MAXX_SEEDS = [
     {
         "id": "skinmax",
-        "label": "skinmax",
-        "description": "Skincare and gut health",
+        "label": "Skinmax",
+        "description": "skincare and your inner glow",
         "icon": "sparkles-outline",
         "color": "#8B5CF6",
         "modules": SKINMAX_MODULES,

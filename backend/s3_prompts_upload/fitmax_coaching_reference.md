@@ -10,4 +10,4 @@ NUTRITION: Cut −500 / bulk +250–300 / recomp+maint @ TDEE; protein ~1g/lb. *
 
 BUDGET: phase-in W1–2 lean; W3–4 +PM+supps; W5+ +posture+monthly. Cap **10**/day with other maxxes.
 
-CROSS: **+BoneMax** dedupe posture; **+HeightMax** dead hang after axial leg day; **+SkinMax** merge AM nutrition+skin; **+HairMax** creatine/hair caveat when relevant.
+CROSS: **+BoneMax** dedupe posture; **+HeightMax** dead hang after axial leg day; **+Skinmax** merge AM nutrition+skin; **+HairMax** creatine/hair caveat when relevant.

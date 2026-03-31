@@ -2,8 +2,8 @@
  * After paid scan results: user must text the Sendblue line so their number is in the thread ($100/mo plan).
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, ActivityIndicator, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, ActivityIndicator, Alert, Switch } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,9 @@ export default function SendblueConnectScreen() {
     const route = useRoute<any>();
     const { refreshUser, user } = useAuth();
     const [busy, setBusy] = useState(false);
+    const [smsOptIn, setSmsOptIn] = useState(true);
+    const [appNotificationsOptIn, setAppNotificationsOptIn] = useState(true);
+    const prefsInitializedRef = useRef(false);
 
     const smsConfirmed = user?.onboarding?.sendblue_sms_engaged === true;
 
@@ -36,6 +39,14 @@ export default function SendblueConnectScreen() {
         return () => clearInterval(id);
     }, [smsConfirmed, refreshUser]);
 
+    useEffect(() => {
+        if (!smsConfirmed) return;
+        if (prefsInitializedRef.current) return;
+        setSmsOptIn(user?.onboarding?.sendblue_sms_opt_in !== false);
+        setAppNotificationsOptIn(user?.onboarding?.app_notifications_opt_in !== false);
+        prefsInitializedRef.current = true;
+    }, [smsConfirmed, user?.id]);    
+
     const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
     const smsE164 = (extra.sendblueSmsNumber || '+16468304204').replace(/\s/g, '');
     const display = extra.sendblueDisplayNumber || '+1 (646) 830-4204';
@@ -52,7 +63,10 @@ export default function SendblueConnectScreen() {
     const onContinue = async () => {
         setBusy(true);
         try {
-            await api.completeSendblueConnect();
+            await api.completeSendblueConnect({
+                sms_opt_in: smsOptIn,
+                app_notifications_opt_in: appNotificationsOptIn,
+            });
             await refreshUser();
             if (next === 'ModuleSelect') {
                 navigation.navigate('ModuleSelect');
@@ -113,6 +127,36 @@ export default function SendblueConnectScreen() {
                 </View>
             ) : (
                 <Text style={styles.confirmedLine}>We got your text — you&apos;re linked. Tap continue below.</Text>
+            )}
+
+            {smsConfirmed && (
+                <View style={styles.prefsCard}>
+                    <View style={styles.optRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.optTitle}>SMS reminders</Text>
+                            <Text style={styles.optDesc}>You&apos;ll get the same reminder info as push.</Text>
+                        </View>
+                        <Switch
+                            value={smsOptIn}
+                            onValueChange={setSmsOptIn}
+                            thumbColor={smsOptIn ? colors.foreground : '#d1d5db'}
+                            trackColor={{ false: '#111827', true: colors.foreground }}
+                        />
+                    </View>
+                    <View style={styles.divider} />
+                    <View style={styles.optRow}>
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.optTitle}>App notifications</Text>
+                            <Text style={styles.optDesc}>Enable reminders on this device.</Text>
+                        </View>
+                        <Switch
+                            value={appNotificationsOptIn}
+                            onValueChange={setAppNotificationsOptIn}
+                            thumbColor={appNotificationsOptIn ? colors.foreground : '#d1d5db'}
+                            trackColor={{ false: '#111827', true: colors.foreground }}
+                        />
+                    </View>
+                </View>
             )}
 
             <Text style={styles.hint}>
@@ -196,6 +240,19 @@ const styles = StyleSheet.create({
         marginBottom: spacing.md,
         lineHeight: 22,
     },
+    prefsCard: {
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        padding: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        ...shadows.md,
+        marginBottom: spacing.lg,
+    },
+    optRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+    optTitle: { fontSize: 15, fontWeight: '700', color: colors.foreground, marginBottom: 2 },
+    optDesc: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+    divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.md },
     hint: { fontSize: 14, color: colors.textSecondary, lineHeight: 21, marginBottom: spacing.xl },
     secondaryBtn: {
         alignItems: 'center',

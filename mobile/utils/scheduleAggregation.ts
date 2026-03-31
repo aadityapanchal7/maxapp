@@ -6,7 +6,7 @@ export const FALLBACK_MODULE_COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f97316
 
 /** Must match backend seed_rds_maxes / app naming so tasks never pick up the wrong program from course_title alone. */
 const DEFAULT_MAXX_LABELS: Record<string, string> = {
-  skinmax: 'skinmax',
+  skinmax: 'Skinmax',
   hairmax: 'Hairmax',
   fitmax: 'Fitmax',
   bonemax: 'Bonemax',

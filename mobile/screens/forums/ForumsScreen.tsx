@@ -75,37 +75,55 @@ export default function ForumsScreen() {
         ({ item: channel }: { item: any }) => {
             const isOfficial = channel.is_admin_only;
             const count = channel.message_count || 0;
+            const tags = (channel.tags || []).slice(0, 2);
             return (
                 <View style={styles.contentWrap}>
                     <TouchableOpacity
                         style={[styles.channelRow, activeChannelId === channel.id && styles.channelRowActive]}
                         onPress={() => handleChannelPress(channel)}
-                        activeOpacity={0.7}
+                        activeOpacity={0.72}
                     >
-                        <Text style={styles.channelHash} accessibilityLabel="Channel">
-                            #
-                        </Text>
+                        <View style={[styles.channelIconWrap, isOfficial ? styles.channelIconOfficial : styles.channelIconCommunity]}>
+                            <Ionicons
+                                name={isOfficial ? 'megaphone-outline' : 'chatbubbles-outline'}
+                                size={22}
+                                color={isOfficial ? colors.info : colors.textSecondary}
+                            />
+                        </View>
                         <View style={styles.channelMain}>
-                            <View style={styles.channelTitleLine}>
-                                <Text style={styles.channelName} numberOfLines={1}>
-                                    {channel.name}
-                                </Text>
-                                {channel.category ? (
-                                    <Text style={styles.categoryInline} numberOfLines={1}>
-                                        {' '}
-                                        · {channel.category}
-                                    </Text>
-                                ) : null}
-                                {isOfficial ? <Text style={styles.officialMark}> Official</Text> : null}
-                            </View>
+                            <Text style={styles.channelName} numberOfLines={2}>
+                                {channel.name}
+                            </Text>
                             {channel.description ? (
-                                <Text style={styles.channelTopic} numberOfLines={1}>
+                                <Text style={styles.channelTopic} numberOfLines={2}>
                                     {channel.description}
                                 </Text>
                             ) : null}
+                            <View style={styles.channelMetaRow}>
+                                {channel.category ? (
+                                    <View style={styles.metaPill}>
+                                        <Text style={styles.metaPillText}>{channel.category}</Text>
+                                    </View>
+                                ) : null}
+                                {isOfficial ? (
+                                    <View style={styles.officialPill}>
+                                        <Text style={styles.officialPillText}>Official</Text>
+                                    </View>
+                                ) : null}
+                                {tags.map((t: string) => (
+                                    <View key={t} style={styles.tagPill}>
+                                        <Text style={styles.tagPillText}>#{t}</Text>
+                                    </View>
+                                ))}
+                            </View>
                         </View>
-                        <Text style={styles.channelStat}>{count}</Text>
-                        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                        <View style={styles.channelRight}>
+                            <View style={styles.statBlock}>
+                                <Text style={styles.statNumber}>{count > 999 ? '999+' : count}</Text>
+                                <Text style={styles.statLabel}>{count === 1 ? 'post' : 'posts'}</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={18} color={colors.border} />
+                        </View>
                     </TouchableOpacity>
                 </View>
             );
@@ -417,37 +435,50 @@ export default function ForumsScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    header: { paddingBottom: spacing.sm },
+    header: { paddingBottom: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderLight },
     contentWrap: { width: '100%', maxWidth: 720, alignSelf: 'center', paddingHorizontal: spacing.lg },
-    headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-    headerTitle: { fontSize: 26, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
-    filterRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm, flexWrap: 'wrap' },
-    segmentRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
+    headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
+    headerTitle: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.8 },
+    filterRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md, flexWrap: 'wrap' },
+    segmentRow: { flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: colors.surface, padding: 3, borderRadius: borderRadius.full },
     filterPill: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
         borderRadius: borderRadius.full,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
+        backgroundColor: 'transparent',
     },
-    filterPillActive: { backgroundColor: colors.foreground, borderColor: colors.foreground },
-    filterText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
-    filterTextActive: { color: colors.background },
-    createButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.foreground, paddingHorizontal: 14, paddingVertical: 9, borderRadius: borderRadius.full, ...shadows.sm },
+    filterPillActive: { backgroundColor: colors.card, ...shadows.sm },
+    filterText: { fontSize: 13, fontWeight: '600', color: colors.textMuted },
+    filterTextActive: { color: colors.foreground },
+    createButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.foreground,
+        paddingHorizontal: 16,
+        paddingVertical: 10,
+        borderRadius: borderRadius.lg,
+    },
     createButtonText: { color: colors.background, fontSize: 13, fontWeight: '700' },
-    filtersButton: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.card, paddingHorizontal: 12, paddingVertical: 8, borderRadius: borderRadius.full, borderWidth: 1, borderColor: colors.border },
-    filtersButtonText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
+    filtersButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.surface,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: borderRadius.full,
+    },
+    filtersButtonText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
     searchContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.card,
-        borderRadius: 12,
+        backgroundColor: colors.surface,
+        borderRadius: 14,
         paddingHorizontal: spacing.md,
-        height: 44,
-        borderWidth: 1,
-        borderColor: colors.border,
-        ...shadows.sm,
+        height: 46,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
     },
     searchIcon: { marginRight: spacing.sm },
     searchInput: { flex: 1, color: colors.textPrimary, fontSize: 15 },
@@ -458,7 +489,7 @@ const styles = StyleSheet.create({
     clearFiltersText: { fontSize: 11, fontWeight: '600', color: colors.textMuted },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     list: { flex: 1 },
-    listContent: { paddingTop: spacing.sm },
+    listContent: { paddingTop: spacing.md, paddingHorizontal: 0 },
     listContentEmpty: { flexGrow: 1 },
     section: { marginBottom: spacing.xl },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
@@ -467,32 +498,120 @@ const styles = StyleSheet.create({
     sectionTitle: { fontSize: 13, fontWeight: '600', color: colors.textMuted, letterSpacing: 0.5 },
     channelRow: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'stretch',
         backgroundColor: colors.card,
-        borderRadius: 8,
-        paddingVertical: 10,
-        paddingHorizontal: spacing.sm,
-        marginBottom: 4,
-        borderWidth: 1,
-        borderColor: colors.border,
+        borderRadius: borderRadius['2xl'],
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.md,
+        marginBottom: 12,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: 'transparent',
+        ...shadows.sm,
     },
     channelRowActive: {
         borderColor: colors.foreground,
+        backgroundColor: colors.card,
+    },
+    channelIconWrap: {
+        width: 48,
+        height: 48,
+        borderRadius: borderRadius.lg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: spacing.md,
+        alignSelf: 'center',
+    },
+    channelIconOfficial: {
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    },
+    channelIconCommunity: {
         backgroundColor: colors.surface,
     },
-    channelHash: { fontSize: 18, fontWeight: '700', color: colors.textMuted, width: 16, marginRight: 4 },
-    channelMain: { flex: 1, minWidth: 0 },
-    channelTitleLine: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
-    channelName: { fontSize: 15, fontWeight: '700', color: colors.foreground },
-    categoryInline: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
-    officialMark: { fontSize: 10, fontWeight: '700', color: colors.info },
-    channelTopic: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-    channelStat: { fontSize: 11, fontWeight: '600', color: colors.textMuted, marginRight: 4, minWidth: 28, textAlign: 'right' },
+    channelMain: { flex: 1, minWidth: 0, justifyContent: 'center' },
+    channelName: {
+        fontSize: 17,
+        fontWeight: '600',
+        color: colors.foreground,
+        letterSpacing: -0.35,
+        lineHeight: 22,
+    },
+    channelMetaRow: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: 8,
+    },
+    metaPill: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.surface,
+    },
+    metaPillText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.textSecondary,
+        textTransform: 'capitalize',
+    },
+    officialPill: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: borderRadius.full,
+        backgroundColor: 'rgba(59, 130, 246, 0.12)',
+    },
+    officialPillText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: colors.info,
+    },
+    tagPill: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.accentMuted,
+    },
+    tagPillText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.textSecondary,
+    },
+    channelTopic: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        marginTop: 4,
+        lineHeight: 18,
+        fontWeight: '400',
+    },
+    channelRight: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginLeft: spacing.sm,
+        gap: 4,
+    },
+    statBlock: {
+        alignItems: 'flex-end',
+        minWidth: 40,
+    },
+    statNumber: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: colors.foreground,
+        letterSpacing: -0.4,
+    },
+    statLabel: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: colors.textMuted,
+        marginTop: 1,
+        textTransform: 'uppercase',
+        letterSpacing: 0.4,
+    },
     empty: { alignItems: 'center', marginTop: 48 },
     emptyIconWrap: {
-        width: 88,
-        height: 88,
-        borderRadius: 44,
+        width: 80,
+        height: 80,
+        borderRadius: 40,
         backgroundColor: colors.surface,
         justifyContent: 'center',
         alignItems: 'center',
@@ -501,19 +620,46 @@ const styles = StyleSheet.create({
     emptyTitle: { fontSize: 18, fontWeight: '600', color: colors.foreground, marginBottom: 4 },
     emptySubtitle: { fontSize: 14, color: colors.textMuted },
     modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: spacing.lg },
-    modalCard: { backgroundColor: colors.card, borderRadius: borderRadius['2xl'], padding: spacing.xl, ...shadows.lg, width: '100%', maxWidth: 420, alignSelf: 'center' },
-    modalTitle: { ...typography.h3, marginBottom: spacing.xs },
-    modalSubtitle: { ...typography.bodySmall, color: colors.textMuted, marginBottom: spacing.md },
-    modalInput: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, color: colors.foreground, marginBottom: spacing.sm },
+    modalCard: {
+        backgroundColor: colors.card,
+        borderRadius: borderRadius['2xl'],
+        padding: spacing.xl,
+        width: '100%',
+        maxWidth: 420,
+        alignSelf: 'center',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
+        ...shadows.lg,
+    },
+    modalTitle: { ...typography.h3, marginBottom: spacing.xs, letterSpacing: -0.4 },
+    modalSubtitle: { ...typography.bodySmall, color: colors.textSecondary, marginBottom: spacing.lg, lineHeight: 20 },
+    modalInput: {
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.lg,
+        paddingVertical: 14,
+        paddingHorizontal: spacing.md,
+        color: colors.foreground,
+        marginBottom: spacing.sm,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
+        fontSize: 15,
+    },
     modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.md, marginTop: spacing.md },
     modalBtn: { padding: spacing.sm },
     modalBtnText: { color: colors.textMuted, fontWeight: '600' },
-    modalPrimary: { backgroundColor: colors.foreground, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: borderRadius.full },
+    modalPrimary: { backgroundColor: colors.foreground, paddingHorizontal: spacing.lg, paddingVertical: 12, borderRadius: borderRadius.full },
     modalPrimaryText: { color: colors.background, fontWeight: '600' },
     modalSection: { marginTop: spacing.md },
-    modalSectionTitle: { fontSize: 12, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.4, marginBottom: spacing.sm, fontWeight: '600' },
-    modalChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    modalChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: borderRadius.full, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+    modalSectionTitle: { fontSize: 11, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: spacing.sm, fontWeight: '700' },
+    modalChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    modalChip: {
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
+    },
     modalChipActive: { backgroundColor: colors.foreground, borderColor: colors.foreground },
     modalChipText: { fontSize: 12, color: colors.textSecondary, fontWeight: '600' },
     modalChipTextActive: { color: colors.background },

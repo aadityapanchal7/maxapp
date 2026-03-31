@@ -70,11 +70,11 @@
       "eas": {
         "projectId": "e88cbff0-beda-47c1-a763-5a81698030bd"
       },
-      "supportEmail": "support@example.com",
-      "privacyPolicyUrl": "",
-      "termsOfServiceUrl": "",
-      "communityGuidelinesUrl": "",
-      "cookieNoticeUrl": "",
+      "supportEmail": "mog.max123@gmail.com",
+      "privacyPolicyUrl": "https://maxmaxmax.today/legal/privacy",
+      "termsOfServiceUrl": "https://maxmaxmax.today/legal/terms",
+      "communityGuidelinesUrl": "https://maxmaxmax.today/legal/community-guidelines",
+      "cookieNoticeUrl": "https://maxmaxmax.today/legal/cookies",
       "sendblueSmsNumber": "+16468304204",
       "sendblueDisplayNumber": "+1 (646) 830-4204"
     }

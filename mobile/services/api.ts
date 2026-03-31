@@ -388,8 +388,8 @@ class ApiService {
         return response.data;
     }
 
-    async completeSendblueConnect() {
-        const response = await this.client.post('users/sendblue-connect/complete');
+    async completeSendblueConnect(prefs?: { sms_opt_in?: boolean; app_notifications_opt_in?: boolean }) {
+        const response = await this.client.post('users/sendblue-connect/complete', prefs ?? {});
         return response.data;
     }
 
@@ -777,6 +777,11 @@ class ApiService {
         const response = await this.client.put(`schedules/${scheduleId}/tasks/${taskId}/complete`, {
             feedback,
         });
+        return response.data;
+    }
+
+    async uncompleteScheduleTask(scheduleId: string, taskId: string) {
+        const response = await this.client.put(`schedules/${scheduleId}/tasks/${taskId}/pending`, {});
         return response.data;
     }
 

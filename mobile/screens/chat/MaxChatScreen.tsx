@@ -31,6 +31,7 @@ export default function MaxChatScreen() {
     const [serverChoices, setServerChoices] = useState<string[]>([]);
     const flatListRef = useRef<FlashListRef<Message>>(null);
     const initScheduleHandled = useRef(false);
+    const initQuestionHandled = useRef<string | null>(null);
     /** Prevents auto "start schedule" running before history fetch finishes (otherwise setMessages(history) wipes the optimistic user line). */
     const [historyReady, setHistoryReady] = useState(false);
 
@@ -66,6 +67,15 @@ export default function MaxChatScreen() {
             initSchedule,
         );
     }, [route.params?.initSchedule, loading, historyReady]);
+
+    useEffect(() => {
+        const initQuestion = route.params?.initQuestion as string | undefined;
+        if (!initQuestion || !historyReady) return;
+        if (initQuestionHandled.current === initQuestion) return;
+        if (loading) return;
+        initQuestionHandled.current = initQuestion;
+        sendMessageWithContext(initQuestion);
+    }, [route.params?.initQuestion, loading, historyReady]);
 
     const sendMessageWithContext = async (msg: string, initContext?: string) => {
         if (!msg.trim() || loading) return;

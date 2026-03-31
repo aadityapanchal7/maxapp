@@ -41,10 +41,16 @@ async def get_maxx(
 
 def _serialize(m: Maxx) -> dict:
     fallback = get_maxx_guideline(m.id) or {}
+    label = m.label
+    description = m.description
+    # Canonical product copy (RDS rows may be stale until re-seeded).
+    if m.id == "skinmax":
+        label = "Skinmax"
+        description = "skincare and your inner glow"
     return {
         "id": m.id,
-        "label": m.label,
-        "description": m.description,
+        "label": label,
+        "description": description,
         "icon": m.icon,
         "color": m.color,
         "modules": m.modules or fallback.get("modules", []),

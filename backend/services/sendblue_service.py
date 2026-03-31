@@ -17,7 +17,7 @@ SENDBLUE_API = "https://api.sendblue.co/api"
 
 # Strip formal schedule labels so SMS reads like a text, not "Category — time. Body"
 _MODULE_TITLE_PREFIX = re.compile(
-    r"^(SkinMax|HairMax|HeightMax|BoneMax|FitMax)\s*[\u2014\-–]\s*",
+    r"^(?:Skinmax|SkinMax|HairMax|HeightMax|BoneMax|FitMax)\s*[\u2014\-–]\s*",
     re.I,
 )
 _FORMAL_SEGMENT_PREFIX = re.compile(
@@ -80,7 +80,12 @@ def _lowercase_casual_opening(s: str) -> str:
 
 def onboarding_allows_proactive_sms(onboarding: dict | None) -> bool:
     """Schedule reminders, scan-complete texts, coaching nudges — only after user has texted our line."""
-    return (onboarding or {}).get("sendblue_sms_engaged") is True
+    ob = onboarding or {}
+    # Default to SMS on for backwards compatibility; opt-out is only meaningful when explicitly disabled.
+    sms_opt_in = ob.get("sendblue_sms_opt_in")
+    if sms_opt_in is False:
+        return False
+    return ob.get("sendblue_sms_engaged") is True
 
 
 def normalize_phone(phone: str) -> str:

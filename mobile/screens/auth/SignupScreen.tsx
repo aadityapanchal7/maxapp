@@ -55,6 +55,7 @@ export default function SignupScreen() {
     const [fieldErrorMessages, setFieldErrorMessages] = useState<Record<string, string>>({});
     const [apiError, setApiError] = useState<string | null>(null);
     const [passwordMismatch, setPasswordMismatch] = useState(false);
+    const [acceptedPolicies, setAcceptedPolicies] = useState(false);
 
     const fadeCard = useRef(new Animated.Value(0)).current;
     const slideCard = useRef(new Animated.Value(30)).current;
@@ -92,6 +93,11 @@ export default function SignupScreen() {
         setFieldErrorMessages({});
         setPasswordMismatch(pwdMismatch);
         if (Object.keys(err).length > 0) return;
+
+        if (!acceptedPolicies) {
+            setApiError('Please agree to the Terms of Service and Privacy Policy to create an account.');
+            return;
+        }
 
         setLoading(true);
         setApiError(null);
@@ -263,6 +269,43 @@ export default function SignupScreen() {
                                 </Pressable>
                             </Modal>
 
+                            <View style={styles.policyRow}>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setAcceptedPolicies((v) => !v);
+                                        setApiError(null);
+                                    }}
+                                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                    accessibilityRole="checkbox"
+                                    accessibilityState={{ checked: acceptedPolicies }}
+                                    accessibilityLabel="Agree to Terms of Service and Privacy Policy"
+                                >
+                                    <Ionicons
+                                        name={acceptedPolicies ? 'checkbox' : 'square-outline'}
+                                        size={22}
+                                        color={acceptedPolicies ? colors.foreground : colors.textMuted}
+                                        style={styles.policyCheckIcon}
+                                    />
+                                </TouchableOpacity>
+                                <Text style={styles.policyText}>
+                                    I agree to the{' '}
+                                    <Text
+                                        style={styles.policyLink}
+                                        onPress={() => navigation.navigate('LegalDocument', { document: 'terms' })}
+                                    >
+                                        Terms of Service
+                                    </Text>
+                                    {' '}and{' '}
+                                    <Text
+                                        style={styles.policyLink}
+                                        onPress={() => navigation.navigate('LegalDocument', { document: 'privacy' })}
+                                    >
+                                        Privacy Policy
+                                    </Text>
+                                    .
+                                </Text>
+                            </View>
+
                             {apiError && (
                                 <View style={styles.apiErrorBox}>
                                     <Ionicons name="alert-circle-outline" size={18} color="#ef4444" />
@@ -348,6 +391,26 @@ const styles = StyleSheet.create({
     linkContainer: { marginTop: spacing.xl, alignItems: 'center' },
     linkText: { fontSize: 13, color: colors.textSecondary },
     linkBold: { color: colors.foreground, fontWeight: '600' },
+    policyRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: spacing.sm,
+        marginTop: spacing.sm,
+        paddingVertical: spacing.xs,
+    },
+    policyCheckIcon: { marginTop: 2 },
+    policyText: {
+        flex: 1,
+        fontSize: 12,
+        color: colors.textSecondary,
+        lineHeight: 18,
+    },
+    policyLink: {
+        color: colors.foreground,
+        fontWeight: '600',
+        textDecorationLine: 'underline',
+        textDecorationColor: colors.foreground,
+    },
     phoneRow: {
         flexDirection: 'row',
         alignItems: 'center',

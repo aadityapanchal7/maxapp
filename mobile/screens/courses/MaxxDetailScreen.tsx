@@ -7,6 +7,7 @@ import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { useMaxxQuery, useMaxxScheduleQuery, useActiveSchedulesSummaryQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
+import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 import FitmaxScreen from './FitmaxScreen';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'];
@@ -221,11 +222,11 @@ export default function MaxxDetailScreen() {
                 <View style={[styles.headerIcon, maxx.color && { backgroundColor: maxx.color + '30' }]}>
                     <Ionicons name={(maxx.icon || 'book-outline') as any} size={28} color={maxx.color || colors.foreground} />
                 </View>
-                <Text style={styles.headerTitle}>{maxx.label}</Text>
+                <Text style={styles.headerTitle}>{getMaxxDisplayLabel(maxx)}</Text>
             </View>
 
             <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                <Text style={styles.description}>{maxx.description}</Text>
+                <Text style={styles.description}>{getMaxxDisplayDescription(maxx) ?? maxx.description}</Text>
 
                 {canSchedule && (
                     <View style={styles.scheduleActions}>

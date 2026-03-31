@@ -56,7 +56,7 @@ async def generate_maxx_schedule(
     db: AsyncSession = Depends(get_db),
     rds_db: AsyncSession = Depends(get_rds_db),
 ):
-    """Generate a personalised AI schedule for a maxx module (e.g. SkinMax)"""
+    """Generate a personalised AI schedule for a maxx module (e.g. Skinmax)"""
     try:
         schedule = await schedule_service.generate_maxx_schedule(
             user_id=current_user["id"],
@@ -161,6 +161,26 @@ async def complete_task(
             task_id=task_id,
             db=db,
             feedback=data.feedback if data else None,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.put("/{schedule_id}/tasks/{task_id}/pending")
+async def uncomplete_task(
+    schedule_id: str,
+    task_id: str,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark a completed task as pending again (toggle off)."""
+    try:
+        result = await schedule_service.uncomplete_task(
+            user_id=current_user["id"],
+            schedule_id=schedule_id,
+            task_id=task_id,
+            db=db,
         )
         return result
     except ValueError as e:

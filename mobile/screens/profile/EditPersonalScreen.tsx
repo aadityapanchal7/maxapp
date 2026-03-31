@@ -38,7 +38,7 @@ import {
 const GOALS = [
   { id: 'bonemax', label: 'Bonemax', icon: 'body-outline' },
   { id: 'heightmax', label: 'Heightmax', icon: 'resize-outline' },
-  { id: 'skinmax', label: 'skinmax', icon: 'sparkles-outline' },
+  { id: 'skinmax', label: 'Skinmax', icon: 'sparkles-outline' },
   { id: 'hairmax', label: 'Hairmax', icon: 'cut-outline' },
   { id: 'fitmax', label: 'Fitmax', icon: 'fitness-outline' },
 ];

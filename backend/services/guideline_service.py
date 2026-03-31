@@ -86,7 +86,7 @@ def build_heightmax_protocol_section(guideline: dict, enabled: Optional[dict[str
 def build_protocol_prompt_section(guideline: dict, concern: str) -> str:
     """
     Build protocol text for the Gemini prompt using guideline's template and protocols.
-    Works for any maxx (SkinMax, Hairmax, etc.) as long as protocols + template are defined.
+    Works for any maxx (Skinmax, Hairmax, etc.) as long as protocols + template are defined.
     """
     protocols = guideline.get("protocols") or {}
     template = guideline.get("protocol_prompt_template")

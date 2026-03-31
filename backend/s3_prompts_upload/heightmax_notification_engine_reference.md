@@ -26,7 +26,7 @@ All times from **wake_time** and **sleep_time**. Quiet hours: **no** notificatio
 | Slot | Rule |
 |------|------|
 | **Morning stretch / decompression** | **Wake + 20 minutes** |
-| **Midday posture check** | **Midpoint** of active day — same as BoneMax/SkinMax midday: midpoint between **(wake + 15 min)** and **(bed − 60 min)** |
+| **Midday posture check** | **Midpoint** of active day — same as BoneMax/Skinmax midday: midpoint between **(wake + 15 min)** and **(bed − 60 min)** |
 | **Afternoon posture check** | **Midday + 3 hours** — only if user reported **6+ hours** daily screen time |
 | **Sprint / HIIT** | **30 minutes before** scheduled workout time on **sprint days** (2–3×/week, non-consecutive) |
 | **Evening stretch / decompression** | **Bed − 90 minutes** |

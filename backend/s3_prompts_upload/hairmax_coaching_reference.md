@@ -5,7 +5,7 @@ TIMING (wake + bed):
 - Finasteride (daily) = typical **wake + 30–45 min** (or user-picked once daily)
 - Midday = midpoint(wake+15, bed−60) for **monthly check-in (1st)** and tips
 - Ketoconazole = **2–3×/week** on wash days (not daily)
-- Microneedling = **1×/week** user day (default Sunday), **not** same night as minox (24h); **never** same day as **face** microneedling if SkinMax — stagger
+- Microneedling = **1×/week** user day (default Sunday), **not** same night as minox (24h); **never** same day as **face** microneedling if Skinmax — stagger
 - Bloodwork = **3× year 1** (baseline ~3d after oral fin start, +180d, +365d) — not daily spam
 - Bi-weekly **progress photos** (hairline, crown, temples; consistent lighting); optional **shed** log on wash days
 - Quiet hours: bed → wake
