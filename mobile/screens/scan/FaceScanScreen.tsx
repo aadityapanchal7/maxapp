@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, AppState, type AppStateStatus } from 'react-native';
 import { CommonActions, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -38,6 +38,16 @@ export default function FaceScanScreen() {
     const [uris, setUris] = useState<(string | null)[]>([null, null, null]);
     const [analyzing, setAnalyzing] = useState(false);
     const [analysisStep, setAnalysisStep] = useState(0);
+    const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+    const navigateToResults = useCallback(() => {
+        navigation.dispatch(
+            CommonActions.reset({
+                index: 1,
+                routes: [{ name: 'FeaturesIntro' }, { name: 'FaceScanResults' }],
+            }),
+        );
+    }, [navigation]);
 
     const step = STEPS[stepIndex];
     const currentUri = uris[stepIndex];
@@ -86,6 +96,75 @@ export default function FaceScanScreen() {
         };
         void run();
     }, [isPaid, navigation]);
+
+    /**
+     * If the user backgrounds or kills the app during analysis, the upload may still complete on the server
+     * or fail. On return, recover to results when possible; otherwise exit analyzing with a clear message.
+     */
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+            const prev = appStateRef.current;
+            appStateRef.current = next;
+            if (!analyzing) return;
+            if (!prev.match(/inactive|background/) || next !== 'active') return;
+
+            void (async () => {
+                const delays = [0, 1500, 3000, 4500];
+                for (const ms of delays) {
+                    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+                    try {
+                        const u = await refreshUser();
+                        if (u?.first_scan_completed) {
+                            navigateToResults();
+                            return;
+                        }
+                    } catch {
+                        /* continue */
+                    }
+                    try {
+                        const latest = await api.getLatestScan();
+                        const st = (latest as { processing_status?: string })?.processing_status;
+                        if (st === 'completed' || st === 'processing') {
+                            if (st === 'completed') {
+                                await refreshUser();
+                                navigateToResults();
+                                return;
+                            }
+                            continue;
+                        }
+                        if (st === 'failed') {
+                            setAnalyzing(false);
+                            Alert.alert(
+                                'Analysis didn’t finish',
+                                'Something went wrong analyzing your photos. Please try again.',
+                            );
+                            return;
+                        }
+                    } catch {
+                        /* 404 = no scan row yet */
+                    }
+                }
+                try {
+                    const latest = await api.getLatestScan();
+                    if ((latest as { processing_status?: string })?.processing_status === 'processing') {
+                        Alert.alert(
+                            'Still analyzing',
+                            'Your scan is still processing. Keep this screen open, or check results from your profile in a minute.',
+                        );
+                        return;
+                    }
+                } catch {
+                    /* no scan */
+                }
+                setAnalyzing(false);
+                Alert.alert(
+                    'Analysis interrupted',
+                    'We couldn’t finish while you were away. Please stay on this screen until it completes, or tap Analyze again.',
+                );
+            })();
+        });
+        return () => sub.remove();
+    }, [analyzing, navigateToResults, refreshUser]);
 
     const capture = async () => {
         try {
@@ -165,13 +244,7 @@ export default function FaceScanScreen() {
             await api.uploadScanTriple(f, l, r);
             setAnalysisStep(2);
             await refreshUser();
-            // Reset stack so a stable initial route + auth refresh can't pop us back to FaceScan.
-            navigation.dispatch(
-                CommonActions.reset({
-                    index: 1,
-                    routes: [{ name: 'FeaturesIntro' }, { name: 'FaceScanResults' }],
-                }),
-            );
+            navigateToResults();
             didLeaveScan = true;
         } catch (err) {
             console.error(err);

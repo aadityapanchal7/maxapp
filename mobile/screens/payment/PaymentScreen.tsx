@@ -7,14 +7,12 @@ import {
     Alert,
     ScrollView,
     Platform,
-    ActivityIndicator,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { WebView } from 'react-native-webview';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -33,23 +31,13 @@ const STRIPE_PREMIUM_URL = (
     STRIPE_PREMIUM_FALLBACK
 ).trim();
 
-/**
- * Must match Stripe Payment Link “Confirmation page” redirect URL exactly (custom redirect).
- * Example: cannon://PaymentThankYou — set the same in Stripe Dashboard → Payment Link → After payment.
- */
-function getPaymentReturnUrl(): string {
-    const override = process.env.EXPO_PUBLIC_STRIPE_RETURN_URL?.trim();
-    if (override) return override;
-    return Linking.createURL('PaymentThankYou');
-}
-
 const POLL_INTERVAL_MS = 2000;
 const POLL_MAX_ATTEMPTS = 20;
 
 const BASIC_FEATURES = [
     'Up to 2 maxxes active',
     'Community forums',
-    '1 face scan',
+    '1 face scan total (not daily)',
     'Basic course library',
 ];
 
@@ -80,10 +68,8 @@ export default function PaymentScreen() {
     const [devLoading, setDevLoading] = useState(false);
     const pollingRef = useRef(false);
     const finishedRef = useRef(false);
-    const [checkoutUrlForWebView, setCheckoutUrlForWebView] = useState<string | null>(null);
 
     const stripeUrlsConfigured = useMemo(() => STRIPE_BASIC_URL.length > 0 && STRIPE_PREMIUM_URL.length > 0, []);
-    const paymentReturnUrl = useMemo(() => getPaymentReturnUrl(), []);
     const basicCheckoutUrl = useMemo(() => buildCheckoutUrl(STRIPE_BASIC_URL, user?.id), [user?.id]);
     const premiumCheckoutUrl = useMemo(() => buildCheckoutUrl(STRIPE_PREMIUM_URL, user?.id), [user?.id]);
 
@@ -114,7 +100,6 @@ export default function PaymentScreen() {
         if (finishedRef.current) return;
         finishedRef.current = true;
         setCheckoutLoading(null);
-        setCheckoutUrlForWebView(null);
         try {
             let u = await refreshUser();
             if (!u?.is_paid) {
@@ -165,24 +150,23 @@ export default function PaymentScreen() {
         try {
             setCheckoutLoading(tier);
             WebBrowser.maybeCompleteAuthSession();
+            finishedRef.current = false;
 
             if (Platform.OS === 'web') {
                 await WebBrowser.openBrowserAsync(checkoutUrl);
-                await finishAfterPayment();
-                return;
+            } else {
+                // SFSafariViewController / Custom Tabs — reliable for Stripe; in-app WebView often blank on iOS.
+                await WebBrowser.openBrowserAsync(checkoutUrl, {
+                    presentationStyle:
+                        Platform.OS === 'ios' ? WebBrowser.WebBrowserPresentationStyle.PAGE_SHEET : undefined,
+                    enableBarCollapsing: false,
+                });
             }
-
-            // Native: embed the Stripe Payment Link inside-app (no external browser).
-            finishedRef.current = false;
-            setCheckoutUrlForWebView(checkoutUrl);
-            setCheckoutLoading(null);
+            await finishAfterPayment();
         } catch (e) {
             Alert.alert('Error', 'Could not open checkout. Try again.');
         } finally {
-            // If we stayed on-native and mounted the WebView, keep `checkoutUrlForWebView`
-            // as the source of truth for whether checkout is visible.
-            // (So we only clear `checkoutLoading` here if the WebView wasn't opened.)
-            if (!checkoutUrlForWebView) setCheckoutLoading(null);
+            setCheckoutLoading(null);
         }
     };
 
@@ -225,9 +209,8 @@ export default function PaymentScreen() {
                     <Text style={styles.kicker}>SUBSCRIBE</Text>
                     <Text style={styles.title}>Choose Basic or Premium</Text>
                     <Text style={styles.subtitle}>
-                        On this app, checkout opens in a secure in-app view (native) or your browser (web). Price and renewal
-                        are shown on Stripe before you pay. Use the same return URL on both Payment Links in the Stripe
-                        Dashboard.
+                        Secure checkout opens in your browser. Prices and renewal are shown before you pay. When you’re
+                        done, you’ll return to the app.
                     </Text>
                 </View>
 
@@ -245,7 +228,7 @@ export default function PaymentScreen() {
                             <Text style={styles.planTagText}>Core access</Text>
                         </View>
                     </View>
-                    <Text style={styles.planSub}>Essential maxxes, forums, and your first scan.</Text>
+                    <Text style={styles.planSub}>Essential maxxes, forums, and one included face scan (not daily).</Text>
                     <View style={styles.priceRow}>
                         <Text style={styles.price}>$3.99</Text>
                         <Text style={styles.priceLabel}>/mo</Text>
@@ -328,27 +311,6 @@ export default function PaymentScreen() {
                     <Text style={styles.linkHint}>Stripe Payment Links aren’t configured.</Text>
                 )}
 
-                <Text style={styles.disclaimer}>
-                    Manage billing from Stripe emails or your customer portal where applicable. Apple’s App Store Review
-                    Guidelines (see{' '}
-                    <Text
-                        style={styles.disclaimerLink}
-                        onPress={() =>
-                            void WebBrowser.openBrowserAsync(
-                                'https://developer.apple.com/app-store/review/guidelines/#business',
-                            )
-                        }
-                        accessibilityRole="link"
-                    >
-                        Business — Payments
-                    </Text>
-                    ) generally require{' '}
-                    <Text style={styles.disclaimerEmphasis}>In-App Purchase</Text> to unlock digital features in apps
-                    distributed on the App Store. Card checkout via Stripe is common for web; if you ship this build on the
-                    iOS App Store, implement StoreKit (or an Apple-approved exception) with qualified counsel—do not rely
-                    on this screen alone for App Store compliance.
-                </Text>
-
                 {SHOW_DEV_SKIP_CONTROLS ? (
                     <View style={styles.devRow}>
                         <TouchableOpacity
@@ -379,45 +341,6 @@ export default function PaymentScreen() {
                 ) : null}
             </ScrollView>
 
-            {checkoutUrlForWebView && Platform.OS !== 'web' ? (
-                <View style={styles.webviewOverlay} pointerEvents="box-none">
-                    <View style={styles.webviewTopBar}>
-                        <TouchableOpacity
-                            onPress={() => {
-                                finishedRef.current = false;
-                                setCheckoutUrlForWebView(null);
-                                setCheckoutLoading(null);
-                            }}
-                            style={styles.webviewCloseBtn}
-                            accessibilityRole="button"
-                            accessibilityLabel="Close checkout"
-                        >
-                            <Ionicons name="close" size={20} color={colors.foreground} />
-                        </TouchableOpacity>
-                        <Text style={styles.webviewTopBarTitle}>Checkout</Text>
-                        <View style={{ width: 36 }} />
-                    </View>
-
-                    <WebView
-                        source={{ uri: checkoutUrlForWebView }}
-                        onNavigationStateChange={(nav) => {
-                            const url = nav?.url || '';
-                            if (url.includes('PaymentThankYou')) {
-                                void finishAfterPayment();
-                            }
-                        }}
-                        startInLoadingState
-                        renderLoading={() => (
-                            <View style={styles.webviewLoading}>
-                                <ActivityIndicator size="large" color={colors.foreground} />
-                            </View>
-                        )}
-                        javaScriptEnabled
-                        domStorageEnabled
-                        originWhitelist={['*']}
-                    />
-                </View>
-            ) : null}
         </View>
     );
 }
@@ -539,34 +462,6 @@ const styles = StyleSheet.create({
         marginTop: spacing.md,
         lineHeight: 18,
     },
-    redirectBlock: { marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-    redirectHint: {
-        fontSize: 11,
-        color: colors.textMuted,
-        lineHeight: 16,
-    },
-    redirectHintSpaced: { marginTop: spacing.sm },
-    redirectUrl: {
-        fontSize: 11,
-        color: colors.textSecondary,
-        fontWeight: '600',
-        marginTop: spacing.xs,
-        lineHeight: 15,
-    },
-    disclaimer: {
-        fontSize: 12,
-        color: colors.textMuted,
-        textAlign: 'center',
-        marginTop: spacing.md,
-        lineHeight: 18,
-    },
-    disclaimerLink: {
-        color: colors.foreground,
-        fontWeight: '600',
-        textDecorationLine: 'underline',
-        textDecorationColor: colors.foreground,
-    },
-    disclaimerEmphasis: { fontWeight: '700', color: colors.textSecondary },
     devRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
     devButton: {
         flex: 1,
@@ -582,28 +477,4 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.textSecondary,
     },
-
-    webviewOverlay: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: colors.background,
-        zIndex: 1000,
-    },
-    webviewTopBar: {
-        height: 56,
-        paddingHorizontal: spacing.lg,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.border,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-    },
-    webviewTopBarTitle: { fontWeight: '700', color: colors.foreground },
-    webviewCloseBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    webviewLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
 });

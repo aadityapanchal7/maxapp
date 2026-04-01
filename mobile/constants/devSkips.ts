@@ -1,5 +1,4 @@
 /**
- * Payment + Sendblue bypass buttons. Always on — no env vars to toggle.
- * (Strip or gate before a production App Store build if you need them hidden.)
+ * Payment test-activate buttons — only in dev builds (__DEV__), hidden in production.
  */
-export const SHOW_DEV_SKIP_CONTROLS = true;
+export const SHOW_DEV_SKIP_CONTROLS = __DEV__;
