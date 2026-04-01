@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { CachedImage } from '../../components/CachedImage';
 import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { formatFaceRatingLabel } from '../../utils/faceRatingLabel';
 
 function formatProgressDate(dateStr: string): string {
     const d = new Date(dateStr);
@@ -123,11 +124,18 @@ export default function ProgressArchiveScreen() {
                             onPress={() => openViewer(index)}
                             activeOpacity={0.9}
                         >
-                            <CachedImage
-                                uri={api.resolveAttachmentUrl(item.image_url)}
-                                style={styles.gridImage}
-                                contentFit="cover"
-                            />
+                            <View style={styles.gridThumbWrap}>
+                                <CachedImage
+                                    uri={api.resolveAttachmentUrl(item.image_url)}
+                                    style={styles.gridImage}
+                                    contentFit="cover"
+                                />
+                                {item.face_rating != null && Number.isFinite(Number(item.face_rating)) ? (
+                                    <Text style={styles.gridRatingBadge}>
+                                        {formatFaceRatingLabel(Number(item.face_rating))}
+                                    </Text>
+                                ) : null}
+                            </View>
                         </TouchableOpacity>
                     ))}
                 </View>
@@ -156,6 +164,12 @@ export default function ProgressArchiveScreen() {
                                     style={[styles.slideImage, { width: imageWidth, height: imageWidth * (4 / 3) }]}
                                     contentFit="contain"
                                 />
+                                {photos[selectedIndex].face_rating != null &&
+                                Number.isFinite(Number(photos[selectedIndex].face_rating)) ? (
+                                    <Text style={styles.viewerRatingBadge}>
+                                        {formatFaceRatingLabel(Number(photos[selectedIndex].face_rating))}
+                                    </Text>
+                                ) : null}
                             </View>
                         )}
                         {photos[selectedIndex] && (
@@ -230,11 +244,30 @@ const styles = StyleSheet.create({
     gridItem: {
         aspectRatio: 1,
     },
+    gridThumbWrap: {
+        flex: 1,
+        width: '100%',
+        borderRadius: 4,
+        overflow: 'hidden',
+        position: 'relative',
+        backgroundColor: colors.surface,
+    },
     gridImage: {
         width: '100%',
         height: '100%',
         borderRadius: 4,
         backgroundColor: colors.surface,
+    },
+    gridRatingBadge: {
+        position: 'absolute',
+        bottom: 5,
+        right: 5,
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        textShadowColor: 'rgba(0,0,0,0.85)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
     },
     viewerOverlay: {
         flex: 1,
@@ -265,6 +298,7 @@ const styles = StyleSheet.create({
         ...shadows.md,
     },
     imageBox: {
+        position: 'relative',
         borderRadius: borderRadius.lg,
         borderWidth: 1,
         borderColor: colors.border || colors.surfaceLight,
@@ -272,6 +306,17 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    viewerRatingBadge: {
+        position: 'absolute',
+        bottom: 10,
+        right: 10,
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        textShadowColor: 'rgba(0,0,0,0.85)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
     },
     slideImage: {
         borderRadius: borderRadius.lg,

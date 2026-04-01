@@ -434,7 +434,7 @@ export default function OnboardingScreen() {
     };
 
     const buildPayload = (): Record<string, unknown> => {
-        const goals = mapPriorityToGoals(priorityOrder);
+        const goals = mapPriorityToGoals(priorityOrder).slice(0, 2);
         const skinType = showSkin && primarySkin ? mapSkinConcernToType(primarySkin) : 'normal';
         const experience_level = showBody ? mapTrainingToExperience(fitExperience) : 'beginner';
         const equipment = showBody ? mapEquipmentToList(fitEquipment) : [];

@@ -263,6 +263,8 @@ class UserProgressPhoto(Base):
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
     # app = in-app upload; sms = Twilio MMS webhook
     source = Column(String, default="app")
+    # Optional overall face rating (e.g. from same-day face scan) shown on progress grid
+    face_rating = Column(Float, nullable=True)
 
     __table_args__ = (
         Index("idx_progress_photos_user_id", user_id),

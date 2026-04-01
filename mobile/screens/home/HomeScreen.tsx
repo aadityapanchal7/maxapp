@@ -2,9 +2,11 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
 import { useMaxxesQuery, useActiveSchedulesFullQuery } from '../../hooks/useAppQueries';
@@ -32,8 +34,9 @@ function formatTimeTo12Hour(time24: string) {
 
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
+    const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
-    const { user, refreshUser } = useAuth();
+    const { user, refreshUser, isPremium } = useAuth();
     const maxesQuery = useMaxxesQuery();
     const schedulesQuery = useActiveSchedulesFullQuery();
 
@@ -125,9 +128,14 @@ export default function HomeScreen() {
     }, [fadeAnim, slideAnim]);
 
     const userName = user?.first_name || user?.email?.split('@')[0] || 'there';
-    const selectedGoals: string[] = (user?.onboarding?.goals || []).map((g: string) => g.toLowerCase());
+    const maxHomeSlots = maxHomeMaxxesForUser(user);
+    const rawGoalIds = (user?.onboarding?.goals || []) as string[];
+    const cappedGoalIds = useMemo(() => {
+        const g = (user?.onboarding?.goals || []) as string[];
+        return g.slice(0, maxHomeMaxxesForUser(user));
+    }, [user?.onboarding?.goals, user?.is_paid, user?.subscription_tier]);
 
-    const activeIdSet = useMemo(() => new Set(selectedGoals), [selectedGoals]);
+    const activeIdSet = useMemo(() => new Set(cappedGoalIds.map((g: string) => g.toLowerCase())), [cappedGoalIds]);
     const activeMaxxes = useMemo(() => {
         const filtered = maxes.filter((m: { id?: string }) => activeIdSet.has((m.id ?? '').toLowerCase()));
         filtered.sort((a: any, b: any) =>
@@ -260,7 +268,11 @@ export default function HomeScreen() {
                     <View style={styles.section}>
                         <View style={styles.sectionHeader}>
                             <Text style={styles.sectionLabel}>MY MAXXES</Text>
-                            {activeMaxxes.length > 0 && <Text style={styles.sectionCount}>{activeMaxxes.length} active</Text>}
+                            {activeMaxxes.length > 0 && (
+                                <Text style={styles.sectionCount}>
+                                    {activeMaxxes.length} active · max {maxHomeSlots}
+                                </Text>
+                            )}
                         </View>
 
                         {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string; label?: string; description?: string }) => {
@@ -310,18 +322,43 @@ export default function HomeScreen() {
                                 onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
                                 activeOpacity={0.7}
                             >
-                                <Text style={styles.emptyButtonText}>Add More Maxxes</Text>
+                                <Text style={styles.emptyButtonText}>
+                                    {rawGoalIds.length >= maxHomeSlots ? 'Manage Maxxes' : 'Add More Maxxes'}
+                                </Text>
                             </TouchableOpacity>
                         )}
                     </View>
                 </Animated.View>
             </ScrollView>
+
+            {isPremium ? (
+                <TouchableOpacity
+                    style={[styles.faceScanFab, { bottom: 52 + insets.bottom + 14, right: spacing.lg }]}
+                    onPress={() => navigation.navigate('FaceScan')}
+                    activeOpacity={0.88}
+                    accessibilityRole="button"
+                    accessibilityLabel="Daily face scan"
+                >
+                    <Ionicons name="add" size={28} color={colors.background} />
+                </TouchableOpacity>
+            ) : null}
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+    faceScanFab: {
+        position: 'absolute',
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: colors.foreground,
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 20,
+        ...shadows.lg,
+    },
     scrollContent: { paddingBottom: spacing.xxxl },
     hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm },
     heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },

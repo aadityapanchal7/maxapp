@@ -159,14 +159,23 @@ class ApiService {
         return response.data;
     }
 
-    async uploadProgressPhoto(imageUri: string) {
+    async uploadProgressPhoto(imageUri: string, opts?: { faceRating?: number | null }) {
         const formData = new FormData();
-        // @ts-ignore - React Native FormData accepts { uri, name, type }
-        formData.append('file', {
-            uri: imageUri,
-            name: 'progress.jpg',
-            type: 'image/jpeg',
-        });
+        if (Platform.OS === 'web') {
+            const blob = await fetch(imageUri).then((r) => r.blob());
+            formData.append('file', blob, 'progress.jpg');
+        } else {
+            // @ts-ignore - React Native FormData accepts { uri, name, type }
+            formData.append('file', {
+                uri: imageUri,
+                name: 'progress.jpg',
+                type: 'image/jpeg',
+            });
+        }
+        const fr = opts?.faceRating;
+        if (fr != null && Number.isFinite(fr)) {
+            formData.append('face_rating', String(fr));
+        }
         const response = await this.client.post('users/me/progress-photo', formData, {
             transformRequest: [(data: unknown, headers?: Record<string, string>) => {
                 if (headers) delete headers['Content-Type'];

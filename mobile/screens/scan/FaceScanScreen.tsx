@@ -241,8 +241,16 @@ export default function FaceScanScreen() {
         let didLeaveScan = false;
         try {
             setAnalysisStep(1);
-            await api.uploadScanTriple(f, l, r);
+            const scanRes = (await api.uploadScanTriple(f, l, r)) as { analysis?: { overall_score?: number } };
             setAnalysisStep(2);
+            const os = scanRes?.analysis?.overall_score;
+            const rating =
+                typeof os === 'number' && Number.isFinite(os) ? Math.round(os * 10) / 10 : undefined;
+            try {
+                await api.uploadProgressPhoto(f, { faceRating: rating });
+            } catch (pe) {
+                console.warn('Progress photo from face scan', pe);
+            }
             await refreshUser();
             navigateToResults();
             didLeaveScan = true;

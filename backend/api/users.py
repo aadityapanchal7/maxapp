@@ -5,7 +5,7 @@ Users API - Profile and Onboarding
 import base64
 import logging
 import math
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Request
+from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Request, Form
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 from pydantic import BaseModel
@@ -51,6 +51,7 @@ router = APIRouter(prefix="/users", tags=["Users"])
 class ProgressPhotoBase64Body(BaseModel):
     """Request body for progress photo upload via base64 (avoids multipart issues on RN)."""
     image_base64: str
+    face_rating: Optional[float] = None
 
 
 class SendblueConnectCompleteBody(BaseModel):
@@ -304,6 +305,7 @@ async def update_profile(
 async def upload_progress_photo(
     file: Optional[UploadFile] = File(None, description="Progress image (form field: file)"),
     image: Optional[UploadFile] = File(None, description="Progress image (form field: image)"),
+    face_rating: Optional[float] = Form(None),
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -331,16 +333,30 @@ async def upload_progress_photo(
     if not image_url:
         raise HTTPException(status_code=500, detail="Failed to upload progress image")
 
+    fr = face_rating
+    if fr is not None and (fr < 0 or fr > 10):
+        fr = None
+
     photo = UserProgressPhoto(
         user_id=UUID(current_user["id"]),
         image_url=image_url,
         created_at=datetime.utcnow(),
         source="app",
+        face_rating=fr,
     )
     db.add(photo)
     await db.commit()
     await db.refresh(photo)
-    return {"photo": {"id": str(photo.id), "user_id": current_user["id"], "image_url": image_url, "created_at": photo.created_at, "source": "app"}}
+    return {
+        "photo": {
+            "id": str(photo.id),
+            "user_id": current_user["id"],
+            "image_url": image_url,
+            "created_at": photo.created_at,
+            "source": "app",
+            "face_rating": photo.face_rating,
+        }
+    }
 
 
 @router.post("/me/progress-photo/base64")
@@ -376,15 +392,28 @@ async def upload_progress_photo_base64(
     if not image_url:
         raise HTTPException(status_code=500, detail="Failed to upload progress image")
 
+    fr = body.face_rating
+    if fr is not None and (fr < 0 or fr > 10):
+        fr = None
+
     photo = UserProgressPhoto(
         user_id=UUID(current_user["id"]),
         image_url=image_url,
         created_at=datetime.utcnow(),
+        face_rating=fr,
     )
     db.add(photo)
     await db.commit()
     await db.refresh(photo)
-    return {"photo": {"id": str(photo.id), "user_id": current_user["id"], "image_url": image_url, "created_at": photo.created_at}}
+    return {
+        "photo": {
+            "id": str(photo.id),
+            "user_id": current_user["id"],
+            "image_url": image_url,
+            "created_at": photo.created_at,
+            "face_rating": photo.face_rating,
+        }
+    }
 
 
 @router.get("/me/progress-photos")
@@ -410,6 +439,7 @@ async def list_progress_photos(
             "image_url": p.image_url,
             "created_at": p.created_at,
             "source": getattr(p, "source", None) or "app",
+            "face_rating": getattr(p, "face_rating", None),
         }
         for p in photos
     ]}

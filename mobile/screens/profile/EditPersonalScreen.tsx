@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
 import {
   PRIORITY_LABELS,
   type PriorityKey,
@@ -149,7 +150,9 @@ export default function EditPersonalScreen() {
     if (!user?.onboarding) return;
     const ob = user.onboarding;
     setUnitSystem((ob.unit_system as any) || 'imperial');
-    setSelectedGoals(ob.goals || []);
+    const maxG = maxHomeMaxxesForUser(user);
+    const g = (ob.goals || []) as string[];
+    setSelectedGoals(g.slice(0, maxG));
     setGender(ob.gender || '');
     setAge(ob.age?.toString() || '');
     setActivityLevel(ob.activity_level || 'moderate');
@@ -210,9 +213,10 @@ export default function EditPersonalScreen() {
       (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
 
     if (onlyGoals) {
+      const maxG = maxHomeMaxxesForUser(user);
       const onboardingData = {
         ...base,
-        goals: selectedGoals || [],
+        goals: (selectedGoals || []).slice(0, maxG),
         timezone: tz,
         completed: true,
       };
@@ -231,9 +235,10 @@ export default function EditPersonalScreen() {
 
     const heavy = screenBand ? heavyScreenFromBand(screenBand) : base.heightmax_screen_hours;
 
+    const maxGoals = maxHomeMaxxesForUser(user);
     const onboardingData: Record<string, any> = {
       ...base,
-      goals: selectedGoals || [],
+      goals: (selectedGoals || []).slice(0, maxGoals),
       completed: true,
       timezone: tz,
       unit_system: unitSystem,
@@ -367,17 +372,32 @@ export default function EditPersonalScreen() {
           </Text>
 
           <Text style={styles.sectionTitle}>Your Maxxes</Text>
+          <Text style={styles.goalsLimitHint}>
+            Up to {maxHomeMaxxesForUser(user)} on your home screen
+            {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'
+              ? ' (Premium). Use + on Home for your daily face scan.'
+              : ' (Basic or free).'}
+          </Text>
           <View style={styles.goalsGrid}>
             {GOALS.map((goal) => {
               const selected = selectedGoals.includes(goal.id);
+              const maxG = maxHomeMaxxesForUser(user);
               return (
                 <TouchableOpacity
                   key={goal.id}
                   style={[styles.goalCard, selected && styles.goalCardSelected]}
                   onPress={() =>
-                    setSelectedGoals((prev) =>
-                      prev.includes(goal.id) ? prev.filter((g) => g !== goal.id) : [...prev, goal.id],
-                    )
+                    setSelectedGoals((prev) => {
+                      if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
+                      if (prev.length >= maxG) {
+                        Alert.alert(
+                          'Limit reached',
+                          `Your plan allows up to ${maxG} Maxxes on Home. Remove one to add another.`,
+                        );
+                        return prev;
+                      }
+                      return [...prev, goal.id];
+                    })
                   }
                 >
                   <Ionicons name={goal.icon as any} size={20} color={selected ? colors.foreground : colors.textMuted} />
@@ -686,7 +706,13 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontSize: 18, fontWeight: '700', color: colors.foreground, marginBottom: spacing.xs },
   cardHint: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.md, lineHeight: 18 },
-  sectionTitle: { ...typography.h2, fontSize: 20, marginBottom: spacing.lg, marginTop: spacing.lg },
+  sectionTitle: { ...typography.h2, fontSize: 20, marginBottom: spacing.sm, marginTop: spacing.lg },
+  goalsLimitHint: {
+    fontSize: 13,
+    color: colors.textMuted,
+    lineHeight: 19,
+    marginBottom: spacing.md,
+  },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xl, marginBottom: spacing.md },
   goalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   goalCard: {

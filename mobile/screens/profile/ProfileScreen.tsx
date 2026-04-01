@@ -7,6 +7,7 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { CachedImage } from '../../components/CachedImage';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { formatFaceRatingLabel } from '../../utils/faceRatingLabel';
 
 const getImageModalWidth = (width: number) =>
     Platform.OS === 'web' && width > 600
@@ -307,7 +308,14 @@ export default function ProfileScreen() {
                                             onPress={() => openProgressArchiveAt(index)}
                                             activeOpacity={0.9}
                                         >
-                                            <CachedImage uri={api.resolveAttachmentUrl(item.image_url)} style={styles.archiveGridImage} />
+                                            <View style={styles.archiveThumbBox}>
+                                                <CachedImage uri={api.resolveAttachmentUrl(item.image_url)} style={styles.archiveGridImage} />
+                                                {item.face_rating != null && Number.isFinite(Number(item.face_rating)) ? (
+                                                    <Text style={styles.progressRatingBadge}>
+                                                        {formatFaceRatingLabel(Number(item.face_rating))}
+                                                    </Text>
+                                                ) : null}
+                                            </View>
                                         </TouchableOpacity>
                                     ))}
                                 </View>
@@ -445,6 +453,12 @@ export default function ProfileScreen() {
                                     style={{ width: imageModalWidth, height: imageModalWidth * (4 / 3) }}
                                     contentFit="contain"
                                 />
+                                {progressPhotos[selectedPhotoIndex].face_rating != null &&
+                                Number.isFinite(Number(progressPhotos[selectedPhotoIndex].face_rating)) ? (
+                                    <Text style={styles.progressModalRatingBadge}>
+                                        {formatFaceRatingLabel(Number(progressPhotos[selectedPhotoIndex].face_rating))}
+                                    </Text>
+                                ) : null}
                             </View>
                         )}
                         {progressPhotos[selectedPhotoIndex] && (
@@ -610,11 +624,30 @@ const styles = StyleSheet.create({
         width: '33.33%',
         padding: 8,
     },
+    archiveThumbBox: {
+        flex: 1,
+        width: '100%',
+        borderRadius: 4,
+        overflow: 'hidden',
+        position: 'relative',
+        backgroundColor: colors.surface,
+    },
     archiveGridImage: {
         width: '100%',
         height: '100%',
         borderRadius: 4,
         backgroundColor: colors.surface,
+    },
+    progressRatingBadge: {
+        position: 'absolute',
+        bottom: 5,
+        right: 5,
+        fontSize: 11,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        textShadowColor: 'rgba(0,0,0,0.85)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
     },
     viewMoreButton: {
         flexDirection: 'row',
@@ -751,6 +784,7 @@ const styles = StyleSheet.create({
         ...shadows.md,
     },
     progressImageBox: {
+        position: 'relative',
         borderRadius: borderRadius.lg,
         borderWidth: 1,
         borderColor: colors.border || colors.surfaceLight,
@@ -758,6 +792,17 @@ const styles = StyleSheet.create({
         overflow: 'hidden',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    progressModalRatingBadge: {
+        position: 'absolute',
+        bottom: 10,
+        right: 10,
+        fontSize: 14,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        textShadowColor: 'rgba(0,0,0,0.85)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 4,
     },
     progressModalDate: {
         marginTop: spacing.md,
