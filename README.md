@@ -1,6 +1,6 @@
 # Max App - Premium Lookmaxxing Platform
 
-A comprehensive facial analysis and self-improvement platform with mobile app, backend API, and AI-powered facial analysis service.
+A comprehensive facial analysis and self-improvement platform with mobile app, backend API, and AI-powered facial analysis service
 
 ## 🏗️ Architecture
 
