@@ -275,6 +275,19 @@ export default function HomeScreen() {
                             )}
                         </View>
 
+                        {activeMaxxes.length > 0 && (
+                            <TouchableOpacity
+                                style={styles.maxxesProgramsCta}
+                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                                activeOpacity={0.88}
+                            >
+                                <Text style={styles.maxxesProgramsCtaText}>
+                                    {rawGoalIds.length >= maxHomeSlots ? 'Manage Maxxes' : 'Add More Maxxes'}
+                                </Text>
+                                <Ionicons name="arrow-forward" size={20} color={colors.background} />
+                            </TouchableOpacity>
+                        )}
+
                         {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string; label?: string; description?: string }) => {
                             if (!maxx.id) return null;
                             return (
@@ -313,18 +326,6 @@ export default function HomeScreen() {
                                 <View style={styles.emptyButton}>
                                     <Text style={styles.emptyButtonText}>Select Goals</Text>
                                 </View>
-                            </TouchableOpacity>
-                        )}
-
-                        {activeMaxxes.length > 0 && (
-                            <TouchableOpacity
-                                style={[styles.emptyButton, { marginTop: spacing.md, alignSelf: 'center' }]}
-                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
-                                activeOpacity={0.7}
-                            >
-                                <Text style={styles.emptyButtonText}>
-                                    {rawGoalIds.length >= maxHomeSlots ? 'Manage Maxxes' : 'Add More Maxxes'}
-                                </Text>
                             </TouchableOpacity>
                         )}
                     </View>
@@ -467,6 +468,18 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 10,
     },
+    maxxesProgramsCta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.foreground,
+        paddingVertical: 16,
+        borderRadius: borderRadius.full,
+        marginBottom: spacing.md,
+        ...shadows.md,
+    },
+    maxxesProgramsCtaText: { ...typography.button, color: colors.background, fontSize: 16 },
     courseCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
