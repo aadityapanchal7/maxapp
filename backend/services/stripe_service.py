@@ -4,7 +4,7 @@ Stripe Service — SetupIntent + Subscription-based payments
 
 import logging
 import stripe
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 from datetime import datetime
 from config import settings
 
@@ -77,29 +77,73 @@ class StripeService:
             )
         return price_id
 
+    def tier_for_price_id(self, price_id: Optional[str]) -> Optional[str]:
+        """Map configured weekly price id to basic | premium."""
+        if not price_id:
+            return None
+        basic = settings.stripe_price_id_weekly_basic
+        premium = settings.stripe_price_id_weekly_premium
+        if basic and price_id == basic:
+            return "basic"
+        if premium and price_id == premium:
+            return "premium"
+        return None
+
+    def tier_from_subscription(self, subscription: Any) -> Optional[str]:
+        """Read subscription metadata or first item price id and map to tier."""
+        try:
+            meta = dict(subscription.metadata or {})
+            tier_meta = (meta.get("tier") or "").lower()
+            if tier_meta in ("basic", "premium"):
+                return tier_meta
+            item0 = subscription.items.data[0]
+            pid = item0.price.id
+            return self.tier_for_price_id(pid)
+        except (AttributeError, IndexError, KeyError, TypeError):
+            return None
+
     async def create_subscription(
         self,
         customer_id: str,
         price_id: str,
         payment_method_id: str,
         user_id: str,
+        subscription_tier: Optional[str] = None,
     ) -> stripe.Subscription:
         stripe.Customer.modify(
             customer_id,
             invoice_settings={"default_payment_method": payment_method_id},
         )
+        meta = {"user_id": user_id}
+        if subscription_tier:
+            meta["tier"] = subscription_tier
         sub = stripe.Subscription.create(
             customer=customer_id,
             items=[{"price": price_id}],
             default_payment_method=payment_method_id,
-            metadata={"user_id": user_id},
+            metadata=meta,
             expand=["latest_invoice"],
         )
         return sub
 
+    def change_subscription_price(self, subscription_id: str, new_price_id: str) -> stripe.Subscription:
+        sub = stripe.Subscription.retrieve(subscription_id)
+        data = sub.items.data if sub.items else []
+        if not data:
+            raise ValueError("Subscription has no items")
+        item_id = data[0].id
+        return stripe.Subscription.modify(
+            subscription_id,
+            items=[{"id": item_id, "price": new_price_id}],
+            proration_behavior="create_prorations",
+        )
+
     # ------------------------------------------------------------------
     # Subscription management
     # ------------------------------------------------------------------
+
+    def retrieve_subscription_object(self, subscription_id: str) -> stripe.Subscription:
+        return stripe.Subscription.retrieve(subscription_id, expand=["items.data.price"])
 
     async def get_subscription(self, subscription_id: str) -> Optional[dict]:
         try:
@@ -184,7 +228,7 @@ class StripeService:
         event_type = event.type
         data = event.data.object
 
-        result = {
+        result: dict = {
             "event_type": event_type,
             "user_id": None,
             "subscription_id": None,

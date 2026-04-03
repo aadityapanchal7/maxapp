@@ -3,9 +3,11 @@ Payments API — Stripe SetupIntent + Subscription flow
 """
 
 import logging
+import stripe
 from fastapi import APIRouter, HTTPException, Request, Depends
 from uuid import UUID
 from pydantic import BaseModel
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from db import get_db
@@ -20,6 +22,9 @@ from models.payment import (
     SubscribeResponse,
     CancelRequest,
     CancelResponse,
+    ChangeTierRequest,
+    ChangeTierResponse,
+    ResumeSubscriptionResponse,
 )
 from models.sqlalchemy_models import User, Scan
 from config import settings
@@ -50,7 +55,12 @@ async def _ensure_stripe_customer(
     return customer_id
 
 
-async def _activate_user(user_id: str, subscription_id: str | None, db: AsyncSession):
+async def _activate_user(
+    user_id: str,
+    subscription_id: str | None,
+    db: AsyncSession,
+    subscription_tier: Optional[str] = None,
+):
     """Shared activation logic for webhook + test-activate."""
     user_uuid = UUID(user_id)
     user = await db.get(User, user_uuid)
@@ -60,6 +70,8 @@ async def _activate_user(user_id: str, subscription_id: str | None, db: AsyncSes
     if subscription_id:
         user.subscription_id = subscription_id
     user.subscription_status = "active"
+    if subscription_tier in ("basic", "premium"):
+        user.subscription_tier = subscription_tier
     ob = dict(user.onboarding or {})
     ob["post_subscription_onboarding"] = True
     ob["sendblue_connect_completed"] = False
@@ -80,7 +92,23 @@ async def _deactivate_user(user_id: str, db: AsyncSession):
         return
     user.is_paid = False
     user.subscription_status = "canceled"
+    user.subscription_id = None
+    user.subscription_tier = None
     await db.commit()
+
+
+async def _sync_subscription_tier_from_stripe(user_id: str, subscription_id: str, db: AsyncSession) -> None:
+    try:
+        sub = stripe_service.retrieve_subscription_object(subscription_id)
+        tier = stripe_service.tier_from_subscription(sub)
+        if not tier:
+            return
+        user = await db.get(User, UUID(user_id))
+        if user:
+            user.subscription_tier = tier
+            await db.commit()
+    except Exception as e:
+        logger.warning("Could not sync subscription tier from Stripe: %s", e)
 
 
 # ------------------------------------------------------------------
@@ -198,9 +226,12 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     action = result.get("action")
     uid = result.get("user_id")
     sub_id = result.get("subscription_id")
+    event_type = result.get("event_type")
 
     if action == "activate" and uid:
         await _activate_user(uid, sub_id, db)
+        if sub_id:
+            await _sync_subscription_tier_from_stripe(uid, sub_id, db)
 
     elif action == "cancel" and uid:
         await _deactivate_user(uid, db)
@@ -211,6 +242,14 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             user.subscription_status = result.get("status") or "past_due"
             await db.commit()
 
+    if (
+        uid
+        and sub_id
+        and event_type == "customer.subscription.updated"
+        and action == "update"
+    ):
+        await _sync_subscription_tier_from_stripe(uid, sub_id, db)
+
     return {"status": "ok"}
 
 
@@ -218,17 +257,130 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 # Status (existing)
 # ------------------------------------------------------------------
 
+def _subscription_payload(sub: dict | None) -> dict:
+    if not sub:
+        return {}
+    out = dict(sub)
+    for key in ("current_period_start", "current_period_end"):
+        v = out.get(key)
+        if v is not None and hasattr(v, "isoformat"):
+            out[f"{key}_iso"] = v.isoformat()
+    return out
+
+
 @router.get("/status")
-async def get_subscription_status(current_user: dict = Depends(get_current_user)):
+async def get_subscription_status(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user_row = await db.get(User, UUID(current_user["id"]))
+    tier = (
+        (user_row.subscription_tier if user_row else None)
+        or current_user.get("subscription_tier")
+    )
     sub_id = current_user.get("subscription_id")
     if not sub_id:
-        return {"is_active": False}
+        return {
+            "is_active": False,
+            "subscription_tier": tier,
+            "cancel_at_period_end": False,
+            "current_period_end_iso": None,
+            "current_period_start_iso": None,
+            "subscription": None,
+        }
 
     sub = await stripe_service.get_subscription(sub_id)
+    payload = _subscription_payload(sub)
+    cancel_at = bool(sub.get("cancel_at_period_end")) if sub else False
     return {
         "is_active": sub.get("status") == "active" if sub else False,
+        "subscription_tier": tier,
+        "cancel_at_period_end": cancel_at,
+        "current_period_end_iso": payload.get("current_period_end_iso"),
+        "current_period_start_iso": payload.get("current_period_start_iso"),
         "subscription": sub,
     }
+
+
+# ------------------------------------------------------------------
+# Change tier (existing subscribers)
+# ------------------------------------------------------------------
+
+
+@router.post("/change-tier", response_model=ChangeTierResponse)
+async def change_subscription_tier(
+    body: ChangeTierRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    sub_id = current_user.get("subscription_id")
+    if not sub_id:
+        raise HTTPException(status_code=404, detail="No active subscription")
+
+    if body.tier not in ("basic", "premium"):
+        raise HTTPException(status_code=400, detail="Invalid tier")
+
+    user = await db.get(User, UUID(current_user["id"]))
+    current_tier = (
+        (user.subscription_tier if user else None) or "basic"
+    ).lower()
+    if current_tier == body.tier:
+        raise HTTPException(status_code=400, detail="Already on this plan")
+
+    try:
+        new_price_id = stripe_service.resolve_price_id(body.tier)
+        stripe_service.change_subscription_price(sub_id, new_price_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except stripe.error.StripeError as e:
+        logger.exception("Stripe change-tier failed")
+        raise HTTPException(
+            status_code=502,
+            detail=getattr(e, "user_message", None) or str(e) or "Payment provider error",
+        )
+
+    if user:
+        user.subscription_tier = body.tier
+        try:
+            stripe.Subscription.modify(sub_id, metadata={"tier": body.tier})
+        except stripe.error.StripeError:
+            pass
+        await db.commit()
+
+    return ChangeTierResponse(status="ok", subscription_tier=body.tier)
+
+
+# ------------------------------------------------------------------
+# Resume (undo cancel at period end)
+# ------------------------------------------------------------------
+
+
+@router.post("/resume", response_model=ResumeSubscriptionResponse)
+async def resume_subscription(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    sub_id = current_user.get("subscription_id")
+    if not sub_id:
+        raise HTTPException(status_code=404, detail="No active subscription")
+
+    sub = await stripe_service.get_subscription(sub_id)
+    if not sub:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+
+    if not sub.get("cancel_at_period_end"):
+        raise HTTPException(status_code=400, detail="Subscription is not scheduled to cancel")
+
+    ok = await stripe_service.resume_subscription(sub_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Could not resume subscription")
+
+    user = await db.get(User, UUID(current_user["id"]))
+    if user:
+        user.subscription_status = "active"
+        await db.commit()
+
+    return ResumeSubscriptionResponse(resumed=True)
 
 
 # ------------------------------------------------------------------
@@ -270,7 +422,8 @@ async def test_activate_subscription(
         raise HTTPException(status_code=403, detail="Only available in development mode")
 
     try:
-        await _activate_user(current_user["id"], None, db)
+        tier = body.tier if body.tier in ("basic", "premium") else "premium"
+        await _activate_user(current_user["id"], None, db, subscription_tier=tier)
     except Exception as e:
         await db.rollback()
         logger.error(f"test-activate failed: {e}")
