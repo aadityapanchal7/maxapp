@@ -60,7 +60,14 @@
       ],
       "expo-video",
       "expo-audio",
-      "expo-font"
+      "expo-font",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "merchant.com.cannon.mobile",
+          "enableGooglePay": true
+        }
+      ]
     ],
     "scheme": "cannon",
     "platforms": [
