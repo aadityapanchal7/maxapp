@@ -1413,6 +1413,7 @@ conversation at your current pace If not, slow down.`,
     duration: '16 min',
     level: 'Intermediate',
     status: 'locked',
+    isPremium: true,
     content: `Module 10 — Sleep, Recovery & The Hormonal
 
 Phase 3 · Optimization · 16 min · Intermediate
@@ -1616,6 +1617,7 @@ with reading, stretching, or conversation.`,
     duration: '18 min',
     level: 'Intermediate-Advanced',
     status: 'locked',
+    isPremium: true,
     content: `Module 11 — Supplementation: Evidence, Hype, and the
 
 Phase 3 · Optimization · 18 min · Intermediate-Advanced
@@ -2058,6 +2060,7 @@ a quality fish oil or algae oil supplement. Tell me in chat and I'll add it to y
     duration: '14 min',
     level: 'Intermediate',
     status: 'locked',
+    isPremium: true,
     content: `Module 12 — Posture, Aesthetics & The Visual Edge
 
 Phase 3 · Optimization · 14 min · Intermediate
@@ -2250,6 +2253,7 @@ you in 8 weeks.`,
     duration: '12 min',
     level: 'Intermediate',
     status: 'locked',
+    isPremium: true,
     content: `Module 13 — Plateaus, Adjustments & The Long Game
 
 Phase 3 · Optimization · 12 min · Intermediate
@@ -2361,6 +2365,7 @@ full assessment.`,
     duration: '11 min',
     level: 'All',
     status: 'locked',
+    isPremium: true,
     content: `Module 14 — Building the Identity, Not Just the Body
 
 Phase 4 · Identity & Mastery · 11 min · All levels
@@ -2477,6 +2482,7 @@ make today that makes training or nutrition easier tomorrow. Message it to me in
     duration: '10 min',
     level: 'All',
     status: 'locked',
+    isPremium: true,
     content: `Module 15 — Graduation, What's Next & The Full Stack
 
 Phase 4 · Identity & Mastery · 10 min · All levels

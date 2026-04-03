@@ -4,10 +4,14 @@ Each maxx has a set of skin-concern (or goal-based) protocols the AI uses
 to generate personalised daily/weekly schedules.
 
 To add a new maxx, create a dict entry in MAXX_GUIDELINES with the same shape.
+
+Fitmax lesson modules live in services/fitmax_course_modules.py (generated from
+mobile/features/fitmax/modules.full.ts via scripts/regenerate_fitmax_course_modules.py).
 """
 
 from typing import Any, Optional
 
+from services.fitmax_course_modules import FITMAX_COURSE_MODULES
 from services.prompt_loader import PromptKey, resolve_prompt
 
 # ---------------------------------------------------------------------------
@@ -525,6 +529,19 @@ MAXX_GUIDELINES = {
         "recurring": True,
         "daily_tasks": True,
         "weekly_tasks": True,
+        "protocol_prompt_template": """## SKINCARE PROTOCOL — {label}
+AM Routine: {am}
+PM Routine: {pm}
+Weekly: {weekly}
+Sunscreen: {sunscreen}
+
+## SCHEDULE RULES
+- AM routine time = shortly after user wakes up
+- PM routine time = 1 hour before user goes to sleep (so nothing rubs off on pillow)
+- Sunscreen reapply reminders every 3 hours IF user will be outside that day
+- Weekly tasks (masks, exfoliants, peels) should be spread across the week
+- Learn the user's patterns and adapt over time
+""",
     },
     "heightmax": {
         "label": "Heightmax",
@@ -597,6 +614,7 @@ Blackpilled truth: {blackpill}
         "concern_mapping": {},
         "concern_question": "Body-composition phase is auto-routed from body fat + goal (Cut / Lean bulk / Recomp / Maintain).",
         "concerns": FITMAX_CONCERNS,
+        "modules": FITMAX_COURSE_MODULES,
         "recurring": True,
         "daily_tasks": True,
         "weekly_tasks": True,

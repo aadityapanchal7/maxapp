@@ -4,6 +4,16 @@
     "appVersionSource": "local"
   },
   "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "https://maxapp-api.onrender.com/api/"
+      },
+      "ios": {
+        "simulator": false
+      }
+    },
     "preview": {
       "android": {
         "buildType": "apk"

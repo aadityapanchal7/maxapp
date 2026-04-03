@@ -200,7 +200,7 @@ export default function ForumsHomeV2Screen() {
                                                             </Text>
                                                             {isPremiumBoard ? (
                                                                 <View style={styles.premiumBadge}>
-                                                                    <Ionicons name={isLocked ? 'lock-closed' : 'star'} size={10} color={colors.background} />
+                                                                    <Ionicons name={isLocked ? 'lock-closed' : 'star'} size={10} color="#fff" />
                                                                     <Text style={styles.premiumBadgeText}>PREMIUM</Text>
                                                                 </View>
                                                             ) : null}
@@ -306,19 +306,19 @@ const styles = StyleSheet.create({
     },
     boardMain: { flex: 1, paddingRight: 10 },
     boardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-    boardRowLocked: { opacity: 0.65 },
+    boardRowLocked: { opacity: 0.65, backgroundColor: colors.premiumLight },
     boardName: { color: colors.foreground, fontSize: 14, fontWeight: '800', maxWidth: '70%' },
     boardNameLocked: { color: colors.textMuted },
     premiumBadge: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 3,
-        backgroundColor: colors.foreground,
+        backgroundColor: colors.premium,
         borderRadius: 6,
         paddingHorizontal: 6,
         paddingVertical: 2,
     },
-    premiumBadgeText: { color: colors.background, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+    premiumBadgeText: { color: '#fff', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
     boardDesc: { color: colors.textMuted, fontSize: 12, marginTop: 6, lineHeight: 16 },
     meta: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
     readOnly: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },

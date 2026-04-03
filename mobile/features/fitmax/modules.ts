@@ -6,6 +6,7 @@ export interface FitmaxModule {
   level: string;
   status: 'locked' | 'available' | 'in_progress' | 'complete';
   content: string;
+  isPremium?: boolean;
 }
 
 import { FITMAX_MODULES_FULL } from './modules.full';

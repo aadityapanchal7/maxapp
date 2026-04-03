@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,8 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
+import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
+import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import {
   PRIORITY_LABELS,
   type PriorityKey,
@@ -43,6 +45,15 @@ const GOALS = [
   { id: 'hairmax', label: 'Hairmax', icon: 'cut-outline' },
   { id: 'fitmax', label: 'Fitmax', icon: 'fitness-outline' },
 ];
+
+/** When API maxx colors are not loaded yet — matches backend / course branding. */
+const GOAL_BRAND_FALLBACK: Record<string, string> = {
+  bonemax: '#F59E0B',
+  heightmax: '#6366F1',
+  skinmax: '#EC4899',
+  hairmax: '#8B5CF6',
+  fitmax: '#10B981',
+};
 
 const ACTIVITY_LEVELS = [
   { id: 'sedentary', label: 'Sedentary', desc: 'Little to no exercise' },
@@ -79,9 +90,19 @@ export default function EditPersonalScreen() {
   const { width } = useWindowDimensions();
   const isWide = width > 600;
   const { user, refreshUser } = useAuth();
+  const maxxesQuery = useMaxxesQuery();
   const [loading, setLoading] = useState(false);
 
   const onlyGoals = route.params?.onlyGoals === true;
+
+  const maxesById = useMemo(() => {
+    const m = new Map<string, { id?: string; label?: string; color?: string; icon?: string; description?: string }>();
+    for (const x of maxxesQuery.data?.maxes ?? []) {
+      const id = String(x.id || '').toLowerCase();
+      if (id) m.set(id, x);
+    }
+    return m;
+  }, [maxxesQuery.data?.maxes]);
 
   const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>((user?.onboarding?.unit_system as any) || 'imperial');
   const [selectedGoals, setSelectedGoals] = useState<string[]>(user?.onboarding?.goals || []);
@@ -361,31 +382,54 @@ export default function EditPersonalScreen() {
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
-          contentContainerStyle={[styles.content, isWide && styles.contentWide]}
+          scrollEnabled={!onlyGoals}
+          contentContainerStyle={[
+            styles.content,
+            isWide && styles.contentWide,
+            onlyGoals && styles.onlyGoalsContent,
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.lead}>
-            {onlyGoals
-              ? 'Choose which programs show on Home.'
-              : 'Update what you shared at signup — one place, no quiz replay.'}
-          </Text>
+          {!onlyGoals ? (
+            <Text style={styles.lead}>Update what you shared at signup — one place, no quiz replay.</Text>
+          ) : null}
 
-          <Text style={styles.sectionTitle}>Your Maxxes</Text>
-          <Text style={styles.goalsLimitHint}>
+          {!onlyGoals ? <Text style={styles.sectionTitle}>Your Maxxes</Text> : null}
+          <Text style={[styles.goalsLimitHint, onlyGoals && styles.goalsLimitHintProminent]}>
             Up to {maxHomeMaxxesForUser(user)} on your home screen
             {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'
               ? ' (Premium). Use + on Home for your daily face scan.'
               : ' (Basic or free).'}
           </Text>
-          <View style={styles.goalsGrid}>
+          <View
+            style={[
+              styles.goalsListBleed,
+              isWide ? { marginHorizontal: -spacing.xxl } : { marginHorizontal: -spacing.xl },
+            ]}
+          >
             {GOALS.map((goal) => {
               const selected = selectedGoals.includes(goal.id);
               const maxG = maxHomeMaxxesForUser(user);
+              const apiMax = maxesById.get(goal.id);
+              const merged = { id: goal.id, label: goal.label, ...apiMax };
+              const brand =
+                (apiMax?.color && String(apiMax.color)) || GOAL_BRAND_FALLBACK[goal.id] || colors.foreground;
+              const label = getMaxxDisplayLabel(merged);
+              const desc = getMaxxDisplayDescription(merged) ?? apiMax?.description;
+              const tintBg = `${brand}22`;
+              const tintSelectedBg = `${brand}18`;
+
               return (
                 <TouchableOpacity
                   key={goal.id}
-                  style={[styles.goalCard, selected && styles.goalCardSelected]}
+                  style={[
+                    styles.goalRow,
+                    onlyGoals && styles.goalRowSpaced,
+                    selected && styles.goalRowSelected,
+                    selected && { borderColor: brand, backgroundColor: tintSelectedBg },
+                  ]}
+                  activeOpacity={0.85}
                   onPress={() =>
                     setSelectedGoals((prev) => {
                       if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
@@ -400,14 +444,33 @@ export default function EditPersonalScreen() {
                     })
                   }
                 >
-                  <Ionicons name={goal.icon as any} size={20} color={selected ? colors.foreground : colors.textMuted} />
-                  <Text style={[styles.goalLabel, selected && styles.goalLabelSelected]}>{goal.label}</Text>
+                  <View style={[styles.goalRowStripe, { backgroundColor: brand }]} />
+                  <View style={styles.goalRowInner}>
+                    <View style={[styles.goalRowIcon, { backgroundColor: tintBg }]}>
+                      <Ionicons name={(apiMax?.icon || goal.icon) as any} size={22} color={brand} />
+                    </View>
+                    <View style={styles.goalRowCopy}>
+                      <Text style={styles.goalRowTitle} numberOfLines={1}>
+                        {label}
+                      </Text>
+                      {desc ? (
+                        <Text style={styles.goalRowDesc} numberOfLines={2}>
+                          {desc}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={[styles.goalRowCheck, selected && { borderColor: brand, backgroundColor: brand }]}>
+                      <Ionicons
+                        name={selected ? 'checkmark' : 'ellipse-outline'}
+                        size={selected ? 20 : 22}
+                        color={selected ? colors.background : colors.textMuted}
+                      />
+                    </View>
+                  </View>
                 </TouchableOpacity>
               );
             })}
           </View>
-
-          {onlyGoals ? <View style={{ height: 80 }} /> : null}
 
           {!onlyGoals && (
             <>
@@ -713,22 +776,75 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginBottom: spacing.md,
   },
+  goalsLimitHintProminent: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+  },
+  onlyGoalsContent: {
+    flexGrow: 1,
+    paddingTop: spacing.sm,
+  },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xl, marginBottom: spacing.md },
-  goalsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  goalCard: {
-    width: '31%',
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    padding: spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
+  /** Cancels scroll horizontal padding so rows span screen width (with inner lg inset). */
+  goalsListBleed: {
+    paddingHorizontal: spacing.lg,
+  },
+  goalRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    minHeight: 72,
+    marginBottom: spacing.sm,
+    borderRadius: borderRadius.xl,
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
     ...shadows.sm,
   },
-  goalCardSelected: { backgroundColor: colors.accentMuted, borderColor: colors.foreground },
-  goalLabel: { ...typography.caption, marginTop: spacing.xs, color: colors.textSecondary, textAlign: 'center' },
-  goalLabelSelected: { color: colors.foreground, fontWeight: '600' },
+  goalRowSpaced: {
+    marginBottom: spacing.lg,
+  },
+  goalRowSelected: {
+    borderWidth: 2,
+  },
+  goalRowStripe: {
+    width: 5,
+    flexShrink: 0,
+  },
+  goalRowInner: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingRight: spacing.md,
+    minWidth: 0,
+  },
+  goalRowIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: borderRadius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  goalRowCopy: { flex: 1, minWidth: 0 },
+  goalRowTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground, letterSpacing: -0.3 },
+  goalRowDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
+  goalRowCheck: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
+    flexShrink: 0,
+  },
   unitToggle: {
     flexDirection: 'row',
     backgroundColor: colors.card,

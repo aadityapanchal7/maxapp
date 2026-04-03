@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert } from 'react-native';
 import { useStripe } from '@stripe/stripe-react-native';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -36,11 +36,6 @@ export function useStripeSubscription() {
 
     const subscribeTier = useCallback(
         async (tier: Tier): Promise<boolean> => {
-            if (Platform.OS === 'web') {
-                Alert.alert('Not available', 'In-app subscription is only available on iOS and Android.');
-                return false;
-            }
-
             setLoading(tier);
             setError(null);
 

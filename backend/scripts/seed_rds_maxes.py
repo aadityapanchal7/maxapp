@@ -2,6 +2,11 @@
 Seed RDS maxes table with schedule guidelines (protocols, schedule_rules, concerns).
 Run after migrations. Safe to run repeatedly — upserts by maxx id.
 
+For a full copy of everything in services.maxx_guidelines (including Fitmax modules
+in services/fitmax_course_modules.py), use instead:
+
+    python scripts/sync_maxes_guidelines_to_rds.py
+
 Usage:
     cd backend
     .\venv\Scripts\python.exe scripts/seed_rds_maxes.py

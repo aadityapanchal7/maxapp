@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
@@ -8,9 +8,45 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 import { useMaxxQuery, useMaxxScheduleQuery, useActiveSchedulesSummaryQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
-import FitmaxScreen from './FitmaxScreen';
+import { useAuth } from '../../context/AuthContext';
+import { defaultFitmaxMacroSummary, deriveCalorieLogFromMessages, fitmaxAccent } from '../../features/fitmax/fitmax';
+import { buildModuleReaderContent, modulePreviewFromContent, isFitmaxCourseShape } from '../../utils/maxxModuleReader';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'];
+
+const MODULE_PHASE_ACCENTS: Record<string, string> = {
+    Foundation: '#0ea5e9',
+    Execution: '#22c55e',
+    Optimization: '#f59e0b',
+    'Identity & Mastery': '#a855f7',
+};
+
+/**
+ * Modules at the tail end of each maxx are premium-only.
+ * Backend can override via `mod.access_tier === 'premium'` or `mod.is_premium` / `mod.isPremium`.
+ */
+const PREMIUM_MODULE_TITLES: Record<string, Set<string>> = {
+    skinmax: new Set(['Aging / Skin Quality', 'Redness / Sensitivity']),
+    hairmax: new Set(['Minoxidil Protocol', 'Dermastamp / Dermaroller']),
+    heightmax: new Set(['Hormones to Max', 'Height Fuel', 'Look Taller Instantly']),
+    bonemax: new Set([]),
+    fitmax: new Set(),
+};
+
+function isModulePremium(maxxId: string, mod: any): boolean {
+    if (mod.access_tier === 'premium' || mod.is_premium || mod.isPremium) return true;
+    const titleSet = PREMIUM_MODULE_TITLES[maxxId];
+    if (titleSet?.has(mod.title)) return true;
+    return false;
+}
+
+function fitmaxStatusLabel(status: string | undefined): string {
+    if (status === 'complete') return 'Complete';
+    if (status === 'in_progress') return 'In Progress';
+    if (status === 'available') return 'Available';
+    if (status === 'locked') return 'Locked';
+    return '';
+}
 
 /** Same as HomeScreen: module titles if present, else concern labels (e.g. skinmax concerns). */
 function getMaxxTagLabels(maxx: any): string[] {
@@ -41,18 +77,15 @@ function formatStartedDate(iso: string | undefined): string {
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-/**
- * Per-module line: "Not started" or "Started Mon Jan 1, 2026" using active schedule + context.
- */
-function getModuleStatusLine(
-    maxxId: string,
-    moduleTitle: string,
-    activeSchedule: any | null,
-): string {
+function getModuleStatusLine(maxxId: string, moduleTitle: string, activeSchedule: any | null): string {
     if (!activeSchedule) return 'Not started';
 
     const ctx = activeSchedule.schedule_context || {};
     const dateStr = formatStartedDate(activeSchedule.created_at);
+
+    if (maxxId === 'fitmax') {
+        return dateStr ? `Started ${dateStr}` : 'Started';
+    }
 
     if (maxxId === 'heightmax') {
         const key = HEIGHT_TITLE_TO_KEY[moduleTitle];
@@ -103,7 +136,10 @@ export default function MaxxDetailScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
     const queryClient = useQueryClient();
+    const { isPremium } = useAuth() as any;
     const { maxxId } = route.params || {};
+
+    const isFitmax = maxxId === 'fitmax';
 
     const canSchedule = SCHEDULE_CAPABLE_MAXXES.includes(maxxId);
 
@@ -119,7 +155,56 @@ export default function MaxxDetailScreen() {
     const loading = !!maxxId && maxxQuery.isPending && !maxxQuery.data;
     const atLimit = !activeSchedule && activeCount >= 2;
 
-    /** Refetch schedule/summary only when cache is stale — avoids hammering the API on every tab switch. */
+    const [loadingFitmaxExtras, setLoadingFitmaxExtras] = useState(isFitmax);
+    const [macroSnapshot, setMacroSnapshot] = useState({
+        caloriesTarget: defaultFitmaxMacroSummary().calories,
+        caloriesConsumed: 0,
+        proteinTarget: defaultFitmaxMacroSummary().protein,
+        proteinConsumed: 0,
+        carbsTarget: defaultFitmaxMacroSummary().carbs,
+        carbsConsumed: 0,
+        fatTarget: defaultFitmaxMacroSummary().fat,
+        fatConsumed: 0,
+    });
+
+    useEffect(() => {
+        if (!isFitmax) return;
+        let mounted = true;
+        const load = async () => {
+            try {
+                const [scheduleRes, chatRes] = await Promise.all([api.getMaxxSchedule('fitmax'), api.getChatHistory()]);
+                const context = scheduleRes?.schedule?.schedule_context || {};
+                const targetCalories = Number(
+                    context.calories ?? context.calorie_target ?? context.target_calories ?? defaultFitmaxMacroSummary().calories,
+                );
+                const targetProtein = Number(context.protein_g ?? context.protein ?? defaultFitmaxMacroSummary().protein);
+                const targetCarbs = Number(context.carbs_g ?? context.carbs ?? defaultFitmaxMacroSummary().carbs);
+                const targetFat = Number(context.fat_g ?? context.fat ?? defaultFitmaxMacroSummary().fat);
+                const derived = deriveCalorieLogFromMessages(chatRes?.messages || []);
+                if (mounted) {
+                    setMacroSnapshot({
+                        caloriesTarget: Number.isFinite(targetCalories) ? targetCalories : defaultFitmaxMacroSummary().calories,
+                        caloriesConsumed: derived.consumedCalories,
+                        proteinTarget: Number.isFinite(targetProtein) ? targetProtein : defaultFitmaxMacroSummary().protein,
+                        proteinConsumed: derived.protein,
+                        carbsTarget: Number.isFinite(targetCarbs) ? targetCarbs : defaultFitmaxMacroSummary().carbs,
+                        carbsConsumed: derived.carbs,
+                        fatTarget: Number.isFinite(targetFat) ? targetFat : defaultFitmaxMacroSummary().fat,
+                        fatConsumed: derived.fat,
+                    });
+                }
+            } catch (e) {
+                console.warn('Fitmax macro snapshot failed', e);
+            } finally {
+                if (mounted) setLoadingFitmaxExtras(false);
+            }
+        };
+        void load();
+        return () => {
+            mounted = false;
+        };
+    }, [isFitmax]);
+
     useFocusEffect(
         useCallback(() => {
             if (!maxxId) return;
@@ -171,10 +256,27 @@ export default function MaxxDetailScreen() {
                 [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Stop', style: 'destructive', onPress: () => doStopSchedule() },
-                ]
+                ],
             );
         }
     };
+
+    const remainingCalories = Math.max(0, macroSnapshot.caloriesTarget - macroSnapshot.caloriesConsumed);
+    const proteinLeft = Math.max(0, macroSnapshot.proteinTarget - macroSnapshot.proteinConsumed);
+    const carbsLeft = Math.max(0, macroSnapshot.carbsTarget - macroSnapshot.carbsConsumed);
+    const fatLeft = Math.max(0, macroSnapshot.fatTarget - macroSnapshot.fatConsumed);
+
+    const modules = useMemo(() => (maxx?.modules || []) as any[], [maxx]);
+
+    const openModuleReader = useCallback(
+        (mod: any, idx: number) => {
+            const body = buildModuleReaderContent(mod);
+            const fitShape = isFitmaxCourseShape(mod);
+            const screenTitle = fitShape && typeof mod.id === 'number' ? `Module ${mod.id} - ${mod.title}` : mod.title || `Module ${idx + 1}`;
+            navigation.navigate('FitmaxModule', { title: screenTitle, content: body });
+        },
+        [navigation],
+    );
 
     if (loading) {
         return (
@@ -203,27 +305,49 @@ export default function MaxxDetailScreen() {
         );
     }
 
-    if (maxxId === 'fitmax') {
-        return <FitmaxScreen />;
-    }
-
-    const modules = maxx.modules || [];
     const tagLabels = getMaxxTagLabels(maxx);
     const MAX_PILLS = 8;
     const previewPills = tagLabels.slice(0, MAX_PILLS);
     const morePillCount = tagLabels.length - previewPills.length;
 
+    const headerColor = maxx.color || colors.foreground;
+    const fitmaxHeaderBg = '#16a34a14';
+    const fitmaxIconBg = '#16a34a1f';
+
     return (
         <View style={styles.container}>
-            <View style={[styles.headerBanner, maxx.color && { backgroundColor: maxx.color + '18' }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                    <Ionicons name="arrow-back" size={24} color={colors.foreground} />
-                </TouchableOpacity>
-                <View style={[styles.headerIcon, maxx.color && { backgroundColor: maxx.color + '30' }]}>
-                    <Ionicons name={(maxx.icon || 'book-outline') as any} size={28} color={maxx.color || colors.foreground} />
+            {isFitmax ? (
+                <View style={[styles.headerWrapFitmax, { backgroundColor: fitmaxHeaderBg }]}>
+                    <TouchableOpacity
+                        onPress={() => navigation.goBack()}
+                        style={styles.backButton}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                    >
+                        <Ionicons name="arrow-back" size={24} color={colors.foreground} />
+                    </TouchableOpacity>
+                    <View style={[styles.headerIcon, { backgroundColor: fitmaxIconBg }]}>
+                        <Ionicons name="barbell-outline" size={28} color={fitmaxAccent} />
+                    </View>
+                    <View style={styles.macroChip}>
+                        <Text style={styles.macroChipTitle}>Today</Text>
+                        <Text style={styles.macroChipCalories}>{remainingCalories} cal left</Text>
+                        <Text style={styles.macroChipMacros}>
+                            P {proteinLeft}g · C {carbsLeft}g · F {fatLeft}g
+                        </Text>
+                    </View>
+                    <Text style={styles.headerTitleFitmax}>{getMaxxDisplayLabel(maxx)}</Text>
                 </View>
-                <Text style={styles.headerTitle}>{getMaxxDisplayLabel(maxx)}</Text>
-            </View>
+            ) : (
+                <View style={[styles.headerBanner, maxx.color && { backgroundColor: maxx.color + '18' }]}>
+                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+                        <Ionicons name="arrow-back" size={24} color={colors.foreground} />
+                    </TouchableOpacity>
+                    <View style={[styles.headerIcon, maxx.color && { backgroundColor: maxx.color + '30' }]}>
+                        <Ionicons name={(maxx.icon || 'book-outline') as any} size={28} color={headerColor} />
+                    </View>
+                    <Text style={styles.headerTitle}>{getMaxxDisplayLabel(maxx)}</Text>
+                </View>
+            )}
 
             <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
                 <Text style={styles.description}>{getMaxxDisplayDescription(maxx) ?? maxx.description}</Text>
@@ -242,7 +366,7 @@ export default function MaxxDetailScreen() {
                                 style={styles.scheduleButton}
                                 activeOpacity={0.7}
                                 onPress={() => {
-                                    (navigation as any).navigate('Main', {
+                                    navigation.navigate('Main', {
                                         screen: 'Chat',
                                         params: { initSchedule: maxxId },
                                     });
@@ -254,21 +378,23 @@ export default function MaxxDetailScreen() {
                                 </Text>
                             </TouchableOpacity>
                         )}
+                        {isFitmax && loadingFitmaxExtras ? (
+                            <View style={styles.scheduleLoadingRow}>
+                                <ActivityIndicator size="small" color={colors.textMuted} />
+                                <Text style={styles.scheduleLoadingText}>Syncing macros…</Text>
+                            </View>
+                        ) : null}
                         {activeSchedule && (
                             <>
                                 <TouchableOpacity
                                     style={styles.viewScheduleButton}
                                     activeOpacity={0.7}
-                                    onPress={() => (navigation as any).navigate('Schedule', { scheduleId: activeSchedule.id })}
+                                    onPress={() => navigation.navigate('Schedule', { scheduleId: activeSchedule.id })}
                                 >
                                     <Ionicons name="eye-outline" size={20} color={colors.foreground} />
                                     <Text style={styles.viewScheduleText}>View Schedule</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={styles.stopButton}
-                                    activeOpacity={0.7}
-                                    onPress={handleStopSchedule}
-                                >
+                                <TouchableOpacity style={styles.stopButton} activeOpacity={0.7} onPress={handleStopSchedule}>
                                     <Ionicons name="stop-circle-outline" size={20} color="#ef4444" />
                                     <Text style={styles.stopButtonText}>Stop Schedule</Text>
                                 </TouchableOpacity>
@@ -288,22 +414,81 @@ export default function MaxxDetailScreen() {
                                 </Text>
                             </View>
                         ))}
-                        {morePillCount > 0 && (
-                            <Text style={styles.pillMoreText}>+{morePillCount} more…</Text>
-                        )}
+                        {morePillCount > 0 ? <Text style={styles.pillMoreText}>+{morePillCount} more…</Text> : null}
                     </View>
                 )}
 
-                {modules.map((mod: any, idx: number) => (
-                    <View key={idx} style={styles.moduleCard}>
-                        <View style={styles.moduleRow}>
-                            <Text style={styles.moduleTitle}>{mod.title}</Text>
-                            <Text style={styles.moduleStatus}>
-                                {getModuleStatusLine(maxxId, mod.title, activeSchedule)}
+                {modules.map((mod: any, idx: number) => {
+                    const premium = isModulePremium(maxxId, mod);
+                    const lockedPremium = premium && !isPremium;
+                    const fitShape = isFitmaxCourseShape(mod);
+                    const phaseAccent = fitShape
+                        ? MODULE_PHASE_ACCENTS[mod.phase as string] || fitmaxAccent
+                        : headerColor;
+                    const statusLine = getModuleStatusLine(maxxId, mod.title, activeSchedule);
+                    const readerBody = buildModuleReaderContent(mod);
+                    const preview = modulePreviewFromContent(readerBody);
+                    const fitStatus = fitmaxStatusLabel(mod.status);
+
+                    return (
+                        <TouchableOpacity
+                            key={mod.id != null ? String(mod.id) : `${mod.title}-${idx}`}
+                            style={[
+                                styles.moduleCardRich,
+                                mod.status === 'locked' && fitShape && !premium && styles.moduleCardLocked,
+                                premium && styles.moduleCardPremium,
+                                lockedPremium && styles.moduleCardPremiumLocked,
+                            ]}
+                            activeOpacity={0.85}
+                            onPress={() => {
+                                if (lockedPremium) {
+                                    navigation.navigate('Payment');
+                                    return;
+                                }
+                                openModuleReader(mod, idx);
+                            }}
+                        >
+                            <View style={styles.moduleHeaderRow}>
+                                <View style={[styles.phaseDot, { backgroundColor: premium ? colors.premium : phaseAccent }]} />
+                                <Text style={styles.moduleNumberLabel}>
+                                    {fitShape && typeof mod.id === 'number' ? `Module ${mod.id}` : `Part ${idx + 1}`}
+                                </Text>
+                                {premium ? (
+                                    <View style={styles.premiumBadge}>
+                                        <Ionicons name={lockedPremium ? 'lock-closed' : 'star'} size={10} color="#fff" />
+                                        <Text style={styles.premiumBadgeText}>PREMIUM</Text>
+                                    </View>
+                                ) : fitShape && fitStatus ? (
+                                    <Text style={[styles.moduleStatusChip, mod.status === 'complete' && styles.moduleStatusComplete]}>
+                                        {fitStatus}
+                                    </Text>
+                                ) : (
+                                    <Text style={styles.moduleStatusChipMuted} numberOfLines={1}>
+                                        {statusLine}
+                                    </Text>
+                                )}
+                            </View>
+                            <Text style={[styles.moduleTitleRich, lockedPremium && styles.moduleTitleLocked]}>{mod.title}</Text>
+                            <Text style={styles.moduleMetaRich}>
+                                {fitShape
+                                    ? `${mod.phase} · ${mod.duration} · ${mod.level}`
+                                    : mod.description
+                                      ? String(mod.description).slice(0, 120) + (String(mod.description).length > 120 ? '…' : '')
+                                      : Array.isArray(mod.steps)
+                                        ? `${mod.steps.length} sections`
+                                        : 'Open to read'}
                             </Text>
-                        </View>
-                    </View>
-                ))}
+                            <Text style={styles.modulePreviewRich} numberOfLines={lockedPremium ? 2 : undefined}>
+                                {preview}
+                            </Text>
+                            {lockedPremium ? (
+                                <Text style={styles.moduleScheduleHint}>Upgrade to unlock</Text>
+                            ) : !fitShape ? (
+                                <Text style={styles.moduleScheduleHint}>{statusLine}</Text>
+                            ) : null}
+                        </TouchableOpacity>
+                    );
+                })}
             </ScrollView>
         </View>
     );
@@ -320,6 +505,13 @@ const styles = StyleSheet.create({
         paddingBottom: spacing.xl,
         paddingHorizontal: spacing.lg,
     },
+    headerWrapFitmax: {
+        paddingTop: 56,
+        paddingBottom: spacing.lg,
+        paddingHorizontal: spacing.lg,
+        borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24,
+    },
     backButton: { marginBottom: spacing.md },
     headerIcon: {
         width: 56,
@@ -330,6 +522,28 @@ const styles = StyleSheet.create({
         marginBottom: spacing.sm,
     },
     headerTitle: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
+    headerTitleFitmax: {
+        fontSize: 28,
+        fontWeight: '700',
+        color: colors.foreground,
+        letterSpacing: -0.5,
+        paddingRight: 160,
+    },
+    macroChip: {
+        position: 'absolute',
+        right: spacing.lg,
+        top: 64,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        ...shadows.sm,
+    },
+    macroChipTitle: { ...typography.caption, color: colors.textMuted },
+    macroChipCalories: { fontSize: 12, fontWeight: '700', color: colors.foreground, marginTop: 2 },
+    macroChipMacros: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
     scroll: { flex: 1 },
     scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxxl },
     description: { fontSize: 15, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.xl },
@@ -361,19 +575,41 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: colors.textMuted,
     },
-    moduleCard: {
+    moduleCardRich: {
         backgroundColor: colors.card,
         borderRadius: borderRadius.xl,
+        padding: spacing.lg,
         marginBottom: spacing.md,
-        overflow: 'hidden',
         ...shadows.md,
     },
-    moduleRow: {
-        padding: spacing.lg,
-        gap: 6,
+    moduleCardLocked: { opacity: 0.72 },
+    moduleCardPremium: {
+        borderWidth: 1,
+        borderColor: colors.premiumBorder,
+        backgroundColor: colors.premiumLight,
     },
-    moduleTitle: { fontSize: 17, fontWeight: '600', color: colors.foreground },
-    moduleStatus: { fontSize: 14, color: colors.textMuted, lineHeight: 20 },
+    moduleCardPremiumLocked: { opacity: 0.8 },
+    moduleHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+    phaseDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
+    moduleNumberLabel: { ...typography.caption, flex: 1 },
+    moduleStatusChip: { fontSize: 11, fontWeight: '700', color: fitmaxAccent },
+    moduleStatusChipMuted: { fontSize: 11, fontWeight: '600', color: colors.textMuted, maxWidth: '42%', textAlign: 'right' },
+    moduleStatusComplete: { color: colors.success },
+    moduleTitleRich: { fontSize: 17, lineHeight: 24, fontWeight: '700', color: colors.foreground },
+    moduleTitleLocked: { color: colors.textMuted },
+    moduleMetaRich: { ...typography.caption, marginTop: 6 },
+    modulePreviewRich: { ...typography.bodySmall, marginTop: spacing.sm, lineHeight: 20 },
+    moduleScheduleHint: { ...typography.caption, marginTop: 8, color: colors.textMuted },
+    premiumBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        backgroundColor: colors.premium,
+        borderRadius: 6,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+    premiumBadgeText: { color: '#fff', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
     scheduleActions: {
         marginBottom: spacing.xl,
         gap: spacing.md,
@@ -442,4 +678,6 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         lineHeight: 20,
     },
+    scheduleLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    scheduleLoadingText: { ...typography.bodySmall },
 });

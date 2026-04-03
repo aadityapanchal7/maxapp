@@ -27,6 +27,10 @@ export const colors = {
     error: '#ef4444',
     info: '#3b82f6',
 
+    premium: '#D4A017',
+    premiumLight: '#D4A01718',
+    premiumBorder: '#D4A01740',
+
     border: '#e4e4e7',
     borderLight: '#f0f0f3',
     divider: '#e4e4e7',
