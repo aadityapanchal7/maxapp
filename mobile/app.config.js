@@ -13,6 +13,7 @@ module.exports = () => {
     const termsOfServiceUrl = process.env.EXPO_PUBLIC_TERMS_URL;
     const communityGuidelinesUrl = process.env.EXPO_PUBLIC_COMMUNITY_GUIDELINES_URL;
     const cookieNoticeUrl = process.env.EXPO_PUBLIC_COOKIE_NOTICE_URL;
+    const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY;
 
     return {
         expo: {
@@ -24,6 +25,7 @@ module.exports = () => {
                 termsOfServiceUrl: termsOfServiceUrl || baseExtra.termsOfServiceUrl,
                 communityGuidelinesUrl: communityGuidelinesUrl || baseExtra.communityGuidelinesUrl,
                 cookieNoticeUrl: cookieNoticeUrl || baseExtra.cookieNoticeUrl,
+                stripePublishableKey: stripePublishableKey || baseExtra.stripePublishableKey || '',
             },
         },
     };

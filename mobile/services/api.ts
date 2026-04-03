@@ -411,7 +411,36 @@ class ApiService {
         return response.data;
     }
 
-    // Payments
+    // Payments — native SetupIntent + Subscription flow
+
+    async getBillingPreview(tier: 'basic' | 'premium'): Promise<{
+        customer_id: string;
+        ephemeral_key_secret: string;
+        setup_intent_client_secret: string;
+        setup_intent_id: string;
+        publishable_key: string;
+    }> {
+        const response = await this.client.post('payments/billing-preview', { tier });
+        return response.data;
+    }
+
+    async subscribe(tier: 'basic' | 'premium', setupIntentId: string): Promise<{
+        subscription_id: string;
+        status: string;
+    }> {
+        const response = await this.client.post('payments/subscribe', {
+            tier,
+            setup_intent_id: setupIntentId,
+        });
+        return response.data;
+    }
+
+    async cancelSubscription(immediate = false): Promise<{ canceled: boolean }> {
+        const response = await this.client.post('payments/cancel', { immediate });
+        return response.data;
+    }
+
+    // Legacy
     async createCheckoutSession(successUrl: string, cancelUrl: string) {
         const response = await this.client.post('payments/create-session', { success_url: successUrl, cancel_url: cancelUrl });
         return response.data;
@@ -423,7 +452,6 @@ class ApiService {
     }
 
     async testActivateSubscription() {
-        // Dev only: Activate subscription without Stripe webhook
         const response = await this.client.post('payments/test-activate');
         return response.data;
     }

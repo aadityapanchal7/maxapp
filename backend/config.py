@@ -60,13 +60,26 @@ class Settings(BaseSettings):
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
     
-    # Stripe
+    # Stripe — secret key stays server-side; publishable key is only for reference / admin.
     stripe_secret_key: str = Field(default="")
     stripe_publishable_key: str = Field(default="")
     stripe_webhook_secret: str = Field(default="")
+    # Legacy embedded-checkout price (kept for backward compat; not used by native flow)
     stripe_price_id: str = Field(default="")
     subscription_price_monthly: float = Field(default=9.99)
     subscription_currency: str = Field(default="usd")
+    # Weekly subscription prices — create as *recurring / weekly* in Stripe Dashboard
+    stripe_price_id_weekly_basic: str = Field(
+        default="",
+        description="Stripe Price ID for Chadlite weekly subscription (e.g. price_xxx)",
+    )
+    stripe_price_id_weekly_premium: str = Field(
+        default="",
+        description="Stripe Price ID for Chad weekly subscription (e.g. price_xxx)",
+    )
+    # Must match the API version expected by @stripe/stripe-react-native for EphemeralKey.
+    # Check Stripe RN SDK changelog when upgrading the mobile package.
+    stripe_ephemeral_key_api_version: str = Field(default="2024-12-18.acacia")
     
     # Sendblue (iMessage / SMS) — https://sendblue.com/
     sendblue_api_key_id: str = Field(default="", description="sb-api-key-id header")

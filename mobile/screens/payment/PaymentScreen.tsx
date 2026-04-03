@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import React, { useState } from 'react';
 import {
     View,
     Text,
@@ -8,41 +8,14 @@ import {
     ScrollView,
     Platform,
 } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
-import * as Linking from 'expo-linking';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useStripeSubscription } from '../../hooks/useStripeSubscription';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
-
-/** Stripe Payment Links — override with EXPO_PUBLIC_STRIPE_BASIC_LINK / EXPO_PUBLIC_STRIPE_PREMIUM_LINK. Legacy: EXPO_PUBLIC_STRIPE_PAYMENT_LINK maps to Premium only. */
-// Chadlite (basic) — $3.99/mo
-const STRIPE_BASIC_FALLBACK = 'https://buy.stripe.com/14A4gz5fFdrae7XaHWbII06';
-// Chad (premium) — $5.99/mo
-const STRIPE_PREMIUM_FALLBACK = 'https://buy.stripe.com/6oU6oH23t1Is8ND17mbII05';
-
-const STRIPE_BASIC_URL = (process.env.EXPO_PUBLIC_STRIPE_BASIC_LINK?.trim() || STRIPE_BASIC_FALLBACK).trim();
-const STRIPE_PREMIUM_URL = (
-    process.env.EXPO_PUBLIC_STRIPE_PREMIUM_LINK?.trim() ||
-    process.env.EXPO_PUBLIC_STRIPE_PAYMENT_LINK?.trim() ||
-    STRIPE_PREMIUM_FALLBACK
-).trim();
-
-/**
- * Must match Stripe Payment Link “Confirmation page” redirect URL exactly (custom redirect).
- * Example: cannon://PaymentThankYou — set the same in Stripe Dashboard → Payment Link → After payment.
- */
-function getPaymentReturnUrl(): string {
-    const override = process.env.EXPO_PUBLIC_STRIPE_RETURN_URL?.trim();
-    if (override) return override;
-    return Linking.createURL('PaymentThankYou');
-}
-
-const POLL_INTERVAL_MS = 2000;
-const POLL_MAX_ATTEMPTS = 20;
 
 const BASIC_FEATURES = [
     'Up to 2 maxxes active',
@@ -59,135 +32,34 @@ const PREMIUM_FEATURES = [
     'Full course library',
 ];
 
-function buildCheckoutUrl(base: string, userId: string | undefined): string {
-    if (!userId) return base;
-    try {
-        const u = new URL(base);
-        u.searchParams.set('client_reference_id', userId);
-        return u.toString();
-    } catch {
-        const sep = base.includes('?') ? '&' : '?';
-        return `${base}${sep}client_reference_id=${encodeURIComponent(userId)}`;
-    }
-}
-
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const { user, refreshUser } = useAuth();
-    const [checkoutLoading, setCheckoutLoading] = useState<'basic' | 'premium' | null>(null);
+    const { loading: stripeLoading, subscribeBasic, subscribePremium } = useStripeSubscription();
     const [devLoading, setDevLoading] = useState(false);
-    const pollingRef = useRef(false);
 
-    const stripeUrlsConfigured = useMemo(() => STRIPE_BASIC_URL.length > 0 && STRIPE_PREMIUM_URL.length > 0, []);
-    const paymentReturnUrl = useMemo(() => getPaymentReturnUrl(), []);
-    const basicCheckoutUrl = useMemo(() => buildCheckoutUrl(STRIPE_BASIC_URL, user?.id), [user?.id]);
-    const premiumCheckoutUrl = useMemo(() => buildCheckoutUrl(STRIPE_PREMIUM_URL, user?.id), [user?.id]);
+    const busy = stripeLoading !== null || devLoading;
 
-    const pollUntilPaid = useCallback(async (): Promise<boolean> => {
-        if (pollingRef.current) return false;
-        pollingRef.current = true;
-        try {
-            for (let i = 0; i < POLL_MAX_ATTEMPTS; i++) {
-                try {
-                    const u = await refreshUser();
-                    if (u?.is_paid) return true;
-                } catch {
-                    /* retry */
-                }
-                await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-            }
-            return false;
-        } finally {
-            pollingRef.current = false;
-        }
-    }, [refreshUser]);
-
-    /**
-     * After browser closes: refresh once; if still unpaid, poll (webhook delay).
-     * If paid, RootNavigator remounts (auth-paid) → Main — skip Thank You.
-     */
-    const finishAfterPayment = useCallback(async () => {
-        try {
-            let u = await refreshUser();
-            if (!u?.is_paid) {
-                const ok = await pollUntilPaid();
-                if (ok) {
-                    await refreshUser();
-                    return;
-                }
-            } else {
-                return;
-            }
-        } catch {
-            /* fall through */
-        }
-        navigation.navigate('PaymentThankYou');
-    }, [navigation, refreshUser, pollUntilPaid]);
-
-    useEffect(() => {
-        const handleUrl = (event: { url: string }) => {
-            const u = event.url || '';
-            if (u.includes('PaymentThankYou')) {
-                finishAfterPayment();
-            }
-        };
-        const sub = Linking.addEventListener('url', handleUrl);
-        Linking.getInitialURL().then((url) => {
-            if (url?.includes('PaymentThankYou')) handleUrl({ url });
-        });
-        return () => sub.remove();
-    }, [finishAfterPayment]);
-
-    const openStripeCheckout = async (checkoutUrl: string, tier: 'basic' | 'premium') => {
+    const handleSubscribe = async (tier: 'basic' | 'premium') => {
         if (user && !user.first_scan_completed) {
-            Alert.alert('Face scan first', 'Complete your AI face scan to see your preview score, then you can subscribe.', [
-                { text: 'Start scan', onPress: () => navigation.navigate('FaceScan') },
-                { text: 'Cancel', style: 'cancel' },
-            ]);
-            return;
-        }
-        if (!checkoutUrl) {
             Alert.alert(
-                'Stripe link not set',
-                'Add EXPO_PUBLIC_STRIPE_BASIC_LINK and EXPO_PUBLIC_STRIPE_PREMIUM_LINK in mobile/.env (restart Expo), or use the defaults in PaymentScreen.tsx.',
+                'Face scan first',
+                'Complete your AI face scan to see your preview score, then you can subscribe.',
+                [
+                    { text: 'Start scan', onPress: () => navigation.navigate('FaceScan') },
+                    { text: 'Cancel', style: 'cancel' },
+                ],
             );
             return;
         }
 
-        try {
-            setCheckoutLoading(tier);
-            WebBrowser.maybeCompleteAuthSession();
+        const ok = tier === 'basic' ? await subscribeBasic() : await subscribePremium();
 
-            if (Platform.OS === 'web') {
-                await WebBrowser.openBrowserAsync(checkoutUrl);
-                await finishAfterPayment();
-                return;
+        if (!ok) {
+            const u = await refreshUser().catch(() => null);
+            if (!u?.is_paid) {
+                navigation.navigate('PaymentThankYou');
             }
-
-            /** iOS: SFSafari View Controller via expo-web-browser — standard for Stripe Payment Links. */
-            const authOpts = await WebBrowser.openAuthSessionAsync(checkoutUrl, paymentReturnUrl, {
-                preferEphemeralSession: true,
-                showInRecents: false,
-            });
-            WebBrowser.maybeCompleteAuthSession();
-
-            if (authOpts.type === 'success') {
-                await finishAfterPayment();
-            } else {
-                const u = await refreshUser().catch(() => null);
-                if (!u?.is_paid) {
-                    const becamePaid = await pollUntilPaid();
-                    if (!becamePaid) {
-                        navigation.navigate('PaymentThankYou');
-                    } else {
-                        await refreshUser();
-                    }
-                }
-            }
-        } catch (e) {
-            Alert.alert('Error', 'Could not open checkout. Try again.');
-        } finally {
-            setCheckoutLoading(null);
         }
     };
 
@@ -203,7 +75,9 @@ export default function PaymentScreen() {
             const msg =
                 error?.response?.data?.detail ||
                 error?.message ||
-                (error?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
+                (error?.response?.status === 401
+                    ? 'Please log in first.'
+                    : 'Failed to activate dev subscription.');
             Alert.alert('Error', String(msg));
         } finally {
             setDevLoading(false);
@@ -221,11 +95,13 @@ export default function PaymentScreen() {
                     <Text style={styles.kicker}>SUBSCRIBE</Text>
                     <Text style={styles.title}>Choose Basic or Premium</Text>
                     <Text style={styles.subtitle}>
-                        Checkout opens in a secure browser (Safari on iOS). Price and renewal are shown on Stripe before you pay.
-                        Configure the same return URL on both Payment Links in the Stripe Dashboard.
+                        {Platform.OS === 'web'
+                            ? 'In-app checkout is available on iOS and Android.'
+                            : 'Apple Pay or card — your payment method is saved securely by Stripe.'}
                     </Text>
                 </View>
 
+                {/* ── Chadlite (basic) ── */}
                 <View style={[styles.planCard, styles.planCardBasic]}>
                     <LinearGradient
                         colors={['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.02)']}
@@ -243,7 +119,7 @@ export default function PaymentScreen() {
                     <Text style={styles.planSub}>Essential maxxes, forums, and your first scan.</Text>
                     <View style={styles.priceRow}>
                         <Text style={styles.price}>$3.99</Text>
-                        <Text style={styles.priceLabel}>/mo</Text>
+                        <Text style={styles.priceLabel}>/wk</Text>
                     </View>
                     <View style={styles.featureList}>
                         {BASIC_FEATURES.map((feature, idx) => (
@@ -256,21 +132,18 @@ export default function PaymentScreen() {
                         ))}
                     </View>
                     <TouchableOpacity
-                        style={[
-                            styles.button,
-                            styles.buttonSecondary,
-                            (!stripeUrlsConfigured || checkoutLoading !== null || devLoading) && styles.buttonMuted,
-                        ]}
+                        style={[styles.button, styles.buttonSecondary, busy && styles.buttonMuted]}
                         activeOpacity={0.85}
-                        onPress={() => openStripeCheckout(basicCheckoutUrl, 'basic')}
-                        disabled={checkoutLoading !== null || devLoading}
+                        onPress={() => handleSubscribe('basic')}
+                        disabled={busy}
                     >
                         <Text style={[styles.buttonText, styles.buttonTextOnSurface]}>
-                            {checkoutLoading === 'basic' ? 'Opening checkout…' : 'Continue with Basic'}
+                            {stripeLoading === 'basic' ? 'Processing…' : 'Continue with Basic'}
                         </Text>
                     </TouchableOpacity>
                 </View>
 
+                {/* ── Chad (premium) ── */}
                 <View style={[styles.planCard, styles.planCardPremium]}>
                     <LinearGradient
                         colors={['rgba(255,255,255,0.16)', 'rgba(255,255,255,0.04)']}
@@ -288,7 +161,7 @@ export default function PaymentScreen() {
                     <Text style={styles.planSub}>Influencer access, daily scans, and the full library.</Text>
                     <View style={styles.priceRow}>
                         <Text style={styles.price}>$5.99</Text>
-                        <Text style={styles.priceLabel}>/mo</Text>
+                        <Text style={styles.priceLabel}>/wk</Text>
                     </View>
                     <View style={styles.featureList}>
                         {PREMIUM_FEATURES.map((feature, idx) => (
@@ -301,27 +174,19 @@ export default function PaymentScreen() {
                         ))}
                     </View>
                     <TouchableOpacity
-                        style={[
-                            styles.button,
-                            (!stripeUrlsConfigured || checkoutLoading !== null || devLoading) && styles.buttonMuted,
-                        ]}
+                        style={[styles.button, busy && styles.buttonMuted]}
                         activeOpacity={0.85}
-                        onPress={() => openStripeCheckout(premiumCheckoutUrl, 'premium')}
-                        disabled={checkoutLoading !== null || devLoading}
+                        onPress={() => handleSubscribe('premium')}
+                        disabled={busy}
                     >
                         <Text style={styles.buttonText}>
-                            {checkoutLoading === 'premium' ? 'Opening checkout…' : 'Continue with Premium'}
+                            {stripeLoading === 'premium' ? 'Processing…' : 'Continue with Premium'}
                         </Text>
                     </TouchableOpacity>
                 </View>
 
-                {stripeUrlsConfigured ? null : (
-                    <Text style={styles.linkHint}>Stripe Payment Links aren’t configured.</Text>
-                )}
-
                 <Text style={styles.disclaimer}>
-                    Manage billing from Stripe emails or customer portal. For App Store distribution, confirm subscription
-                    rules with Apple and your counsel—Stripe checkout is typical for web or companion flows.
+                    Manage billing from Stripe emails or customer portal. Subscriptions renew weekly until cancelled.
                 </Text>
 
                 {SHOW_DEV_SKIP_CONTROLS ? (
@@ -329,7 +194,7 @@ export default function PaymentScreen() {
                         style={styles.devButton}
                         activeOpacity={0.85}
                         onPress={handleDevSkip}
-                        disabled={devLoading || checkoutLoading !== null}
+                        disabled={busy}
                     >
                         <Text style={styles.devButtonText}>
                             {devLoading ? 'Activating…' : 'DEV: Skip payment & unlock'}
@@ -436,42 +301,6 @@ const styles = StyleSheet.create({
     },
     buttonMuted: { opacity: 0.5 },
     buttonText: { ...typography.button },
-    metaRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
-    metaPill: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        borderRadius: borderRadius.full,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-        paddingVertical: 8,
-        paddingHorizontal: 8,
-    },
-    metaText: { fontSize: 11, color: colors.textSecondary, fontWeight: '600' },
-    linkHint: {
-        fontSize: 12,
-        color: colors.textMuted,
-        textAlign: 'center',
-        marginTop: spacing.md,
-        lineHeight: 18,
-    },
-    redirectBlock: { marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-    redirectHint: {
-        fontSize: 11,
-        color: colors.textMuted,
-        lineHeight: 16,
-    },
-    redirectHintSpaced: { marginTop: spacing.sm },
-    redirectUrl: {
-        fontSize: 11,
-        color: colors.textSecondary,
-        fontWeight: '600',
-        marginTop: spacing.xs,
-        lineHeight: 15,
-    },
     disclaimer: {
         fontSize: 12,
         color: colors.textMuted,
