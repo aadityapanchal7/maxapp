@@ -52,7 +52,6 @@ export function useStripeSubscription() {
                     customerEphemeralKeySecret: preview.ephemeral_key_secret,
                     setupIntentClientSecret: preview.setup_intent_client_secret,
                     merchantDisplayName: 'Max',
-                    applePay: { merchantCountryCode: 'US' },
                     googlePay: { merchantCountryCode: 'US', testEnv: __DEV__ },
                     returnURL: 'cannon://stripe-redirect',
                 });

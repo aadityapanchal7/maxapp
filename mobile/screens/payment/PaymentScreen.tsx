@@ -104,7 +104,7 @@ export default function PaymentScreen() {
                     <Text style={styles.subtitle}>
                         {Platform.OS === 'web'
                             ? 'In-app checkout is available on iOS and Android.'
-                            : 'Apple Pay or card — your payment method is saved securely by Stripe.'}
+                            : 'Pay with card — your payment method is saved securely by Stripe.'}
                     </Text>
                 </View>
 

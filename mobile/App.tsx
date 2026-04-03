@@ -15,7 +15,6 @@ import MaxLoadingView from './components/MaxLoadingView';
 
 const STRIPE_PUBLISHABLE_KEY =
     process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || '';
-const MERCHANT_IDENTIFIER = 'merchant.com.cannon.mobile';
 
 function AppNavigator() {
     const { isAuthenticated } = useAuth();
@@ -42,10 +41,7 @@ export default function App() {
 
     return (
         <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
-            <StripeProvider
-                publishableKey={STRIPE_PUBLISHABLE_KEY}
-                merchantIdentifier={MERCHANT_IDENTIFIER}
-            >
+            <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
                 <QueryClientProvider client={queryClient}>
                     <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
                         <View style={[{ flex: 1, backgroundColor: colors.background }, webContainerStyle]}>
