@@ -1,6 +1,16 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, AppState, type AppStateStatus } from 'react-native';
-import { CommonActions, useNavigation } from '@react-navigation/native';
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    Alert,
+    AppState,
+    ActivityIndicator,
+    Platform,
+    type AppStateStatus,
+} from 'react-native';
+import { CommonActions, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -9,6 +19,14 @@ import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 import AnalyzingScreen from './AnalyzingScreen';
+import {
+    saveFaceScanDraft,
+    loadFaceScanDraft,
+    clearFaceScanDraft,
+    setPendingFaceScanSubmit,
+    clearPendingFaceScanSubmit,
+    getPendingFaceScanSubmit,
+} from '../../lib/faceScanDraft';
 
 const STEPS = [
     {
@@ -38,7 +56,12 @@ export default function FaceScanScreen() {
     const [uris, setUris] = useState<(string | null)[]>([null, null, null]);
     const [analyzing, setAnalyzing] = useState(false);
     const [analysisStep, setAnalysisStep] = useState(0);
+    const [bootstrapped, setBootstrapped] = useState(false);
+    const [cameraSession, setCameraSession] = useState(0);
+    const [appActive, setAppActive] = useState(() => AppState.currentState === 'active');
     const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+    const analyzingRef = useRef(false);
+    analyzingRef.current = analyzing;
 
     const navigateToResults = useCallback(() => {
         navigation.dispatch(
@@ -48,6 +71,123 @@ export default function FaceScanScreen() {
             }),
         );
     }, [navigation]);
+
+    const runAnalyzingRecovery = useCallback(
+        async (fromForeground: boolean) => {
+            const delays = [0, 1500, 3000, 4500];
+            for (const ms of delays) {
+                if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+                try {
+                    const u = await refreshUser();
+                    if (u?.first_scan_completed) {
+                        await clearPendingFaceScanSubmit();
+                        await clearFaceScanDraft();
+                        navigateToResults();
+                        return;
+                    }
+                } catch {
+                    /* continue */
+                }
+                try {
+                    const latest = await api.getLatestScan();
+                    const st = (latest as { processing_status?: string })?.processing_status;
+                    if (st === 'completed' || st === 'processing') {
+                        if (st === 'completed') {
+                            await refreshUser();
+                            await clearPendingFaceScanSubmit();
+                            await clearFaceScanDraft();
+                            navigateToResults();
+                            return;
+                        }
+                        continue;
+                    }
+                    if (st === 'failed') {
+                        await clearPendingFaceScanSubmit();
+                        setAnalyzing(false);
+                        Alert.alert(
+                            'Analysis didn’t finish',
+                            'Something went wrong analyzing your photos. Please try again.',
+                        );
+                        return;
+                    }
+                } catch {
+                    /* 404 = no scan row yet */
+                }
+            }
+            try {
+                const latest = await api.getLatestScan();
+                const st = (latest as { processing_status?: string })?.processing_status;
+                if (st === 'processing') {
+                    await clearPendingFaceScanSubmit();
+                    navigateToResults();
+                    return;
+                }
+            } catch {
+                /* no scan */
+            }
+            await clearPendingFaceScanSubmit();
+            setAnalyzing(false);
+            if (fromForeground) {
+                Alert.alert(
+                    'Analysis interrupted',
+                    'We couldn’t confirm your scan yet. If analysis was still running, open Results from your profile—or tap Analyze again from the last step.',
+                );
+            }
+        },
+        [navigateToResults, refreshUser],
+    );
+
+    useEffect(() => {
+        if (!user?.id) {
+            setBootstrapped(true);
+            return;
+        }
+        let cancelled = false;
+        void (async () => {
+            try {
+                const pending = await getPendingFaceScanSubmit();
+                if (cancelled) return;
+                if (pending?.userId === user.id) {
+                    setAnalyzing(true);
+                    setAnalysisStep(1);
+                    await runAnalyzingRecovery(false);
+                    return;
+                }
+                const draft = await loadFaceScanDraft(user.id);
+                if (!cancelled && draft) {
+                    setStepIndex(draft.stepIndex);
+                    setUris(draft.uris);
+                }
+            } catch (e) {
+                console.warn('face scan bootstrap', e);
+            } finally {
+                if (!cancelled) setBootstrapped(true);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [user?.id, runAnalyzingRecovery]);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (Platform.OS === 'web') return;
+            setCameraSession((s) => s + 1);
+        }, []),
+    );
+
+    useEffect(() => {
+        if (!user?.id || analyzing || !bootstrapped) return;
+        const hasAny = uris.some(Boolean);
+        if (!hasAny && stepIndex === 0) {
+            void clearFaceScanDraft().catch(() => undefined);
+            return;
+        }
+        const t = setTimeout(() => {
+            void saveFaceScanDraft(user.id, stepIndex, uris).catch((e) => console.warn('face scan draft save', e));
+        }, 450);
+        return () => clearTimeout(t);
+    }, [user?.id, stepIndex, uris, analyzing, bootstrapped]);
 
     const step = STEPS[stepIndex];
     const currentUri = uris[stepIndex];
@@ -98,73 +238,22 @@ export default function FaceScanScreen() {
     }, [isPaid, isPremium, navigation]);
 
     /**
-     * If the user backgrounds or kills the app during analysis, the upload may still complete on the server
-     * or fail. On return, recover to results when possible; otherwise exit analyzing with a clear message.
+     * Resume camera cleanly after background; recover analyzing flow from server when user returns.
      */
     useEffect(() => {
         const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
             const prev = appStateRef.current;
             appStateRef.current = next;
-            if (!analyzing) return;
+            setAppActive(next === 'active');
+            if (prev.match(/inactive|background/) && next === 'active') {
+                setCameraSession((s) => s + 1);
+            }
+            if (!analyzingRef.current) return;
             if (!prev.match(/inactive|background/) || next !== 'active') return;
-
-            void (async () => {
-                const delays = [0, 1500, 3000, 4500];
-                for (const ms of delays) {
-                    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
-                    try {
-                        const u = await refreshUser();
-                        if (u?.first_scan_completed) {
-                            navigateToResults();
-                            return;
-                        }
-                    } catch {
-                        /* continue */
-                    }
-                    try {
-                        const latest = await api.getLatestScan();
-                        const st = (latest as { processing_status?: string })?.processing_status;
-                        if (st === 'completed' || st === 'processing') {
-                            if (st === 'completed') {
-                                await refreshUser();
-                                navigateToResults();
-                                return;
-                            }
-                            continue;
-                        }
-                        if (st === 'failed') {
-                            setAnalyzing(false);
-                            Alert.alert(
-                                'Analysis didn’t finish',
-                                'Something went wrong analyzing your photos. Please try again.',
-                            );
-                            return;
-                        }
-                    } catch {
-                        /* 404 = no scan row yet */
-                    }
-                }
-                try {
-                    const latest = await api.getLatestScan();
-                    if ((latest as { processing_status?: string })?.processing_status === 'processing') {
-                        Alert.alert(
-                            'Still analyzing',
-                            'Your scan is still processing. Keep this screen open, or check results from your profile in a minute.',
-                        );
-                        return;
-                    }
-                } catch {
-                    /* no scan */
-                }
-                setAnalyzing(false);
-                Alert.alert(
-                    'Analysis interrupted',
-                    'We couldn’t finish while you were away. Please stay on this screen until it completes, or tap Analyze again.',
-                );
-            })();
+            void runAnalyzingRecovery(true);
         });
         return () => sub.remove();
-    }, [analyzing, navigateToResults, refreshUser]);
+    }, [runAnalyzingRecovery]);
 
     const capture = async () => {
         try {
@@ -239,6 +328,13 @@ export default function FaceScanScreen() {
         setAnalyzing(true);
         setAnalysisStep(0);
         let didLeaveScan = false;
+        if (user?.id) {
+            try {
+                await setPendingFaceScanSubmit(user.id);
+            } catch (e) {
+                console.warn('pending submit flag', e);
+            }
+        }
         try {
             setAnalysisStep(1);
             const scanRes = (await api.uploadScanTriple(f, l, r)) as { analysis?: { overall_score?: number } };
@@ -252,10 +348,13 @@ export default function FaceScanScreen() {
                 console.warn('Progress photo from face scan', pe);
             }
             await refreshUser();
+            await clearPendingFaceScanSubmit();
+            await clearFaceScanDraft();
             navigateToResults();
             didLeaveScan = true;
         } catch (err: unknown) {
             console.error(err);
+            await clearPendingFaceScanSubmit().catch(() => undefined);
             const ax = err as { response?: { data?: { detail?: string } } };
             const detail = ax?.response?.data?.detail;
             Alert.alert(
@@ -271,6 +370,15 @@ export default function FaceScanScreen() {
 
     if (analyzing) {
         return <AnalyzingScreen currentStep={analysisStep} />;
+    }
+
+    if (!bootstrapped) {
+        return (
+            <View style={[styles.container, styles.bootstrapRoot]}>
+                <ActivityIndicator size="large" color={colors.foreground} />
+                <Text style={styles.bootstrapHint}>Restoring your scan…</Text>
+            </View>
+        );
     }
 
     if (!permission?.granted) {
@@ -312,9 +420,19 @@ export default function FaceScanScreen() {
 
             <View style={styles.cameraContainer}>
                 {hasCurrent ? (
-                    <CachedImage uri={currentUri} style={styles.preview} />
+                    <CachedImage uri={currentUri!} style={styles.preview} />
+                ) : appActive ? (
+                    <CameraView
+                        key={cameraSession}
+                        ref={cameraRef}
+                        style={styles.camera}
+                        facing="front"
+                        mode="picture"
+                    />
                 ) : (
-                    <CameraView ref={cameraRef} style={styles.camera} facing="front" mode="picture" />
+                    <View style={[styles.camera, styles.cameraPaused]}>
+                        <Text style={styles.cameraPausedText}>Camera paused</Text>
+                    </View>
                 )}
             </View>
 
@@ -369,6 +487,8 @@ export default function FaceScanScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+    bootstrapRoot: { justifyContent: 'center', alignItems: 'center', gap: spacing.md },
+    bootstrapHint: { ...typography.body, color: colors.textMuted },
     permWrap: { justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
     permText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg },
     permBtn: {
@@ -423,6 +543,8 @@ const styles = StyleSheet.create({
         ...shadows.lg,
     },
     camera: { flex: 1, width: '100%', minHeight: 360 },
+    cameraPaused: { backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
+    cameraPausedText: { color: '#fff', fontSize: 15, opacity: 0.85 },
     preview: { flex: 1, width: '100%', minHeight: 360 },
     actions: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
     row: { flexDirection: 'row', gap: spacing.md, justifyContent: 'center', flexWrap: 'wrap' },

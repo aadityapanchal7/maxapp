@@ -5,6 +5,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
 import { getItemAsync } from '../services/storage';
 import api from '../services/api';
+import { clearFaceScanDraft, clearPendingFaceScanSubmit } from '../lib/faceScanDraft';
 
 type SubscriptionTier = 'basic' | 'premium' | null;
 
@@ -123,6 +124,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const logout = useCallback(async () => {
         await api.clearTokens();
         setUser(null);
+        await clearPendingFaceScanSubmit().catch(() => undefined);
+        await clearFaceScanDraft().catch(() => undefined);
     }, []);
 
     const refreshUser = useCallback(async (): Promise<User> => {
@@ -135,6 +138,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await api.deleteAccount(password);
         await api.clearTokens();
         setUser(null);
+        await clearPendingFaceScanSubmit().catch(() => undefined);
+        await clearFaceScanDraft().catch(() => undefined);
     }, []);
 
     const subscriptionTier: SubscriptionTier = (user?.subscription_tier as SubscriptionTier) ?? null;

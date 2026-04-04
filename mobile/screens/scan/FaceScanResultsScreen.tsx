@@ -11,6 +11,7 @@ import {
     LayoutChangeEvent,
     Share,
     Alert,
+    AppState,
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -393,6 +394,9 @@ function ScanProcessingView() {
                     </View>
                 </View>
                 <Text style={styles.loadingSub}>Building your facial ratings…</Text>
+                <Text style={styles.stayInAppNotice}>
+                    Stay in the app until this finishes—leaving can delay or interrupt your results.
+                </Text>
             </View>
             <ActivityIndicator size="large" color={colors.foreground} style={{ marginTop: spacing.xl }} />
         </View>
@@ -448,6 +452,18 @@ export default function FaceScanResultsScreen() {
         bootstrap();
     }, [bootstrap]);
 
+    const pollLatestScan = useCallback(async () => {
+        try {
+            const result = scanIdParam ? await api.getScanById(scanIdParam) : await api.getLatestScan();
+            setScan(result);
+            if (result?.processing_status !== 'processing') {
+                setProcessing(false);
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }, [scanIdParam]);
+
     useEffect(() => {
         if (scan?.processing_status === 'processing') {
             setProcessing(true);
@@ -487,6 +503,14 @@ export default function FaceScanResultsScreen() {
     const appealScore = parseAppeal(a, base);
     const isProcessing = processing || scan?.processing_status === 'processing';
     const frontUri = api.resolveAttachmentUrl(scan?.images?.front);
+
+    useEffect(() => {
+        if (!isProcessing) return;
+        const sub = AppState.addEventListener('change', (state) => {
+            if (state === 'active') void pollLatestScan();
+        });
+        return () => sub.remove();
+    }, [isProcessing, pollLatestScan]);
 
     const pr = a?.psl_rating && typeof a.psl_rating === 'object' ? a.psl_rating : {};
     const pi = a?.profile_insights;
@@ -901,6 +925,15 @@ const styles = StyleSheet.create({
         marginTop: spacing.sm,
         textAlign: 'center',
         alignSelf: 'stretch',
+    },
+    stayInAppNotice: {
+        fontSize: 12,
+        lineHeight: 17,
+        color: colors.textMuted,
+        marginTop: spacing.md,
+        textAlign: 'center',
+        alignSelf: 'stretch',
+        paddingHorizontal: spacing.sm,
     },
     progressTopRow: {
         flexDirection: 'row',

@@ -183,17 +183,23 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
     }, [currentStep, progressAnim]);
 
     useEffect(() => {
+        let alive = true;
         const animateDots = () => {
+            if (!alive) return;
             Animated.sequence([
                 Animated.timing(dots[0], { toValue: 1, duration: 300, useNativeDriver: true }),
                 Animated.timing(dots[1], { toValue: 1, duration: 300, useNativeDriver: true }),
                 Animated.timing(dots[2], { toValue: 1, duration: 300, useNativeDriver: true }),
             ]).start(() => {
+                if (!alive) return;
                 dots.forEach((d) => d.setValue(0.3));
                 animateDots();
             });
         };
         animateDots();
+        return () => {
+            alive = false;
+        };
     }, []);
 
     const onTrackLayout = (e: LayoutChangeEvent) => {
@@ -228,6 +234,9 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                         <Animated.View style={[styles.trackFill, { width: fillWidth }]} />
                     </View>
                 </View>
+                <Text style={styles.stayInAppNotice}>
+                    Do not leave or close the app while this runs—switching away can interrupt analysis.
+                </Text>
             </View>
 
             <View style={styles.centerStage}>
@@ -306,6 +315,14 @@ const styles = StyleSheet.create({
         height: '100%',
         borderRadius: borderRadius.full,
         backgroundColor: colors.foreground,
+    },
+    stayInAppNotice: {
+        marginTop: spacing.md,
+        fontSize: 13,
+        lineHeight: 19,
+        color: colors.textSecondary,
+        textAlign: 'center',
+        paddingHorizontal: spacing.sm,
     },
     centerStage: {
         flex: 1,
