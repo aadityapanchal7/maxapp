@@ -44,6 +44,25 @@ function formatTimeTo12Hour(time24: string) {
 }
 
 /** Avoid showing “Skinmax” twice when the title already starts with the module label. */
+/** Short, calm copy for schedule API failures (hides raw SQLAlchemy / pool noise). */
+function scheduleErrorSubtitle(raw: string): string {
+  const s = (raw || '').trim();
+  if (!s) return 'Something went wrong. Please try again.';
+  const lower = s.toLowerCase();
+  if (
+    lower.includes('queuepool') ||
+    lower.includes('connection timed out') ||
+    lower.includes('maxclients') ||
+    lower.includes('timeout')
+  ) {
+    return 'We could not load your data in time. Check your connection and try again.';
+  }
+  if (s.length > 160) {
+    return `${s.slice(0, 157).trim()}…`;
+  }
+  return s;
+}
+
 function stripDuplicateModulePrefix(title: string, moduleLabel: string): string {
   const t = (title || '').trim();
   const m = (moduleLabel || '').trim();
@@ -459,21 +478,19 @@ export default function MasterScheduleScreen() {
   if (loadError) {
     return (
       <View style={styles.container}>
-        <HeaderChrome
-          title="Schedule"
-          subtitle="All your active tasks"
-          headerRight={headerStreakRight}
-        />
-        <View style={[styles.emptyState, styles.center]}>
-          <Ionicons name="cloud-offline-outline" size={56} color={colors.error} />
-          <Text style={styles.emptyTitle}>Couldn&apos;t load your schedule</Text>
-          <Text style={styles.emptySubtitle}>{loadError}</Text>
+        <HeaderChrome title="Schedule" headerRight={headerStreakRight} />
+        <View style={[styles.emptyStateMinimal, styles.center]}>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="pulse-outline" size={22} color={colors.textMuted} />
+          </View>
+          <Text style={styles.emptyTitleMinimal}>Schedule unavailable</Text>
+          <Text style={styles.emptySubtitleMinimal}>{scheduleErrorSubtitle(loadError)}</Text>
           <TouchableOpacity
-            style={styles.primaryBtn}
+            style={styles.minimalBtn}
             onPress={() => void refetchAll()}
-            activeOpacity={0.7}
+            activeOpacity={0.65}
           >
-            <Text style={styles.primaryBtnText}>Try again</Text>
+            <Text style={styles.minimalBtnText}>Try again</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -488,14 +505,16 @@ export default function MasterScheduleScreen() {
           subtitle="All your active tasks, in one place"
           headerRight={headerStreakRight}
         />
-        <View style={[styles.emptyState, styles.center]}>
-          <Ionicons name="layers-outline" size={64} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>No active schedules</Text>
-          <Text style={styles.emptySubtitle}>
-            Start a schedule from a Maxx on Home. Once it&apos;s active, it&apos;ll show up here automatically.
+        <View style={[styles.emptyStateMinimal, styles.center]}>
+          <View style={styles.emptyIconCircle}>
+            <Ionicons name="calendar-outline" size={22} color={colors.textMuted} />
+          </View>
+          <Text style={styles.emptyTitleMinimal}>No schedules yet</Text>
+          <Text style={styles.emptySubtitleMinimal}>
+            Start a plan from a Maxx on Home — it will appear here when active.
           </Text>
-          <TouchableOpacity style={styles.primaryBtn} onPress={goHome} activeOpacity={0.7}>
-            <Text style={styles.primaryBtnText}>Go to Home</Text>
+          <TouchableOpacity style={styles.minimalBtn} onPress={goHome} activeOpacity={0.65}>
+            <Text style={styles.minimalBtnText}>Go to Home</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -755,34 +774,41 @@ const styles = StyleSheet.create({
   },
   legendDot: { width: 4, height: 4, borderRadius: 2 },
   legendText: { fontSize: 9, fontWeight: '600', color: colors.foreground, flexShrink: 1, lineHeight: 12 },
-  /** Match ScheduleScreen day strip */
+  /** Compact day strip (shared with per-program ScheduleScreen) */
   daySelectorContainer: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 8,
     flexGrow: 1,
-    justifyContent: 'center',
+    alignItems: 'center',
   },
   dayPill: {
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.lg,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.card,
-    minWidth: 52,
+    minWidth: 44,
   },
   dayPillActive: { backgroundColor: colors.foreground },
   dayPillDone: { borderWidth: 1.5, borderColor: colors.success },
-  dayPillLabel: { ...typography.caption, marginBottom: 2 },
+  dayPillLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 1,
+  },
   dayPillLabelActive: { color: colors.buttonText },
-  dayPillNumber: { fontSize: 16, fontWeight: '600', color: colors.foreground },
+  dayPillNumber: { fontSize: 13, fontWeight: '700', color: colors.foreground },
   dayPillNumberActive: { color: colors.buttonText },
   dayCompleteDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
     backgroundColor: colors.success,
-    marginTop: 3,
+    marginTop: 2,
   },
   bodyBelowHeader: {
     flex: 1,
@@ -904,6 +930,58 @@ const styles = StyleSheet.create({
     color: colors.foreground,
   },
   emptyState: { flex: 1, paddingHorizontal: spacing.xl },
+  emptyStateMinimal: {
+    flex: 1,
+    paddingHorizontal: spacing.xl,
+    justifyContent: 'center',
+    maxWidth: 360,
+    alignSelf: 'center',
+    width: '100%',
+    paddingBottom: spacing.xxl,
+  },
+  emptyIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.borderLight,
+  },
+  emptyTitleMinimal: {
+    fontSize: 22,
+    fontWeight: '600',
+    letterSpacing: -0.35,
+    color: colors.foreground,
+    textAlign: 'center',
+  },
+  emptySubtitleMinimal: {
+    fontSize: 14,
+    fontWeight: '400',
+    lineHeight: 21,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: spacing.sm,
+    marginBottom: spacing.xl,
+    paddingHorizontal: spacing.xs,
+  },
+  minimalBtn: {
+    alignSelf: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.foreground,
+    backgroundColor: 'transparent',
+  },
+  minimalBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.foreground,
+    letterSpacing: 0.15,
+  },
   emptyTitle: { ...typography.h2, marginTop: spacing.lg, marginBottom: spacing.sm, textAlign: 'center' },
   emptySubtitle: { ...typography.bodySmall, textAlign: 'center', marginBottom: spacing.xl },
   primaryBtn: {

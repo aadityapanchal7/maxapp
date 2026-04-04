@@ -400,7 +400,9 @@ export default function EditPersonalScreen() {
             Up to {maxHomeMaxxesForUser(user)} on your home screen
             {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'
               ? ' (Premium). Use + on Home for your daily face scan.'
-              : ' (Basic or free).'}
+              : user?.is_paid
+                ? ' (Basic). One face scan at signup — no extra scans on Basic; Premium gets daily scans (+ on Home).'
+                : ' (free).'}
           </Text>
           <View
             style={[
@@ -426,8 +428,11 @@ export default function EditPersonalScreen() {
                   style={[
                     styles.goalRow,
                     onlyGoals && styles.goalRowSpaced,
-                    selected && styles.goalRowSelected,
-                    selected && { borderColor: brand, backgroundColor: tintSelectedBg },
+                    onlyGoals && styles.goalRowManageUniform,
+                    selected &&
+                      (onlyGoals
+                        ? styles.goalRowSelectedUniform
+                        : [styles.goalRowSelected, { borderColor: brand, backgroundColor: tintSelectedBg }]),
                   ]}
                   activeOpacity={0.85}
                   onPress={() =>
@@ -444,10 +449,19 @@ export default function EditPersonalScreen() {
                     })
                   }
                 >
-                  <View style={[styles.goalRowStripe, { backgroundColor: brand }]} />
-                  <View style={styles.goalRowInner}>
-                    <View style={[styles.goalRowIcon, { backgroundColor: tintBg }]}>
-                      <Ionicons name={(apiMax?.icon || goal.icon) as any} size={22} color={brand} />
+                  {!onlyGoals ? <View style={[styles.goalRowStripe, { backgroundColor: brand }]} /> : null}
+                  <View style={[styles.goalRowInner, onlyGoals && styles.goalRowInnerPaddedLeft]}>
+                    <View
+                      style={[
+                        styles.goalRowIcon,
+                        onlyGoals ? styles.goalRowIconUniform : { backgroundColor: tintBg },
+                      ]}
+                    >
+                      <Ionicons
+                        name={(apiMax?.icon || goal.icon) as any}
+                        size={22}
+                        color={onlyGoals ? colors.foreground : brand}
+                      />
                     </View>
                     <View style={styles.goalRowCopy}>
                       <Text style={styles.goalRowTitle} numberOfLines={1}>
@@ -459,7 +473,15 @@ export default function EditPersonalScreen() {
                         </Text>
                       ) : null}
                     </View>
-                    <View style={[styles.goalRowCheck, selected && { borderColor: brand, backgroundColor: brand }]}>
+                    <View
+                      style={[
+                        styles.goalRowCheck,
+                        selected &&
+                          (onlyGoals
+                            ? styles.goalRowCheckSelectedUniform
+                            : { borderColor: brand, backgroundColor: brand }),
+                      ]}
+                    >
                       <Ionicons
                         name={selected ? 'checkmark' : 'ellipse-outline'}
                         size={selected ? 20 : 22}
@@ -810,6 +832,31 @@ const styles = StyleSheet.create({
   },
   goalRowSelected: {
     borderWidth: 2,
+  },
+  /** Manage / choose Maxxes only: neutral cards, no per-maxx color stripe or accent border. */
+  goalRowManageUniform: {
+    shadowColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+  },
+  goalRowSelectedUniform: {
+    borderWidth: 1,
+    borderColor: colors.foreground,
+    backgroundColor: colors.card,
+  },
+  goalRowInnerPaddedLeft: {
+    paddingLeft: spacing.md,
+  },
+  goalRowIconUniform: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  goalRowCheckSelectedUniform: {
+    borderColor: colors.foreground,
+    backgroundColor: colors.foreground,
   },
   goalRowStripe: {
     width: 5,

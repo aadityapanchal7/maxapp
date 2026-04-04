@@ -20,7 +20,7 @@ import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 const BASIC_FEATURES = [
     'Up to 2 maxxes active',
     'Community forums',
-    '1 face scan total (not daily)',
+    '1 face scan with Basic (signup) — no additional scans',
     'Basic course library',
 ];
 
@@ -53,14 +53,10 @@ export default function PaymentScreen() {
             return;
         }
 
-        const ok = tier === 'basic' ? await subscribeBasic() : await subscribePremium();
-
-        if (!ok) {
-            const u = await refreshUser().catch(() => null);
-            if (!u?.is_paid) {
-                navigation.navigate('PaymentThankYou');
-            }
-        }
+        await (tier === 'basic' ? subscribeBasic() : subscribePremium());
+        // Hook refreshes on success and polls until paid or gives up. When is_paid is true,
+        // RootNavigator remounts to Main. Never push PaymentThankYou on failure/cancel/pending —
+        // that wrongly showed "almost there" without a confirmed subscription.
     };
 
     const handleDevSkip = (tier: 'basic' | 'premium' = 'premium') => {
@@ -68,10 +64,8 @@ export default function PaymentScreen() {
             try {
                 setDevLoading(true);
                 await api.testActivateSubscription(tier);
-                const u = await refreshUser();
-                if (!u?.is_paid) {
-                    navigation.navigate('PaymentThankYou');
-                }
+                await refreshUser();
+                // Paid → RootNavigator sends user to Main; unpaid → stay on payment.
             } catch (error: any) {
                 const msg =
                     error?.response?.data?.detail ||
@@ -123,7 +117,10 @@ export default function PaymentScreen() {
                             <Text style={styles.planTagText}>Core access</Text>
                         </View>
                     </View>
-                    <Text style={styles.planSub}>Essential maxxes, forums, and one included face scan (not daily).</Text>
+                    <Text style={styles.planSub}>
+                        Essential maxxes and forums. One face scan when you sign up — Basic does not add extra scans;
+                        upgrade for daily scans.
+                    </Text>
                     <View style={styles.priceRow}>
                         <Text style={styles.price}>$3.99</Text>
                         <Text style={styles.priceLabel}>/wk</Text>

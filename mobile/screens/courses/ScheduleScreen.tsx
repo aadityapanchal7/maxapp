@@ -408,8 +408,9 @@ export default function ScheduleScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Day selector */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daySelectorContainer}>
+      {/* Day selector — compact strip aligned with Master Schedule */}
+      <View style={styles.dayStripWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daySelectorContainer}>
         {schedule.days.map((day, idx) => {
           const isSelected = idx === selectedDayIndex;
           const date = new Date(day.date + 'T00:00:00');
@@ -429,7 +430,8 @@ export default function ScheduleScreen() {
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+        </ScrollView>
+      </View>
 
       {/* Tasks */}
       <ScrollView
@@ -609,30 +611,44 @@ const styles = StyleSheet.create({
   },
   generateButtonText: { ...typography.button },
 
-  // Day selector
+  dayStripWrap: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   daySelectorContainer: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: 8,
     flexGrow: 1,
-    justifyContent: 'center',
+    alignItems: 'center',
   },
   dayPill: {
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: spacing.xs, // slightly shorter height vs original
-    borderRadius: borderRadius.lg,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: borderRadius.md,
     backgroundColor: colors.card,
-    minWidth: 52,
+    minWidth: 44,
   },
   dayPillActive: { backgroundColor: colors.foreground },
   dayPillDone: { borderWidth: 1.5, borderColor: colors.success },
-  dayPillLabel: { ...typography.caption, marginBottom: 2 },
+  dayPillLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 1,
+  },
   dayPillLabelActive: { color: colors.buttonText },
-  dayPillNumber: { fontSize: 16, fontWeight: '600', color: colors.foreground },
+  dayPillNumber: { fontSize: 13, fontWeight: '700', color: colors.foreground },
   dayPillNumberActive: { color: colors.buttonText },
   dayCompleteDot: {
-    width: 5, height: 5, borderRadius: 3, backgroundColor: colors.success, marginTop: 3,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.success,
+    marginTop: 2,
   },
 
   // Tasks

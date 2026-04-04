@@ -275,19 +275,6 @@ export default function HomeScreen() {
                             )}
                         </View>
 
-                        {activeMaxxes.length > 0 && (
-                            <TouchableOpacity
-                                style={styles.maxxesProgramsCta}
-                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
-                                activeOpacity={0.88}
-                            >
-                                <Text style={styles.maxxesProgramsCtaText}>
-                                    {rawGoalIds.length >= maxHomeSlots ? 'Manage Maxxes' : 'Add More Maxxes'}
-                                </Text>
-                                <Ionicons name="arrow-forward" size={20} color={colors.background} />
-                            </TouchableOpacity>
-                        )}
-
                         {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string; label?: string; description?: string }) => {
                             if (!maxx.id) return null;
                             return (
@@ -314,6 +301,23 @@ export default function HomeScreen() {
                                 </TouchableOpacity>
                             );
                         })}
+
+                        {activeMaxxes.length > 0 && (
+                            <TouchableOpacity
+                                style={styles.manageMaxxesFooter}
+                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                                activeOpacity={0.65}
+                                accessibilityRole="button"
+                                accessibilityLabel={
+                                    rawGoalIds.length >= maxHomeSlots ? 'Manage Maxxes' : 'Add Maxxes'
+                                }
+                            >
+                                <Text style={styles.manageMaxxesFooterText}>
+                                    {rawGoalIds.length >= maxHomeSlots ? 'Manage maxxes' : 'Add maxxes'}
+                                </Text>
+                                <Ionicons name="chevron-forward" size={13} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        )}
 
                         {activeMaxxes.length === 0 && (
                             <TouchableOpacity
@@ -360,7 +364,7 @@ const styles = StyleSheet.create({
         zIndex: 20,
         ...shadows.lg,
     },
-    scrollContent: { paddingBottom: spacing.xxxl },
+    scrollContent: { paddingBottom: spacing.xxxl + 24 },
     hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm },
     heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
     heroTextBlock: { flex: 1, minWidth: 0 },
@@ -468,37 +472,45 @@ const styles = StyleSheet.create({
         paddingVertical: 2,
         borderRadius: 10,
     },
-    maxxesProgramsCta: {
+    /** Below last Maxx card only — minimal, no filled pill */
+    manageMaxxesFooter: {
+        alignSelf: 'stretch',
+        marginTop: spacing.sm,
+        paddingTop: spacing.md,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.borderLight,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: spacing.sm,
-        backgroundColor: colors.foreground,
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
-        marginBottom: spacing.md,
-        ...shadows.md,
+        gap: 8,
+        paddingVertical: spacing.sm,
     },
-    maxxesProgramsCtaText: { ...typography.button, color: colors.background, fontSize: 16 },
+    manageMaxxesFooterText: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: colors.textSecondary,
+        letterSpacing: 0.6,
+        textTransform: 'uppercase',
+    },
     courseCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
         paddingVertical: spacing.xl,
         paddingHorizontal: spacing.lg,
-        marginBottom: spacing.md,
+        marginBottom: spacing.sm,
         ...shadows.md,
     },
     courseRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     courseIcon: {
-        width: 48,
-        height: 48,
+        width: 44,
+        height: 44,
         borderRadius: borderRadius.md,
         backgroundColor: colors.surface,
         alignItems: 'center',
         justifyContent: 'center',
     },
     courseContent: { flex: 1 },
-    courseTitle: { fontSize: 18, fontWeight: '700', color: colors.foreground, marginBottom: 6 },
+    courseTitle: { fontSize: 16, fontWeight: '600', color: colors.foreground, marginBottom: 4, letterSpacing: -0.2 },
     emptyCard: {
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
