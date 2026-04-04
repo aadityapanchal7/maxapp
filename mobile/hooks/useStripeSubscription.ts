@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import { useStripe } from '@stripe/stripe-react-native';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -42,13 +42,34 @@ export function useStripeSubscription() {
             try {
                 const preview = await api.getBillingPreview(tier);
 
+                const weeklyAmount = tier === 'premium' ? '5.99' : '3.99';
+                const planLabel = tier === 'premium' ? 'Max Premium (weekly)' : 'Max Basic (weekly)';
+
                 const { error: initError } = await initPaymentSheet({
                     customerId: preview.customer_id,
                     customerEphemeralKeySecret: preview.ephemeral_key_secret,
                     setupIntentClientSecret: preview.setup_intent_client_secret,
                     merchantDisplayName: 'Max',
-                    googlePay: { merchantCountryCode: 'US', testEnv: __DEV__ },
                     returnURL: 'cannon://stripe-redirect',
+                    ...(Platform.OS === 'ios'
+                        ? {
+                              applePay: {
+                                  merchantCountryCode: 'US',
+                                  cartItems: [
+                                      {
+                                          paymentType: 'Immediate' as const,
+                                          label: planLabel,
+                                          amount: weeklyAmount,
+                                      },
+                                  ],
+                              },
+                          }
+                        : {}),
+                    ...(Platform.OS === 'android'
+                        ? {
+                              googlePay: { merchantCountryCode: 'US', testEnv: __DEV__ },
+                          }
+                        : {}),
                 });
 
                 if (initError) {

@@ -64,6 +64,7 @@
       [
         "@stripe/stripe-react-native",
         {
+          "merchantIdentifier": "merchant.com.cannon.mobile",
           "enableGooglePay": true
         }
       ]
