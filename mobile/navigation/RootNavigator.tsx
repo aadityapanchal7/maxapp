@@ -24,6 +24,7 @@ import PaymentThankYouScreen from '../screens/payment/PaymentThankYouScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 import SettingsScreen from '../screens/profile/SettingsScreen';
 import EditPersonalScreen from '../screens/profile/EditPersonalScreen';
+import ManageSubscriptionScreen from '../screens/profile/ManageSubscriptionScreen';
 import PersonalInfoScreen from '../screens/profile/PersonalInfoScreen';
 import ProgressArchiveScreen from '../screens/profile/ProgressArchiveScreen';
 import FaceScanArchiveScreen from '../screens/profile/FaceScanArchiveScreen';
@@ -122,6 +123,7 @@ export function RootNavigator() {
                     <Stack.Screen name="Profile" component={ProfileScreen} />
                     <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="EditPersonal" component={EditPersonalScreen} />
+                    <Stack.Screen name="ManageSubscription" component={ManageSubscriptionScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="PersonalInfo" component={PersonalInfoScreen} />
                     <Stack.Screen name="ProgressArchive" component={ProgressArchiveScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="FaceScanArchive" component={FaceScanArchiveScreen} options={{ headerShown: false }} />

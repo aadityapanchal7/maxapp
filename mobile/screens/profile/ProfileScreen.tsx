@@ -342,6 +342,17 @@ export default function ProfileScreen() {
                                 <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                             </TouchableOpacity>
                         ) : null}
+                        {isPaid ? (
+                            <TouchableOpacity
+                                style={[styles.menuRow, { marginBottom: spacing.sm }]}
+                                onPress={() => navigation.navigate('ManageSubscription')}
+                                activeOpacity={0.7}
+                            >
+                                <Ionicons name="card-outline" size={22} color={colors.foreground} />
+                                <Text style={styles.menuRowText}>Manage subscription</Text>
+                                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        ) : null}
                         <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('PersonalInfo')} activeOpacity={0.7}>
                             <Ionicons name="id-card-outline" size={22} color={colors.foreground} />
                             <Text style={styles.menuRowText}>Edit personal info</Text>

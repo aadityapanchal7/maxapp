@@ -74,6 +74,21 @@ class CancelResponse(BaseModel):
     canceled: bool
 
 
+# --------------- Change tier / resume ---------------
+
+class ChangeTierRequest(BaseModel):
+    tier: Literal["basic", "premium"]
+
+
+class ChangeTierResponse(BaseModel):
+    status: str
+    subscription_tier: str
+
+
+class ResumeSubscriptionResponse(BaseModel):
+    resumed: bool
+
+
 # --------------- Shared / status ---------------
 
 class SubscriptionResponse(BaseModel):

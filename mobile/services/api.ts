@@ -455,8 +455,31 @@ class ApiService {
         return response.data;
     }
 
-    async getSubscriptionStatus() {
+    async getSubscriptionStatus(): Promise<{
+        is_active: boolean;
+        subscription_tier?: string | null;
+        cancel_at_period_end?: boolean;
+        current_period_end_iso?: string | null;
+        current_period_start_iso?: string | null;
+        subscription?: {
+            id?: string;
+            status?: string;
+            current_period_start?: string;
+            current_period_end?: string;
+            cancel_at_period_end?: boolean;
+        } | null;
+    }> {
         const response = await this.client.get('payments/status');
+        return response.data;
+    }
+
+    async changeSubscriptionTier(tier: 'basic' | 'premium'): Promise<{ status: string; subscription_tier: string }> {
+        const response = await this.client.post('payments/change-tier', { tier });
+        return response.data;
+    }
+
+    async resumeSubscription(): Promise<{ resumed: boolean }> {
+        const response = await this.client.post('payments/resume');
         return response.data;
     }
 
