@@ -227,7 +227,11 @@ class UserResponse(BaseModel):
     first_scan_completed: bool = False
     is_admin: bool = False
     phone_number: Optional[str] = None
-    
+    has_apns_token: bool = Field(
+        default=False,
+        description="True if an APNs device token is stored (iOS push can be delivered).",
+    )
+
     class Config:
         from_attributes = True
 

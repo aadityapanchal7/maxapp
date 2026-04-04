@@ -410,6 +410,27 @@ class ApiService {
         return response.data;
     }
 
+    /** DEBUG: mark SMS engaged only — then show notification channel picker. */
+    async devSkipSendblueEngageOnly() {
+        const response = await this.client.post('users/sendblue-connect/dev-skip-engage');
+        return response.data;
+    }
+
+    async registerPushToken(token: string) {
+        const response = await this.client.post('users/push-token', { token });
+        return response.data;
+    }
+
+    async clearPushToken() {
+        const response = await this.client.delete('users/push-token');
+        return response.data;
+    }
+
+    async patchNotificationChannels(prefs: { sms_opt_in: boolean; app_notifications_opt_in: boolean }) {
+        const response = await this.client.patch('users/notification-channels', prefs);
+        return response.data;
+    }
+
     async getScanHistory() {
         const response = await this.client.get('scans/history');
         return response.data;

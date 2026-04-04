@@ -16,6 +16,13 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from db.sqlalchemy import AsyncSessionLocal
 from services.sendblue_service import sendblue_service, onboarding_allows_proactive_sms
+from services.notification_prefs import (
+    user_allows_proactive_push,
+    schedule_needs_any_channel,
+    mark_schedule_sms_sent,
+    mark_schedule_push_sent,
+)
+from services.apns_service import send_apns_alert, apns_response_should_invalidate_token
 from models.sqlalchemy_models import UserSchedule, User, UserCoachingState
 from config import settings
 
@@ -156,7 +163,7 @@ def _pending_morning_wake_tasks_today(schedules: list, today_iso: str) -> bool:
 
 
 async def send_due_notifications():
-    """Check for schedule tasks that are due and send SMS reminders (deduped per user)."""
+    """Check for schedule tasks that are due; send SMS and/or APNs (deduped per user)."""
     try:
         if _sms_fast_mode():
             logger.debug("SMS fast mode: schedule reminders ignore task time window (today's pending tasks only)")
@@ -170,9 +177,11 @@ async def send_due_notifications():
 
             for user_id, user_schedules in by_user.items():
                 user = await db.get(User, user_id)
-                if not user or not user.phone_number:
+                if not user:
                     continue
-                if not onboarding_allows_proactive_sms(user.onboarding):
+                want_sms = bool(user.phone_number) and onboarding_allows_proactive_sms(user.onboarding)
+                want_push = user_allows_proactive_push(user.onboarding, user.apns_device_token)
+                if not want_sms and not want_push:
                     continue
 
                 tz_name = (user.onboarding or {}).get("timezone", "UTC")
@@ -193,7 +202,9 @@ async def send_due_notifications():
                         if day.get("date") != today_iso:
                             continue
                         for task in day.get("tasks", []):
-                            if task.get("notification_sent") or task.get("status") != "pending":
+                            if not schedule_needs_any_channel(
+                                task, want_sms=want_sms, want_push=want_push
+                            ):
                                 continue
                             task_time = task.get("time", "")
                             parts = _parse_task_time_parts(task_time)
@@ -232,19 +243,40 @@ async def send_due_notifications():
                 touched_schedules: set = set()
                 for _key, group in groups.items():
                     payload = [(item["task"], item["task_time_str"]) for item in group]
-                    success = await sendblue_service.send_schedule_reminder_group(
-                        user.phone_number, payload
-                    )
-                    if success:
-                        for item in group:
-                            item["task"]["notification_sent"] = True
-                            touched_schedules.add(item["schedule"])
-                        logger.info(
-                            "Sent deduped schedule SMS to user %s (%s task(s), key=%s)",
-                            user.id,
-                            len(group),
-                            _key,
+
+                    if want_sms:
+                        success = await sendblue_service.send_schedule_reminder_group(
+                            user.phone_number, payload
                         )
+                        if success:
+                            for item in group:
+                                mark_schedule_sms_sent(item["task"])
+                                touched_schedules.add(item["schedule"])
+                            logger.info(
+                                "Sent deduped schedule SMS to user %s (%s task(s), key=%s)",
+                                user.id,
+                                len(group),
+                                _key,
+                            )
+
+                    if want_push and (user.apns_device_token or "").strip():
+                        title, body = sendblue_service.build_schedule_reminder_push_content(payload)
+                        ok, http_status = await send_apns_alert(
+                            user.apns_device_token, title, body
+                        )
+                        if apns_response_should_invalidate_token(http_status):
+                            user.apns_device_token = None
+                            user.apns_token_updated_at = None
+                        if ok:
+                            for item in group:
+                                mark_schedule_push_sent(item["task"])
+                                touched_schedules.add(item["schedule"])
+                            logger.info(
+                                "Sent deduped schedule APNs to user %s (%s task(s), key=%s)",
+                                user.id,
+                                len(group),
+                                _key,
+                            )
 
                 for schedule in touched_schedules:
                     flag_modified(schedule, "days")
@@ -318,7 +350,16 @@ async def send_bedtime_progress_picture_prompts():
             try:
                 async with AsyncSessionLocal() as db:
                     user = await db.get(User, uid)
-                    if not user or not user.is_paid or not user.phone_number:
+                    if not user or not user.is_paid:
+                        continue
+
+                    want_sms = bool(user.phone_number) and onboarding_allows_proactive_sms(
+                        user.onboarding
+                    )
+                    want_push = user_allows_proactive_push(
+                        user.onboarding, user.apns_device_token
+                    )
+                    if not want_sms and not want_push:
                         continue
 
                     sleep_hm = _resolve_user_sleep_time(user, schedules)
@@ -349,13 +390,26 @@ async def send_bedtime_progress_picture_prompts():
                         continue
 
                     phone = user.phone_number
+                    apns_tok = (user.apns_device_token or "").strip()
                     user_uuid = user.id
 
                 msg = await coaching_service.generate_bedtime_progress_picture_prompt(
                     str(user_uuid), None, None
                 )
-                ok = await sendblue_service.send_coaching_sms(phone, msg)
-                if not ok:
+                delivered = False
+                if want_sms and phone:
+                    delivered = bool(await sendblue_service.send_coaching_sms(phone, msg))
+                if want_push and apns_tok:
+                    ok, http_status = await send_apns_alert(apns_tok, "Max", msg)
+                    if apns_response_should_invalidate_token(http_status):
+                        async with AsyncSessionLocal() as db2:
+                            u2 = await db2.get(User, user_uuid)
+                            if u2:
+                                u2.apns_device_token = None
+                                u2.apns_token_updated_at = None
+                                await db2.commit()
+                    delivered = delivered or ok
+                if not delivered:
                     continue
 
                 async with AsyncSessionLocal() as db:
@@ -512,14 +566,18 @@ async def send_coaching_check_ins():
                             await db.commit()
                             continue
 
-                    if not user.phone_number:
-                        await db.commit()
-                        continue
-                    if not onboarding_allows_proactive_sms(user.onboarding):
+                    want_sms = bool(user.phone_number) and onboarding_allows_proactive_sms(
+                        user.onboarding
+                    )
+                    want_push = user_allows_proactive_push(
+                        user.onboarding, user.apns_device_token
+                    )
+                    if not want_sms and not want_push:
                         await db.commit()
                         continue
 
                     phone = user.phone_number
+                    apns_tok = (user.apns_device_token or "").strip()
                     uid_str = str(user.id)
                     ct = check_in_type
                     mt = missed_today
@@ -529,7 +587,22 @@ async def send_coaching_check_ins():
                     uid_str, None, None, ct, mt
                 )
 
-                await sendblue_service.send_coaching_sms(phone, msg_text)
+                delivered = False
+                if want_sms and phone:
+                    delivered = bool(await sendblue_service.send_coaching_sms(phone, msg_text))
+                if want_push and apns_tok:
+                    ok, http_status = await send_apns_alert(apns_tok, "Max", msg_text)
+                    if apns_response_should_invalidate_token(http_status):
+                        async with AsyncSessionLocal() as db2:
+                            u2 = await db2.get(User, uid)
+                            if u2:
+                                u2.apns_device_token = None
+                                u2.apns_token_updated_at = None
+                                await db2.commit()
+                    delivered = delivered or ok
+
+                if not delivered:
+                    continue
 
                 async with AsyncSessionLocal() as db:
                     st_res = await db.execute(
@@ -544,7 +617,13 @@ async def send_coaching_check_ins():
                             st.streak_days = 0
 
                     await db.commit()
-                    logger.info(f"Sent {ct} check-in SMS to {uid}")
+                    logger.info(
+                        "Sent %s check-in to %s (sms=%s push=%s)",
+                        ct,
+                        uid,
+                        want_sms and bool(phone),
+                        want_push and bool(apns_tok),
+                    )
                     if _sms_fast_mode():
                         _COACHING_FAST_TEST_UIDS.add(uid)
 
@@ -572,7 +651,13 @@ async def send_weekly_resets():
                     user = await db.get(User, uid)
                     if not user:
                         continue
-                    if not user.phone_number or not onboarding_allows_proactive_sms(user.onboarding):
+                    want_sms = bool(user.phone_number) and onboarding_allows_proactive_sms(
+                        user.onboarding
+                    )
+                    want_push = user_allows_proactive_push(
+                        user.onboarding, user.apns_device_token
+                    )
+                    if not want_sms and not want_push:
                         continue
 
                     onboarding = user.onboarding or {}
@@ -607,6 +692,7 @@ async def send_weekly_resets():
                         continue
 
                     phone = user.phone_number
+                    apns_tok = (user.apns_device_token or "").strip()
                     uid_str = str(user.id)
                     check_key = "weekly_fitmax_summary" if has_fitmax else "weekly"
                     await db.commit()
@@ -615,11 +701,24 @@ async def send_weekly_resets():
                     uid_str, None, None, check_key, 0
                 )
 
-                async with AsyncSessionLocal() as db:
-                    user = await db.get(User, uid)
-                    if user and phone:
-                        await sendblue_service.send_coaching_sms(phone, msg_text)
+                delivered = False
+                if want_sms and phone:
+                    delivered = bool(await sendblue_service.send_coaching_sms(phone, msg_text))
+                if want_push and apns_tok:
+                    ok, http_status = await send_apns_alert(apns_tok, "Max", msg_text)
+                    if apns_response_should_invalidate_token(http_status):
+                        async with AsyncSessionLocal() as db2:
+                            u2 = await db2.get(User, uid)
+                            if u2:
+                                u2.apns_device_token = None
+                                u2.apns_token_updated_at = None
+                                await db2.commit()
+                    delivered = delivered or ok
 
+                if not delivered:
+                    continue
+
+                async with AsyncSessionLocal() as db:
                     st_res = await db.execute(
                         select(UserCoachingState).where(UserCoachingState.user_id == uid)
                     )
@@ -629,7 +728,12 @@ async def send_weekly_resets():
                         st.updated_at = datetime.utcnow()
 
                     await db.commit()
-                    logger.info(f"Sent weekly reset SMS to {uid}")
+                    logger.info(
+                        "Sent weekly reset to %s (sms=%s push=%s)",
+                        uid,
+                        want_sms and bool(phone),
+                        want_push and bool(apns_tok),
+                    )
                     if _sms_fast_mode():
                         _WEEKLY_FAST_TEST_UIDS.add(uid)
 

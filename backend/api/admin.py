@@ -48,7 +48,10 @@ def _user_to_response(user: User) -> UserResponse:
         profile=UserProfile(**user.profile) if user.profile else UserProfile(),
         first_scan_completed=user.first_scan_completed,
         is_admin=user.is_admin,
-        phone_number=user.phone_number
+        phone_number=user.phone_number,
+        subscription_tier=user.subscription_tier,
+        last_username_change=user.last_username_change,
+        has_apns_token=bool((user.apns_device_token or "").strip()),
     )
 
 

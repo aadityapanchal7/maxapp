@@ -105,6 +105,8 @@ async def _run_app_users_column_migrations():
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS ai_context TEXT DEFAULT ''",
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS ai_summaries JSONB DEFAULT '[]'",
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR",
+        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS apns_device_token TEXT",
+        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS apns_token_updated_at TIMESTAMPTZ",
     ]
     try:
         async with engine.begin() as conn:

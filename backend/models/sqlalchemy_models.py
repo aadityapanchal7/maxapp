@@ -51,6 +51,10 @@ class User(Base):
     phone_number = Column(String)
     first_scan_completed = Column(Boolean, default=False)
 
+    # iOS APNs device token (hex, no spaces) for server-driven push; cleared on 410 from Apple
+    apns_device_token = Column(Text, nullable=True)
+    apns_token_updated_at = Column(DateTime(timezone=True), nullable=True)
+
     onboarding = Column(JSON, default=dict)
     profile = Column(JSON, default=dict)
     schedule_preferences = Column(JSON, default=dict)

@@ -1,8 +1,9 @@
 /**
  * After paid scan results: user must text the Sendblue line so their number is in the thread ($100/mo plan).
+ * Next: NotificationChannelsScreen picks SMS vs iPhone push vs both.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -12,7 +13,6 @@ import {
     Platform,
     ActivityIndicator,
     Alert,
-    Switch,
     ScrollView,
 } from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
@@ -32,16 +32,13 @@ export default function SendblueConnectScreen() {
     const insets = useSafeAreaInsets();
     const { refreshUser, user } = useAuth();
     const [busy, setBusy] = useState(false);
-    const [smsOptIn, setSmsOptIn] = useState(true);
-    const [appNotificationsOptIn, setAppNotificationsOptIn] = useState(true);
-    const prefsInitializedRef = useRef(false);
 
     const smsConfirmed = user?.onboarding?.sendblue_sms_engaged === true;
 
     useFocusEffect(
         useCallback(() => {
             refreshUser().catch(() => {});
-        }, [refreshUser])
+        }, [refreshUser]),
     );
 
     useEffect(() => {
@@ -51,14 +48,6 @@ export default function SendblueConnectScreen() {
         }, 2500);
         return () => clearInterval(id);
     }, [smsConfirmed, refreshUser]);
-
-    useEffect(() => {
-        if (!smsConfirmed) return;
-        if (prefsInitializedRef.current) return;
-        setSmsOptIn(user?.onboarding?.sendblue_sms_opt_in !== false);
-        setAppNotificationsOptIn(user?.onboarding?.app_notifications_opt_in !== false);
-        prefsInitializedRef.current = true;
-    }, [smsConfirmed, user?.id]);    
 
     const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
     const smsE164 = (extra.sendblueSmsNumber || '+16468304204').replace(/\s/g, '');
@@ -73,34 +62,16 @@ export default function SendblueConnectScreen() {
         });
     };
 
-    const onContinue = async () => {
-        setBusy(true);
-        try {
-            await api.completeSendblueConnect({
-                sms_opt_in: smsOptIn,
-                app_notifications_opt_in: appNotificationsOptIn,
-            });
-            await refreshUser();
-            if (next === 'ModuleSelect') {
-                navigation.navigate('ModuleSelect');
-            } else {
-                navigation.navigate('Main');
-            }
-        } catch (e) {
-            console.error(e);
-            Alert.alert('Error', 'Could not continue. Check your connection and try again.');
-        } finally {
-            setBusy(false);
-        }
+    const onContinue = () => {
+        navigation.navigate('NotificationChannels', { next, editMode: false });
     };
 
     const onDevSkip = async () => {
         setBusy(true);
         try {
-            await api.completeSendblueConnectDevSkip();
+            await api.devSkipSendblueEngageOnly();
             await refreshUser();
-            if (next === 'ModuleSelect') navigation.navigate('ModuleSelect');
-            else navigation.navigate('Main');
+            navigation.navigate('NotificationChannels', { next, editMode: false });
         } catch (e) {
             console.error(e);
             Alert.alert('Dev skip failed', 'Could not skip. Check backend is in debug mode.');
@@ -122,96 +93,69 @@ export default function SendblueConnectScreen() {
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator
             >
-            <TouchableOpacity style={styles.backHit} onPress={() => navigation.goBack()} hitSlop={12}>
-                <Ionicons name="arrow-back" size={24} color={colors.foreground} />
-            </TouchableOpacity>
-
-            <Text style={styles.kicker}>One more step</Text>
-            <Text style={styles.title}>Text Max to unlock coaching</Text>
-            <Text style={styles.lead}>
-                Send any message to our number so we can message you back on iMessage or SMS. This links your phone to
-                your account.
-            </Text>
-
-            <View style={styles.card}>
-                <Text style={styles.cardLabel}>OUR NUMBER</Text>
-                <Text style={styles.phone}>{display}</Text>
-                <TouchableOpacity style={styles.primaryBtn} onPress={openSms} activeOpacity={0.88}>
-                    <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.background} />
-                    <Text style={styles.primaryBtnText}>Open Messages</Text>
+                <TouchableOpacity style={styles.backHit} onPress={() => navigation.goBack()} hitSlop={12}>
+                    <Ionicons name="arrow-back" size={24} color={colors.foreground} />
                 </TouchableOpacity>
-            </View>
 
-            {!smsConfirmed ? (
-                <View style={styles.waitingRow}>
-                    <ActivityIndicator color={colors.foreground} size="small" />
-                    <Text style={styles.waitingText}>
-                        Waiting for your message… we&apos;ll enable continue as soon as we see it.
-                    </Text>
+                <Text style={styles.kicker}>One more step</Text>
+                <Text style={styles.title}>Text Max to unlock coaching</Text>
+                <Text style={styles.lead}>
+                    Send any message to our number so we can message you back on iMessage or SMS. This links your phone
+                    to your account.
+                </Text>
+
+                <View style={styles.card}>
+                    <Text style={styles.cardLabel}>OUR NUMBER</Text>
+                    <Text style={styles.phone}>{display}</Text>
+                    <TouchableOpacity style={styles.primaryBtn} onPress={openSms} activeOpacity={0.88}>
+                        <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.background} />
+                        <Text style={styles.primaryBtnText}>Open Messages</Text>
+                    </TouchableOpacity>
                 </View>
-            ) : (
-                <Text style={styles.confirmedLine}>We got your text — you&apos;re linked. Tap continue below.</Text>
-            )}
 
-            {smsConfirmed && (
-                <View style={styles.prefsCard}>
-                    <View style={styles.optRow}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.optTitle}>SMS reminders</Text>
-                            <Text style={styles.optDesc}>You&apos;ll get the same reminder info as push.</Text>
-                        </View>
-                        <Switch
-                            value={smsOptIn}
-                            onValueChange={setSmsOptIn}
-                            thumbColor={smsOptIn ? colors.foreground : '#d1d5db'}
-                            trackColor={{ false: '#111827', true: colors.foreground }}
-                        />
+                {!smsConfirmed ? (
+                    <View style={styles.waitingRow}>
+                        <ActivityIndicator color={colors.foreground} size="small" />
+                        <Text style={styles.waitingText}>
+                            Waiting for your message… we&apos;ll enable continue as soon as we see it.
+                        </Text>
                     </View>
-                    <View style={styles.divider} />
-                    <View style={styles.optRow}>
-                        <View style={{ flex: 1 }}>
-                            <Text style={styles.optTitle}>App notifications</Text>
-                            <Text style={styles.optDesc}>Enable reminders on this device.</Text>
-                        </View>
-                        <Switch
-                            value={appNotificationsOptIn}
-                            onValueChange={setAppNotificationsOptIn}
-                            thumbColor={appNotificationsOptIn ? colors.foreground : '#d1d5db'}
-                            trackColor={{ false: '#111827', true: colors.foreground }}
-                        />
-                    </View>
-                </View>
-            )}
-
-            <Text style={styles.hint}>
-                {smsConfirmed
-                    ? 'You can always text this number later for help from Max.'
-                    : 'Use Open Messages, send any text from the phone on your account, then stay on this screen until continue turns on.'}
-            </Text>
-
-            <TouchableOpacity
-                style={[styles.secondaryBtn, (!smsConfirmed || busy) && styles.secondaryBtnDisabled]}
-                onPress={onContinue}
-                disabled={!smsConfirmed || busy}
-                activeOpacity={0.85}
-            >
-                {busy ? (
-                    <ActivityIndicator color={colors.foreground} />
                 ) : (
-                    <Text style={styles.secondaryBtnText}>Continue</Text>
+                    <Text style={styles.confirmedLine}>
+                        We got your text — you&apos;re linked. On the next screen, choose how you want reminders (iPhone
+                        alerts, SMS, or both).
+                    </Text>
                 )}
-            </TouchableOpacity>
 
-            {SHOW_DEV_SKIP_CONTROLS ? (
+                <Text style={styles.hint}>
+                    {smsConfirmed
+                        ? 'You can always text this number later for help from Max.'
+                        : 'Use Open Messages, send any text from the phone on your account, then stay on this screen until continue turns on.'}
+                </Text>
+
                 <TouchableOpacity
-                    style={[styles.devSkipBtn, busy && styles.secondaryBtnDisabled]}
-                    onPress={onDevSkip}
-                    disabled={busy}
+                    style={[styles.secondaryBtn, (!smsConfirmed || busy) && styles.secondaryBtnDisabled]}
+                    onPress={onContinue}
+                    disabled={!smsConfirmed || busy}
                     activeOpacity={0.85}
                 >
-                    <Text style={styles.devSkipText}>Dev: skip confirmation</Text>
+                    {busy ? (
+                        <ActivityIndicator color={colors.foreground} />
+                    ) : (
+                        <Text style={styles.secondaryBtnText}>Continue</Text>
+                    )}
                 </TouchableOpacity>
-            ) : null}
+
+                {SHOW_DEV_SKIP_CONTROLS ? (
+                    <TouchableOpacity
+                        style={[styles.devSkipBtn, busy && styles.secondaryBtnDisabled]}
+                        onPress={onDevSkip}
+                        disabled={busy}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={styles.devSkipText}>Dev: skip confirmation</Text>
+                    </TouchableOpacity>
+                ) : null}
             </ScrollView>
         </View>
     );
@@ -266,19 +210,6 @@ const styles = StyleSheet.create({
         marginBottom: spacing.md,
         lineHeight: 22,
     },
-    prefsCard: {
-        backgroundColor: colors.card,
-        borderRadius: borderRadius.xl,
-        padding: spacing.lg,
-        borderWidth: 1,
-        borderColor: colors.border,
-        ...shadows.md,
-        marginBottom: spacing.lg,
-    },
-    optRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-    optTitle: { fontSize: 15, fontWeight: '700', color: colors.foreground, marginBottom: 2 },
-    optDesc: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
-    divider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.md },
     hint: { fontSize: 14, color: colors.textSecondary, lineHeight: 21, marginBottom: spacing.xl },
     secondaryBtn: {
         alignItems: 'center',

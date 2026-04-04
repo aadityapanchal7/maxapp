@@ -154,6 +154,8 @@ export default function MasterScheduleScreen() {
   const isTab = route.name === 'MasterScheduleTab';
   const { user } = useAuth();
   const appNotificationsOptIn = user?.onboarding?.app_notifications_opt_in !== false;
+  const skipLocalBecauseServerPush =
+    Platform.OS === 'ios' && appNotificationsOptIn && user?.has_apns_token === true;
 
   const notifIdMapRef = useRef<Record<string, string>>({});
   const taskToggleInFlightRef = useRef<Set<string>>(new Set());
@@ -215,9 +217,42 @@ export default function MasterScheduleScreen() {
     });
   }, [merged.dates, calendarTodayKey]);
 
+  // When iOS has a server-registered APNs token, rely on backend push — skip duplicate local reminders.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    if (!skipLocalBecauseServerPush) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const stored = await getItemAsync(notifStorageKey);
+        let notifMap: Record<string, string> = {};
+        if (stored) {
+          try {
+            notifMap = JSON.parse(stored) || {};
+          } catch {
+            notifMap = {};
+          }
+        }
+        if (cancelled) return;
+        for (const id of Object.values(notifMap)) {
+          if (id) await cancelScheduleReminder(id);
+        }
+        notifIdMapRef.current = {};
+        await setItemAsync(notifStorageKey, JSON.stringify({}));
+      } catch {
+        /* best-effort */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [skipLocalBecauseServerPush, notifStorageKey]);
+
   // App notifications: schedule local reminder notifications for upcoming pending tasks.
   useEffect(() => {
     if (Platform.OS === 'web') return;
+    if (skipLocalBecauseServerPush) return;
     if (!appNotificationsOptIn) return;
     if (!user?.is_paid) return;
     if (loading) return;
@@ -313,7 +348,15 @@ export default function MasterScheduleScreen() {
     return () => {
       cancelled = true;
     };
-  }, [appNotificationsOptIn, user?.id, user?.is_paid, loading, merged, schedules]);
+  }, [
+    appNotificationsOptIn,
+    skipLocalBecauseServerPush,
+    user?.id,
+    user?.is_paid,
+    loading,
+    merged,
+    schedules,
+  ]);
 
   // If the user opted out, cancel any previously scheduled local reminders.
   useEffect(() => {

@@ -64,6 +64,8 @@ interface User {
     };
     first_scan_completed: boolean;
     is_admin: boolean;
+    /** Server has an APNs token on file (iOS push). */
+    has_apns_token?: boolean;
 }
 
 interface AuthContextType {

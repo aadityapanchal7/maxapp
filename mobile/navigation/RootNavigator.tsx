@@ -17,6 +17,7 @@ import FeaturesIntroScreen from '../screens/onboarding/FeaturesIntroScreen';
 import FaceScanScreen from '../screens/scan/FaceScanScreen';
 import FaceScanResultsScreen from '../screens/scan/FaceScanResultsScreen';
 import SendblueConnectScreen from '../screens/scan/SendblueConnectScreen';
+import NotificationChannelsScreen from '../screens/scan/NotificationChannelsScreen';
 import ModuleSelectScreen from '../screens/scan/ModuleSelectScreen';
 import ScanDetailScreen from '../screens/scan/ScanDetailScreen';
 import PaymentScreen from '../screens/payment/PaymentScreen';
@@ -119,6 +120,7 @@ export function RootNavigator() {
                     <Stack.Screen name="FaceScan" component={FaceScanScreen} />
                     <Stack.Screen name="FaceScanResults" component={FaceScanResultsScreen} />
                     <Stack.Screen name="SendblueConnect" component={SendblueConnectScreen} />
+                    <Stack.Screen name="NotificationChannels" component={NotificationChannelsScreen} />
                     <Stack.Screen name="ModuleSelect" component={ModuleSelectScreen} />
                     <Stack.Screen name="Profile" component={ProfileScreen} />
                     <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />

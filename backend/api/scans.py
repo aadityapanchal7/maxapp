@@ -65,20 +65,43 @@ async def _update_leaderboard_after_scan(
 
 async def _maybe_notify_scan_whatsapp(user: Optional[User], overall_score: Optional[float]) -> None:
     try:
-        if not user or not user.phone_number:
+        if not user:
             return
-        if not onboarding_allows_proactive_sms(user.onboarding):
-            return
-        from services.sendblue_service import sendblue_service
+        from services.sendblue_service import sendblue_service, onboarding_allows_proactive_sms
+        from services.notification_prefs import user_allows_proactive_push
+        from services.apns_service import send_apns_alert
         import asyncio
 
-        asyncio.create_task(
-            sendblue_service.send_scan_complete(
-                user.phone_number,
-                user.email or "",
-                float(overall_score) if overall_score is not None else None,
+        want_sms = bool(user.phone_number) and onboarding_allows_proactive_sms(user.onboarding)
+        want_push = user_allows_proactive_push(user.onboarding, user.apns_device_token)
+        if not want_sms and not want_push:
+            return
+
+        if want_sms:
+            asyncio.create_task(
+                sendblue_service.send_scan_complete(
+                    user.phone_number,
+                    user.email or "",
+                    float(overall_score) if overall_score is not None else None,
+                )
             )
-        )
+
+        if want_push and (user.apns_device_token or "").strip():
+            score_txt = (
+                f"{float(overall_score):.1f}"
+                if overall_score is not None
+                else "ready"
+            )
+            title = "Max"
+            body = (
+                f"Your scan results are in (~{score_txt}/10). Open Max for the full breakdown."
+            )
+            tok = user.apns_device_token.strip()
+
+            async def _do_push():
+                await send_apns_alert(tok, title, body)
+
+            asyncio.create_task(_do_push())
     except Exception as notif_err:
         logger.warning("Scan notification failed: %s", notif_err)
 

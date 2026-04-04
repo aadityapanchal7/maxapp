@@ -297,6 +297,36 @@ class SendblueService:
             body = body[:897] + "…"
         return bool(await self.send_sms(phone, body))
 
+    def build_schedule_reminder_push_content(
+        self,
+        tasks: list[tuple[dict, str]],
+    ) -> tuple[str, str]:
+        """Title + body for APNs alert (same copy shape as SMS group)."""
+        if not tasks:
+            return "Max", ""
+        if len(tasks) == 1:
+            task, ttime = tasks[0]
+            body = self._format_schedule_reminder_sms(
+                task.get("title", "Task"),
+                task.get("description", ""),
+                ttime,
+            )
+            return "Max", body
+        lines: list[str] = []
+        for task, ttime in tasks:
+            line = self._format_schedule_reminder_sms(
+                task.get("title", "Task"),
+                task.get("description", ""),
+                ttime,
+            )
+            lines.append(line)
+        n = len(lines)
+        intro = "hey — a few things:" if n == 2 else f"hey — {n} things:"
+        body = intro + "\n\n" + "\n\n".join(lines)
+        if len(body) > 900:
+            body = body[:897] + "…"
+        return "Max", body
+
     async def send_coaching_sms(self, phone: str, message: str) -> bool:
         return bool(await self.send_sms(phone, message))
 

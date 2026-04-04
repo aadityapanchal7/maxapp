@@ -94,6 +94,16 @@ class Settings(BaseSettings):
     # DEV ONLY: set SMS_SCHEDULER_TEST_FAST_MODE=true — 1-min scheduler ticks, bypass clock windows so SMS
     # fires immediately; coaching + weekly send at most once per user until you restart the API process.
     sms_scheduler_test_fast_mode: bool = Field(default=False)
+
+    # Apple Push Notification service (direct HTTP/2) — .p8 key PEM or base64-of-PEM
+    apns_auth_key_p8: str = Field(default="", description="APNs Auth Key PEM or base64-encoded PEM")
+    apns_key_id: str = Field(default="", description="10-char Key ID from Apple Developer")
+    apns_team_id: str = Field(default="", description="Apple Team ID (iss claim)")
+    apns_bundle_id: str = Field(default="com.cannon.mobile", description="apns-topic / bundle id")
+    apns_use_sandbox: bool = Field(
+        default=True,
+        description="True → api.sandbox.push.apple.com (dev builds); False → production",
+    )
     
     # AWS S3
     aws_access_key_id: str = Field(default="")

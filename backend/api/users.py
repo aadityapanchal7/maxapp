@@ -5,10 +5,11 @@ Users API - Profile and Onboarding
 import base64
 import logging
 import math
+import re
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Request, Form
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, update
@@ -60,6 +61,26 @@ class SendblueConnectCompleteBody(BaseModel):
     app_notifications_opt_in: Optional[bool] = None
 
 
+class PushTokenBody(BaseModel):
+    """Native APNs device token (hex)."""
+    token: str = Field(..., min_length=32, max_length=512)
+
+
+class NotificationChannelsPatchBody(BaseModel):
+    """SMS vs app (APNs) reminder preferences."""
+    sms_opt_in: bool
+    app_notifications_opt_in: bool
+
+
+def _normalize_apns_device_token(raw: str) -> str:
+    s = re.sub(r"[\s<>]", "", (raw or "").strip()).lower()
+    if not re.fullmatch(r"[0-9a-f]+", s):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid device token format")
+    if len(s) < 64:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device token too short")
+    return s
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_profile(current_user: dict = Depends(get_current_user)):
     """
@@ -81,8 +102,77 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         profile=UserProfile(**current_user.get("profile", {})),
         first_scan_completed=current_user.get("first_scan_completed", False),
         is_admin=current_user.get("is_admin", False),
-        phone_number=current_user.get("phone_number")
+        phone_number=current_user.get("phone_number"),
+        has_apns_token=current_user.get("has_apns_token", False),
     )
+
+
+@router.post("/push-token")
+async def register_push_token(
+    body: PushTokenBody,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Store iOS APNs device token for server-driven push."""
+    if not current_user.get("is_paid"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Subscription required")
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    normalized = _normalize_apns_device_token(body.token)
+    user.apns_device_token = normalized
+    user.apns_token_updated_at = _utcnow()
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok"}
+
+
+@router.delete("/push-token")
+async def clear_push_token(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove stored APNs token (opt out of push on this device)."""
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.apns_device_token = None
+    user.apns_token_updated_at = None
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok"}
+
+
+@router.patch("/notification-channels")
+async def patch_notification_channels(
+    body: NotificationChannelsPatchBody,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update SMS vs app notification preferences (Profile). At least one channel must stay on."""
+    if not body.sms_opt_in and not body.app_notifications_opt_in:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Choose at least one: SMS or app notifications.",
+        )
+    if not current_user.get("is_paid"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Subscription required")
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ob = dict(user.onboarding or {})
+    ob["sendblue_sms_opt_in"] = body.sms_opt_in
+    ob["app_notifications_opt_in"] = body.app_notifications_opt_in
+    user.onboarding = ob
+    if not body.app_notifications_opt_in:
+        user.apns_device_token = None
+        user.apns_token_updated_at = None
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok"}
 
 
 @router.post("/post-subscription-onboarding/dismiss")
@@ -97,6 +187,26 @@ async def dismiss_post_subscription_onboarding(
         raise HTTPException(status_code=404, detail="User not found")
     ob = dict(user.onboarding or {})
     ob["post_subscription_onboarding"] = False
+    user.onboarding = ob
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok"}
+
+
+@router.post("/sendblue-connect/dev-skip-engage")
+async def dev_skip_sendblue_engage_only(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """DEBUG ONLY: mark Sendblue engaged without completing the connect step (for notification picker UX)."""
+    if not settings.debug:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ob = dict(user.onboarding or {})
+    ob["sendblue_sms_engaged"] = True
     user.onboarding = ob
     user.updated_at = datetime.utcnow()
     await db.commit()
