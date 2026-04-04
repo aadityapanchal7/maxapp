@@ -5,7 +5,7 @@ Stripe Service — SetupIntent + Subscription-based payments
 import logging
 import stripe
 from typing import Optional, Tuple, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -146,16 +146,27 @@ class StripeService:
         return stripe.Subscription.retrieve(subscription_id, expand=["items.data.price"])
 
     async def get_subscription(self, subscription_id: str) -> Optional[dict]:
+        if not subscription_id or not str(subscription_id).strip():
+            return None
         try:
             subscription = stripe.Subscription.retrieve(subscription_id)
+            cps = getattr(subscription, "current_period_start", None)
+            cpe = getattr(subscription, "current_period_end", None)
+            start_dt = (
+                datetime.fromtimestamp(int(cps), tz=timezone.utc) if cps is not None else None
+            )
+            end_dt = (
+                datetime.fromtimestamp(int(cpe), tz=timezone.utc) if cpe is not None else None
+            )
             return {
                 "id": subscription.id,
                 "status": subscription.status,
-                "current_period_start": datetime.fromtimestamp(subscription.current_period_start),
-                "current_period_end": datetime.fromtimestamp(subscription.current_period_end),
-                "cancel_at_period_end": subscription.cancel_at_period_end,
+                "current_period_start": start_dt,
+                "current_period_end": end_dt,
+                "cancel_at_period_end": bool(subscription.cancel_at_period_end),
             }
-        except stripe.error.StripeError:
+        except Exception as e:
+            logger.warning("get_subscription failed for %s: %s", subscription_id, e)
             return None
 
     async def cancel_subscription(self, subscription_id: str, at_period_end: bool = True) -> bool:

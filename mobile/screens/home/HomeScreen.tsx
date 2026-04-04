@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -180,7 +180,11 @@ export default function HomeScreen() {
                                         <StreakFireBadge streakDays={scheduleStreak.current} variant="hero" />
                                     </TouchableOpacity>
                                 )}
-                                <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7}>
+                                <TouchableOpacity
+                                    style={styles.profileButton}
+                                    onPress={() => navigation.dispatch(CommonActions.navigate({ name: 'Profile' }))}
+                                    activeOpacity={0.7}
+                                >
                                     <View style={styles.profileIcon}>
                                         {user?.profile?.avatar_url ? (
                                             <CachedImage

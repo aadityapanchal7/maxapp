@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,6 +38,15 @@ function formatPeriodEnd(iso: string | null | undefined): string | null {
     }
 }
 
+function formatApiError(e: unknown): string {
+    const d = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d)) {
+        return d.map((x: { msg?: string }) => x?.msg || JSON.stringify(x)).join('\n');
+    }
+    return (e as Error)?.message || 'Could not load subscription status.';
+}
+
 export default function ManageSubscriptionScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
@@ -47,24 +56,48 @@ export default function ManageSubscriptionScreen() {
     const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false);
     const [periodEndIso, setPeriodEndIso] = useState<string | null>(null);
     const [actionBusy, setActionBusy] = useState<string | null>(null);
+    const [stripeManageEnabled, setStripeManageEnabled] = useState(false);
+    const [noStripeButPaid, setNoStripeButPaid] = useState(false);
+    const [billingDegraded, setBillingDegraded] = useState(false);
 
     const loadStatus = useCallback(async () => {
         setLoading(true);
         setStatusError(null);
+        setNoStripeButPaid(false);
+        setBillingDegraded(false);
         try {
             const s = await api.getSubscriptionStatus();
             setCancelAtPeriodEnd(!!s.cancel_at_period_end);
             setPeriodEndIso(s.current_period_end_iso ?? null);
+            const degraded = !!s.degraded;
+            setBillingDegraded(degraded);
+            const subId = s.subscription?.id;
+            const hasStripe =
+                s.has_stripe_subscription === true ||
+                (s.has_stripe_subscription === undefined && !!subId);
+            setStripeManageEnabled(hasStripe && !degraded && !!subId);
+            setNoStripeButPaid(!!user?.is_paid && s.has_stripe_subscription === false);
         } catch (e: unknown) {
-            const msg =
-                (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail ||
-                (e as Error)?.message ||
-                'Could not load subscription status.';
-            setStatusError(String(msg));
+            if (user?.is_paid) {
+                const raw = user?.subscription_end_date;
+                if (raw) {
+                    const d = new Date(raw);
+                    setPeriodEndIso(!Number.isNaN(d.getTime()) ? d.toISOString() : null);
+                } else {
+                    setPeriodEndIso(null);
+                }
+                setCancelAtPeriodEnd(false);
+                setStripeManageEnabled(false);
+                setNoStripeButPaid(false);
+                setBillingDegraded(true);
+                setStatusError(null);
+            } else {
+                setStatusError(formatApiError(e));
+            }
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [user?.is_paid, user?.subscription_end_date]);
 
     useFocusEffect(
         useCallback(() => {
@@ -171,7 +204,9 @@ export default function ManageSubscriptionScreen() {
                         await refreshUser();
                         await loadStatus();
                         if (immediate) {
-                            navigation.reset({ index: 0, routes: [{ name: 'Payment' }] });
+                            navigation.dispatch(
+                                CommonActions.reset({ index: 0, routes: [{ name: 'Payment' }] }),
+                            );
                         }
                     } catch (e: unknown) {
                         const msg =
@@ -238,6 +273,36 @@ export default function ManageSubscriptionScreen() {
                             <Ionicons name="sync-outline" size={14} color={colors.textMuted} />
                             <Text style={styles.billingPillText}>Billed weekly · renews automatically</Text>
                         </View>
+
+                        {noStripeButPaid ? (
+                            <View style={styles.infoBanner}>
+                                <Ionicons name="information-circle-outline" size={22} color={colors.textSecondary} />
+                                <Text style={styles.infoBannerText}>
+                                    You have access, but there is no card subscription on file for this account. Plan
+                                    changes and cancel are not available here (common for test / dev activation).
+                                </Text>
+                            </View>
+                        ) : null}
+
+                        {billingDegraded ? (
+                            <View style={styles.warnBanner}>
+                                <Ionicons name="warning-outline" size={22} color={colors.warning} />
+                                <View style={styles.warnBannerBody}>
+                                    <Text style={styles.warnBannerTitle}>Billing details incomplete</Text>
+                                    <Text style={styles.warnBannerText}>
+                                        We could not load live data from the payment provider. Check your connection,
+                                        then refresh. Upgrade, downgrade, and cancel stay disabled until billing loads.
+                                    </Text>
+                                    <TouchableOpacity
+                                        style={styles.warnRefreshBtn}
+                                        onPress={() => void loadStatus()}
+                                        activeOpacity={0.85}
+                                    >
+                                        <Text style={styles.warnRefreshBtnText}>Refresh billing</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        ) : null}
 
                         {PLANS.map((plan) => {
                             const isPremiumPlan = plan.tier === 'premium';
@@ -329,28 +394,36 @@ export default function ManageSubscriptionScreen() {
                                             <Text style={styles.currentPlanFooterText}>{"You're subscribed to this plan"}</Text>
                                         </View>
                                     ) : isPremiumPlan ? (
-                                        <TouchableOpacity
-                                            style={[styles.cardUpgradeBtn, busyThis && styles.btnDisabled]}
-                                            onPress={confirmUpgrade}
-                                            disabled={actionBusy !== null}
-                                            activeOpacity={0.88}
-                                        >
-                                            <LinearGradient
-                                                colors={[colors.premium, '#b8860b']}
-                                                start={{ x: 0, y: 0 }}
-                                                end={{ x: 1, y: 1 }}
-                                                style={StyleSheet.absoluteFill}
-                                            />
-                                            {busyThis ? (
-                                                <ActivityIndicator color={colors.foreground} />
-                                            ) : (
-                                                <>
-                                                    <Text style={styles.cardUpgradeBtnText}>Upgrade to Chad</Text>
-                                                    <Ionicons name="arrow-forward" size={18} color={colors.foreground} />
-                                                </>
-                                            )}
-                                        </TouchableOpacity>
-                                    ) : (
+                                        stripeManageEnabled ? (
+                                            <TouchableOpacity
+                                                style={[styles.cardUpgradeBtn, busyThis && styles.btnDisabled]}
+                                                onPress={confirmUpgrade}
+                                                disabled={actionBusy !== null}
+                                                activeOpacity={0.88}
+                                            >
+                                                <LinearGradient
+                                                    colors={[colors.premium, '#b8860b']}
+                                                    start={{ x: 0, y: 0 }}
+                                                    end={{ x: 1, y: 1 }}
+                                                    style={StyleSheet.absoluteFill}
+                                                />
+                                                {busyThis ? (
+                                                    <ActivityIndicator color={colors.foreground} />
+                                                ) : (
+                                                    <>
+                                                        <Text style={styles.cardUpgradeBtnText}>Upgrade to Chad</Text>
+                                                        <Ionicons name="arrow-forward" size={18} color={colors.foreground} />
+                                                    </>
+                                                )}
+                                            </TouchableOpacity>
+                                        ) : (
+                                            <View style={styles.stripeActionPlaceholder}>
+                                                <Text style={styles.stripeActionPlaceholderText}>
+                                                    Upgrade is available when billing is connected to Stripe.
+                                                </Text>
+                                            </View>
+                                        )
+                                    ) : stripeManageEnabled ? (
                                         <TouchableOpacity
                                             style={[styles.cardDowngradeBtn, busyThis && styles.btnDisabled]}
                                             onPress={confirmDowngrade}
@@ -366,6 +439,12 @@ export default function ManageSubscriptionScreen() {
                                                 </>
                                             )}
                                         </TouchableOpacity>
+                                    ) : (
+                                        <View style={styles.stripeActionPlaceholder}>
+                                            <Text style={styles.stripeActionPlaceholderText}>
+                                                Plan switches are available when billing is connected to Stripe.
+                                            </Text>
+                                        </View>
                                     )}
                                 </View>
                             );
@@ -397,7 +476,7 @@ export default function ManageSubscriptionScreen() {
                             </View>
                         ) : null}
 
-                        {cancelAtPeriodEnd ? (
+                        {cancelAtPeriodEnd && stripeManageEnabled ? (
                             <TouchableOpacity
                                 style={[styles.keepBtn, actionBusy === 'resume' && styles.btnDisabled]}
                                 onPress={() => void runResume()}
@@ -416,24 +495,28 @@ export default function ManageSubscriptionScreen() {
                         ) : null}
 
                         <Text style={styles.prorationHint}>
-                            Plan changes use your saved card; Stripe applies prorated charges or credits.
+                            {stripeManageEnabled
+                                ? 'Plan changes use your saved card; Stripe applies prorated charges or credits.'
+                                : 'When billing is linked to Stripe, you can change plans and cancel here.'}
                         </Text>
 
-                        <View style={styles.dangerBlock}>
-                            <Text style={styles.sectionKicker}>CANCEL</Text>
-                            <TouchableOpacity
-                                style={[styles.dangerBtn, actionBusy?.startsWith('cancel') && styles.btnDisabled]}
-                                onPress={openCancelMenu}
-                                disabled={actionBusy !== null}
-                                activeOpacity={0.85}
-                            >
-                                <Ionicons name="close-circle-outline" size={20} color={colors.error} />
-                                <Text style={styles.dangerBtnText}>Cancel subscription</Text>
-                            </TouchableOpacity>
-                            <Text style={styles.dangerHint}>
-                                You can end at period end and keep access, or stop immediately.
-                            </Text>
-                        </View>
+                        {stripeManageEnabled ? (
+                            <View style={styles.dangerBlock}>
+                                <Text style={styles.sectionKicker}>CANCEL</Text>
+                                <TouchableOpacity
+                                    style={[styles.dangerBtn, actionBusy?.startsWith('cancel') && styles.btnDisabled]}
+                                    onPress={openCancelMenu}
+                                    disabled={actionBusy !== null}
+                                    activeOpacity={0.85}
+                                >
+                                    <Ionicons name="close-circle-outline" size={20} color={colors.error} />
+                                    <Text style={styles.dangerBtnText}>Cancel subscription</Text>
+                                </TouchableOpacity>
+                                <Text style={styles.dangerHint}>
+                                    You can end at period end and keep access, or stop immediately.
+                                </Text>
+                            </View>
+                        ) : null}
                     </>
                 )}
             </ScrollView>
@@ -575,6 +658,50 @@ const styles = StyleSheet.create({
         marginBottom: spacing.md,
     },
     billingPillText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
+    infoBanner: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: spacing.md,
+        backgroundColor: colors.surface,
+        padding: spacing.md,
+        borderRadius: borderRadius.xl,
+        marginBottom: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    infoBannerText: { flex: 1, fontSize: 13, color: colors.textSecondary, lineHeight: 19 },
+    warnBanner: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: spacing.md,
+        backgroundColor: 'rgba(234, 179, 8, 0.08)',
+        padding: spacing.md,
+        borderRadius: borderRadius.xl,
+        marginBottom: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.warning + '55',
+    },
+    warnBannerBody: { flex: 1 },
+    warnBannerTitle: { fontSize: 14, fontWeight: '700', color: colors.foreground, marginBottom: 4 },
+    warnBannerText: { fontSize: 13, color: colors.textSecondary, lineHeight: 19, marginBottom: spacing.sm },
+    warnRefreshBtn: {
+        alignSelf: 'flex-start',
+        backgroundColor: colors.foreground,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.sm,
+        borderRadius: borderRadius.full,
+    },
+    warnRefreshBtnText: { color: colors.buttonText, fontWeight: '700', fontSize: 13 },
+    stripeActionPlaceholder: {
+        marginTop: spacing.md,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.md,
+        borderRadius: borderRadius.lg,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    stripeActionPlaceholderText: { fontSize: 13, color: colors.textMuted, textAlign: 'center', lineHeight: 18 },
     featureList: { gap: spacing.sm },
     featureItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     featureIconWrap: {

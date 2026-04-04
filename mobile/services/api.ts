@@ -18,6 +18,8 @@ class ApiService {
         this.client = axios.create({
             baseURL: API_BASE_URL,
             headers: { 'Content-Type': 'application/json' },
+            /** Without this, unreachable API + stored token leaves auth boot on MaxLoadingView forever. */
+            timeout: 20_000,
         });
 
         // Request interceptor for auth
@@ -41,13 +43,19 @@ class ApiService {
             return config;
         });
 
-        // Response interceptor for token refresh
+        // Response interceptor for token refresh (single retry to avoid infinite 401 loops)
         this.client.interceptors.response.use(
             (response) => response,
             async (error) => {
-                if (error.response?.status === 401) {
-                    await this.refreshToken();
-                    return this.client.request(error.config);
+                const cfg = error.config as ({ _retry?: boolean } & typeof error.config) | undefined;
+                if (error.response?.status === 401 && cfg && !cfg._retry) {
+                    cfg._retry = true;
+                    try {
+                        await this.refreshToken();
+                        return this.client.request(cfg);
+                    } catch {
+                        return Promise.reject(error);
+                    }
                 }
                 return Promise.reject(error);
             }
@@ -56,6 +64,21 @@ class ApiService {
 
     getBaseUrl() {
         return API_BASE_URL;
+    }
+
+    /**
+     * FastAPI exposes GET /health on the server root (not under /api).
+     * Confirms the app can reach the same host as EXPO_PUBLIC_API_BASE_URL.
+     */
+    async checkBackendHealth(): Promise<boolean> {
+        try {
+            const root = API_BASE_URL.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
+            if (!root.startsWith('http')) return false;
+            const { data } = await axios.get<{ status?: string }>(`${root}/health`, { timeout: 5_000 });
+            return data?.status === 'healthy';
+        } catch {
+            return false;
+        }
     }
 
     resolveAttachmentUrl(url?: string) {
@@ -87,7 +110,9 @@ class ApiService {
         const refreshToken = await getItemAsync('refresh_token');
         if (!refreshToken) throw new Error('No refresh token');
 
-        const response = await axios.post(`${API_BASE_URL}auth/refresh`, { refresh_token: refreshToken });
+        const response = await axios.post(`${API_BASE_URL}auth/refresh`, { refresh_token: refreshToken }, {
+            timeout: 15_000,
+        });
         await this.setTokens(response.data.access_token, response.data.refresh_token);
     }
 
@@ -482,11 +507,15 @@ class ApiService {
         cancel_at_period_end?: boolean;
         current_period_end_iso?: string | null;
         current_period_start_iso?: string | null;
+        /** False for dev test-activate and similar (no Stripe subscription id on file). */
+        has_stripe_subscription?: boolean;
+        /** True when Stripe metadata could not be loaded; avoid destructive billing actions. */
+        degraded?: boolean;
         subscription?: {
             id?: string;
             status?: string;
-            current_period_start?: string;
-            current_period_end?: string;
+            current_period_start?: string | null;
+            current_period_end?: string | null;
             cancel_at_period_end?: boolean;
         } | null;
     }> {
