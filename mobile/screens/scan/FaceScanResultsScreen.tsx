@@ -853,7 +853,6 @@ export default function FaceScanResultsScreen() {
                     </>
                 ) : null}
 
-                {locked ? <Text style={styles.priceHint}>Full analysis with membership · $9.99/mo</Text> : null}
             </ScrollView>
 
             {!locked && !isProcessing && Platform.OS !== 'web' ? (
@@ -1079,7 +1078,6 @@ const styles = StyleSheet.create({
     ctaText: { ...typography.button, color: colors.background, fontSize: 16 },
     secondaryCta: { alignItems: 'center', paddingVertical: spacing.md },
     secondaryCtaText: { fontSize: 14, color: colors.textMuted, fontWeight: '600' },
-    priceHint: { textAlign: 'center', fontSize: 12, color: colors.textMuted, marginTop: spacing.sm },
     shareRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
     shareBtn: {
         flex: 1,

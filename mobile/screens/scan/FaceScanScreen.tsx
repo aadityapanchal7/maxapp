@@ -30,7 +30,7 @@ const STEPS = [
 
 export default function FaceScanScreen() {
     const navigation = useNavigation<any>();
-    const { user, isPaid, refreshUser } = useAuth();
+    const { user, isPaid, isPremium, refreshUser } = useAuth();
     const [permission, requestPermission] = useCameraPermissions();
     const cameraRef = useRef<CameraView>(null);
 
@@ -71,10 +71,10 @@ export default function FaceScanScreen() {
         }
     }, [user?.first_scan_completed, isPaid, navigation]);
 
-    // Premium daily limit: if you already scanned today, show a message and bounce back.
+    // Premium: one scan per calendar day. Basic can scan multiple days until server enforces the lifetime cap.
     useEffect(() => {
         const run = async () => {
-            if (!isPaid) return;
+            if (!isPaid || !isPremium) return;
             try {
                 const latest = await api.getLatestScan();
                 const ts = latest?.created_at ? new Date(latest.created_at) : null;
@@ -95,7 +95,7 @@ export default function FaceScanScreen() {
             }
         };
         void run();
-    }, [isPaid, navigation]);
+    }, [isPaid, isPremium, navigation]);
 
     /**
      * If the user backgrounds or kills the app during analysis, the upload may still complete on the server
@@ -254,9 +254,16 @@ export default function FaceScanScreen() {
             await refreshUser();
             navigateToResults();
             didLeaveScan = true;
-        } catch (err) {
+        } catch (err: unknown) {
             console.error(err);
-            Alert.alert('Error', 'Could not analyze photos. Check connection and try again.');
+            const ax = err as { response?: { data?: { detail?: string } } };
+            const detail = ax?.response?.data?.detail;
+            Alert.alert(
+                'Error',
+                typeof detail === 'string' && detail.trim()
+                    ? detail
+                    : 'Could not analyze photos. Check connection and try again.',
+            );
         } finally {
             if (!didLeaveScan) setAnalyzing(false);
         }
@@ -292,6 +299,13 @@ export default function FaceScanScreen() {
             <Text style={styles.medicalDisclaimer}>
                 Not medical advice. For general wellness insights only—not for diagnosis or treatment. See a qualified professional for medical decisions.
             </Text>
+
+            {isPaid && !isPremium ? (
+                <Text style={styles.basicScanCap}>
+                    Basic includes one face scan (usually your signup scan). No additional scans on Basic — upgrade to
+                    Premium for a new scan every day.
+                </Text>
+            ) : null}
 
             <Text style={styles.title}>{step.title}</Text>
             <Text style={styles.instruction}>{step.instruction}</Text>
@@ -343,7 +357,11 @@ export default function FaceScanScreen() {
             </View>
 
             <Text style={styles.hint}>
-                We use three photos once to build your facial rating and breakdown. You can’t submit a second scan.
+                {isPremium
+                    ? 'Premium: one three-photo scan per calendar day.'
+                    : isPaid
+                      ? 'Basic: one scan only (no extras on this plan).'
+                      : 'One free preview — three angles, then Analyze.'}
             </Text>
         </View>
     );
@@ -376,6 +394,15 @@ const styles = StyleSheet.create({
         marginHorizontal: spacing.md,
         marginTop: spacing.xs,
         lineHeight: 16,
+    },
+    basicScanCap: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: colors.foreground,
+        textAlign: 'center',
+        marginHorizontal: spacing.md,
+        marginTop: spacing.sm,
+        lineHeight: 18,
     },
     title: { ...typography.h2, textAlign: 'center', marginTop: spacing.md },
     instruction: {

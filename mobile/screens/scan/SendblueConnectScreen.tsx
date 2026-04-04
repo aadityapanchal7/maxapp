@@ -3,8 +3,20 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, ActivityIndicator, Alert, Switch } from 'react-native';
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    Linking,
+    Platform,
+    ActivityIndicator,
+    Alert,
+    Switch,
+    ScrollView,
+} from 'react-native';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -17,6 +29,7 @@ type RouteParams = { next?: 'ModuleSelect' | 'Main' };
 export default function SendblueConnectScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
+    const insets = useSafeAreaInsets();
     const { refreshUser, user } = useAuth();
     const [busy, setBusy] = useState(false);
     const [smsOptIn, setSmsOptIn] = useState(true);
@@ -96,8 +109,19 @@ export default function SendblueConnectScreen() {
         }
     };
 
+    const scrollBottomPad = insets.bottom + spacing.xxl + 8;
+
     return (
         <View style={styles.root}>
+            <ScrollView
+                style={styles.scroll}
+                contentContainerStyle={[
+                    styles.scrollContent,
+                    { paddingTop: Math.max(insets.top, 12) + 44, paddingBottom: scrollBottomPad },
+                ]}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator
+            >
             <TouchableOpacity style={styles.backHit} onPress={() => navigation.goBack()} hitSlop={12}>
                 <Ionicons name="arrow-back" size={24} color={colors.foreground} />
             </TouchableOpacity>
@@ -188,6 +212,7 @@ export default function SendblueConnectScreen() {
                     <Text style={styles.devSkipText}>Dev: skip confirmation</Text>
                 </TouchableOpacity>
             ) : null}
+            </ScrollView>
         </View>
     );
 }
@@ -196,9 +221,10 @@ const styles = StyleSheet.create({
     root: {
         flex: 1,
         backgroundColor: colors.background,
+    },
+    scroll: { flex: 1 },
+    scrollContent: {
         paddingHorizontal: spacing.xl,
-        paddingTop: 56,
-        paddingBottom: spacing.xxl,
     },
     backHit: { alignSelf: 'flex-start', padding: 8, marginBottom: spacing.md },
     kicker: { ...typography.label, color: colors.textMuted, letterSpacing: 1.2, marginBottom: spacing.sm },

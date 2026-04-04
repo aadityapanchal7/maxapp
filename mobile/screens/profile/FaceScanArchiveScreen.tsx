@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
 
 function formatDate(dateStr: string): string {
@@ -14,6 +15,7 @@ function formatDate(dateStr: string): string {
 
 export default function FaceScanArchiveScreen() {
     const navigation = useNavigation<any>();
+    const { isPremium } = useAuth();
     const [loading, setLoading] = useState(true);
     const [scans, setScans] = useState<any[]>([]);
 
@@ -32,21 +34,23 @@ export default function FaceScanArchiveScreen() {
 
     const startNewScan = async () => {
         try {
-            const latest = await api.getLatestScan().catch((err: any) => {
-                if (err?.response?.status === 404) return null;
-                return null;
-            });
-            if (latest?.created_at) {
-                const ts = new Date(latest.created_at);
-                if (!Number.isNaN(ts.getTime())) {
-                    const now = new Date();
-                    const sameDay =
-                        ts.getFullYear() === now.getFullYear() &&
-                        ts.getMonth() === now.getMonth() &&
-                        ts.getDate() === now.getDate();
-                    if (sameDay) {
-                        alert('you already used today’s face scan. come back tomorrow.');
-                        return;
+            if (isPremium) {
+                const latest = await api.getLatestScan().catch((err: any) => {
+                    if (err?.response?.status === 404) return null;
+                    return null;
+                });
+                if (latest?.created_at) {
+                    const ts = new Date(latest.created_at);
+                    if (!Number.isNaN(ts.getTime())) {
+                        const now = new Date();
+                        const sameDay =
+                            ts.getFullYear() === now.getFullYear() &&
+                            ts.getMonth() === now.getMonth() &&
+                            ts.getDate() === now.getDate();
+                        if (sameDay) {
+                            alert('You already used today’s face scan. Come back tomorrow.');
+                            return;
+                        }
                     }
                 }
             }
@@ -95,7 +99,11 @@ export default function FaceScanArchiveScreen() {
                 </View>
             ) : (
                 <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-                    <Text style={styles.hint}>premium: 1 scan per day</Text>
+                    <Text style={styles.hint}>
+                        {isPremium
+                            ? 'Premium: 1 three-photo scan per day.'
+                            : 'Basic: one face scan included (signup) — no additional scans on this plan.'}
+                    </Text>
                     {scans.map((s) => (
                         <TouchableOpacity
                             key={s.id}

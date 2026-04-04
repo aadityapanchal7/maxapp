@@ -113,8 +113,7 @@ async def upload_scan_triple(
 ):
     """
     Three still photos (front, left profile, right profile) → UMax-style 6 metrics + overall.
-    Non-premium: one completed scan per user.
-    Premium: one scan per day.
+    Unpaid: one free scan. Basic: one face scan total (same as initial signup scan — no extras). Premium: one per UTC day.
     """
     user_uuid = UUID(current_user["id"])
     uid_str = str(user_uuid)
@@ -128,9 +127,12 @@ async def upload_scan_triple(
         if user_row and user_row.first_scan_completed:
             raise HTTPException(status_code=400, detail="You have already completed your free face scan. Subscribe to scan again.")
     elif not is_premium:
-        # Basic tier: 1 scan included (the initial one)
+        # Basic: one scan only (typically the signup / onboarding scan — no additional scans on Basic).
         if user_row and user_row.first_scan_completed:
-            raise HTTPException(status_code=400, detail="Basic plan includes 1 scan. Upgrade to Premium for daily scans.")
+            raise HTTPException(
+                status_code=400,
+                detail="Basic includes one face scan. Upgrade to Premium for daily scans.",
+            )
     else:
         # Premium tier: one scan per day (UTC)
         now = datetime.utcnow()
