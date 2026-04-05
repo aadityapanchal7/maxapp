@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, Animated, Dimensions, Pressable, Platform, useWindowDimensions } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
@@ -345,7 +345,9 @@ export default function ProfileScreen() {
                         {isPaid ? (
                             <TouchableOpacity
                                 style={[styles.menuRow, { marginBottom: spacing.sm }]}
-                                onPress={() => navigation.navigate('ManageSubscription')}
+                                onPress={() =>
+                                    navigation.dispatch(CommonActions.navigate({ name: 'ManageSubscription' }))
+                                }
                                 activeOpacity={0.7}
                             >
                                 <Ionicons name="card-outline" size={22} color={colors.foreground} />

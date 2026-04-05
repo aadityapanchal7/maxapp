@@ -258,15 +258,10 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 # Status (existing)
 # ------------------------------------------------------------------
 
-def _subscription_payload(sub: dict | None) -> dict:
-    if not sub:
-        return {}
-    out = dict(sub)
-    for key in ("current_period_start", "current_period_end"):
-        v = out.get(key)
-        if v is not None and hasattr(v, "isoformat"):
-            out[f"{key}_iso"] = v.isoformat()
-    return out
+def _dt_iso(v) -> str | None:
+    if v is not None and hasattr(v, "isoformat"):
+        return v.isoformat()
+    return None
 
 
 @router.get("/status")
@@ -274,32 +269,73 @@ async def get_subscription_status(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """
+    Billing metadata for the manage-subscription UI. JSON-safe; never raises for Stripe quirks.
+    """
     user_row = await db.get(User, UUID(current_user["id"]))
     tier = (
         (user_row.subscription_tier if user_row else None)
         or current_user.get("subscription_tier")
     )
-    sub_id = current_user.get("subscription_id")
+    sub_id = (user_row.subscription_id if user_row else None) or current_user.get(
+        "subscription_id"
+    )
+    paid = bool(user_row.is_paid) if user_row else bool(current_user.get("is_paid"))
+
     if not sub_id:
+        end_iso = _dt_iso(user_row.subscription_end_date) if user_row else None
+        return {
+            "is_active": paid,
+            "subscription_tier": tier,
+            "cancel_at_period_end": False,
+            "current_period_end_iso": end_iso,
+            "current_period_start_iso": None,
+            "has_stripe_subscription": False,
+            "subscription": None,
+            "degraded": False,
+        }
+
+    try:
+        sub = await stripe_service.get_subscription(sub_id)
+    except Exception as e:
+        logger.exception("get_subscription_status: Stripe retrieve error: %s", e)
+        sub = None
+
+    if not sub:
+        end_iso = _dt_iso(user_row.subscription_end_date) if user_row else None
         return {
             "is_active": False,
             "subscription_tier": tier,
             "cancel_at_period_end": False,
-            "current_period_end_iso": None,
+            "current_period_end_iso": end_iso,
             "current_period_start_iso": None,
+            "has_stripe_subscription": True,
             "subscription": None,
+            "degraded": True,
         }
 
-    sub = await stripe_service.get_subscription(sub_id)
-    payload = _subscription_payload(sub)
-    cancel_at = bool(sub.get("cancel_at_period_end")) if sub else False
+    cancel_at = bool(sub.get("cancel_at_period_end"))
+    cps = sub.get("current_period_start")
+    cpe = sub.get("current_period_end")
+    start_iso = _dt_iso(cps)
+    end_iso = _dt_iso(cpe)
+    stripe_active = sub.get("status") == "active"
+
     return {
-        "is_active": sub.get("status") == "active" if sub else False,
+        "is_active": stripe_active,
         "subscription_tier": tier,
         "cancel_at_period_end": cancel_at,
-        "current_period_end_iso": payload.get("current_period_end_iso"),
-        "current_period_start_iso": payload.get("current_period_start_iso"),
-        "subscription": sub,
+        "current_period_end_iso": end_iso,
+        "current_period_start_iso": start_iso,
+        "has_stripe_subscription": True,
+        "subscription": {
+            "id": sub.get("id"),
+            "status": sub.get("status"),
+            "cancel_at_period_end": cancel_at,
+            "current_period_start": start_iso,
+            "current_period_end": end_iso,
+        },
+        "degraded": False,
     }
 
 

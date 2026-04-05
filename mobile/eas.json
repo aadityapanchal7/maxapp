@@ -23,6 +23,7 @@
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://maxapp-api.onrender.com/api/"
       },
+      "autoIncrement": true,
       "android": {
         "buildType": "app-bundle"
       }

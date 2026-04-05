@@ -21,6 +21,8 @@ interface User {
     last_username_change?: string | null;
     is_paid: boolean;
     subscription_tier?: SubscriptionTier;
+    subscription_status?: string | null;
+    subscription_end_date?: string | null;
     onboarding: {
         completed: boolean;
         goals: string[];
@@ -107,6 +109,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         void checkAuth();
     }, [checkAuth]);
+
+    useEffect(() => {
+        if (!__DEV__) return;
+        void api.checkBackendHealth().then((ok) => {
+            if (!ok) {
+                const base = api.getBaseUrl();
+                const root = base.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
+                console.warn(
+                    `[Max] Backend not reachable (${root}/health). The app is configured for API: ${base} — start the FastAPI server (e.g. from maxapp/backend) or point EXPO_PUBLIC_API_BASE_URL at a running server, then restart Metro.`,
+                );
+            }
+        });
+    }, []);
 
     const login = useCallback(async (identifier: string, password: string) => {
         await api.login(identifier, password);
