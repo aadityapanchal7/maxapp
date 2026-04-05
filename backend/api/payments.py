@@ -175,10 +175,11 @@ async def subscribe(
         price_id=price_id,
         payment_method_id=pm_id,
         user_id=user_id,
+        subscription_tier=body.tier,
     )
 
-    if sub.status == "active":
-        await _activate_user(user_id, sub.id, db)
+    if sub.status in ("active", "trialing"):
+        await _activate_user(user_id, sub.id, db, subscription_tier=body.tier)
 
     return SubscribeResponse(subscription_id=sub.id, status=sub.status)
 

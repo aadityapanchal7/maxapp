@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
+import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 
 type MaxxCard = {
@@ -25,13 +26,27 @@ export default function ModuleSelectScreen() {
     /** Lowercase maxx ids to show on Home (same as onboarding.goals). */
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+    const maxSlots = maxHomeMaxxesForUser(user);
+
     const toggleMaxx = (id: string) => {
         const key = String(id || '').toLowerCase();
         if (!key) return;
         setSelectedIds((prev) => {
             const next = new Set(prev);
-            if (next.has(key)) next.delete(key);
-            else next.add(key);
+            if (next.has(key)) {
+                next.delete(key);
+                return next;
+            }
+            if (next.size >= maxSlots) {
+                Alert.alert(
+                    'Program limit',
+                    maxSlots >= 3
+                        ? 'Premium includes up to 3 programs on your home. Deselect one to add another.'
+                        : 'Basic includes up to 2 programs on your home. Upgrade to Premium for 3, or deselect one to add another.',
+                );
+                return prev;
+            }
+            next.add(key);
             return next;
         });
     };
@@ -88,7 +103,9 @@ export default function ModuleSelectScreen() {
                 </View>
 
                 <Text style={styles.lead}>
-                    Tap to select programs for your home. Starting a schedule is separate — open any track from Home when you are ready.
+                    Tap to select up to {maxSlots} program{maxSlots === 1 ? '' : 's'} for your home (
+                    {maxSlots >= 3 ? 'Premium' : 'Basic'}). Starting a schedule is separate — open any track from Home when you are
+                    ready.
                 </Text>
 
                 {maxes.map((m) => {

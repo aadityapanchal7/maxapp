@@ -26,6 +26,20 @@ import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
 type RouteParams = { next?: 'ModuleSelect' | 'Main' };
 
+/** Readable display for the phone the user signed up with (E.164 or digits). */
+function formatSignupPhoneDisplay(raw?: string | null): string {
+    if (!raw?.trim()) return '';
+    const d = raw.replace(/\D/g, '');
+    if (d.length === 11 && d.startsWith('1')) {
+        const n = d.slice(1);
+        return `+1 (${n.slice(0, 3)}) ${n.slice(3, 6)}-${n.slice(6)}`;
+    }
+    if (d.length === 10) {
+        return `+1 (${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+    }
+    return raw.trim();
+}
+
 export default function SendblueConnectScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
@@ -51,14 +65,14 @@ export default function SendblueConnectScreen() {
 
     const extra = (Constants.expoConfig?.extra ?? {}) as Record<string, string | undefined>;
     const smsE164 = (extra.sendblueSmsNumber || '+16468304204').replace(/\s/g, '');
-    const display = extra.sendblueDisplayNumber || '+1 (646) 830-4204';
+    const signupDisplay = formatSignupPhoneDisplay(user?.phone_number);
     const next: 'ModuleSelect' | 'Main' = route.params?.next === 'Main' ? 'Main' : 'ModuleSelect';
 
     const openSms = () => {
         const body = encodeURIComponent('Hey Max');
         const url = Platform.OS === 'ios' ? `sms:${smsE164}&body=${body}` : `sms:${smsE164}?body=${body}`;
         Linking.openURL(url).catch(() => {
-            Alert.alert('Messages', `Text ${display} from your phone to connect.`);
+            Alert.alert('Messages', 'Open Messages and text our Max line from the phone number on your account.');
         });
     };
 
@@ -105,8 +119,20 @@ export default function SendblueConnectScreen() {
                 </Text>
 
                 <View style={styles.card}>
-                    <Text style={styles.cardLabel}>OUR NUMBER</Text>
-                    <Text style={styles.phone}>{display}</Text>
+                    <Text style={styles.cardLabel}>TEXT FROM THIS NUMBER</Text>
+                    {signupDisplay ? (
+                        <Text style={styles.phoneUser} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+                            {signupDisplay}
+                        </Text>
+                    ) : (
+                        <Text style={styles.phoneMissing}>
+                            We don&apos;t have a phone on your account. Add one in Profile, or use the number you signed up with in
+                            Messages.
+                        </Text>
+                    )}
+                    <Text style={styles.cardHint}>
+                        Open Messages below and send from the phone number above so we can verify it&apos;s you.
+                    </Text>
                     <TouchableOpacity style={styles.primaryBtn} onPress={openSms} activeOpacity={0.88}>
                         <Ionicons name="chatbubble-ellipses-outline" size={22} color={colors.background} />
                         <Text style={styles.primaryBtnText}>Open Messages</Text>
@@ -184,7 +210,15 @@ const styles = StyleSheet.create({
         marginBottom: spacing.lg,
     },
     cardLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.8, marginBottom: spacing.sm },
-    phone: { fontSize: 28, fontWeight: '800', color: colors.foreground, marginBottom: spacing.lg },
+    phoneUser: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: colors.foreground,
+        marginBottom: spacing.sm,
+        letterSpacing: 0.2,
+    },
+    phoneMissing: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: spacing.sm },
+    cardHint: { fontSize: 13, color: colors.textSecondary, lineHeight: 19, marginBottom: spacing.lg },
     primaryBtn: {
         flexDirection: 'row',
         alignItems: 'center',

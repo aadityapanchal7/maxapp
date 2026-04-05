@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -12,6 +12,7 @@ import {
     Share,
     Alert,
     AppState,
+    BackHandler,
 } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
@@ -546,14 +547,26 @@ export default function FaceScanResultsScreen() {
         navigation.navigate('Main');
     };
 
+    /** During post-pay onboarding, do not use back to bail to Home — user must complete Sendblue + notifications + programs. */
+    const postPayOnboardingFlow = postPay && !viewingHistory;
+
     const headerBack = () => {
-        if (postPay) {
-            navigation.navigate('Main');
+        if (postPayOnboardingFlow) {
             return;
         }
         if (navigation.canGoBack()) navigation.goBack();
         else navigation.navigate('Main');
     };
+
+    useEffect(() => {
+        if (!postPayOnboardingFlow || Platform.OS !== 'android') return;
+        const sub = BackHandler.addEventListener('hardwareBackPress', () => true);
+        return () => sub.remove();
+    }, [postPayOnboardingFlow]);
+
+    useLayoutEffect(() => {
+        navigation.setOptions({ gestureEnabled: !postPayOnboardingFlow });
+    }, [navigation, postPayOnboardingFlow]);
 
     const serverProcessing = scan?.processing_status === 'processing';
 
@@ -681,9 +694,13 @@ export default function FaceScanResultsScreen() {
         <View style={styles.root}>
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
                 <View style={styles.header}>
-                    <TouchableOpacity onPress={headerBack} style={styles.iconHit} hitSlop={12}>
-                        <Ionicons name="arrow-back" size={22} color={colors.foreground} />
-                    </TouchableOpacity>
+                    {postPayOnboardingFlow ? (
+                        <View style={styles.iconHit} />
+                    ) : (
+                        <TouchableOpacity onPress={headerBack} style={styles.iconHit} hitSlop={12}>
+                            <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+                        </TouchableOpacity>
+                    )}
                     <Text style={styles.headerTitle}>Your results</Text>
                     <View style={styles.iconHit} />
                 </View>
@@ -864,12 +881,18 @@ export default function FaceScanResultsScreen() {
                     <>
                         <TouchableOpacity style={styles.cta} onPress={onPrimaryCta} activeOpacity={0.88}>
                             <Text style={styles.ctaText}>
-                                {locked ? 'Unlock plan' : postPay ? 'Choose your programs' : 'Continue'}
+                                {locked
+                                    ? 'Unlock plan'
+                                    : postPay && sendbluePending
+                                      ? 'Continue'
+                                      : postPay
+                                        ? 'Choose your programs'
+                                        : 'Continue'}
                             </Text>
                             <Ionicons name={locked ? 'lock-open-outline' : 'arrow-forward'} size={20} color={colors.background} />
                         </TouchableOpacity>
 
-                        {!locked && !postPay ? (
+                        {!locked && !postSubscriptionOnboarding ? (
                             <TouchableOpacity style={styles.secondaryCta} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
                                 <Text style={styles.secondaryCtaText}>Skip to home</Text>
                             </TouchableOpacity>

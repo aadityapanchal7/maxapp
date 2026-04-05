@@ -13,7 +13,7 @@ import {
     Alert,
     Platform,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -57,9 +57,8 @@ export default function NotificationChannelsScreen() {
 
     const params = (route.params || {}) as RouteParams;
     const next: NextRoute = params.next === 'Main' ? 'Main' : 'ModuleSelect';
-    const paramEdit = params.editMode === true;
-    const connectDone = user?.onboarding?.sendblue_connect_completed === true;
-    const editMode = paramEdit || connectDone;
+    /** Profile-only: PATCH prefs. Post-Sendblue first visit must use complete + navigate (never goBack). */
+    const editMode = params.editMode === true;
 
     const isIos = Platform.OS === 'ios';
     /** Server push is iOS-only; Android shows SMS + local in-app copy for "both". */
@@ -132,12 +131,15 @@ export default function NotificationChannelsScreen() {
 
             if (editMode) {
                 navigation.goBack();
+            } else if (next === 'Main') {
+                navigation.navigate('Main');
             } else {
-                if (next === 'Main') {
-                    navigation.navigate('Main');
-                } else {
-                    navigation.navigate('ModuleSelect');
-                }
+                navigation.dispatch(
+                    CommonActions.reset({
+                        index: 1,
+                        routes: [{ name: 'Main' }, { name: 'ModuleSelect' }],
+                    }),
+                );
             }
         } catch (e) {
             console.error(e);
