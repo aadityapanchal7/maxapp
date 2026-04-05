@@ -215,6 +215,13 @@ class StripeService:
     # ------------------------------------------------------------------
 
     def construct_webhook_event(self, payload: bytes, sig_header: str) -> stripe.Event:
+        # Reject unsigned requests explicitly — if STRIPE_WEBHOOK_SECRET isn't set,
+        # construct_event still raises, but this gives a clearer error in logs and
+        # guarantees we never silently accept a forged webhook in any Stripe SDK version.
+        if not settings.stripe_webhook_secret:
+            raise RuntimeError("STRIPE_WEBHOOK_SECRET is not configured — refusing to process webhooks")
+        if not sig_header:
+            raise ValueError("Missing stripe-signature header")
         return stripe.Webhook.construct_event(
             payload,
             sig_header,

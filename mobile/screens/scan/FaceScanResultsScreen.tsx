@@ -453,35 +453,55 @@ export default function FaceScanResultsScreen() {
         bootstrap();
     }, [bootstrap]);
 
-    const pollLatestScan = useCallback(async () => {
-        try {
-            const result = scanIdParam ? await api.getScanById(scanIdParam) : await api.getLatestScan();
-            setScan(result);
-            if (result?.processing_status !== 'processing') {
-                setProcessing(false);
-            }
-        } catch (e) {
-            console.error(e);
-        }
-    }, [scanIdParam]);
-
     useEffect(() => {
-        if (scan?.processing_status === 'processing') {
-            setProcessing(true);
-            const interval = setInterval(async () => {
-                try {
-                    const result = scanIdParam ? await api.getScanById(scanIdParam) : await api.getLatestScan();
-                    setScan(result);
-                    if (result.processing_status !== 'processing') {
-                        setProcessing(false);
-                        clearInterval(interval);
-                    }
-                } catch (e) {
-                    console.error(e);
+        if (scan?.processing_status !== 'processing') return;
+        setProcessing(true);
+        const appStateRef = { current: AppState.currentState };
+        let cancelled = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        // Backoff: 3s for first minute, 6s next two minutes, 12s thereafter. Caps
+        // the polling data cost when a scan legitimately takes a while.
+        const startedAt = Date.now();
+        const nextDelay = () => {
+            const elapsed = Date.now() - startedAt;
+            if (elapsed < 60_000) return 3000;
+            if (elapsed < 180_000) return 6000;
+            return 12000;
+        };
+        const doPoll = async () => {
+            try {
+                const result = scanIdParam ? await api.getScanById(scanIdParam) : await api.getLatestScan();
+                if (cancelled) return;
+                setScan(result);
+                if (result.processing_status !== 'processing') {
+                    setProcessing(false);
+                    return; // loop exits because status changed
                 }
-            }, 3000);
-            return () => clearInterval(interval);
-        }
+            } catch (e) {
+                console.error(e);
+            }
+            if (!cancelled) timer = setTimeout(tick, nextDelay());
+        };
+        const tick = () => {
+            if (appStateRef.current !== 'active') {
+                timer = setTimeout(tick, nextDelay());
+                return;
+            }
+            void doPoll();
+        };
+        timer = setTimeout(tick, nextDelay());
+        const appSub = AppState.addEventListener('change', (next) => {
+            const prev = appStateRef.current;
+            appStateRef.current = next;
+            if (prev.match(/inactive|background/) && next === 'active') {
+                void doPoll();
+            }
+        });
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+            appSub.remove();
+        };
     }, [scan?.processing_status, scanIdParam]);
 
     const a = scan?.analysis;
@@ -505,13 +525,6 @@ export default function FaceScanResultsScreen() {
     const isProcessing = processing || scan?.processing_status === 'processing';
     const frontUri = api.resolveAttachmentUrl(scan?.images?.front);
 
-    useEffect(() => {
-        if (!isProcessing) return;
-        const sub = AppState.addEventListener('change', (state) => {
-            if (state === 'active') void pollLatestScan();
-        });
-        return () => sub.remove();
-    }, [isProcessing, pollLatestScan]);
 
     const pr = a?.psl_rating && typeof a.psl_rating === 'object' ? a.psl_rating : {};
     const pi = a?.profile_insights;

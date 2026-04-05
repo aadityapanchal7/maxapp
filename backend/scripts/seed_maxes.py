@@ -4,7 +4,7 @@ Creates 5 test courses for the Maxes (Bonemax, Heightmax, Skinmax, Hairmax, Fitm
 
 Usage:
     cd backend
-    .\venv\Scripts\python.exe scripts/seed_maxes.py
+    .\\venv\\Scripts\\python.exe scripts/seed_maxes.py
 """
 
 import asyncio

@@ -1,5 +1,6 @@
 /**
- * Web / fallback: native Payment Sheet lives in stripePaymentSheet.native.ts (Metro resolution).
+ * Legacy helper — unused by current subscribe flow (`useStripeSubscription`).
+ * Native previously had stripePaymentSheet.native.ts; checkout is unified via the hook + PaymentScreen.
  */
 
 export type SubscriptionTier = 'chadlite' | 'chad';

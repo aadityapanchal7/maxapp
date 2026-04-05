@@ -198,8 +198,7 @@ export default function NotificationChannelsScreen() {
                 <Text style={styles.kicker}>Reminders</Text>
                 <Text style={styles.title}>How should Max reach you?</Text>
                 <Text style={styles.lead}>
-                    Schedule nudges and coaching can go to your phone as iPhone alerts and/or texts, based on what you
-                    pick. You can change this anytime in Profile.
+                    Choose how Max reaches you. Changeable anytime in Profile.
                 </Text>
 
                 {allowAppleOnly ? (

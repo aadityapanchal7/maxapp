@@ -1392,6 +1392,39 @@ def _persist_chat_history(channel: str) -> bool:
     return channel != "sms"
 
 
+# Keep strong refs to background tasks so the event loop doesn't GC them mid-flight
+# (asyncio only holds weakrefs to Tasks created outside a running awaited chain).
+_BACKGROUND_TASKS: set = set()
+
+
+def _spawn_background_task(coro) -> None:
+    """Fire-and-forget a coroutine off the request's critical path."""
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+
+async def _bg_update_memory(user_id: str, recent_history: list[dict]) -> None:
+    from db import AsyncSessionLocal
+    try:
+        summary = await coaching_service.generate_conversation_summary(recent_history)
+        if not summary:
+            return
+        async with AsyncSessionLocal() as bg_db:
+            await coaching_service.update_ai_memory(user_id, bg_db, summary)
+    except Exception as e:
+        logger.warning("bg AI memory update failed for %s: %s", user_id, e)
+
+
+async def _bg_detect_tone(user_id: str, recent_history: list[dict]) -> None:
+    from db import AsyncSessionLocal
+    try:
+        async with AsyncSessionLocal() as bg_db:
+            await coaching_service.detect_tone_preference(user_id, bg_db, recent_history)
+    except Exception as e:
+        logger.warning("bg tone detection failed for %s: %s", user_id, e)
+
+
 async def process_chat_message(
     user_id: str,
     message_text: str,
@@ -1416,33 +1449,38 @@ async def process_chat_message(
 
     # SMS is not persisted; use in-app thread as read-only context for the model.
     history_channel_for_load = "app" if channel == "sms" else channel
+    # AsyncSession is NOT concurrency-safe — two awaits on the same session
+    # raise InvalidRequestError. So we serialize DB calls on `db`, but batch
+    # them into one query where we can: user + history are one round-trip
+    # via gather only if they run on SEPARATE sessions. Keeping sequential
+    # here for correctness; biggest win comes from trimming what each call does.
+    # LLM only uses the last 10 messages, and the periodic memory/tone jobs
+    # use the last 20-30. Pulling 50 rows on every turn wastes DB time.
     history_result = await db.execute(
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
         .where(_chat_history_channel_clause(history_channel_for_load))
         .order_by(ChatHistory.created_at.desc())
-        .limit(50)
+        .limit(30)
     )
     history_rows = list(reversed(history_result.scalars().all()))
     history = [
         {"role": h.role, "content": h.content, "created_at": h.created_at}
         for h in history_rows
     ]
-    
+
     coaching_context = await coaching_service.build_full_context(user_id, db, rds_db)
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     user = await db.get(User, user_uuid)
     onboarding = _merge_onboarding_with_schedule_prefs(user)
-    if user:
-        profile = dict((user.profile or {}) or {})
-        if _expire_stale_chat_pending(profile):
-            user.profile = profile
-            flag_modified(user, "profile")
-            user.updated_at = datetime.utcnow()
-            await db.commit()
-            profile = dict((user.profile or {}) or {})
-    else:
-        profile = {}
+    # Batch all stale-flag cleanups into a single commit. Previously this block
+    # could issue up to 5 separate commits before the LLM call even started —
+    # each one a ~5-20ms round-trip. Now: mutate in memory, commit once at end.
+    profile: dict = dict((user.profile or {}) or {}) if user else {}
+    profile_dirty = False
+
+    if user and _expire_stale_chat_pending(profile):
+        profile_dirty = True
 
     if user:
         try:
@@ -1453,42 +1491,28 @@ async def process_chat_message(
             hairmax_schedule_active = await schedule_service.get_maxx_schedule(user_id, "hairmax", db=db)
         except Exception:
             hairmax_schedule_active = None
+
+        def _clear_setup_flags(prefix: str) -> None:
+            nonlocal profile_dirty
+            if profile.pop(f"{prefix}_chat_setup", None) is not None:
+                profile_dirty = True
+            if profile.pop(f"{prefix}_chat_setup_at", None) is not None:
+                profile_dirty = True
+
         if hairmax_schedule_active and profile.get("hairmax_chat_setup"):
-            prof = dict(profile)
-            prof.pop("hairmax_chat_setup", None)
-            prof.pop("hairmax_chat_setup_at", None)
-            user.profile = prof
-            flag_modified(user, "profile")
-            user.updated_at = datetime.utcnow()
-            await db.commit()
-            profile = dict((user.profile or {}) or {})
+            _clear_setup_flags("hairmax")
         elif profile.get("hairmax_chat_setup") and _hairmax_setup_stale(profile):
-            prof = dict(profile)
-            prof.pop("hairmax_chat_setup", None)
-            prof.pop("hairmax_chat_setup_at", None)
-            user.profile = prof
-            flag_modified(user, "profile")
-            user.updated_at = datetime.utcnow()
-            await db.commit()
-            profile = dict((user.profile or {}) or {})
+            _clear_setup_flags("hairmax")
         if fitmax_schedule_active and profile.get("fitmax_chat_setup"):
-            prof = dict(profile)
-            prof.pop("fitmax_chat_setup", None)
-            prof.pop("fitmax_chat_setup_at", None)
-            user.profile = prof
-            flag_modified(user, "profile")
-            user.updated_at = datetime.utcnow()
-            await db.commit()
-            profile = dict((user.profile or {}) or {})
+            _clear_setup_flags("fitmax")
         elif profile.get("fitmax_chat_setup") and _fitmax_setup_stale(profile):
-            prof = dict(profile)
-            prof.pop("fitmax_chat_setup", None)
-            prof.pop("fitmax_chat_setup_at", None)
-            user.profile = prof
+            _clear_setup_flags("fitmax")
+
+        if profile_dirty:
+            user.profile = profile
             flag_modified(user, "profile")
             user.updated_at = datetime.utcnow()
             await db.commit()
-            profile = dict((user.profile or {}) or {})
 
     user_context = {
         "coaching_context": coaching_context,
@@ -2302,7 +2326,17 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         image_data = await storage_service.get_image(attachment_url)
     
     # --- LLM call ---
-    result = await llm_chat(message, history, user_context, image_data, channel)
+    # llm_chat already retries across providers (primary + fallback). If we still
+    # fail here, return a friendly apology as the assistant response rather than
+    # 500-ing the client — the mobile UI surfaces this as a normal assistant bubble.
+    try:
+        result = await llm_chat(message, history, user_context, image_data, channel)
+    except Exception as llm_err:
+        logger.exception("llm_chat failed for user %s: %s", user_id, llm_err)
+        return _finalize_assistant_message(
+            "I'm having trouble reaching my brain right now — please try again "
+            "in a moment. Your message was saved."
+        ), []
     response_text = result.get("text", "")
     tool_calls = result.get("tool_calls", [])
     
@@ -2658,21 +2692,21 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         db.add(assistant_message)
         await db.commit()
 
+    # Invalidate cached context if we mutated state this turn (new schedule,
+    # schedule adapt, completed/check-in). Next message will see fresh data.
+    if modify_schedule_ran or tool_calls:
+        coaching_service.invalidate_context_cache(user_id)
+
     # --- Background: update AI memory every ~10 messages (app thread only) ---
+    # These each fire a secondary LLM call (~1-3s) and MUST NOT block the user's
+    # response. We fire-and-forget on a fresh DB session because `db` closes
+    # when this endpoint returns.
     total_msgs = len(history) + 2
     if _persist_chat_history(channel) and total_msgs % 10 == 0:
-        try:
-            summary = await coaching_service.generate_conversation_summary(history[-20:])
-            if summary:
-                await coaching_service.update_ai_memory(user_id, db, summary)
-        except Exception as e:
-            print(f"AI memory update failed: {e}")
+        _spawn_background_task(_bg_update_memory(user_id, history[-20:]))
 
     if _persist_chat_history(channel) and total_msgs % 20 == 0:
-        try:
-            await coaching_service.detect_tone_preference(user_id, db, history[-30:])
-        except Exception as e:
-            print(f"Tone detection failed: {e}")
+        _spawn_background_task(_bg_detect_tone(user_id, history[-30:]))
 
     choices_out: list[str] = []
     if maxx_id and not existing_maxx:

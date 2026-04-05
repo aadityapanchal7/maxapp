@@ -135,7 +135,7 @@ export default function LoginScreen() {
 
                     <TouchableOpacity onPress={() => navigation.navigate('Signup')} activeOpacity={0.6} style={styles.linkContainer}>
                         <Text style={styles.linkText}>
-                            Don&apos;t have an account? <Text style={styles.linkBold}>Create one</Text>
+                            <Text style={styles.linkBold}>Create account</Text>
                         </Text>
                     </TouchableOpacity>
 

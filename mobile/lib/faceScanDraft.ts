@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const DRAFT_DIR = `${FileSystem.documentDirectory ?? ''}face-scan-draft`;
 const META_KEY = '@max_face_scan_draft_meta_v1';

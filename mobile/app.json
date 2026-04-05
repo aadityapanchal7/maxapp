@@ -17,11 +17,17 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cannon.mobile",
-      "buildNumber": "15",
+      "buildNumber": "27",
+      "entitlements": {
+        "aps-environment": "production"
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "Max uses your photo library to attach images in community channels, chat, and profile or progress photos.",
-        "NSPhotoLibraryAddUsageDescription": "Max saves your face scan from results to your photo library when you choose Save to photos."
+        "NSPhotoLibraryAddUsageDescription": "Max saves your face scan from results to your photo library when you choose Save to photos.",
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -72,7 +78,9 @@
       [
         "@stripe/stripe-react-native",
         {
-          "merchantIdentifier": [],
+          "merchantIdentifier": [
+            "merchant.com.cannon.mobile"
+          ],
           "enableGooglePay": true
         }
       ]

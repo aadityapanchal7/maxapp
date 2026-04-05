@@ -10,6 +10,7 @@ import {
     ScrollView,
     Modal,
     Pressable,
+    Alert,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,6 +65,33 @@ export default function ProgressArchiveScreen() {
     const openViewer = (index: number) => {
         setSelectedIndex(index);
         setViewerVisible(true);
+    };
+
+    const deletePhoto = (index: number) => {
+        const photo = photos[index];
+        if (!photo) return;
+        Alert.alert('Delete photo', 'Are you sure you want to delete this progress photo?', [
+            { text: 'Cancel', style: 'cancel' },
+            {
+                text: 'Delete',
+                style: 'destructive',
+                onPress: async () => {
+                    try {
+                        await api.deleteProgressPhoto(photo.id);
+                        const updated = photos.filter((_, i) => i !== index);
+                        setPhotos(updated);
+                        if (updated.length === 0) {
+                            setViewerVisible(false);
+                        } else {
+                            setSelectedIndex(Math.min(index, updated.length - 1));
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        Alert.alert('Error', 'Could not delete photo. Please try again.');
+                    }
+                },
+            },
+        ]);
     };
 
     if (loading) {
@@ -177,6 +205,14 @@ export default function ProgressArchiveScreen() {
                                 {formatProgressDate(photos[selectedIndex].created_at)}
                             </Text>
                         )}
+                        <TouchableOpacity
+                            style={styles.deleteBtn}
+                            onPress={() => deletePhoto(selectedIndex)}
+                            activeOpacity={0.7}
+                        >
+                            <Ionicons name="trash-outline" size={18} color={colors.error} />
+                            <Text style={styles.deleteBtnText}>Delete</Text>
+                        </TouchableOpacity>
                         {photos.length > 1 && (
                             <View style={[styles.navRow, { width: imageWidth }]}>
                                 <TouchableOpacity
@@ -326,6 +362,19 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: '600',
         color: colors.foreground,
+    },
+    deleteBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        marginTop: spacing.md,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.md,
+    },
+    deleteBtnText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.error,
     },
     navRow: {
         flexDirection: 'row',

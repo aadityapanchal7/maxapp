@@ -372,9 +372,6 @@ export default function ScheduleScreen() {
         <View style={[styles.emptyState, styles.center]}>
           <Ionicons name="calendar-outline" size={64} color={colors.textMuted} />
           <Text style={styles.emptyTitle}>No Active Schedule</Text>
-          <Text style={styles.emptySubtitle}>
-            Generate a personalised AI schedule for {courseTitle || 'your course module'}.
-          </Text>
           <TouchableOpacity
             style={styles.generateButton}
             onPress={handleGenerate}

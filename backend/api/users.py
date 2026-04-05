@@ -526,6 +526,34 @@ async def upload_progress_photo_base64(
     }
 
 
+@router.delete("/me/progress-photos/{photo_id}")
+async def delete_progress_photo(
+    photo_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a single progress photo owned by the current user."""
+    user_uuid = UUID(current_user["id"])
+    photo_uuid = UUID(photo_id)
+    result = await db.execute(
+        select(UserProgressPhoto)
+        .where(UserProgressPhoto.id == photo_uuid, UserProgressPhoto.user_id == user_uuid)
+    )
+    photo = result.scalar_one_or_none()
+    if not photo:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    try:
+        delete_by_url(photo.image_url)
+    except Exception as e:
+        logger.warning("Progress photo S3 cleanup failed: %s", e)
+    await db.execute(
+        delete(UserProgressPhoto)
+        .where(UserProgressPhoto.id == photo_uuid, UserProgressPhoto.user_id == user_uuid)
+    )
+    await db.commit()
+    return {"message": "Photo deleted"}
+
+
 @router.get("/me/progress-photos")
 async def list_progress_photos(
     limit: int = 50,

@@ -101,8 +101,8 @@ class Settings(BaseSettings):
     apns_team_id: str = Field(default="", description="Apple Team ID (iss claim)")
     apns_bundle_id: str = Field(default="com.cannon.mobile", description="apns-topic / bundle id")
     apns_use_sandbox: bool = Field(
-        default=True,
-        description="True → api.sandbox.push.apple.com (dev builds); False → production",
+        default=False,
+        description="True → api.sandbox.push.apple.com (Xcode debug builds only); False → production (TestFlight / App Store)",
     )
     
     # AWS S3
@@ -177,10 +177,23 @@ class Settings(BaseSettings):
         extra = "ignore"
 
 
+_DEFAULT_JWT_SECRET = "change-this-secret-key"
+
+
 @lru_cache()
 def get_settings() -> Settings:
     """Cached settings instance"""
-    return Settings()
+    s = Settings()
+    # Refuse to boot in production with the default JWT secret — that would let
+    # anyone mint valid tokens for any user. Dev/test is allowed to keep the
+    # default so local contributors aren't blocked.
+    if s.app_env.strip().lower() == "production" and s.jwt_secret_key == _DEFAULT_JWT_SECRET:
+        raise RuntimeError(
+            "JWT_SECRET_KEY is still the default placeholder in production. "
+            "Set a strong random value (e.g. `python -c 'import secrets; print(secrets.token_urlsafe(48))'`) "
+            "in the environment before starting the server."
+        )
+    return s
 
 
 # Export settings instance

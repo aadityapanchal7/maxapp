@@ -24,15 +24,33 @@ import { CachedImage } from '../../components/CachedImage';
 import { PHONE_COUNTRIES, type PhoneCountry } from '../../constants/phoneCountryCodes';
 
 function signupErrorMessage(error: any): string {
-    const d = error?.response?.data?.detail;
+    const res = error?.response;
+    const base = api.getBaseUrl?.() || '';
+
+    if (!res) {
+        const msg = String(error?.message || '');
+        const isTimeout = error?.code === 'ECONNABORTED' || /timeout/i.test(msg);
+        const isNetwork = /Network Error|Failed to fetch|ECONNREFUSED|ENOTFOUND/i.test(msg) || isTimeout;
+        if (isNetwork) {
+            const local = /127\.0\.0\.1|localhost/i.test(base);
+            if (local) {
+                return "Can't reach the API. On a real phone, localhost doesn't point to your Mac — set EXPO_PUBLIC_API_BASE_URL to your Mac's LAN IP (e.g. http://192.168.x.x:8000/api/) and use `npx expo start --lan`, or use the production API URL. Then restart Metro.";
+            }
+            return "Can't reach the server. Check your connection, that the API is running, and EXPO_PUBLIC_API_BASE_URL in mobile/.env, then restart Metro with --clear.";
+        }
+        return msg || 'Could not create account';
+    }
+
+    const d = res?.data?.detail;
     if (typeof d === 'string') return d;
     if (Array.isArray(d)) {
-        return d
-            .map((x: { msg?: string }) => x?.msg)
-            .filter(Boolean)
-            .join(' ') || 'Could not create account';
+        const parts = d.map((x: { msg?: string }) => x?.msg).filter(Boolean);
+        if (parts.length) return parts.join(' ');
     }
-    return 'Could not create account';
+    if (d && typeof d === 'object' && 'message' in d) {
+        return String((d as { message?: string }).message);
+    }
+    return res?.status ? `Could not create account (error ${res.status}).` : 'Could not create account';
 }
 
 export default function SignupScreen() {
@@ -191,7 +209,7 @@ export default function SignupScreen() {
                                 {passwordMismatch && <Text style={styles.helperError}>Passwords don&apos;t match</Text>}
                             </View>
                             <View style={styles.inputGroup}>
-                                <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>PHONE NUMBER (SMS) · Required</Text>
+                                <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>PHONE NUMBER</Text>
                                 <View style={[styles.phoneRow, fieldErrors.phone && styles.inputError]}>
                                     <TouchableOpacity
                                         style={styles.countryCodeButton}
@@ -220,7 +238,7 @@ export default function SignupScreen() {
                                 {fieldErrorMessages.phone ? (
                                     <Text style={styles.helperError}>{fieldErrorMessages.phone}</Text>
                                 ) : (
-                                    <Text style={styles.phoneHint}>We&apos;ll text you for account &amp; coaching updates.</Text>
+                                    <Text style={styles.phoneHint}>Used for SMS coaching and account access.</Text>
                                 )}
                             </View>
 

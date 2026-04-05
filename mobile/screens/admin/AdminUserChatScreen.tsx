@@ -59,7 +59,6 @@ export default function AdminUserChatScreen({ route, navigation }: any) {
                 ) : messages.length === 0 ? (
                     <View style={styles.center}>
                         <Text style={styles.emptyText}>No messages yet</Text>
-                        <Text style={styles.emptySubtext}>Send a message as Max to start</Text>
                     </View>
                 ) : (
                     <FlatList ref={flatListRef} data={messages} renderItem={renderMessage} keyExtractor={(_, i) => i.toString()} contentContainerStyle={styles.messageList} onContentSizeChange={() => flatListRef.current?.scrollToEnd()} showsVerticalScrollIndicator={false} />

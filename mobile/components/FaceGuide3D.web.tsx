@@ -55,7 +55,7 @@ export default function FaceGuide3D({
         <View style={[styles.container, style]} pointerEvents="none">
             <View style={[styles.stage, { width, height }]}>
                 <Canvas
-                    style={StyleSheet.absoluteFill as any}
+                    style={StyleSheet.absoluteFillObject}
                     dpr={[1, 2]}
                     gl={{ alpha: true, antialias: true }}
                     camera={{ position: [0, 0, 4], fov: 45 }}

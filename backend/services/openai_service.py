@@ -227,7 +227,7 @@ class OpenAIService:
 
         messages: list[dict] = [{"role": "system", "content": chat_prompt}]
 
-        for msg in chat_history[-15:]:
+        for msg in chat_history[-10:]:
             role = "user" if msg["role"] == "user" else "assistant"
             messages.append({"role": role, "content": msg.get("content") or ""})
 
@@ -246,6 +246,8 @@ class OpenAIService:
 
         tools = _max_chat_tools_openai()
 
+        max_tokens = 512 if delivery_channel == "sms" else 768
+
         def _sync() -> dict:
             client = self._client()
             resp = client.chat.completions.create(
@@ -253,6 +255,9 @@ class OpenAIService:
                 messages=messages,
                 tools=tools,
                 tool_choice="auto",
+                max_tokens=max_tokens,
+                temperature=0.7,
+                timeout=20,
             )
             choice = resp.choices[0].message
             tool_calls_out: list[dict] = []
@@ -270,7 +275,7 @@ class OpenAIService:
                 "tool_calls": tool_calls_out,
             }
 
-        return await asyncio.to_thread(_sync)
+        return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=22.0)
 
     async def analyze_triple_umax(self, front: bytes, left: bytes, right: bytes) -> Dict[str, Any]:
         if not front or not left or not right:

@@ -85,14 +85,8 @@ export default function ChannelChatScreen() {
     const loadMessagesInFlight = useRef(false);
     const wsConnectedRef = useRef(false);
 
-    useEffect(() => {
-        const sub = AppState.addEventListener('change', (next) => {
-            appStateRef.current = next;
-        });
-        return () => sub.remove();
-    }, []);
-
     const forumWsRef = useRef<WebSocket | null>(null);
+    const connectRef = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         if (!channelId || isSearching) {
@@ -102,6 +96,32 @@ export default function ChannelChatScreen() {
         let cancelled = false;
         let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
         let attempt = 0;
+
+        const handleMessage = (e: MessageEvent) => {
+            try {
+                const data = JSON.parse(String(e.data)) as {
+                    type?: string;
+                    message?: Message;
+                    message_id?: string;
+                    reactions?: Record<string, string[]>;
+                };
+                if (data.type === 'message' && data.message) {
+                    const m = data.message;
+                    setMessages((prev) => {
+                        if (prev.some((x) => x.id === m.id)) return prev;
+                        return sortMessagesChronological([...prev, m]);
+                    });
+                } else if (data.type === 'reactions' && data.message_id && data.reactions) {
+                    const mid = data.message_id;
+                    const rx = data.reactions;
+                    setMessages((prev) =>
+                        prev.map((msg) => (msg.id === mid ? { ...msg, reactions: rx } : msg)),
+                    );
+                }
+            } catch {
+                /* ignore malformed */
+            }
+        };
 
         const connect = () => {
             void (async () => {
@@ -114,31 +134,7 @@ export default function ChannelChatScreen() {
                     wsConnectedRef.current = true;
                     attempt = 0;
                 };
-                ws.onmessage = (e) => {
-                    try {
-                        const data = JSON.parse(String(e.data)) as {
-                            type?: string;
-                            message?: Message;
-                            message_id?: string;
-                            reactions?: Record<string, string[]>;
-                        };
-                        if (data.type === 'message' && data.message) {
-                            const m = data.message;
-                            setMessages((prev) => {
-                                if (prev.some((x) => x.id === m.id)) return prev;
-                                return sortMessagesChronological([...prev, m]);
-                            });
-                        } else if (data.type === 'reactions' && data.message_id && data.reactions) {
-                            const mid = data.message_id;
-                            const rx = data.reactions;
-                            setMessages((prev) =>
-                                prev.map((msg) => (msg.id === mid ? { ...msg, reactions: rx } : msg)),
-                            );
-                        }
-                    } catch {
-                        /* ignore malformed */
-                    }
-                };
+                ws.onmessage = handleMessage;
                 ws.onerror = () => {
                     wsConnectedRef.current = false;
                 };
@@ -153,9 +149,11 @@ export default function ChannelChatScreen() {
             })();
         };
 
+        connectRef.current = connect;
         connect();
         return () => {
             cancelled = true;
+            connectRef.current = null;
             if (reconnectTimer) clearTimeout(reconnectTimer);
             wsConnectedRef.current = false;
             try {
@@ -166,6 +164,24 @@ export default function ChannelChatScreen() {
             forumWsRef.current = null;
         };
     }, [channelId, isSearching]);
+
+    // On foreground resume: reconnect WebSocket immediately and reload messages
+    // to catch anything missed while the app was backgrounded.
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (next) => {
+            const prev = appStateRef.current;
+            appStateRef.current = next;
+            if (prev.match(/inactive|background/) && next === 'active') {
+                if (!wsConnectedRef.current) {
+                    const ws = forumWsRef.current;
+                    const alreadyLive = ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN);
+                    if (!alreadyLive) connectRef.current?.();
+                }
+                void loadMessages();
+            }
+        });
+        return () => sub.remove();
+    }, []);
 
     useFocusEffect(useCallback(() => {
         if (!channelId) return;

@@ -19,6 +19,8 @@ from services.sendblue_service import sendblue_service, onboarding_allows_proact
 from services.notification_prefs import (
     user_allows_proactive_push,
     schedule_needs_any_channel,
+    schedule_sms_marked_sent,
+    schedule_push_marked_sent,
     mark_schedule_sms_sent,
     mark_schedule_push_sent,
 )
@@ -242,25 +244,28 @@ async def send_due_notifications():
 
                 touched_schedules: set = set()
                 for _key, group in groups.items():
-                    payload = [(item["task"], item["task_time_str"]) for item in group]
+                    sms_unsent = [it for it in group if not schedule_sms_marked_sent(it["task"])]
+                    push_unsent = [it for it in group if not schedule_push_marked_sent(it["task"])]
 
-                    if want_sms:
+                    if want_sms and sms_unsent:
+                        sms_payload = [(it["task"], it["task_time_str"]) for it in sms_unsent]
                         success = await sendblue_service.send_schedule_reminder_group(
-                            user.phone_number, payload
+                            user.phone_number, sms_payload
                         )
                         if success:
-                            for item in group:
+                            for item in sms_unsent:
                                 mark_schedule_sms_sent(item["task"])
                                 touched_schedules.add(item["schedule"])
                             logger.info(
                                 "Sent deduped schedule SMS to user %s (%s task(s), key=%s)",
                                 user.id,
-                                len(group),
+                                len(sms_unsent),
                                 _key,
                             )
 
-                    if want_push and (user.apns_device_token or "").strip():
-                        title, body = sendblue_service.build_schedule_reminder_push_content(payload)
+                    if want_push and push_unsent and (user.apns_device_token or "").strip():
+                        push_payload = [(it["task"], it["task_time_str"]) for it in push_unsent]
+                        title, body = sendblue_service.build_schedule_reminder_push_content(push_payload)
                         ok, http_status = await send_apns_alert(
                             user.apns_device_token, title, body
                         )
@@ -268,13 +273,13 @@ async def send_due_notifications():
                             user.apns_device_token = None
                             user.apns_token_updated_at = None
                         if ok:
-                            for item in group:
+                            for item in push_unsent:
                                 mark_schedule_push_sent(item["task"])
                                 touched_schedules.add(item["schedule"])
                             logger.info(
                                 "Sent deduped schedule APNs to user %s (%s task(s), key=%s)",
                                 user.id,
-                                len(group),
+                                len(push_unsent),
                                 _key,
                             )
 
@@ -761,34 +766,44 @@ def start_scheduler(app):
         coach_m = 1 if fast else 30
         weekly_m = 1 if fast else 60
 
+        # Safety flags on every job:
+        #   max_instances=1 → a slow run won't fan out into overlapping SMS sends
+        #   coalesce=True   → if we miss ticks (deploy, CPU spike), catch up once, not N times
+        #   misfire_grace   → tolerate brief event-loop stalls without skipping the job
+        job_defaults = {
+            "max_instances": 1,
+            "coalesce": True,
+            "misfire_grace_time": 60,
+            "replace_existing": True,
+        }
         scheduler = AsyncIOScheduler()
         scheduler.add_job(
             send_due_notifications,
             "interval",
             minutes=sched_m,
             id="schedule_notifications",
-            replace_existing=True,
+            **job_defaults,
         )
         scheduler.add_job(
             send_bedtime_progress_picture_prompts,
             "interval",
             minutes=bed_m,
             id="bedtime_progress_picture_prompts",
-            replace_existing=True,
+            **job_defaults,
         )
         scheduler.add_job(
             send_coaching_check_ins,
             "interval",
             minutes=coach_m,
             id="coaching_check_ins",
-            replace_existing=True,
+            **job_defaults,
         )
         scheduler.add_job(
             send_weekly_resets,
             "interval",
             minutes=weekly_m,
             id="weekly_resets",
-            replace_existing=True,
+            **job_defaults,
         )
         scheduler.start()
         logger.info(

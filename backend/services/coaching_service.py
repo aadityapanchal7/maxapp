@@ -7,6 +7,7 @@ updates, tone detection, and proactive outbound messages.
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -36,6 +37,19 @@ logger = logging.getLogger(__name__)
 COACHING_CONFIG = {
     "check_in_cooldown_hours": 8,
 }
+
+# Per-user TTL cache for build_full_context. Rebuilding costs 3-6 DB queries +
+# guideline S3/in-memory lookups, so caching it for 30s cuts ~50-150ms off every
+# chat/SMS turn when the user sends multiple messages back-to-back. Cache is
+# invalidated explicitly on schedule/profile/scan writes via invalidate_context_cache().
+_CONTEXT_CACHE: dict[str, tuple[float, str]] = {}
+_CONTEXT_CACHE_TTL_SEC = 30.0
+_CONTEXT_CACHE_MAX = 10_000  # prevents unbounded growth at 100K MAU
+
+
+def invalidate_context_cache(user_id: str) -> None:
+    """Drop the cached prompt context for a user (call after mutations)."""
+    _CONTEXT_CACHE.pop(str(user_id), None)
 
 _COACHING_MEMORY_COMPRESS_FALLBACK = """Compress this conversation into 2-3 sentences capturing key facts about the user
 (goals, concerns, injuries, progress, preferences, anything they mentioned about themselves).
@@ -114,6 +128,12 @@ Output ONLY the message body, no quotes."""
 
 
 class CoachingService:
+
+    # Expose the module-level cache invalidator as an instance method so callers
+    # that only hold the singleton don't need to import the module function.
+    @staticmethod
+    def invalidate_context_cache(user_id: str) -> None:
+        invalidate_context_cache(user_id)
 
     # ------------------------------------------------------------------
     # State CRUD
@@ -275,7 +295,29 @@ class CoachingService:
         """
         Build the complete user context string for the AI prompt.
         Pulls: onboarding, coaching state, schedule, scans, AI memory, maxx guidelines.
+
+        Cached per user for 30s — a user sending 3 messages in 30s would
+        otherwise re-query the same rows three times.
         """
+        cache_key = str(user_id)
+        now = time.monotonic()
+        hit = _CONTEXT_CACHE.get(cache_key)
+        if hit and (now - hit[0]) < _CONTEXT_CACHE_TTL_SEC:
+            return hit[1]
+
+        built = await self._build_full_context_uncached(user_id, db, rds_db)
+
+        # Best-effort LRU: if cache is full, evict the oldest entry.
+        if len(_CONTEXT_CACHE) >= _CONTEXT_CACHE_MAX:
+            try:
+                oldest_key = min(_CONTEXT_CACHE.items(), key=lambda kv: kv[1][0])[0]
+                _CONTEXT_CACHE.pop(oldest_key, None)
+            except ValueError:
+                pass
+        _CONTEXT_CACHE[cache_key] = (now, built)
+        return built
+
+    async def _build_full_context_uncached(self, user_id: str, db: AsyncSession, rds_db=None) -> str:
         user_uuid = UUID(user_id)
         user = await db.get(User, user_uuid)
         if not user:

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { AppState, type AppStateStatus, View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute } from '@react-navigation/native';
@@ -10,6 +11,8 @@ import { queryKeys } from '../../lib/queryClient';
 import { ChatTypingIndicator, ChatTypingMode } from '../../components/ChatTypingIndicator';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
+
+const PENDING_CHAT_KEY = '@max_pending_chat_v1';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -32,17 +35,14 @@ export default function MaxChatScreen() {
     const flatListRef = useRef<FlashListRef<Message>>(null);
     const initScheduleHandled = useRef(false);
     const initQuestionHandled = useRef<string | null>(null);
+    const appStateRef = useRef<AppStateStatus>(AppState.currentState);
     /** Prevents auto "start schedule" running before history fetch finishes (otherwise setMessages(history) wipes the optimistic user line). */
     const [historyReady, setHistoryReady] = useState(false);
 
-    const addTyping = (mode: ChatTypingMode = 'default') =>
-        setMessages((prev) => [
-            ...prev.filter((m) => !m.isTyping),
-            { role: 'assistant', content: '', isTyping: true, typingMode: mode },
-        ]);
-    const removeTyping = () => setMessages((prev) => prev.filter((m) => !m.isTyping));
-
     useEffect(() => {
+        // #region agent log
+        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:historyEffect',message:'chat history query state',data:{isSuccess:chatHistoryQuery.isSuccess,isError:chatHistoryQuery.isError,isPending:chatHistoryQuery.isPending,historySeeded,dataLen:chatHistoryQuery.data?.length,error:String(chatHistoryQuery.error?.message||'').substring(0,200)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         if (!chatHistoryQuery.isSuccess || historySeeded) return;
         setMessages(chatHistoryQuery.data ?? []);
         setHistoryReady(true);
@@ -78,49 +78,133 @@ export default function MaxChatScreen() {
     }, [route.params?.initQuestion, loading, historyReady]);
 
     const sendMessageWithContext = async (msg: string, initContext?: string) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessageWithContext',message:'sendMessageWithContext called',data:{msg:msg?.substring(0,80),initContext,loading,historyReady},timestamp:Date.now(),hypothesisId:'A,C'})}).catch(()=>{});
+        // #endregion
         if (!msg.trim() || loading) return;
         setLoading(true);
         setServerChoices([]);
-        setMessages((prev) => [...prev, { role: 'user', content: msg }]);
-        addTyping(initContext ? 'schedule' : 'default');
+        setMessages((prev) => [
+            ...prev,
+            { role: 'user', content: msg },
+            { role: 'assistant', content: '', isTyping: true, typingMode: initContext ? 'schedule' : 'default' },
+        ]);
         try {
             const { response, choices } = await api.sendChatMessage(msg, undefined, undefined, initContext);
-            removeTyping();
-            setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            setMessages(prev => [
+                ...prev.filter((m) => !m.isTyping),
+                { role: 'assistant', content: response },
+            ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
-            void queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory });
+            // Update React Query cache with the new exchange instead of invalidating+refetching
+            // the whole history. Saves a roundtrip and avoids the loading spinner flash.
+            queryClient.setQueryData<Message[]>(queryKeys.chatHistory, (prev = []) => [
+                ...prev,
+                { role: 'user', content: msg },
+                { role: 'assistant', content: response },
+            ]);
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
-            removeTyping();
-            setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong. try again.' }]);
+            // #region agent log
+            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessageWithContext:catch',message:'sendMessageWithContext error',data:{status:e?.response?.status,statusText:e?.response?.statusText,data:JSON.stringify(e?.response?.data)?.substring(0,300),message:e?.message,hasResponse:!!e?.response},timestamp:Date.now(),hypothesisId:'A,D,E'})}).catch(()=>{});
+            // #endregion
+            const isNetworkErr = !e?.response;
+            if (isNetworkErr) {
+                await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg, initContext })).catch(() => undefined);
+                setMessages(prev => [
+                    ...prev.filter((m) => !m.isTyping),
+                    { role: 'assistant', content: "You\u2019re offline \u2014 your message is saved and I\u2019ll send it the moment you\u2019re back." },
+                ]);
+            } else {
+                setMessages(prev => [
+                    ...prev.filter((m) => !m.isTyping),
+                    { role: 'assistant', content: 'My thinking was interrupted \u2014 please don\u2019t leave the app while I\u2019m working on your response. Try sending again.' },
+                ]);
+            }
         } finally {
             setLoading(false);
         }
     };
 
+    // Retry any message that was queued while offline
+    useEffect(() => {
+        const trySendPending = async () => {
+            const raw = await AsyncStorage.getItem(PENDING_CHAT_KEY).catch(() => null);
+            if (!raw) return;
+            let queued: { msg: string; initContext?: string } | null = null;
+            try { queued = JSON.parse(raw); } catch { return; }
+            if (!queued?.msg) return;
+            await AsyncStorage.removeItem(PENDING_CHAT_KEY).catch(() => undefined);
+            sendMessageWithContext(queued.msg, queued.initContext);
+        };
+        const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+            const prev = appStateRef.current;
+            appStateRef.current = next;
+            if (prev.match(/inactive|background/) && next === 'active') {
+                void trySendPending();
+            }
+        });
+        // Also check on mount (cold start)
+        void trySendPending();
+        return () => sub.remove();
+    }, []);
+
     const sendMessage = async (presetArg?: unknown) => {
         const fromPreset = typeof presetArg === 'string' ? presetArg.trim() : '';
         const fromInput = String(input ?? '').trim();
         const userContent = fromPreset || fromInput;
+        // #region agent log
+        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage',message:'sendMessage called',data:{userContent:userContent?.substring(0,80),fromPreset:!!fromPreset,loading,historyReady},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
         if (!userContent || loading) return;
         setLoading(true);
         setServerChoices([]);
         if (!fromPreset) setInput('');
+        const scheduleCtx = route.params?.initSchedule as string | undefined;
+        setMessages(prev => [
+            ...prev,
+            { role: 'user', content: userContent },
+            { role: 'assistant', content: '', isTyping: true, typingMode: scheduleCtx ? 'schedule' : 'default' },
+        ]);
         try {
-            setMessages(prev => [...prev, { role: 'user', content: userContent }]);
-            const scheduleCtx = route.params?.initSchedule as string | undefined;
-            addTyping(scheduleCtx ? 'schedule' : 'default');
             const { response, choices } = await api.sendChatMessage(
                 userContent,
                 undefined,
                 undefined,
                 scheduleCtx,
             );
-            removeTyping();
-            setMessages(prev => [...prev, { role: 'assistant', content: response }]);
+            // #region agent log
+            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage:success',message:'sendMessage got response',data:{responseLen:response?.length,responsePeek:response?.substring(0,100),choicesLen:choices?.length},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            setMessages(prev => [
+                ...prev.filter((m) => !m.isTyping),
+                { role: 'assistant', content: response },
+            ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
-            void queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory });
-        } catch (e) { console.error(e); removeTyping(); setMessages(prev => [...prev, { role: 'assistant', content: 'sorry, something went wrong.' }]); }
+            queryClient.setQueryData<Message[]>(queryKeys.chatHistory, (prev = []) => [
+                ...prev,
+                { role: 'user', content: userContent },
+                { role: 'assistant', content: response },
+            ]);
+        } catch (e: any) {
+            console.error(e);
+            // #region agent log
+            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage:catch',message:'sendMessage error',data:{status:e?.response?.status,statusText:e?.response?.statusText,data:JSON.stringify(e?.response?.data)?.substring(0,300),message:e?.message,hasResponse:!!e?.response},timestamp:Date.now(),hypothesisId:'A,D,E'})}).catch(()=>{});
+            // #endregion
+            const isNetworkErr = !e?.response;
+            if (isNetworkErr) {
+                await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg: userContent, initContext: scheduleCtx })).catch(() => undefined);
+                setMessages(prev => [
+                    ...prev.filter((m) => !m.isTyping),
+                    { role: 'assistant', content: "You\u2019re offline \u2014 your message is saved and I\u2019ll send it the moment you\u2019re back." },
+                ]);
+            } else {
+                setMessages(prev => [
+                    ...prev.filter((m) => !m.isTyping),
+                    { role: 'assistant', content: 'My thinking was interrupted \u2014 please don\u2019t leave the app while I\u2019m working on your response. Try sending again.' },
+                ]);
+            }
+        }
         finally { setLoading(false); }
     };
 

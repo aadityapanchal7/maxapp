@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform } from 'react-native';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -130,7 +130,6 @@ function getModuleStatusLine(maxxId: string, moduleTitle: string, activeSchedule
     return 'Not started';
 }
 
-const STALE_FOCUS_MS = 25_000;
 
 export default function MaxxDetailScreen() {
     const navigation = useNavigation<any>();
@@ -205,26 +204,8 @@ export default function MaxxDetailScreen() {
         };
     }, [isFitmax]);
 
-    useFocusEffect(
-        useCallback(() => {
-            if (!maxxId) return;
-            const now = Date.now();
-            if (now - maxxQuery.dataUpdatedAt > STALE_FOCUS_MS) void maxxQuery.refetch();
-            if (canSchedule) {
-                if (now - scheduleQuery.dataUpdatedAt > STALE_FOCUS_MS) void scheduleQuery.refetch();
-                if (now - activeSummaryQuery.dataUpdatedAt > STALE_FOCUS_MS) void activeSummaryQuery.refetch();
-            }
-        }, [
-            maxxId,
-            canSchedule,
-            maxxQuery.dataUpdatedAt,
-            maxxQuery.refetch,
-            scheduleQuery.dataUpdatedAt,
-            scheduleQuery.refetch,
-            activeSummaryQuery.dataUpdatedAt,
-            activeSummaryQuery.refetch,
-        ]),
-    );
+    // Rely on React Query's staleTime for refresh. Focus-refetch caused 3 simultaneous
+    // API calls every time the user tabbed back, which was a major perf hit.
 
     const refetchMaxx = useCallback(() => void maxxQuery.refetch(), [maxxQuery]);
 

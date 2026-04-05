@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -99,8 +99,13 @@ export default function ManageSubscriptionScreen() {
         }
     }, [user?.is_paid, user?.subscription_end_date]);
 
+    // Load once on mount; subscription status rarely changes between focuses and
+    // refetching on every focus was a major source of redundant API calls.
+    const loadedRef = useRef(false);
     useFocusEffect(
         useCallback(() => {
+            if (loadedRef.current) return;
+            loadedRef.current = true;
             void loadStatus();
         }, [loadStatus]),
     );

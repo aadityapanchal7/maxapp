@@ -32,17 +32,17 @@ const STEPS = [
     {
         key: 'front',
         title: 'Front',
-        instruction: 'Face the camera straight on. Neutral expression, good lighting.',
+        instruction: 'Straight on, neutral expression.',
     },
     {
         key: 'left',
         title: 'Left profile',
-        instruction: 'Turn so your LEFT cheek and jaw face the camera (about 90°).',
+        instruction: 'Left cheek toward camera, ~90°.',
     },
     {
         key: 'right',
         title: 'Right profile',
-        instruction: 'Turn so your RIGHT cheek and jaw face the camera (about 90°).',
+        instruction: 'Right cheek toward camera, ~90°.',
     },
 ] as const;
 
@@ -105,8 +105,8 @@ export default function FaceScanScreen() {
                         await clearPendingFaceScanSubmit();
                         setAnalyzing(false);
                         Alert.alert(
-                            'Analysis didn’t finish',
-                            'Something went wrong analyzing your photos. Please try again.',
+                            'Try again',
+                            'Your photos need another pass. Tap Analyze again — and don\'t worry, closing the app next time won\'t interrupt it. Enable SMS coaching in Profile for a more integrated experience.',
                         );
                         return;
                     }
@@ -129,8 +129,8 @@ export default function FaceScanScreen() {
             setAnalyzing(false);
             if (fromForeground) {
                 Alert.alert(
-                    'Analysis interrupted',
-                    'We couldn’t confirm your scan yet. If analysis was still running, open Results from your profile—or tap Analyze again from the last step.',
+                    'Pick up where you left off',
+                    'Don\'t worry — you can close the app anytime, your analysis keeps running. Open Results from your profile, or tap Analyze again. For a more integrated experience, enable SMS coaching in Profile.',
                 );
             }
         },
@@ -405,13 +405,12 @@ export default function FaceScanScreen() {
             </View>
 
             <Text style={styles.medicalDisclaimer}>
-                Not medical advice. For general wellness insights only—not for diagnosis or treatment. See a qualified professional for medical decisions.
+                For general wellness only — not medical advice.
             </Text>
 
             {isPaid && !isPremium ? (
                 <Text style={styles.basicScanCap}>
-                    Basic includes one face scan (usually your signup scan). No additional scans on Basic — upgrade to
-                    Premium for a new scan every day.
+                    Basic: one scan only. Upgrade to Premium for daily scans.
                 </Text>
             ) : null}
 

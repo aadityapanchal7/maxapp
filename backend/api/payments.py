@@ -61,21 +61,33 @@ async def _activate_user(
     db: AsyncSession,
     subscription_tier: Optional[str] = None,
 ):
-    """Shared activation logic for webhook + test-activate."""
+    """Shared activation logic for webhook + test-activate.
+
+    Idempotent: Stripe can redeliver the same event, and this function is
+    also reachable via multiple webhook handlers. We only touch the
+    onboarding flags the *first* time a user activates — otherwise a
+    duplicate delivery would silently flip `sendblue_connect_completed`
+    back to False and bounce the user back through the SMS-connect step.
+    """
     user_uuid = UUID(user_id)
     user = await db.get(User, user_uuid)
     if not user:
         return
+    was_already_paid = bool(user.is_paid)
     user.is_paid = True
     if subscription_id:
         user.subscription_id = subscription_id
     user.subscription_status = "active"
     if subscription_tier in ("basic", "premium"):
         user.subscription_tier = subscription_tier
-    ob = dict(user.onboarding or {})
-    ob["post_subscription_onboarding"] = True
-    ob["sendblue_connect_completed"] = False
-    user.onboarding = ob
+    if not was_already_paid:
+        ob = dict(user.onboarding or {})
+        ob["post_subscription_onboarding"] = True
+        # Only initialize the flag if it has never been set. If the user has
+        # already finished the Sendblue step (True) or explicitly skipped it,
+        # don't clobber their progress on a webhook replay.
+        ob.setdefault("sendblue_connect_completed", False)
+        user.onboarding = ob
     await db.commit()
 
     scans_result = await db.execute(

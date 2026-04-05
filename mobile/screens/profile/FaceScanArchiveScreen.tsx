@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -33,6 +33,17 @@ export default function FaceScanArchiveScreen() {
     }, []);
 
     const startNewScan = async () => {
+        if (!isPremium) {
+            Alert.alert(
+                'Premium feature',
+                'Daily face scans are available on the Premium plan. Upgrade to unlock unlimited scans.',
+                [
+                    { text: 'Maybe later', style: 'cancel' },
+                    { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
+                ],
+            );
+            return;
+        }
         try {
             if (isPremium) {
                 const latest = await api.getLatestScan().catch((err: any) => {
@@ -85,7 +96,11 @@ export default function FaceScanArchiveScreen() {
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Face scans</Text>
                 <TouchableOpacity onPress={() => void startNewScan()} style={styles.backButton} activeOpacity={0.7}>
-                    <Ionicons name="add" size={24} color={colors.foreground} />
+                    <Ionicons
+                        name={isPremium ? 'add' : 'lock-closed'}
+                        size={isPremium ? 24 : 20}
+                        color={isPremium ? colors.foreground : colors.textMuted}
+                    />
                 </TouchableOpacity>
             </View>
 
@@ -94,7 +109,9 @@ export default function FaceScanArchiveScreen() {
                     <Ionicons name="scan-outline" size={52} color={colors.textMuted} />
                     <Text style={styles.emptyText}>No face scans yet</Text>
                     <TouchableOpacity style={styles.primaryBtn} onPress={() => void startNewScan()} activeOpacity={0.8}>
-                        <Text style={styles.primaryBtnText}>Do your first scan</Text>
+                        <Text style={styles.primaryBtnText}>
+                            {isPremium ? 'Do your first scan' : 'Upgrade to Premium'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
             ) : (

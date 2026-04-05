@@ -235,7 +235,7 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                     </View>
                 </View>
                 <Text style={styles.stayInAppNotice}>
-                    Do not leave or close the app while this runs—switching away can interrupt analysis.
+                    Stay in app — switching away may interrupt analysis.
                 </Text>
             </View>
 

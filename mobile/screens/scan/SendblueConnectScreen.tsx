@@ -3,7 +3,7 @@
  * Next: NotificationChannelsScreen picks SMS vs iPhone push vs both.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -15,7 +15,7 @@ import {
     Alert,
     ScrollView,
 } from 'react-native';
-import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,17 +49,14 @@ export default function SendblueConnectScreen() {
 
     const smsConfirmed = user?.onboarding?.sendblue_sms_engaged === true;
 
-    useFocusEffect(
-        useCallback(() => {
-            refreshUser().catch(() => {});
-        }, [refreshUser]),
-    );
-
+    // Poll every 4s while waiting for SMS — single source of refresh so we don't
+    // double-fire with focus. Stops the moment smsConfirmed flips true.
     useEffect(() => {
         if (smsConfirmed) return;
+        refreshUser().catch(() => {});
         const id = setInterval(() => {
             refreshUser().catch(() => {});
-        }, 2500);
+        }, 4000);
         return () => clearInterval(id);
     }, [smsConfirmed, refreshUser]);
 
@@ -78,6 +75,33 @@ export default function SendblueConnectScreen() {
 
     const onContinue = () => {
         navigation.navigate('NotificationChannels', { next, editMode: false });
+    };
+
+    const onSkipSms = () => {
+        Alert.alert(
+            'Skip SMS permanently?',
+            'SMS coaching from Max (schedule reminders, check-ins, motivation texts) will never be available on this account.\n\nTo get SMS later, you would need to delete your account and create a new one.\n\nAre you sure you want to skip?',
+            [
+                { text: 'Go back', style: 'cancel' },
+                {
+                    text: 'Skip SMS forever',
+                    style: 'destructive',
+                    onPress: async () => {
+                        setBusy(true);
+                        try {
+                            await api.completeSendblueConnect({ sms_opt_in: false, app_notifications_opt_in: true });
+                            await refreshUser();
+                            navigation.navigate('NotificationChannels', { next, editMode: false });
+                        } catch (e) {
+                            console.error(e);
+                            Alert.alert('Error', 'Could not save. Check your connection and try again.');
+                        } finally {
+                            setBusy(false);
+                        }
+                    },
+                },
+            ],
+        );
     };
 
     const onDevSkip = async () => {
@@ -112,10 +136,9 @@ export default function SendblueConnectScreen() {
                 </TouchableOpacity>
 
                 <Text style={styles.kicker}>One more step</Text>
-                <Text style={styles.title}>Text Max to unlock coaching</Text>
+                <Text style={styles.title}>Text Max to connect</Text>
                 <Text style={styles.lead}>
-                    Send any message to our number so we can message you back on iMessage or SMS. This links your phone
-                    to your account.
+                    Send any message to link your phone to your account.
                 </Text>
 
                 <View style={styles.card}>
@@ -143,21 +166,14 @@ export default function SendblueConnectScreen() {
                     <View style={styles.waitingRow}>
                         <ActivityIndicator color={colors.foreground} size="small" />
                         <Text style={styles.waitingText}>
-                            Waiting for your message… we&apos;ll enable continue as soon as we see it.
+                            Waiting for your message…
                         </Text>
                     </View>
                 ) : (
                     <Text style={styles.confirmedLine}>
-                        We got your text — you&apos;re linked. On the next screen, choose how you want reminders (iPhone
-                        alerts, SMS, or both).
+                        You&apos;re linked — tap Continue.
                     </Text>
                 )}
-
-                <Text style={styles.hint}>
-                    {smsConfirmed
-                        ? 'You can always text this number later for help from Max.'
-                        : 'Use Open Messages, send any text from the phone on your account, then stay on this screen until continue turns on.'}
-                </Text>
 
                 <TouchableOpacity
                     style={[styles.secondaryBtn, (!smsConfirmed || busy) && styles.secondaryBtnDisabled]}
@@ -170,6 +186,21 @@ export default function SendblueConnectScreen() {
                     ) : (
                         <Text style={styles.secondaryBtnText}>Continue</Text>
                     )}
+                </TouchableOpacity>
+
+                <View style={styles.skipSmsWrap}>
+                    <Ionicons name="warning-outline" size={15} color={colors.error} style={{ marginTop: 1 }} />
+                    <Text style={styles.skipSmsWarning}>
+                        SMS coaching is only available if you complete this step. Skipping is permanent — you cannot add SMS later without deleting your account.
+                    </Text>
+                </View>
+                <TouchableOpacity
+                    style={[styles.skipSmsBtn, busy && styles.secondaryBtnDisabled]}
+                    onPress={onSkipSms}
+                    disabled={busy}
+                    activeOpacity={0.7}
+                >
+                    <Text style={styles.skipSmsBtnText}>Skip SMS (permanent)</Text>
                 </TouchableOpacity>
 
                 {SHOW_DEV_SKIP_CONTROLS ? (
@@ -255,6 +286,35 @@ const styles = StyleSheet.create({
     },
     secondaryBtnDisabled: { opacity: 0.5 },
     secondaryBtnText: { fontSize: 16, fontWeight: '700', color: colors.foreground },
+    skipSmsWrap: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: spacing.sm,
+        marginTop: spacing.xl,
+        marginBottom: spacing.sm,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: colors.error,
+        padding: spacing.md,
+    },
+    skipSmsWarning: {
+        flex: 1,
+        fontSize: 13,
+        color: colors.error,
+        lineHeight: 19,
+        fontWeight: '500',
+    },
+    skipSmsBtn: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 13,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.error,
+        marginBottom: spacing.lg,
+    },
+    skipSmsBtnText: { fontSize: 14, fontWeight: '600', color: colors.error },
     devSkipBtn: {
         alignItems: 'center',
         justifyContent: 'center',

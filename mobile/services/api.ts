@@ -18,8 +18,12 @@ class ApiService {
         this.client = axios.create({
             baseURL: API_BASE_URL,
             headers: { 'Content-Type': 'application/json' },
-            /** Without this, unreachable API + stored token leaves auth boot on MaxLoadingView forever. */
-            timeout: 20_000,
+            /**
+             * 12s default: fast-fail so retry interceptor can kick in before the user
+             * gives up. Auth boot still has a finite deadline. Long-running endpoints
+             * (AI chat, scans) override this per-request.
+             */
+            timeout: 12_000,
         });
 
         // Request interceptor for auth
@@ -43,11 +47,14 @@ class ApiService {
             return config;
         });
 
-        // Response interceptor for token refresh (single retry to avoid infinite 401 loops)
+        // Response interceptor: token refresh on 401, plus network-retry for idempotent GETs
+        // so a single transient drop (subway, elevator) doesn't surface as "connection lost".
         this.client.interceptors.response.use(
             (response) => response,
             async (error) => {
-                const cfg = error.config as ({ _retry?: boolean } & typeof error.config) | undefined;
+                const cfg = error.config as
+                    | ({ _retry?: boolean; _netRetries?: number } & typeof error.config)
+                    | undefined;
                 if (error.response?.status === 401 && cfg && !cfg._retry) {
                     cfg._retry = true;
                     try {
@@ -55,6 +62,20 @@ class ApiService {
                         return this.client.request(cfg);
                     } catch {
                         return Promise.reject(error);
+                    }
+                }
+                // Network error (no response = DNS fail / timeout / dropped connection).
+                // Retry once with short backoff — catches subway/elevator/weak-signal
+                // hiccups without making long-timeout calls hang for multiple minutes.
+                // Callers can opt out via `_skipNetRetry: true` (e.g. chat AI where
+                // the user is watching a spinner).
+                const isNetErr = !error.response;
+                const skip = (cfg as any)?._skipNetRetry === true;
+                if (isNetErr && cfg && !skip) {
+                    cfg._netRetries = (cfg._netRetries ?? 0) + 1;
+                    if (cfg._netRetries <= 1) {
+                        await new Promise((r) => setTimeout(r, 500));
+                        return this.client.request(cfg);
                     }
                 }
                 return Promise.reject(error);
@@ -222,6 +243,11 @@ class ApiService {
         return response.data;
     }
 
+    async deleteProgressPhoto(photoId: string) {
+        const response = await this.client.delete(`users/me/progress-photos/${photoId}`);
+        return response.data;
+    }
+
     async updateProfile(data: any) {
         const response = await this.client.put('users/profile', data);
         return response.data;
@@ -310,16 +336,14 @@ class ApiService {
      */
     async uploadScanTriple(frontUri: string, leftUri: string, rightUri: string) {
         const url = this.scansTripleUploadUrl();
-        const buildForm = () => {
+        const buildForm = async (): Promise<FormData> => {
             const formData = new FormData();
             if (Platform.OS === 'web') {
-                return (async () => {
-                    const fd = new FormData();
-                    fd.append('front', await fetch(frontUri).then((r) => r.blob()), 'front.jpg');
-                    fd.append('left', await fetch(leftUri).then((r) => r.blob()), 'left.jpg');
-                    fd.append('right', await fetch(rightUri).then((r) => r.blob()), 'right.jpg');
-                    return fd;
-                })();
+                const fd = new FormData();
+                fd.append('front', await fetch(frontUri).then((r) => r.blob()), 'front.jpg');
+                fd.append('left', await fetch(leftUri).then((r) => r.blob()), 'left.jpg');
+                fd.append('right', await fetch(rightUri).then((r) => r.blob()), 'right.jpg');
+                return fd;
             }
             // @ts-ignore RN file shape
             formData.append('front', { uri: frontUri, type: 'image/jpeg', name: 'front.jpg' });
@@ -327,7 +351,7 @@ class ApiService {
             formData.append('left', { uri: leftUri, type: 'image/jpeg', name: 'left.jpg' });
             // @ts-ignore
             formData.append('right', { uri: rightUri, type: 'image/jpeg', name: 'right.jpg' });
-            return Promise.resolve(formData);
+            return formData;
         };
 
         const doFetch = async (formData: FormData) => {
@@ -337,25 +361,40 @@ class ApiService {
             return fetch(url, { method: 'POST', headers, body: formData });
         };
 
-        let form = await buildForm();
-        let res = await doFetch(form);
-        if (res.status === 401) {
-            await this.refreshToken();
-            form = await buildForm();
-            res = await doFetch(form);
-        }
-        if (!res.ok) {
-            const text = await res.text();
-            let msg = text;
-            try {
-                const j = JSON.parse(text);
-                msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail ?? j);
-            } catch {
-                /* keep text */
+        const RETRY_DELAYS = [1000, 2000];
+        let lastError: unknown;
+        for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+            if (attempt > 0) {
+                await new Promise((r) => setTimeout(r, RETRY_DELAYS[attempt - 1]));
             }
-            throw new Error(`Upload failed (${res.status}): ${msg}`);
+            try {
+                let form = await buildForm();
+                let res = await doFetch(form);
+                if (res.status === 401) {
+                    await this.refreshToken();
+                    form = await buildForm();
+                    res = await doFetch(form);
+                }
+                if (res.status >= 500 && attempt < RETRY_DELAYS.length) {
+                    lastError = new Error(`Upload failed (${res.status})`);
+                    continue;
+                }
+                if (!res.ok) {
+                    const text = await res.text();
+                    let msg = text;
+                    try {
+                        const j = JSON.parse(text);
+                        msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail ?? j);
+                    } catch { /* keep text */ }
+                    throw new Error(`Upload failed (${res.status}): ${msg}`);
+                }
+                return res.json() as Promise<unknown>;
+            } catch (e) {
+                lastError = e;
+                if (attempt < RETRY_DELAYS.length) continue;
+            }
         }
-        return res.json() as Promise<unknown>;
+        throw lastError;
     }
 
     async uploadScanTripleBlobs(front: Blob, left: Blob, right: Blob) {
@@ -396,19 +435,22 @@ class ApiService {
             name: 'scan.mp4',
         });
 
-        const response = await this.client.post('scans/upload-video', formData);
+        // Large multipart upload — allow 60s for slow cellular connections.
+        const response = await this.client.post('scans/upload-video', formData, { timeout: 60_000 });
         return response.data;
     }
 
     async uploadScanVideoBlob(blob: Blob) {
         const formData = new FormData();
         formData.append('video', blob, 'scan.webm');
-        const response = await this.client.post('scans/upload-video', formData);
+        const response = await this.client.post('scans/upload-video', formData, { timeout: 60_000 });
         return response.data;
     }
 
     async analyzeScan(scanId: string) {
-        const response = await this.client.post(`scans/${scanId}/analyze`);
+        // Kicks off async analysis — the POST itself should return quickly,
+        // but allow 30s for backend to enqueue.
+        const response = await this.client.post(`scans/${scanId}/analyze`, undefined, { timeout: 30_000 });
         return response.data;
     }
 
@@ -607,7 +649,14 @@ class ApiService {
             attachment_type: attachmentType,
         };
         if (initContext) body.init_context = initContext;
-        const response = await this.client.post('chat/message', body);
+        // AI responses usually return in <15s. Cap at 25s so users don't stare at
+        // a spinner forever — retry interceptor (see constructor) is disabled for
+        // this call to avoid multi-minute hangs on repeat attempts.
+        const response = await this.client.post('chat/message', body, {
+            timeout: 25_000,
+            // @ts-expect-error custom flag consumed by response interceptor
+            _skipNetRetry: true,
+        });
         return response.data;
     }
 
@@ -849,12 +898,13 @@ class ApiService {
 
     // Schedules
     async generateSchedule(courseId: string, moduleNumber: number, numDays: number = 30, preferences?: any) {
+        // AI generation — can take 20-40s. Use the long timeout.
         const response = await this.client.post('schedules/generate', {
             course_id: courseId,
             module_number: moduleNumber,
             num_days: numDays,
             preferences,
-        });
+        }, { timeout: 60_000 });
         return response.data;
     }
 
@@ -876,7 +926,7 @@ class ApiService {
         if (maxxId === 'heightmax' && heightComponents && Object.keys(heightComponents).length > 0) {
             body.height_components = heightComponents;
         }
-        const response = await this.client.post('schedules/generate-maxx', body);
+        const response = await this.client.post('schedules/generate-maxx', body, { timeout: 60_000 });
         return response.data;
     }
 

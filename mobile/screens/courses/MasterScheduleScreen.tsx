@@ -47,7 +47,7 @@ function formatTimeTo12Hour(time24: string) {
 /** Short, calm copy for schedule API failures (hides raw SQLAlchemy / pool noise). */
 function scheduleErrorSubtitle(raw: string): string {
   const s = (raw || '').trim();
-  if (!s) return 'Something went wrong. Please try again.';
+  if (!s) return 'Could not load your schedule. Check your connection and try again.';
   const lower = s.toLowerCase();
   if (
     lower.includes('queuepool') ||

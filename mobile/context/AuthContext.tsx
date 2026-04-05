@@ -3,9 +3,12 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import { Platform } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { getItemAsync } from '../services/storage';
 import api from '../services/api';
 import { clearFaceScanDraft, clearPendingFaceScanSubmit } from '../lib/faceScanDraft';
+import { getIosApnsDeviceTokenForBackend } from '../services/registerIosPushToken';
 
 type SubscriptionTier = 'basic' | 'premium' | null;
 
@@ -91,6 +94,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const queryClient = useQueryClient();
 
     const checkAuth = useCallback(async () => {
         try {
@@ -109,6 +113,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         void checkAuth();
     }, [checkAuth]);
+
+    // Auto-refresh iOS APNs push token on launch for users who've opted into push.
+    // Tokens can rotate (reinstall, restore, iOS refresh), so re-registering keeps
+    // the server's token fresh — otherwise push reminders silently stop arriving.
+    useEffect(() => {
+        if (Platform.OS !== 'ios') return;
+        if (!user?.id) return;
+        const appOptIn = user.onboarding?.app_notifications_opt_in;
+        // Default-true: if unset, treat as opted-in (matches NotificationChannelsScreen).
+        if (appOptIn === false) return;
+        void (async () => {
+            try {
+                const token = await getIosApnsDeviceTokenForBackend();
+                if (token) {
+                    await api.registerPushToken(token);
+                }
+            } catch {
+                /* non-fatal — user can re-save prefs in Profile */
+            }
+        })();
+    }, [user?.id]);
 
     useEffect(() => {
         if (!__DEV__) return;
@@ -141,9 +166,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const logout = useCallback(async () => {
         await api.clearTokens();
         setUser(null);
+        // Drop cached server state on logout so user B can't see user A's data.
+        queryClient.clear();
         await clearPendingFaceScanSubmit().catch(() => undefined);
         await clearFaceScanDraft().catch(() => undefined);
-    }, []);
+    }, [queryClient]);
 
     const refreshUser = useCallback(async (): Promise<User> => {
         const userData = await api.getMe();

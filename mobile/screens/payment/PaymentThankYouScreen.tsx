@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
+import { AppState, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
@@ -12,8 +12,7 @@ const UNLOCKED = [
     'Max coach in-app & SMS',
 ];
 
-const POLL_MS = 2000;
-const POLL_MAX = 30;
+const POLL_MAX = 20;
 
 export default function PaymentThankYouScreen() {
     const { refreshUser, user } = useAuth();
@@ -23,23 +22,46 @@ export default function PaymentThankYouScreen() {
 
     const paid = user?.is_paid === true;
 
-    /** Webhook can lag — auto-refresh until paid, then navigator switches to main app. */
+    /** Webhook can lag — refresh with backoff until paid, then navigator switches to main app. */
     useEffect(() => {
         if (paid) return;
         pollCount.current = 0;
-        const id = setInterval(async () => {
+        const appStateRef = { current: AppState.currentState };
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        let cancelled = false;
+        // Fast at first (2s) while webhook is likely in flight; then slow down.
+        const nextDelay = () => {
+            const n = pollCount.current;
+            if (n < 5) return 2000;
+            if (n < 10) return 4000;
+            return 8000;
+        };
+        const doPoll = async () => {
             pollCount.current += 1;
-            if (pollCount.current > POLL_MAX) {
-                clearInterval(id);
+            if (pollCount.current > POLL_MAX) return;
+            try { await refreshUser(); } catch { /* ignore */ }
+            if (!cancelled) timer = setTimeout(tick, nextDelay());
+        };
+        const tick = () => {
+            if (appStateRef.current !== 'active') {
+                timer = setTimeout(tick, nextDelay());
                 return;
             }
-            try {
-                await refreshUser();
-            } catch {
-                /* ignore */
+            void doPoll();
+        };
+        timer = setTimeout(tick, 2000);
+        const appSub = AppState.addEventListener('change', (next) => {
+            const prev = appStateRef.current;
+            appStateRef.current = next;
+            if (prev.match(/inactive|background/) && next === 'active') {
+                void doPoll();
             }
-        }, POLL_MS);
-        return () => clearInterval(id);
+        });
+        return () => {
+            cancelled = true;
+            if (timer) clearTimeout(timer);
+            appSub.remove();
+        };
     }, [paid, refreshUser]);
 
     const handleContinue = async () => {

@@ -4,9 +4,17 @@ import { QueryClient } from '@tanstack/react-query';
 export const queryClient = new QueryClient({
     defaultOptions: {
         queries: {
-            staleTime: 90 * 1000,
-            gcTime: 10 * 60 * 1000,
-            retry: 1,
+            // 5min staleTime: most screens don't need sub-minute freshness, and this
+            // cuts focus-refetch storms when users tab between screens.
+            staleTime: 5 * 60 * 1000,
+            gcTime: 30 * 60 * 1000,
+            retry: 2,
+            retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+            // Don't auto-refetch on mount if data is fresh — trust the cache.
+            refetchOnMount: false,
+            refetchOnWindowFocus: false,
+            // RN: reconnect refetch is the only auto-refresh we want.
+            refetchOnReconnect: true,
         },
     },
 });

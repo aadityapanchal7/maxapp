@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
-import { Alert, Platform } from 'react-native';
+import { Alert, AppState, Platform } from 'react-native';
 import { useStripe } from '@stripe/stripe-react-native';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +22,14 @@ export function useStripeSubscription() {
         pollingRef.current = true;
         try {
             for (let i = 0; i < POLL_MAX; i++) {
+                // Wait until app is foregrounded before each attempt
+                if (AppState.currentState !== 'active') {
+                    await new Promise<void>((resolve) => {
+                        const sub = AppState.addEventListener('change', (state) => {
+                            if (state === 'active') { sub.remove(); resolve(); }
+                        });
+                    });
+                }
                 try {
                     const u = await refreshUser();
                     if (u?.is_paid) return true;
@@ -45,7 +53,7 @@ export function useStripeSubscription() {
                 const weeklyAmount = tier === 'premium' ? '5.99' : '3.99';
                 const planLabel = tier === 'premium' ? 'Max Premium (weekly)' : 'Max Basic (weekly)';
 
-                const { error: initError } = await initPaymentSheet({
+                const sheetParams = {
                     customerId: preview.customer_id,
                     customerEphemeralKeySecret: preview.ephemeral_key_secret,
                     setupIntentClientSecret: preview.setup_intent_client_secret,
@@ -70,7 +78,8 @@ export function useStripeSubscription() {
                               googlePay: { merchantCountryCode: 'US', testEnv: __DEV__ },
                           }
                         : {}),
-                });
+                };
+                const { error: initError } = await initPaymentSheet(sheetParams);
 
                 if (initError) {
                     setError(initError.message);

@@ -19,6 +19,7 @@ import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
+import { resolveMaxxBrand } from '../../utils/maxxBrand';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import {
   PRIORITY_LABELS,
@@ -45,15 +46,6 @@ const GOALS = [
   { id: 'hairmax', label: 'Hairmax', icon: 'cut-outline' },
   { id: 'fitmax', label: 'Fitmax', icon: 'fitness-outline' },
 ];
-
-/** When API maxx colors are not loaded yet — matches backend / course branding. */
-const GOAL_BRAND_FALLBACK: Record<string, string> = {
-  bonemax: '#F59E0B',
-  heightmax: '#6366F1',
-  skinmax: '#EC4899',
-  hairmax: '#8B5CF6',
-  fitmax: '#10B981',
-};
 
 const ACTIVITY_LEVELS = [
   { id: 'sedentary', label: 'Sedentary', desc: 'Little to no exercise' },
@@ -382,7 +374,7 @@ export default function EditPersonalScreen() {
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <ScrollView
-          scrollEnabled={!onlyGoals}
+          scrollEnabled
           contentContainerStyle={[
             styles.content,
             isWide && styles.contentWide,
@@ -415,8 +407,7 @@ export default function EditPersonalScreen() {
               const maxG = maxHomeMaxxesForUser(user);
               const apiMax = maxesById.get(goal.id);
               const merged = { id: goal.id, label: goal.label, ...apiMax };
-              const brand =
-                (apiMax?.color && String(apiMax.color)) || GOAL_BRAND_FALLBACK[goal.id] || colors.foreground;
+              const brand = resolveMaxxBrand(goal.id, apiMax?.color);
               const label = getMaxxDisplayLabel(merged);
               const desc = getMaxxDisplayDescription(merged) ?? apiMax?.description;
               const tintBg = `${brand}22`;
@@ -451,16 +442,11 @@ export default function EditPersonalScreen() {
                 >
                   {!onlyGoals ? <View style={[styles.goalRowStripe, { backgroundColor: brand }]} /> : null}
                   <View style={[styles.goalRowInner, onlyGoals && styles.goalRowInnerPaddedLeft]}>
-                    <View
-                      style={[
-                        styles.goalRowIcon,
-                        onlyGoals ? styles.goalRowIconUniform : { backgroundColor: tintBg },
-                      ]}
-                    >
+                    <View style={[styles.goalRowIcon, { backgroundColor: tintBg }]}>
                       <Ionicons
                         name={(apiMax?.icon || goal.icon) as any}
                         size={22}
-                        color={onlyGoals ? colors.foreground : brand}
+                        color={brand}
                       />
                     </View>
                     <View style={styles.goalRowCopy}>
@@ -821,7 +807,7 @@ const styles = StyleSheet.create({
     minHeight: 72,
     marginBottom: spacing.sm,
     borderRadius: borderRadius.xl,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     overflow: 'hidden',
@@ -833,7 +819,7 @@ const styles = StyleSheet.create({
   goalRowSelected: {
     borderWidth: 2,
   },
-  /** Manage / choose Maxxes only: neutral cards, no per-maxx color stripe or accent border. */
+  /** Manage / choose Maxxes only: no left stripe; pastel icon tiles match program picker. */
   goalRowManageUniform: {
     shadowColor: 'transparent',
     shadowOpacity: 0,
@@ -842,17 +828,11 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   goalRowSelectedUniform: {
-    borderWidth: 1,
     borderColor: colors.foreground,
-    backgroundColor: colors.card,
+    backgroundColor: colors.surface,
   },
   goalRowInnerPaddedLeft: {
     paddingLeft: spacing.md,
-  },
-  goalRowIconUniform: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
   goalRowCheckSelectedUniform: {
     borderColor: colors.foreground,

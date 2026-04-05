@@ -334,7 +334,7 @@ export default function ThreadV2Screen() {
                     renderItem={renderRow}
                     keyExtractor={(r) => r.key}
                     getItemType={(r) => r.kind}
-                    estimatedItemSize={112}
+                    drawDistance={250}
                     contentContainerStyle={styles.list}
                 />
             )}

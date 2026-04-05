@@ -78,7 +78,6 @@ export default function ForumNotificationsV2Screen() {
                     ListEmptyComponent={
                         <View style={styles.empty}>
                             <Text style={styles.emptyTitle}>no notifications</Text>
-                            <Text style={styles.emptyText}>when people reply/mention you, it’ll show up here.</Text>
                         </View>
                     }
                 />

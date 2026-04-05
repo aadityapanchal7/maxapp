@@ -7,6 +7,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { resolveMaxxBrand, MAXX_ICON_FALLBACK } from '../../utils/maxxBrand';
+import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 
 type MaxxCard = {
     id: string;
@@ -111,6 +113,11 @@ export default function ModuleSelectScreen() {
                 {maxes.map((m) => {
                     const idKey = String(m.id || '').toLowerCase();
                     const on = idKey && selectedIds.has(idKey);
+                    const brand = resolveMaxxBrand(m.id, m.color);
+                    const merged = { id: m.id, label: m.label, description: m.description };
+                    const label = getMaxxDisplayLabel(merged);
+                    const desc = getMaxxDisplayDescription(merged) ?? m.description;
+                    const iconName = (m.icon || MAXX_ICON_FALLBACK[idKey] || 'book-outline') as any;
                     return (
                         <TouchableOpacity
                             key={m.id}
@@ -118,14 +125,14 @@ export default function ModuleSelectScreen() {
                             activeOpacity={0.85}
                             onPress={() => toggleMaxx(m.id)}
                         >
-                            <View style={[styles.cardIcon, m.color ? { backgroundColor: m.color + '22' } : {}]}>
-                                <Ionicons name={(m.icon || 'book-outline') as any} size={22} color={m.color || colors.textSecondary} />
+                            <View style={[styles.cardIcon, { backgroundColor: `${brand}22` }]}>
+                                <Ionicons name={iconName} size={22} color={brand} />
                             </View>
                             <View style={styles.cardText}>
-                                <Text style={styles.cardTitle}>{m.label || m.id}</Text>
-                                {m.description ? (
+                                <Text style={styles.cardTitle}>{label}</Text>
+                                {desc ? (
                                     <Text style={styles.cardDesc} numberOfLines={2}>
-                                        {m.description}
+                                        {desc}
                                     </Text>
                                 ) : null}
                             </View>
@@ -171,7 +178,7 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.xl,
         padding: spacing.md,
         marginBottom: spacing.sm,
-        borderWidth: 1,
+        borderWidth: 2,
         borderColor: colors.border,
         ...shadows.sm,
     },
@@ -188,7 +195,7 @@ const styles = StyleSheet.create({
     cardDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
     cardSelected: {
         borderColor: colors.foreground,
-        backgroundColor: colors.accentMuted,
+        backgroundColor: colors.surface,
     },
     checkCircle: {
         width: 36,

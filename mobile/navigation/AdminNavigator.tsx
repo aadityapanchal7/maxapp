@@ -23,7 +23,7 @@ function CustomDrawerContent(props: any) {
         <DrawerContentScrollView {...props} contentContainerStyle={styles.drawerContainer}>
             <View style={styles.drawerHeader}>
                 <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{user?.email[0].toUpperCase()}</Text>
+                    <Text style={styles.avatarText}>{user?.email?.[0]?.toUpperCase()}</Text>
                 </View>
                 <View style={styles.headerInfo}>
                     <Text style={styles.adminName}>Admin Portal</Text>

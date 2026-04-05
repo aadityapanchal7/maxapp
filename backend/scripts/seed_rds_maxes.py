@@ -9,7 +9,7 @@ in services/fitmax_course_modules.py), use instead:
 
 Usage:
     cd backend
-    .\venv\Scripts\python.exe scripts/seed_rds_maxes.py
+    .\\venv\\Scripts\\python.exe scripts/seed_rds_maxes.py
 """
 
 import asyncio

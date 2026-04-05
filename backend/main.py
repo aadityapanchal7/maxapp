@@ -31,6 +31,13 @@ async def lifespan(app: FastAPI):
     await init_rds_db()
     # Start background scheduler for notifications
     from services.scheduler_job import start_scheduler, stop_scheduler
+    from services.apns_service import apns_configured
+    import logging
+    if not apns_configured():
+        logging.getLogger("apns").warning(
+            "APNs not configured — push notifications will be silently skipped. "
+            "Set APNS_AUTH_KEY_P8, APNS_KEY_ID, APNS_TEAM_ID in .env to enable iOS push."
+        )
     scheduler = start_scheduler(app)
     yield
     # Shutdown

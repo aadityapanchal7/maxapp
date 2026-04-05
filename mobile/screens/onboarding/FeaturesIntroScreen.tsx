@@ -33,8 +33,7 @@ export default function FeaturesIntroScreen() {
                     ai face scan
                 </Text>
                 <Text style={styles.desc}>
-                    Get a detailed analysis using three quick photos — front and both profiles — then see your scores
-                    before you subscribe.
+                    Three photos — front and both profiles — then see your scores.
                 </Text>
             </View>
 

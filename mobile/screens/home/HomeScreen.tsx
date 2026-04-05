@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -36,7 +36,7 @@ export default function HomeScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
-    const { user, refreshUser, isPremium } = useAuth();
+    const { user, refreshUser, isPremium, isPaid } = useAuth();
     const maxesQuery = useMaxxesQuery();
     const schedulesQuery = useActiveSchedulesFullQuery();
 
@@ -340,15 +340,36 @@ export default function HomeScreen() {
                 </Animated.View>
             </ScrollView>
 
-            {isPremium ? (
+            {isPaid ? (
                 <TouchableOpacity
-                    style={[styles.faceScanFab, { bottom: 52 + insets.bottom + 14, right: spacing.lg }]}
-                    onPress={() => navigation.navigate('FaceScan')}
+                    style={[
+                        styles.faceScanFab,
+                        { bottom: 52 + insets.bottom + 14, right: spacing.lg },
+                        !isPremium && styles.faceScanFabLocked,
+                    ]}
+                    onPress={() => {
+                        if (isPremium) {
+                            navigation.navigate('FaceScan');
+                        } else {
+                            Alert.alert(
+                                'Premium feature',
+                                'Daily face scans are available on the Premium plan. Upgrade to unlock unlimited scans.',
+                                [
+                                    { text: 'Maybe later', style: 'cancel' },
+                                    { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
+                                ],
+                            );
+                        }
+                    }}
                     activeOpacity={0.88}
                     accessibilityRole="button"
-                    accessibilityLabel="Daily face scan"
+                    accessibilityLabel={isPremium ? 'Face scan' : 'Face scan (Premium)'}
                 >
-                    <Ionicons name="add" size={28} color={colors.background} />
+                    {isPremium ? (
+                        <Ionicons name="add" size={26} color={colors.background} />
+                    ) : (
+                        <Ionicons name="lock-closed" size={20} color={colors.background} />
+                    )}
                 </TouchableOpacity>
             ) : null}
         </View>
@@ -359,14 +380,18 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     faceScanFab: {
         position: 'absolute',
-        width: 56,
-        height: 56,
-        borderRadius: 28,
+        width: 50,
+        height: 50,
+        borderRadius: 25,
         backgroundColor: colors.foreground,
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 20,
-        ...shadows.lg,
+        ...shadows.md,
+    },
+    faceScanFabLocked: {
+        backgroundColor: colors.textMuted,
+        opacity: 0.7,
     },
     scrollContent: { paddingBottom: spacing.xxxl + 24 },
     hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm },

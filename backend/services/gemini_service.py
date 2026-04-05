@@ -1103,7 +1103,9 @@ class GeminiService:
         # Note: GenerativeModel.start_chat doesn't support a separate system role easily in this SDK version
         # We prepend it to the first message or use it as a preamble
         
-        for msg in chat_history[-15:]:  # Last 15 messages for context
+        # 10 turns (≈5 user/5 assistant) keeps the model on-topic while shaving
+        # 1-2k tokens off every request — real savings at 100K users.
+        for msg in chat_history[-10:]:  # Last 10 messages for context
             role = "user" if msg["role"] == "user" else "model"
             # Handle historical attachments if they were images (simplified to just text for history)
             content = msg["content"]
@@ -1124,9 +1126,21 @@ class GeminiService:
         
         new_message_parts.append(message if message else "Look at this image.")
 
+        # Cap output so Gemini stops streaming once a reasonable coach reply is
+        # done — defaults to 8192 tokens which is a ~4-8x latency hit for
+        # conversational replies. 512 covers the longest tool-using replies in
+        # practice; SMS replies fit well under 160 tokens.
+        chat_generation_config = genai.GenerationConfig(
+            max_output_tokens=512 if delivery_channel == "sms" else 768,
+            temperature=0.7,
+            top_p=0.95,
+        )
+
         def _sync_send() -> dict:
             chat = self.model.start_chat(history=history_for_gemini)
-            response = chat.send_message(new_message_parts)
+            response = chat.send_message(
+                new_message_parts, generation_config=chat_generation_config
+            )
             tool_calls = []
             response_text = ""
             for part in response.candidates[0].content.parts:
@@ -1145,7 +1159,8 @@ class GeminiService:
             }
 
         # Run sync SDK in a thread so the event loop stays responsive (Twilio SMS webhook ~15s limit).
-        return await asyncio.to_thread(_sync_send)
+        # Hard cap on LLM latency: 20s matches mobile's 25s HTTP timeout with 5s headroom.
+        return await asyncio.wait_for(asyncio.to_thread(_sync_send), timeout=20.0)
 
 
 # Singleton instance
