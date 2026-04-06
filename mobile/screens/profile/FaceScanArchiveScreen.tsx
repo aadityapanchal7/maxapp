@@ -35,10 +35,10 @@ export default function FaceScanArchiveScreen() {
     const startNewScan = async () => {
         if (!isPremium) {
             Alert.alert(
-                'Premium feature',
-                'Daily face scans are available on the Premium plan. Upgrade to unlock unlimited scans.',
+                'Face scans',
+                'Face scans are not available on Basic. Upgrade to Premium for daily scans.',
                 [
-                    { text: 'Maybe later', style: 'cancel' },
+                    { text: 'OK', style: 'cancel' },
                     { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
                 ],
             );

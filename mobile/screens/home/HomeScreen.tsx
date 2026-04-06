@@ -342,20 +342,16 @@ export default function HomeScreen() {
 
             {isPaid ? (
                 <TouchableOpacity
-                    style={[
-                        styles.faceScanFab,
-                        { bottom: 52 + insets.bottom + 14, right: spacing.lg },
-                        !isPremium && styles.faceScanFabLocked,
-                    ]}
+                    style={[styles.faceScanFab, { bottom: 52 + insets.bottom + 14, right: spacing.lg }]}
                     onPress={() => {
                         if (isPremium) {
                             navigation.navigate('FaceScan');
                         } else {
                             Alert.alert(
-                                'Premium feature',
-                                'Daily face scans are available on the Premium plan. Upgrade to unlock unlimited scans.',
+                                'Face scans',
+                                'Face scans are not available on Basic. Upgrade to Premium for daily scans.',
                                 [
-                                    { text: 'Maybe later', style: 'cancel' },
+                                    { text: 'OK', style: 'cancel' },
                                     { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
                                 ],
                             );
@@ -365,10 +361,11 @@ export default function HomeScreen() {
                     accessibilityRole="button"
                     accessibilityLabel={isPremium ? 'Face scan' : 'Face scan (Premium)'}
                 >
-                    {isPremium ? (
-                        <Ionicons name="add" size={26} color={colors.background} />
-                    ) : (
-                        <Ionicons name="lock-closed" size={20} color={colors.background} />
+                    <Ionicons name="add" size={26} color={colors.background} />
+                    {!isPremium && (
+                        <View style={styles.fabLockBadge}>
+                            <Ionicons name="lock-closed" size={10} color="#fff" />
+                        </View>
                     )}
                 </TouchableOpacity>
             ) : null}
@@ -389,9 +386,18 @@ const styles = StyleSheet.create({
         zIndex: 20,
         ...shadows.md,
     },
-    faceScanFabLocked: {
+    fabLockBadge: {
+        position: 'absolute',
+        bottom: -2,
+        right: -2,
+        width: 18,
+        height: 18,
+        borderRadius: 9,
         backgroundColor: colors.textMuted,
-        opacity: 0.7,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: colors.background,
     },
     scrollContent: { paddingBottom: spacing.xxxl + 24 },
     hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm },

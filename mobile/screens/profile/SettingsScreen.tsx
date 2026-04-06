@@ -1,5 +1,5 @@
 import React, { useState, type ComponentProps } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Platform, Alert, TextInput, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Platform, Alert, TextInput, ActivityIndicator, Keyboard } from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -147,8 +147,8 @@ export default function SettingsScreen() {
             </ScrollView>
 
             {deleteModalVisible && (
-                <Pressable style={styles.modalOverlay} onPress={() => setDeleteModalVisible(false)}>
-                    <Pressable style={styles.modalContent} onPress={() => {}}>
+                <Pressable style={styles.modalOverlay} onPress={() => { Keyboard.dismiss(); setDeleteModalVisible(false); }}>
+                    <Pressable style={styles.modalContent} onPress={() => Keyboard.dismiss()}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Delete account</Text>
                             <TouchableOpacity onPress={() => setDeleteModalVisible(false)} style={styles.modalClose} activeOpacity={0.7}>
@@ -167,6 +167,8 @@ export default function SettingsScreen() {
                             onChangeText={setDeletePassword}
                             autoCapitalize="none"
                             editable={!deleteBusy}
+                            returnKeyType="done"
+                            onSubmitEditing={confirmDeleteAccount}
                         />
                         <View style={styles.modalButtons}>
                             <TouchableOpacity style={styles.cancelButton} onPress={() => setDeleteModalVisible(false)}>

@@ -86,7 +86,12 @@ async def _activate_user(
         # Only initialize the flag if it has never been set. If the user has
         # already finished the Sendblue step (True) or explicitly skipped it,
         # don't clobber their progress on a webhook replay.
-        ob.setdefault("sendblue_connect_completed", False)
+        # Use explicit None check instead of setdefault because OnboardingData
+        # serializes the field as None by default — setdefault treats that as
+        # "already set" and leaves it as None, causing the mobile client to
+        # skip the SendblueConnect screen (null !== false).
+        if ob.get("sendblue_connect_completed") is None:
+            ob["sendblue_connect_completed"] = False
         user.onboarding = ob
     await db.commit()
 

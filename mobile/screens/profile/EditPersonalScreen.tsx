@@ -388,13 +388,13 @@ export default function EditPersonalScreen() {
           ) : null}
 
           {!onlyGoals ? <Text style={styles.sectionTitle}>Your Maxxes</Text> : null}
-          <Text style={[styles.goalsLimitHint, onlyGoals && styles.goalsLimitHintProminent]}>
+          <Text style={styles.goalsLimitHint}>
             Up to {maxHomeMaxxesForUser(user)} on your home screen
             {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'
-              ? ' (Premium). Use + on Home for your daily face scan.'
+              ? ' (Premium)'
               : user?.is_paid
-                ? ' (Basic). One face scan at signup — no extra scans on Basic; Premium gets daily scans (+ on Home).'
-                : ' (free).'}
+                ? ' (Basic)'
+                : ' (free)'}
           </Text>
           <View
             style={[
@@ -779,22 +779,15 @@ const styles = StyleSheet.create({
   cardHint: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.md, lineHeight: 18 },
   sectionTitle: { ...typography.h2, fontSize: 20, marginBottom: spacing.sm, marginTop: spacing.lg },
   goalsLimitHint: {
-    fontSize: 13,
+    fontSize: 11,
     color: colors.textMuted,
-    lineHeight: 19,
-    marginBottom: spacing.md,
-  },
-  goalsLimitHintProminent: {
-    fontSize: 16,
-    lineHeight: 24,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-    marginBottom: spacing.lg,
+    lineHeight: 15,
+    marginBottom: spacing.sm,
+    opacity: 0.7,
   },
   onlyGoalsContent: {
-    flexGrow: 1,
     paddingTop: spacing.sm,
+    paddingBottom: spacing.xxl,
   },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xl, marginBottom: spacing.md },
   /** Cancels scroll horizontal padding so rows span screen width (with inner lg inset). */

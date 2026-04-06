@@ -55,10 +55,11 @@ export function RootNavigator() {
 
     const onboardingCompleted = user?.onboarding?.completed === true;
     const firstScanDone = user?.first_scan_completed === true;
+    const sendblueDone = (user?.onboarding as Record<string, unknown> | undefined)?.sendblue_connect_completed === true;
 
     /**
      * Pre-pay: Onboarding → FeaturesIntro → FaceScan → FaceScanResults (locked) → Payment.
-     * Post-pay: optional FaceScanResults → ModuleSelect via onboarding.post_subscription_onboarding.
+     * Post-pay: SendblueConnect (if not done) → NotificationChannels → ModuleSelect → Main.
      */
     const initialRoute = !isAuthenticated
         ? 'Landing'
@@ -70,7 +71,9 @@ export function RootNavigator() {
                     : firstScanDone
                         ? 'FaceScanResults'
                         : 'FeaturesIntro'
-                : 'Main';
+                : !sendblueDone
+                    ? 'SendblueConnect'
+                    : 'Main';
 
     const stackKey = !isAuthenticated
         ? 'guest'

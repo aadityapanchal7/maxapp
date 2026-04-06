@@ -582,10 +582,12 @@ export default function FaceScanResultsScreen() {
     /** After pay, user must pick programs — use server flag so CTA is correct even before Home re-pushes `postPay`. */
     // Only run the post-pay onboarding CTA when explicitly deep-linked from payment.
     const postPay = !!postPayParam && !locked && postSubscriptionOnboarding;
-    /** After Stripe activate we set this false so user texts the Sendblue line before continuing. */
+    /** After Stripe activate we set this false so user texts the Sendblue line before continuing.
+     *  Also treat null/undefined as pending — legacy accounts activated before the backend fix
+     *  have the field as null, meaning the step was never completed. Only `true` means done. */
     const sendbluePending =
         treatAsPaid &&
-        (user?.onboarding as { sendblue_connect_completed?: boolean } | undefined)?.sendblue_connect_completed === false;
+        (user?.onboarding as { sendblue_connect_completed?: boolean | null } | undefined)?.sendblue_connect_completed !== true;
 
     const overallScore = parseOverall(a);
     const base = overallScore ?? 5;

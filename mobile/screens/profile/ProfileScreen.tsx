@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, Animated, Pressable, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, Animated, Pressable, Platform, useWindowDimensions, Keyboard } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -348,10 +348,10 @@ export default function ProfileScreen() {
                                         navigation.navigate('FaceScanArchive');
                                     } else {
                                         Alert.alert(
-                                            'Premium feature',
-                                            'Daily face scans are available on the Premium plan. Upgrade to unlock unlimited scans.',
+                                            'Face scans',
+                                            'Face scans are not available on Basic. Upgrade to Premium for daily scans.',
                                             [
-                                                { text: 'Maybe later', style: 'cancel' },
+                                                { text: 'OK', style: 'cancel' },
                                                 { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
                                             ],
                                         );
@@ -374,8 +374,8 @@ export default function ProfileScreen() {
             )}
 
             <Modal animationType="fade" transparent visible={editModalVisible} onRequestClose={() => setEditModalVisible(false)}>
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                <Pressable style={styles.modalOverlay} onPress={() => { Keyboard.dismiss(); setEditModalVisible(false); }}>
+                    <Pressable style={styles.modalContent} onPress={() => Keyboard.dismiss()}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Edit Profile</Text>
                             <TouchableOpacity onPress={() => setEditModalVisible(false)} style={styles.modalClose} activeOpacity={0.7}>
@@ -402,8 +402,8 @@ export default function ProfileScreen() {
                                 <TouchableOpacity style={styles.saveButton} onPress={saveProfile} disabled={saveLoading} activeOpacity={0.7}>{saveLoading ? <ActivityIndicator color={colors.buttonText} /> : <Text style={styles.saveButtonText}>Save</Text>}</TouchableOpacity>
                             </View>
                         </ScrollView>
-                    </View>
-                </View>
+                    </Pressable>
+                </Pressable>
             </Modal>
             <Modal
                 animationType="fade"
