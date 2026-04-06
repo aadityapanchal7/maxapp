@@ -14,7 +14,14 @@ from db import get_db, get_rds_db
 from middleware.auth_middleware import get_current_admin_user
 from models.user import UserResponse, OnboardingData, UserProfile
 from models.sqlalchemy_models import User, ChatHistory, ChannelMessageReport
-from models.rds_models import Forum, ChannelMessage
+from models.rds_models import (
+    Forum,
+    ChannelMessage,
+    ForumCategory,
+    ForumSubforum,
+    ForumThread,
+    ForumPost,
+)
 
 
 class BroadcastRequest(BaseModel):
@@ -86,16 +93,32 @@ async def get_stats(
     paid_count = (await db.execute(
         select(func.count(User.id)).where(User.is_paid == True)
     )).scalar() or 0
+    premium_count = (
+        await db.execute(
+            select(func.count(User.id)).where(
+                func.lower(func.coalesce(User.subscription_tier, "")) == "premium"
+            )
+        )
+    ).scalar() or 0
     channel_count = (await rds_db.execute(select(func.count(Forum.id)))).scalar() or 0
     message_count = (await rds_db.execute(select(func.count(ChannelMessage.id)))).scalar() or 0
     reports_count = (await db.execute(select(func.count(ChannelMessageReport.id)))).scalar() or 0
+    v2_cat = (await rds_db.execute(select(func.count(ForumCategory.id)))).scalar() or 0
+    v2_sub = (await rds_db.execute(select(func.count(ForumSubforum.id)))).scalar() or 0
+    v2_thr = (await rds_db.execute(select(func.count(ForumThread.id)))).scalar() or 0
+    v2_post = (await rds_db.execute(select(func.count(ForumPost.id)))).scalar() or 0
 
     return {
         "total_users": user_count,
         "paid_users": paid_count,
+        "premium_users": premium_count,
         "total_channels": channel_count,
         "total_messages": message_count,
         "channel_reports_total": reports_count,
+        "forum_v2_categories": v2_cat,
+        "forum_v2_boards": v2_sub,
+        "forum_v2_threads": v2_thr,
+        "forum_v2_posts": v2_post,
     }
 
 

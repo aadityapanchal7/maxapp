@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
@@ -7,13 +7,19 @@ import { colors, spacing, borderRadius, typography, shadows } from '../../theme/
 export default function AdminDashboard() {
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => { loadStats(); }, []);
 
     const loadStats = async () => {
         try { const data = await api.getAdminStats(); setStats(data); }
         catch (error) { console.error(error); }
-        finally { setLoading(false); }
+        finally { setLoading(false); setRefreshing(false); }
+    };
+
+    const onRefresh = () => {
+        setRefreshing(true);
+        void loadStats();
     };
 
     if (loading) return <View style={styles.center}><ActivityIndicator color={colors.foreground} /></View>;
@@ -21,13 +27,23 @@ export default function AdminDashboard() {
     const cards = [
         { title: 'Total Users', value: stats?.total_users || 0, icon: 'people' },
         { title: 'Paid Users', value: stats?.paid_users || 0, icon: 'card' },
+        { title: 'Premium (tier)', value: stats?.premium_users ?? 0, icon: 'star' },
         { title: 'Channels', value: stats?.total_channels || 0, icon: 'chatbubbles' },
         { title: 'Messages', value: stats?.total_messages || 0, icon: 'mail' },
+        { title: 'Forum categories', value: stats?.forum_v2_categories ?? 0, icon: 'folder-outline' },
+        { title: 'Forum boards', value: stats?.forum_v2_boards ?? 0, icon: 'grid-outline' },
+        { title: 'Forum threads', value: stats?.forum_v2_threads ?? 0, icon: 'reader-outline' },
+        { title: 'Forum posts', value: stats?.forum_v2_posts ?? 0, icon: 'document-text-outline' },
         { title: 'UGC Reports', value: stats?.channel_reports_total || 0, icon: 'flag-outline' },
     ];
 
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            refreshControl={
+                <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.foreground} />
+            }
+        >
             <View style={styles.header}>
                 <Text style={styles.title}>Admin Dashboard</Text>
                 <Text style={styles.subtitle}>Platform overview</Text>

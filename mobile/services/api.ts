@@ -896,6 +896,83 @@ class ApiService {
         return response.data;
     }
 
+    async getAdminForumsV2Overview() {
+        const response = await this.client.get('admin/forums/v2/overview');
+        return response.data as {
+            categories: Array<{
+                id: string;
+                name: string;
+                slug: string;
+                description?: string | null;
+                order: number;
+                subforums: Array<{
+                    id: string;
+                    category_id: string;
+                    name: string;
+                    slug: string;
+                    description?: string | null;
+                    order: number;
+                    access_tier: string;
+                    is_read_only: boolean;
+                    thread_count: number;
+                }>;
+            }>;
+        };
+    }
+
+    async createAdminForumCategory(body: { name: string; description?: string; order?: number }) {
+        const response = await this.client.post('admin/forums/v2/categories', body);
+        return response.data as { id: string; slug: string };
+    }
+
+    async updateAdminForumCategory(
+        categoryId: string,
+        body: { name?: string; description?: string; order?: number },
+    ) {
+        const response = await this.client.patch(`admin/forums/v2/categories/${encodeURIComponent(categoryId)}`, body);
+        return response.data as { id: string; slug: string };
+    }
+
+    async deleteAdminForumCategory(categoryId: string) {
+        const response = await this.client.delete(`admin/forums/v2/categories/${encodeURIComponent(categoryId)}`);
+        return response.data as { deleted: boolean };
+    }
+
+    async createAdminForumSubforum(body: {
+        category_id: string;
+        name: string;
+        description?: string;
+        access_tier: 'public' | 'premium';
+        is_read_only?: boolean;
+        order?: number | null;
+    }) {
+        const response = await this.client.post('admin/forums/v2/subforums', body);
+        return response.data as { id: string; slug: string };
+    }
+
+    async updateAdminForumSubforum(
+        subforumId: string,
+        body: {
+            category_id?: string;
+            name?: string;
+            description?: string;
+            access_tier?: 'public' | 'premium';
+            is_read_only?: boolean;
+            order?: number | null;
+        },
+    ) {
+        const response = await this.client.patch(
+            `admin/forums/v2/subforums/${encodeURIComponent(subforumId)}`,
+            body,
+        );
+        return response.data as { id: string; slug: string };
+    }
+
+    async deleteAdminForumSubforum(subforumId: string) {
+        const response = await this.client.delete(`admin/forums/v2/subforums/${encodeURIComponent(subforumId)}`);
+        return response.data as { deleted: boolean };
+    }
+
     // Schedules
     async generateSchedule(courseId: string, moduleNumber: number, numDays: number = 30, preferences?: any) {
         // AI generation — can take 20-40s. Use the long timeout.

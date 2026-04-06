@@ -112,3 +112,36 @@ class ForumNotificationResponse(BaseModel):
 class ForumReportCreate(BaseModel):
     reason: str = Field(default="", max_length=2000)
 
+
+# --- Admin (full CRUD; any category / access tier) ---
+
+
+class AdminForumCategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=2000)
+    order: int = 0
+
+
+class AdminForumCategoryUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=80)
+    description: Optional[str] = Field(None, max_length=2000)
+    order: Optional[int] = None
+
+
+class AdminForumSubforumCreate(BaseModel):
+    category_id: str
+    name: str = Field(min_length=2, max_length=60)
+    description: str = Field(default="", max_length=240)
+    access_tier: AccessTier = "public"
+    is_read_only: bool = False
+    order: Optional[int] = None
+
+
+class AdminForumSubforumUpdate(BaseModel):
+    category_id: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=2, max_length=60)
+    description: Optional[str] = Field(None, max_length=240)
+    access_tier: Optional[AccessTier] = None
+    is_read_only: Optional[bool] = None
+    order: Optional[int] = None
+
