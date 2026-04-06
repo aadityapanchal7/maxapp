@@ -6,9 +6,37 @@ import axios, { AxiosInstance } from 'axios';
 import { Platform } from 'react-native';
 import { getItemAsync, setItemAsync, deleteItemAsync } from './storage';
 
-const API_BASE_URL =
-    process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
-    'http://localhost:8000/api/';
+/**
+ * Web dev: use the same loopback hostname as the page (localhost vs 127.0.0.1).
+ * Mismatch breaks some browsers / Private Network Access when Expo is :8081 and .env is 127.0.0.1.
+ */
+function resolveApiBaseUrl(): string {
+    const fromEnv =
+        process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8000/api/';
+    if (Platform.OS !== 'web' || typeof window === 'undefined') {
+        return fromEnv;
+    }
+    if (!__DEV__) {
+        return fromEnv;
+    }
+    const host = window.location.hostname;
+    const loopbackPage =
+        host === 'localhost' ||
+        host === '127.0.0.1' ||
+        host === '[::1]' ||
+        host === '::1';
+    const envPointsLocal = /localhost|127\.0\.0\.1/i.test(fromEnv);
+    if (loopbackPage && envPointsLocal) {
+        const apiHost = host === '[::1]' || host === '::1' ? '127.0.0.1' : host;
+        return `http://${apiHost}:8000/api/`;
+    }
+    return fromEnv;
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
+
+/** Longer timeouts for web cold starts + DB on first auth request */
+const WEB_AUTH_TIMEOUT_MS = 45_000;
 
 class ApiService {
     private client: AxiosInstance;
@@ -95,7 +123,9 @@ class ApiService {
         try {
             const root = API_BASE_URL.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
             if (!root.startsWith('http')) return false;
-            const { data } = await axios.get<{ status?: string }>(`${root}/health`, { timeout: 5_000 });
+            const { data } = await axios.get<{ status?: string }>(`${root}/health`, {
+                timeout: Platform.OS === 'web' ? 12_000 : 5_000,
+            });
             return data?.status === 'healthy';
         } catch {
             return false;
@@ -151,14 +181,22 @@ class ApiService {
 
     // Auth
     async signup(email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) {
-        const response = await this.client.post('auth/signup', { email, password, first_name, last_name, username, phone_number });
+        const response = await this.client.post(
+            'auth/signup',
+            { email, password, first_name, last_name, username, phone_number },
+            { timeout: Platform.OS === 'web' ? WEB_AUTH_TIMEOUT_MS : undefined },
+        );
         await this.setTokens(response.data.access_token, response.data.refresh_token);
         return response.data;
     }
 
     /** `identifier` = email, username, or phone (matches account on file). */
     async login(identifier: string, password: string) {
-        const response = await this.client.post('auth/login/json', { identifier, password });
+        const response = await this.client.post(
+            'auth/login/json',
+            { identifier, password },
+            { timeout: Platform.OS === 'web' ? WEB_AUTH_TIMEOUT_MS : undefined },
+        );
         await this.setTokens(response.data.access_token, response.data.refresh_token);
         return response.data;
     }

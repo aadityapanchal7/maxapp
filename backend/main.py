@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import os
 import traceback
@@ -76,6 +77,19 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    """Satisfy Chrome local-network preflight (browser → http://127.0.0.1:8000)."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.method == "OPTIONS":
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+
+
+app.add_middleware(PrivateNetworkAccessMiddleware)
 
 
 @app.exception_handler(Exception)
