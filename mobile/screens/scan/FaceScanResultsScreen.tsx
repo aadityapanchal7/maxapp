@@ -27,6 +27,77 @@ import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 
+/** Some DB drivers or legacy rows store analysis as a JSON string. */
+function coerceAnalysisObject(analysis: unknown): any {
+    if (analysis == null) return null;
+    if (typeof analysis === 'string') {
+        try {
+            const p = JSON.parse(analysis);
+            return p !== null && typeof p === 'object' ? p : null;
+        } catch {
+            return null;
+        }
+    }
+    return typeof analysis === 'object' ? analysis : null;
+}
+
+/** Match backend `_infer_psl_tier_from_score` when tier was never persisted. */
+function inferPslTierFromScore(score: number | null): string {
+    if (score == null || Number.isNaN(score)) return '';
+    const s = Math.max(0, Math.min(10, score));
+    if (s < 3.0) return 'Subhuman';
+    if (s < 4.25) return 'LTN';
+    if (s < 5.5) return 'MTN';
+    if (s < 6.75) return 'HTN';
+    if (s < 8.0) return 'Chadlite';
+    return 'Chad';
+}
+
+const _BONE_UMAX_IDS = new Set(['jawline', 'cheekbones', 'nose', 'eyes', 'symmetry']);
+
+/** Mirrors backend when older rows lack profile_insights.suggested_modules. */
+function suggestedModulesFromUmax(analysis: any): string[] {
+    const rows = analysis?.umax_metrics;
+    if (!Array.isArray(rows) || rows.length === 0) return ['fitmax', 'skinmax'];
+    const parsed: { id: string; score: number }[] = [];
+    for (const row of rows) {
+        if (!row || typeof row !== 'object') continue;
+        const id = String((row as { id?: string }).id || '');
+        const sc = parseFloat(String((row as { score?: unknown }).score ?? '5'));
+        if (!id || Number.isNaN(sc)) continue;
+        parsed.push({ id, score: Math.max(0, Math.min(10, sc)) });
+    }
+    if (!parsed.length) return ['fitmax', 'skinmax'];
+    const out: string[] = [];
+    let bone = false;
+    for (const { id, score } of parsed) {
+        if (score > 5.9) continue;
+        if (_BONE_UMAX_IDS.has(id)) {
+            if (!bone) {
+                out.push('bonemax');
+                bone = true;
+            }
+        } else if (id === 'skin') {
+            out.push('skinmax');
+        }
+    }
+    if (!out.length) {
+        const sorted = [...parsed].sort((x, y) => x.score - y.score);
+        for (const { id } of sorted.slice(0, 3)) {
+            if (_BONE_UMAX_IDS.has(id)) {
+                if (!bone) {
+                    out.push('bonemax');
+                    bone = true;
+                }
+            } else if (id === 'skin') {
+                out.push('skinmax');
+            }
+        }
+    }
+    if (!out.length) return ['fitmax', 'skinmax'];
+    return [...new Set(out)].slice(0, 5);
+}
+
 function parseOverall(analysis: any): number | null {
     if (!analysis) return null;
     const pr = analysis.psl_rating;
@@ -504,7 +575,7 @@ export default function FaceScanResultsScreen() {
         };
     }, [scan?.processing_status, scanIdParam]);
 
-    const a = scan?.analysis;
+    const a = coerceAnalysisObject(scan?.analysis);
     /** API sets is_unlocked from DB — fixes empty screen when JWT context lags after payment */
     const treatAsPaid = isPaid === true || scan?.is_unlocked === true;
     const locked = !treatAsPaid;
@@ -527,11 +598,20 @@ export default function FaceScanResultsScreen() {
 
 
     const pr = a?.psl_rating && typeof a.psl_rating === 'object' ? a.psl_rating : {};
-    const pi = a?.profile_insights;
+    const pi = a?.profile_insights && typeof a.profile_insights === 'object' ? a.profile_insights : {};
+    const facialSummary = (user?.onboarding as { facial_scan_summary?: Record<string, unknown> } | undefined)
+        ?.facial_scan_summary;
     const archetype =
         (typeof pr?.archetype === 'string' ? pr.archetype.trim() : '') ||
-        (typeof pi?.archetype === 'string' ? pi.archetype.trim() : '');
-    const pslTier = typeof pr?.psl_tier === 'string' ? pr.psl_tier.trim() : '';
+        (typeof pi?.archetype === 'string' ? pi.archetype.trim() : '') ||
+        (typeof facialSummary?.archetype === 'string' ? facialSummary.archetype.trim() : '');
+    let pslTier = typeof pr?.psl_tier === 'string' ? pr.psl_tier.trim() : '';
+    if (!pslTier && typeof a?.psl_tier === 'string') pslTier = a.psl_tier.trim();
+    if (!pslTier && typeof facialSummary?.psl_tier === 'string') pslTier = facialSummary.psl_tier.trim();
+    if (!pslTier) {
+        const t = inferPslTierFromScore(overallScore);
+        if (t) pslTier = t;
+    }
     const ascensionMonths =
         typeof pr?.ascension_time_months === 'number' && !Number.isNaN(pr.ascension_time_months)
             ? pr.ascension_time_months
@@ -540,7 +620,16 @@ export default function FaceScanResultsScreen() {
         typeof pr?.age_score === 'number' && !Number.isNaN(pr.age_score)
             ? pr.age_score
             : parseInt(String(pr?.age_score || '0'), 10) || 0;
-    const suggestedMods: string[] = Array.isArray(pi?.suggested_modules) ? pi.suggested_modules : [];
+    let suggestedMods: string[] = Array.isArray(pi?.suggested_modules) ? pi.suggested_modules.map(String) : [];
+    if (!suggestedMods.length && Array.isArray(a?.suggested_modules)) {
+        suggestedMods = a.suggested_modules.map(String);
+    }
+    if (!suggestedMods.length && Array.isArray(facialSummary?.suggested_modules)) {
+        suggestedMods = (facialSummary!.suggested_modules as unknown[]).map(String);
+    }
+    if (!suggestedMods.length && a) {
+        suggestedMods = suggestedModulesFromUmax(a);
+    }
 
     const goPayment = () => navigation.navigate('Payment');
 

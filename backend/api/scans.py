@@ -509,4 +509,6 @@ async def get_scan_by_id(
         "images": scan.images or {},
         "analysis": scan.analysis,
         "processing_status": scan.processing_status,
+        # Paid route — helps clients treat the row as unlocked if JWT `is_paid` lags after subscribe.
+        "is_unlocked": True,
     }

@@ -501,6 +501,77 @@ def _empty_psl_feature_cell() -> Dict[str, Any]:
     return {"score": 5.0, "tag": "Average", "notes": ""}
 
 
+def _infer_psl_tier_from_score(score: float) -> str:
+    """When the model omits psl_tier, map PSL overall score to forum-style labels (see TRIPLE_FULL prompt)."""
+    s = max(0.0, min(10.0, float(score)))
+    if s < 3.0:
+        return "Subhuman"
+    if s < 4.25:
+        return "LTN"
+    if s < 5.5:
+        return "MTN"
+    if s < 6.75:
+        return "HTN"
+    if s < 8.0:
+        return "Chadlite"
+    return "Chad"
+
+
+def _suggested_modules_from_umax_metrics(umax_metrics: Optional[List[Any]]) -> List[str]:
+    """Derive module ids (lowercase) from weaker UMax rows when the LLM omits suggested_modules."""
+    if not isinstance(umax_metrics, list) or not umax_metrics:
+        return ["fitmax", "skinmax"]
+
+    rows: List[Tuple[str, float]] = []
+    for m in umax_metrics:
+        if isinstance(m, dict):
+            mid = m.get("id")
+            try:
+                sc = float(m.get("score", 5.0))
+            except (TypeError, ValueError):
+                sc = 5.0
+        else:
+            mid = getattr(m, "id", None)
+            try:
+                sc = float(getattr(m, "score", 5.0))
+            except (TypeError, ValueError):
+                sc = 5.0
+        if isinstance(mid, str) and mid:
+            rows.append((mid, max(0.0, min(10.0, sc))))
+
+    bone_ids = frozenset({"jawline", "cheekbones", "nose", "eyes", "symmetry"})
+    out: List[str] = []
+    bone_hits = False
+    for mid, sc in rows:
+        if sc > 5.9:
+            continue
+        if mid in bone_ids:
+            if not bone_hits:
+                out.append("bonemax")
+                bone_hits = True
+        elif mid == "skin":
+            out.append("skinmax")
+
+    if not out:
+        for mid, _sc in sorted(rows, key=lambda x: x[1])[:3]:
+            if mid in bone_ids:
+                if not bone_hits:
+                    out.append("bonemax")
+                    bone_hits = True
+            elif mid == "skin":
+                out.append("skinmax")
+    if not out:
+        out = ["fitmax", "skinmax"]
+
+    seen: set[str] = set()
+    deduped: List[str] = []
+    for x in out:
+        if x not in seen:
+            seen.add(x)
+            deduped.append(x)
+    return deduped[:5]
+
+
 def _psl_tag_from_feature_score(score: float) -> str:
     """Approximate feature tag buckets for UI consistency."""
     s = max(0.0, min(10.0, float(score)))
@@ -578,7 +649,7 @@ def _build_fallback_psl_rating(
 
     return {
         "psl_score": ov_c,
-        "psl_tier": "",
+        "psl_tier": _infer_psl_tier_from_score(ov_c),
         "potential": pot_c,
         "archetype": "Classic",
         "appeal": ov_c,
@@ -622,9 +693,12 @@ def _normalize_triple_full_result(parsed: TripleFullScanResult) -> Dict[str, Any
     out["potential_score"] = potential
 
     fs_dump = parsed.feature_scores.model_dump()
+    tier_raw = (parsed.psl_tier or "").strip()[:120]
+    if not tier_raw:
+        tier_raw = _infer_psl_tier_from_score(psl_score)
     pr: Dict[str, Any] = {
         "psl_score": psl_score,
-        "psl_tier": (parsed.psl_tier or "").strip()[:120],
+        "psl_tier": tier_raw[:120],
         "potential": potential,
         "archetype": (parsed.archetype or "").strip()[:200],
         "appeal": appeal,
@@ -655,12 +729,15 @@ def _normalize_triple_full_result(parsed: TripleFullScanResult) -> Dict[str, Any
     problems_out = problems_out[:6]
 
     out["psl_rating"] = pr
+    mods_norm = [
+        m.strip()[:80] for m in (parsed.suggested_modules or [])[:8] if m and str(m).strip()
+    ]
+    if not mods_norm:
+        mods_norm = _suggested_modules_from_umax_metrics(parsed.metrics)
     out["profile_insights"] = {
         "archetype": pr["archetype"],
         "problems": problems_out,
-        "suggested_modules": [
-            m.strip()[:80] for m in (parsed.suggested_modules or [])[:8] if m and str(m).strip()
-        ],
+        "suggested_modules": mods_norm,
     }
 
     def _clip_notes(txt: str, n: int = 140) -> str:
@@ -738,10 +815,11 @@ def _extend_umax_dict_with_full_defaults(base: Dict[str, Any], err_note: str = "
     probs: List[str] = []
     if note:
         probs.append(note[:280])
+    umax = out.get("umax_metrics") if isinstance(out.get("umax_metrics"), list) else None
     out["profile_insights"] = {
         "archetype": pr["archetype"],
         "problems": probs,
-        "suggested_modules": [],
+        "suggested_modules": _suggested_modules_from_umax_metrics(umax),
     }
     out["facial_characteristics"] = {"front": "", "side": ""}
     out["source"] = out.get("source") or "fallback"
