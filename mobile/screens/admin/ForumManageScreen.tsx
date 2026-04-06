@@ -13,6 +13,7 @@ import {
     RefreshControl,
     KeyboardAvoidingView,
     Platform,
+    Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -39,6 +40,24 @@ type CategoryRow = {
     order: number;
     subforums: SubforumRow[];
 };
+
+function formatApiDetail(e: any): string {
+    const d = e?.response?.data?.detail;
+    if (typeof d === 'string') return d;
+    if (Array.isArray(d)) {
+        return d
+            .map((x: any) => {
+                if (typeof x?.msg === 'string') return x.msg;
+                if (typeof x?.message === 'string') return x.message;
+                return JSON.stringify(x);
+            })
+            .join('\n');
+    }
+    if (d && typeof d === 'object' && typeof (d as any).msg === 'string') return (d as any).msg;
+    return e?.message || 'Save failed';
+}
+
+const MODAL_BODY_MAX_H = Math.min(440, Math.round(Dimensions.get('window').height * 0.52));
 
 export default function ForumManageScreen() {
     const navigation = useNavigation<any>();
@@ -131,7 +150,7 @@ export default function ForumManageScreen() {
             setModal('none');
             await loadAll();
         } catch (e: any) {
-            Alert.alert('Error', e?.response?.data?.detail || 'Save failed');
+            Alert.alert('Error', formatApiDetail(e));
         }
     };
 
@@ -152,7 +171,7 @@ export default function ForumManageScreen() {
                             await api.deleteAdminForumCategory(c.id);
                             await loadAll();
                         } catch (e: any) {
-                            Alert.alert('Error', e?.response?.data?.detail || 'Delete failed');
+                            Alert.alert('Error', formatApiDetail(e));
                         }
                     },
                 },
@@ -169,6 +188,14 @@ export default function ForumManageScreen() {
         setSubReadOnly(false);
         setEditSubId(null);
         setModal('sub_new');
+    };
+
+    const openNewBoardFromHeader = () => {
+        if (v2Categories.length === 0) {
+            Alert.alert('Create a category first', 'Add a category, then add a board. You can set Public vs Premium on each board.');
+            return;
+        }
+        openNewSubforum(v2Categories[0].id);
     };
 
     const openEditSubforum = (sub: SubforumRow) => {
@@ -188,36 +215,38 @@ export default function ForumManageScreen() {
             Alert.alert('Name required');
             return;
         }
+        if (name.length < 2) {
+            Alert.alert('Board name too short', 'Use at least 2 characters (server requirement).');
+            return;
+        }
         if (!subCatId) {
             Alert.alert('Pick a category');
             return;
         }
-        const orderVal = subOrder.trim() === '' ? undefined : parseInt(subOrder, 10);
-        const body = {
+        const orderParsed = subOrder.trim() === '' ? NaN : parseInt(subOrder, 10);
+        const orderVal = Number.isNaN(orderParsed) ? undefined : orderParsed;
+        const base = {
             category_id: subCatId,
             name,
-            description: subDesc.trim(),
+            description: subDesc.trim() || undefined,
             access_tier: (subPremium ? 'premium' : 'public') as 'public' | 'premium',
             is_read_only: subReadOnly,
-            order: Number.isNaN(orderVal as number) ? undefined : orderVal,
         };
         try {
             if (modal === 'sub_new') {
-                await api.createAdminForumSubforum(body);
+                await api.createAdminForumSubforum(
+                    orderVal !== undefined ? { ...base, order: orderVal } : base,
+                );
             } else if (editSubId) {
-                await api.updateAdminForumSubforum(editSubId, {
-                    category_id: subCatId,
-                    name,
-                    description: subDesc.trim(),
-                    access_tier: (subPremium ? 'premium' : 'public') as 'public' | 'premium',
-                    is_read_only: subReadOnly,
-                    order: Number.isNaN(orderVal as number) ? undefined : orderVal,
-                });
+                await api.updateAdminForumSubforum(
+                    editSubId,
+                    orderVal !== undefined ? { ...base, order: orderVal } : base,
+                );
             }
             setModal('none');
             await loadAll();
         } catch (e: any) {
-            Alert.alert('Error', e?.response?.data?.detail || 'Save failed');
+            Alert.alert('Error', formatApiDetail(e));
         }
     };
 
@@ -235,7 +264,7 @@ export default function ForumManageScreen() {
                             await api.deleteAdminForumSubforum(sub.id);
                             await loadAll();
                         } catch (e: any) {
-                            Alert.alert('Error', e?.response?.data?.detail || 'Delete failed');
+                            Alert.alert('Error', formatApiDetail(e));
                         }
                     },
                 },
@@ -253,87 +282,125 @@ export default function ForumManageScreen() {
                     <Text style={styles.modalTitle}>
                         {modal === 'cat_new' && 'New category'}
                         {modal === 'cat_edit' && 'Edit category'}
-                        {modal === 'sub_new' && 'New board'}
+                        {modal === 'sub_new' && 'New board (forum)'}
                         {modal === 'sub_edit' && 'Edit board'}
                     </Text>
-                    {(modal === 'sub_new' || modal === 'sub_edit') && (
-                        <>
-                            <Text style={styles.inputLabel}>Category</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow}>
-                                {v2Categories.map((c) => (
+                    <ScrollView
+                        style={[styles.modalScroll, { maxHeight: MODAL_BODY_MAX_H }]}
+                        keyboardShouldPersistTaps="handled"
+                        showsVerticalScrollIndicator={false}
+                        nestedScrollEnabled
+                    >
+                        {(modal === 'sub_new' || modal === 'sub_edit') && (
+                            <>
+                                <Text style={styles.inputLabel}>Category</Text>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    style={styles.chipRow}
+                                    nestedScrollEnabled
+                                >
+                                    {v2Categories.map((c) => (
+                                        <TouchableOpacity
+                                            key={c.id}
+                                            style={[styles.chip, subCatId === c.id && styles.chipOn]}
+                                            onPress={() => setSubCatId(c.id)}
+                                        >
+                                            <Text style={[styles.chipText, subCatId === c.id && styles.chipTextOn]}>
+                                                {c.name}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+                                <Text style={styles.inputLabel}>Board name</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={subName}
+                                    onChangeText={setSubName}
+                                    placeholder="e.g. Influencer Q&A (min 2 characters)"
+                                    placeholderTextColor={colors.textMuted}
+                                />
+                                <Text style={styles.inputLabel}>Description</Text>
+                                <TextInput
+                                    style={[styles.input, styles.inputMultiline]}
+                                    value={subDesc}
+                                    onChangeText={setSubDesc}
+                                    multiline
+                                    placeholderTextColor={colors.textMuted}
+                                />
+                                <Text style={styles.inputLabel}>Access</Text>
+                                <Text style={styles.helperText}>
+                                    Public: all signed-in users. Premium: subscribers on the Premium tier only.
+                                </Text>
+                                <View style={styles.segmentRow}>
                                     <TouchableOpacity
-                                        key={c.id}
-                                        style={[styles.chip, subCatId === c.id && styles.chipOn]}
-                                        onPress={() => setSubCatId(c.id)}
+                                        style={[styles.segment, !subPremium && styles.segmentActive]}
+                                        onPress={() => setSubPremium(false)}
+                                        activeOpacity={0.85}
                                     >
-                                        <Text style={[styles.chipText, subCatId === c.id && styles.chipTextOn]}>
-                                            {c.name}
+                                        <Text style={[styles.segmentText, !subPremium && styles.segmentTextActive]}>
+                                            Public
                                         </Text>
                                     </TouchableOpacity>
-                                ))}
-                            </ScrollView>
-                            <Text style={styles.inputLabel}>Board name</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={subName}
-                                onChangeText={setSubName}
-                                placeholder="e.g. Influencer Q&A"
-                                placeholderTextColor={colors.textMuted}
-                            />
-                            <Text style={styles.inputLabel}>Description</Text>
-                            <TextInput
-                                style={[styles.input, styles.inputMultiline]}
-                                value={subDesc}
-                                onChangeText={setSubDesc}
-                                multiline
-                                placeholderTextColor={colors.textMuted}
-                            />
-                            <Text style={styles.inputLabel}>Sort order (optional)</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={subOrder}
-                                onChangeText={setSubOrder}
-                                keyboardType="number-pad"
-                                placeholder="default 9999"
-                                placeholderTextColor={colors.textMuted}
-                            />
-                            <View style={styles.switchRow}>
-                                <Text style={styles.switchLabel}>Premium only (requires Premium tier)</Text>
-                                <Switch value={subPremium} onValueChange={setSubPremium} />
-                            </View>
-                            <View style={styles.switchRow}>
-                                <Text style={styles.switchLabel}>Read-only (no new threads)</Text>
-                                <Switch value={subReadOnly} onValueChange={setSubReadOnly} />
-                            </View>
-                        </>
-                    )}
-                    {(modal === 'cat_new' || modal === 'cat_edit') && (
-                        <>
-                            <Text style={styles.inputLabel}>Name</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={catName}
-                                onChangeText={setCatName}
-                                placeholderTextColor={colors.textMuted}
-                            />
-                            <Text style={styles.inputLabel}>Description</Text>
-                            <TextInput
-                                style={[styles.input, styles.inputMultiline]}
-                                value={catDesc}
-                                onChangeText={setCatDesc}
-                                multiline
-                                placeholderTextColor={colors.textMuted}
-                            />
-                            <Text style={styles.inputLabel}>Order</Text>
-                            <TextInput
-                                style={styles.input}
-                                value={catOrder}
-                                onChangeText={setCatOrder}
-                                keyboardType="number-pad"
-                                placeholderTextColor={colors.textMuted}
-                            />
-                        </>
-                    )}
+                                    <TouchableOpacity
+                                        style={[styles.segment, subPremium && styles.segmentActivePrem]}
+                                        onPress={() => setSubPremium(true)}
+                                        activeOpacity={0.85}
+                                    >
+                                        <Text style={[styles.segmentText, subPremium && styles.segmentTextActivePrem]}>
+                                            Premium
+                                        </Text>
+                                    </TouchableOpacity>
+                                </View>
+                                <View style={styles.switchRow}>
+                                    <View style={styles.switchLabelWrap}>
+                                        <Text style={styles.switchLabel}>Read-only</Text>
+                                        <Text style={styles.helperTextInline}>No new threads; existing posts stay visible.</Text>
+                                    </View>
+                                    <Switch value={subReadOnly} onValueChange={setSubReadOnly} />
+                                </View>
+                                <Text style={styles.inputLabel}>Sort order (optional)</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={subOrder}
+                                    onChangeText={setSubOrder}
+                                    keyboardType="number-pad"
+                                    placeholder="Leave blank for default (9999)"
+                                    placeholderTextColor={colors.textMuted}
+                                />
+                            </>
+                        )}
+                        {(modal === 'cat_new' || modal === 'cat_edit') && (
+                            <>
+                                <Text style={styles.inputLabel}>Name</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={catName}
+                                    onChangeText={setCatName}
+                                    placeholderTextColor={colors.textMuted}
+                                />
+                                <Text style={styles.inputLabel}>Description</Text>
+                                <TextInput
+                                    style={[styles.input, styles.inputMultiline]}
+                                    value={catDesc}
+                                    onChangeText={setCatDesc}
+                                    multiline
+                                    placeholderTextColor={colors.textMuted}
+                                />
+                                <Text style={styles.inputLabel}>Order</Text>
+                                <TextInput
+                                    style={styles.input}
+                                    value={catOrder}
+                                    onChangeText={setCatOrder}
+                                    keyboardType="number-pad"
+                                    placeholderTextColor={colors.textMuted}
+                                />
+                                <Text style={styles.helperText}>
+                                    Categories group boards. Set Public vs Premium when you add each board.
+                                </Text>
+                            </>
+                        )}
+                    </ScrollView>
                     <View style={styles.modalActions}>
                         <TouchableOpacity style={styles.modalBtnGhost} onPress={() => setModal('none')}>
                             <Text style={styles.modalBtnGhostText}>Cancel</Text>
@@ -371,13 +438,22 @@ export default function ForumManageScreen() {
             >
                 <View style={styles.header}>
                     <Text style={styles.title}>Forums</Text>
-                    <TouchableOpacity style={styles.createBtn} onPress={openNewCategory} activeOpacity={0.7}>
-                        <Text style={styles.createBtnText}>New category</Text>
-                    </TouchableOpacity>
+                    <View style={styles.headerActions}>
+                        <TouchableOpacity
+                            style={styles.headerSecondaryBtn}
+                            onPress={openNewBoardFromHeader}
+                            activeOpacity={0.75}
+                        >
+                            <Text style={styles.headerSecondaryBtnText}>New board</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.createBtn} onPress={openNewCategory} activeOpacity={0.7}>
+                            <Text style={styles.createBtnText}>Category</Text>
+                        </TouchableOpacity>
+                    </View>
                 </View>
                 <Text style={styles.sectionLead}>
-                    Thread forums (v2): categories and boards. Premium boards only allow Premium subscribers. Official /
-                    influencer groupings are just categories — create any structure you need.
+                    Categories organize boards (forums). Each board is Public or Premium and can be read-only. Use New board
+                    to set access; categories are folders only.
                 </Text>
 
                 {v2Categories.length === 0 ? (
@@ -426,7 +502,7 @@ export default function ForumManageScreen() {
                                                     <View
                                                         style={[
                                                             styles.tierPill,
-                                                            s.access_tier === 'premium'
+                                                            (s.access_tier || '').toLowerCase() === 'premium'
                                                                 ? styles.tierPremium
                                                                 : styles.tierPublic,
                                                         ]}
@@ -434,10 +510,13 @@ export default function ForumManageScreen() {
                                                         <Text
                                                             style={[
                                                                 styles.tierPillText,
-                                                                s.access_tier === 'premium' && styles.tierPillTextPrem,
+                                                                (s.access_tier || '').toLowerCase() === 'premium' &&
+                                                                    styles.tierPillTextPrem,
                                                             ]}
                                                         >
-                                                            {s.access_tier === 'premium' ? 'Premium' : 'Public'}
+                                                            {(s.access_tier || '').toLowerCase() === 'premium'
+                                                                ? 'Premium'
+                                                                : 'Public'}
                                                         </Text>
                                                     </View>
                                                     {s.is_read_only ? (
@@ -504,9 +583,20 @@ const styles = StyleSheet.create({
         paddingTop: spacing.lg,
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start',
+        gap: spacing.sm,
     },
-    title: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.8 },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
+    headerSecondaryBtn: {
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+    },
+    headerSecondaryBtnText: { fontSize: 13, fontWeight: '700', color: colors.foreground },
+    title: { fontSize: 26, fontWeight: '700', color: colors.foreground, letterSpacing: -0.8, flex: 1, minWidth: 0 },
     createBtn: {
         backgroundColor: colors.foreground,
         paddingHorizontal: 14,
@@ -608,11 +698,35 @@ const styles = StyleSheet.create({
         backgroundColor: colors.background,
         borderTopLeftRadius: borderRadius['2xl'],
         borderTopRightRadius: borderRadius['2xl'],
-        padding: spacing.lg,
-        paddingBottom: spacing.xxl,
-        maxHeight: '88%',
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.lg,
+        paddingBottom: spacing.md,
+        maxHeight: '90%',
     },
-    modalTitle: { fontSize: 20, fontWeight: '700', color: colors.foreground, marginBottom: spacing.md },
+    modalScroll: { flexGrow: 0 },
+    modalTitle: { fontSize: 20, fontWeight: '700', color: colors.foreground, marginBottom: spacing.sm },
+    helperText: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        lineHeight: 18,
+        marginBottom: spacing.sm,
+    },
+    helperTextInline: { fontSize: 12, color: colors.textMuted, marginTop: 2, lineHeight: 16 },
+    segmentRow: { flexDirection: 'row', gap: 10, marginBottom: spacing.md },
+    segment: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        alignItems: 'center',
+    },
+    segmentActive: { borderColor: colors.foreground, backgroundColor: colors.surface },
+    segmentActivePrem: { borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.12)' },
+    segmentText: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
+    segmentTextActive: { color: colors.foreground },
+    segmentTextActivePrem: { color: '#7c3aed' },
     inputLabel: { fontSize: 13, fontWeight: '600', color: colors.textSecondary, marginBottom: 6, marginTop: 10 },
     input: {
         borderWidth: 1,
@@ -641,14 +755,20 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginTop: spacing.md,
+        marginTop: spacing.sm,
+        marginBottom: spacing.sm,
     },
-    switchLabel: { flex: 1, fontSize: 14, color: colors.foreground, paddingRight: 12 },
+    switchLabelWrap: { flex: 1, paddingRight: 12 },
+    switchLabel: { fontSize: 14, fontWeight: '600', color: colors.foreground },
     modalActions: {
         flexDirection: 'row',
         justifyContent: 'flex-end',
+        alignItems: 'center',
         gap: spacing.md,
-        marginTop: spacing.xl,
+        marginTop: spacing.md,
+        paddingTop: spacing.md,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.border,
         flexWrap: 'wrap',
     },
     modalBtnGhost: { paddingVertical: 12, paddingHorizontal: 16 },

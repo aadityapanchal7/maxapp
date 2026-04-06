@@ -897,7 +897,7 @@ class ApiService {
     }
 
     async getAdminForumsV2Overview() {
-        const response = await this.client.get('admin/forums/v2/overview');
+        const response = await this.client.get('admin/forums/v2/overview', { timeout: 30_000 });
         return response.data as {
             categories: Array<{
                 id: string;
@@ -921,7 +921,7 @@ class ApiService {
     }
 
     async createAdminForumCategory(body: { name: string; description?: string; order?: number }) {
-        const response = await this.client.post('admin/forums/v2/categories', body);
+        const response = await this.client.post('admin/forums/v2/categories', body, { timeout: 30_000 });
         return response.data as { id: string; slug: string };
     }
 
@@ -929,12 +929,16 @@ class ApiService {
         categoryId: string,
         body: { name?: string; description?: string; order?: number },
     ) {
-        const response = await this.client.patch(`admin/forums/v2/categories/${encodeURIComponent(categoryId)}`, body);
+        const response = await this.client.patch(`admin/forums/v2/categories/${encodeURIComponent(categoryId)}`, body, {
+            timeout: 30_000,
+        });
         return response.data as { id: string; slug: string };
     }
 
     async deleteAdminForumCategory(categoryId: string) {
-        const response = await this.client.delete(`admin/forums/v2/categories/${encodeURIComponent(categoryId)}`);
+        const response = await this.client.delete(`admin/forums/v2/categories/${encodeURIComponent(categoryId)}`, {
+            timeout: 30_000,
+        });
         return response.data as { deleted: boolean };
     }
 
@@ -946,7 +950,7 @@ class ApiService {
         is_read_only?: boolean;
         order?: number | null;
     }) {
-        const response = await this.client.post('admin/forums/v2/subforums', body);
+        const response = await this.client.post('admin/forums/v2/subforums', body, { timeout: 30_000 });
         return response.data as { id: string; slug: string };
     }
 
@@ -964,12 +968,15 @@ class ApiService {
         const response = await this.client.patch(
             `admin/forums/v2/subforums/${encodeURIComponent(subforumId)}`,
             body,
+            { timeout: 30_000 },
         );
         return response.data as { id: string; slug: string };
     }
 
     async deleteAdminForumSubforum(subforumId: string) {
-        const response = await this.client.delete(`admin/forums/v2/subforums/${encodeURIComponent(subforumId)}`);
+        const response = await this.client.delete(`admin/forums/v2/subforums/${encodeURIComponent(subforumId)}`, {
+            timeout: 30_000,
+        });
         return response.data as { deleted: boolean };
     }
 

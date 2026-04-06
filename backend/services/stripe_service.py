@@ -10,6 +10,47 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _stripe_meta_dict(meta: Any) -> dict:
+    """StripeObject metadata is not a real dict — `.get` is interpreted as a field name and raises."""
+    if meta is None:
+        return {}
+    if isinstance(meta, dict):
+        return dict(meta)
+    try:
+        return {k: meta[k] for k in meta.keys()}
+    except Exception:
+        return {}
+
+
+def _meta_user_id(obj: Any) -> Optional[str]:
+    uid = _stripe_meta_dict(getattr(obj, "metadata", None)).get("user_id")
+    return str(uid).strip() if uid else None
+
+
+def _stripe_item(obj: Any, key: str) -> Any:
+    """Dict-style read; avoids StripeObject __getattr__ raising on missing keys (e.g. invoice.subscription)."""
+    if obj is None:
+        return None
+    try:
+        return obj[key]
+    except (KeyError, TypeError):
+        return None
+
+
+def _subscription_id_value(val: Any) -> Optional[str]:
+    if val is None or val == "":
+        return None
+    if isinstance(val, str):
+        return val
+    rid = getattr(val, "id", None)
+    if rid:
+        return str(rid)
+    if isinstance(val, dict) and val.get("id"):
+        return str(val["id"])
+    return str(val)
+
+
 TIER_PRICE_MAP = {
     "basic": lambda: settings.stripe_price_id_weekly_basic,
     "premium": lambda: settings.stripe_price_id_weekly_premium,
@@ -230,14 +271,15 @@ class StripeService:
 
     async def _resolve_user_id(self, data) -> Optional[str]:
         """Best-effort user_id resolution: metadata → Customer metadata fallback."""
-        uid = getattr(data, "metadata", {}).get("user_id") if hasattr(data, "metadata") else None
+        uid = _meta_user_id(data)
         if uid:
             return uid
-        customer_id = getattr(data, "customer", None)
+        customer_id = _stripe_item(data, "customer") or getattr(data, "customer", None)
         if customer_id:
+            cid = getattr(customer_id, "id", None) or str(customer_id)
             try:
-                cust = stripe.Customer.retrieve(customer_id)
-                return (cust.metadata or {}).get("user_id")
+                cust = stripe.Customer.retrieve(cid)
+                return _meta_user_id(cust)
             except stripe.error.StripeError:
                 pass
         return None
@@ -255,8 +297,8 @@ class StripeService:
         }
 
         if event_type == "checkout.session.completed":
-            result["user_id"] = (data.metadata or {}).get("user_id")
-            result["subscription_id"] = data.subscription
+            result["user_id"] = _meta_user_id(data)
+            result["subscription_id"] = _subscription_id_value(_stripe_item(data, "subscription"))
             result["action"] = "activate"
 
         elif event_type == "customer.subscription.created":
@@ -283,11 +325,13 @@ class StripeService:
             result["action"] = "cancel"
 
         elif event_type == "invoice.payment_succeeded":
-            result["subscription_id"] = data.subscription
+            result["subscription_id"] = _subscription_id_value(_stripe_item(data, "subscription"))
+            result["user_id"] = await self._resolve_user_id(data)
             result["action"] = "payment_success"
 
         elif event_type == "invoice.payment_failed":
-            result["subscription_id"] = data.subscription
+            result["subscription_id"] = _subscription_id_value(_stripe_item(data, "subscription"))
+            result["user_id"] = await self._resolve_user_id(data)
             result["action"] = "payment_failed"
 
         return result

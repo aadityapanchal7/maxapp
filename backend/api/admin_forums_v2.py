@@ -5,12 +5,14 @@ Lets admins create premium boards, official categories, etc.
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db import get_rds_db
@@ -24,6 +26,21 @@ from models.forum_v2 import (
 from models.rds_models import ForumCategory, ForumSubforum, ForumThread
 
 router = APIRouter(prefix="/admin/forums/v2", tags=["Admin Forums V2"])
+
+logger = logging.getLogger(__name__)
+
+
+async def _commit_or_409(rds_db: AsyncSession) -> None:
+    """Commit; map unique / FK violations to a clear client message (avoids opaque 500s)."""
+    try:
+        await rds_db.commit()
+    except IntegrityError as e:
+        await rds_db.rollback()
+        logger.warning("admin forums RDS integrity: %s", e.orig)
+        raise HTTPException(
+            status_code=409,
+            detail="That category or board name is already taken. Use a different name.",
+        ) from e
 
 
 def _slugify(name: str) -> str:
@@ -137,7 +154,7 @@ async def admin_create_category(
         created_at=datetime.now(timezone.utc),
     )
     rds_db.add(row)
-    await rds_db.commit()
+    await _commit_or_409(rds_db)
     await rds_db.refresh(row)
     return {"id": str(row.id), "slug": row.slug}
 
@@ -160,7 +177,7 @@ async def admin_update_category(
         row.description = data.description.strip() or None
     if data.order is not None:
         row.order = int(data.order)
-    await rds_db.commit()
+    await _commit_or_409(rds_db)
     await rds_db.refresh(row)
     return {"id": str(row.id), "slug": row.slug}
 
@@ -212,7 +229,7 @@ async def admin_create_subforum(
         created_at=datetime.now(timezone.utc),
     )
     rds_db.add(row)
-    await rds_db.commit()
+    await _commit_or_409(rds_db)
     await rds_db.refresh(row)
     return {"id": str(row.id), "slug": row.slug}
 
@@ -252,7 +269,7 @@ async def admin_update_subforum(
         row.is_read_only = bool(data.is_read_only)
     if data.order is not None:
         row.order = int(data.order)
-    await rds_db.commit()
+    await _commit_or_409(rds_db)
     await rds_db.refresh(row)
     return {"id": str(row.id), "slug": row.slug}
 
