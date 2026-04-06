@@ -93,8 +93,6 @@ async def _activate_user(
         if ob.get("sendblue_connect_completed") is None:
             ob["sendblue_connect_completed"] = False
         user.onboarding = ob
-    await db.commit()
-
     scans_result = await db.execute(
         select(Scan).where(Scan.user_id == user_uuid)
     )

@@ -91,7 +91,11 @@ export default function SendblueConnectScreen() {
                         try {
                             await api.completeSendblueConnect({ sms_opt_in: false, app_notifications_opt_in: true });
                             await refreshUser();
-                            navigation.navigate('NotificationChannels', { next, editMode: false });
+                            if (next === 'Main') {
+                                navigation.navigate('Main');
+                            } else {
+                                navigation.navigate('ModuleSelect');
+                            }
                         } catch (e) {
                             console.error(e);
                             Alert.alert('Error', 'Could not save. Check your connection and try again.');

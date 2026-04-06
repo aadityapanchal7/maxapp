@@ -78,9 +78,6 @@ export default function MaxChatScreen() {
     }, [route.params?.initQuestion, loading, historyReady]);
 
     const sendMessageWithContext = async (msg: string, initContext?: string) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessageWithContext',message:'sendMessageWithContext called',data:{msg:msg?.substring(0,80),initContext,loading,historyReady},timestamp:Date.now(),hypothesisId:'A,C'})}).catch(()=>{});
-        // #endregion
         if (!msg.trim() || loading) return;
         setLoading(true);
         setServerChoices([]);
@@ -91,13 +88,14 @@ export default function MaxChatScreen() {
         ]);
         try {
             const { response, choices } = await api.sendChatMessage(msg, undefined, undefined, initContext);
+            queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
+            queryClient.invalidateQueries({ queryKey: queryKeys.activeSchedulesSummary });
+            queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
                 { role: 'assistant', content: response },
             ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
-            // Update React Query cache with the new exchange instead of invalidating+refetching
-            // the whole history. Saves a roundtrip and avoids the loading spinner flash.
             queryClient.setQueryData<Message[]>(queryKeys.chatHistory, (prev = []) => [
                 ...prev,
                 { role: 'user', content: msg },
@@ -105,22 +103,11 @@ export default function MaxChatScreen() {
             ]);
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
-            // #region agent log
-            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessageWithContext:catch',message:'sendMessageWithContext error',data:{status:e?.response?.status,statusText:e?.response?.statusText,data:JSON.stringify(e?.response?.data)?.substring(0,300),message:e?.message,hasResponse:!!e?.response},timestamp:Date.now(),hypothesisId:'A,D,E'})}).catch(()=>{});
-            // #endregion
-            const isNetworkErr = !e?.response;
-            if (isNetworkErr) {
-                await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg, initContext })).catch(() => undefined);
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: "You\u2019re offline \u2014 your message is saved and I\u2019ll send it the moment you\u2019re back." },
-                ]);
-            } else {
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: 'My thinking was interrupted \u2014 please don\u2019t leave the app while I\u2019m working on your response. Try sending again.' },
-                ]);
-            }
+            const serverMsg = e?.response?.data?.response || e?.response?.data?.detail;
+            setMessages(prev => [
+                ...prev.filter((m) => !m.isTyping),
+                { role: 'assistant', content: serverMsg || 'Something went wrong — try sending again in a moment.' },
+            ]);
         } finally {
             setLoading(false);
         }
@@ -153,9 +140,6 @@ export default function MaxChatScreen() {
         const fromPreset = typeof presetArg === 'string' ? presetArg.trim() : '';
         const fromInput = String(input ?? '').trim();
         const userContent = fromPreset || fromInput;
-        // #region agent log
-        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage',message:'sendMessage called',data:{userContent:userContent?.substring(0,80),fromPreset:!!fromPreset,loading,historyReady},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         if (!userContent || loading) return;
         setLoading(true);
         setServerChoices([]);
@@ -173,9 +157,9 @@ export default function MaxChatScreen() {
                 undefined,
                 scheduleCtx,
             );
-            // #region agent log
-            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage:success',message:'sendMessage got response',data:{responseLen:response?.length,responsePeek:response?.substring(0,100),choicesLen:choices?.length},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
+            queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
+            queryClient.invalidateQueries({ queryKey: queryKeys.activeSchedulesSummary });
+            queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
                 { role: 'assistant', content: response },
@@ -188,22 +172,14 @@ export default function MaxChatScreen() {
             ]);
         } catch (e: any) {
             console.error(e);
-            // #region agent log
-            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage:catch',message:'sendMessage error',data:{status:e?.response?.status,statusText:e?.response?.statusText,data:JSON.stringify(e?.response?.data)?.substring(0,300),message:e?.message,hasResponse:!!e?.response},timestamp:Date.now(),hypothesisId:'A,D,E'})}).catch(()=>{});
-            // #endregion
-            const isNetworkErr = !e?.response;
-            if (isNetworkErr) {
+            const serverMsg = e?.response?.data?.response || e?.response?.data?.detail;
+            if (!e?.response) {
                 await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg: userContent, initContext: scheduleCtx })).catch(() => undefined);
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: "You\u2019re offline \u2014 your message is saved and I\u2019ll send it the moment you\u2019re back." },
-                ]);
-            } else {
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: 'My thinking was interrupted \u2014 please don\u2019t leave the app while I\u2019m working on your response. Try sending again.' },
-                ]);
             }
+            setMessages(prev => [
+                ...prev.filter((m) => !m.isTyping),
+                { role: 'assistant', content: serverMsg || 'Something went wrong — try sending again in a moment.' },
+            ]);
         }
         finally { setLoading(false); }
     };

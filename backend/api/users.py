@@ -220,19 +220,26 @@ async def complete_sendblue_connect(
     request: Request = None,
     prefs: Optional[SendblueConnectCompleteBody] = None,
 ):
-    """Mark post-pay Sendblue intro done — only after inbound SMS/iMessage confirmed (sendblue_sms_engaged)."""
+    """Mark post-pay Sendblue intro done. Idempotent: safe to call multiple times."""
     user_uuid = UUID(current_user["id"])
     user = await db.get(User, user_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     ob = dict(user.onboarding or {})
+    already_completed = ob.get("sendblue_connect_completed") is True
     dev_skip = False
     try:
         if request is not None:
             dev_skip = str(request.headers.get("x-dev-skip-sendblue", "")).strip() == "1"
     except Exception:
         dev_skip = False
-    if ob.get("sendblue_sms_engaged") is not True and not (settings.debug and dev_skip):
+    user_is_skipping_sms = prefs is not None and prefs.sms_opt_in is False
+    if (
+        ob.get("sendblue_sms_engaged") is not True
+        and not already_completed
+        and not (settings.debug and dev_skip)
+        and not user_is_skipping_sms
+    ):
         raise HTTPException(
             status_code=400,
             detail="We have not received a message from your number yet. Text the Max line from the phone on your account, wait a few seconds, then try again.",
