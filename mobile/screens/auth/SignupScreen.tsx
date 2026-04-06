@@ -33,6 +33,9 @@ function signupErrorMessage(error: any): string {
         const isNetwork = /Network Error|Failed to fetch|ECONNREFUSED|ENOTFOUND/i.test(msg) || isTimeout;
         if (isNetwork) {
             const local = /127\.0\.0\.1|localhost/i.test(base);
+            if (local && Platform.OS === 'web') {
+                return "Can't reach the API from the browser. Start the backend (uvicorn on port 8000 from maxapp/backend), keep EXPO_PUBLIC_API_BASE_URL as http://127.0.0.1:8000/api/, and restart Metro. If the server is up, check the browser Network tab for blocked requests (CORS).";
+            }
             if (local) {
                 return "Can't reach the API. On a real phone, localhost doesn't point to your Mac — set EXPO_PUBLIC_API_BASE_URL to your Mac's LAN IP (e.g. http://192.168.x.x:8000/api/) and use `npx expo start --lan`, or use the production API URL. Then restart Metro.";
             }

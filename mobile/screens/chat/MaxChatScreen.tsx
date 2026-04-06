@@ -40,9 +40,6 @@ export default function MaxChatScreen() {
     const [historyReady, setHistoryReady] = useState(false);
 
     useEffect(() => {
-        // #region agent log
-        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:historyEffect',message:'chat history query state',data:{isSuccess:chatHistoryQuery.isSuccess,isError:chatHistoryQuery.isError,isPending:chatHistoryQuery.isPending,historySeeded,dataLen:chatHistoryQuery.data?.length,error:String(chatHistoryQuery.error?.message||'').substring(0,200)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         if (!chatHistoryQuery.isSuccess || historySeeded) return;
         setMessages(chatHistoryQuery.data ?? []);
         setHistoryReady(true);

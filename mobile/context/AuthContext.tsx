@@ -141,9 +141,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             if (!ok) {
                 const base = api.getBaseUrl();
                 const root = base.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
-                console.warn(
-                    `[Max] Backend not reachable (${root}/health). The app is configured for API: ${base} — start the FastAPI server (e.g. from maxapp/backend) or point EXPO_PUBLIC_API_BASE_URL at a running server, then restart Metro.`,
-                );
+                if (Platform.OS === 'web') {
+                    console.warn(
+                        `[Max] Backend not reachable at ${root}/health from the browser. Start uvicorn (maxapp/backend, port 8000), ensure CORS includes this page origin, EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/, then restart Metro.`,
+                    );
+                } else {
+                    console.warn(
+                        `[Max] Backend not reachable (${root}/health). API base: ${base} — start FastAPI from maxapp/backend or fix EXPO_PUBLIC_API_BASE_URL, then restart Metro.`,
+                    );
+                }
             }
         });
     }, []);
