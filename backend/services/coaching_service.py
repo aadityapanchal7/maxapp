@@ -9,7 +9,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional, Tuple
 from zoneinfo import ZoneInfo
 from uuid import UUID
 
@@ -50,6 +50,27 @@ _CONTEXT_CACHE_MAX = 10_000  # prevents unbounded growth at 100K MAU
 def invalidate_context_cache(user_id: str) -> None:
     """Drop the cached prompt context for a user (call after mutations)."""
     _CONTEXT_CACHE.pop(str(user_id), None)
+
+
+def _authoritative_local_time_block(onboarding: Optional[dict]) -> str:
+    """
+    Single line appended on every chat/check-in context build (not cached).
+    Lets the LLM answer "what time is it" using the user's IANA timezone from onboarding.
+    """
+    ob = onboarding or {}
+    tz_raw = ob.get("timezone")
+    tz_name = (str(tz_raw).strip() if tz_raw is not None else "") or "UTC"
+    try:
+        user_tz = ZoneInfo(tz_name)
+    except Exception:
+        user_tz = ZoneInfo("UTC")
+        tz_name = "UTC"
+    now_local = datetime.now(user_tz)
+    today_iso = now_local.date().isoformat()
+    return (
+        "CURRENT_TIME_FOR_USER (authoritative; use for what time/date it is for this user — do not guess): "
+        f"{now_local.isoformat(timespec='seconds')} | IANA={tz_name} | local_date={today_iso}"
+    )
 
 _COACHING_MEMORY_COMPRESS_FALLBACK = """Compress this conversation into 2-3 sentences capturing key facts about the user
 (goals, concerns, injuries, progress, preferences, anything they mentioned about themselves).
@@ -298,14 +319,18 @@ class CoachingService:
 
         Cached per user for 30s — a user sending 3 messages in 30s would
         otherwise re-query the same rows three times.
+
+        The cached string excludes CURRENT_TIME_FOR_USER so clock answers stay
+        accurate on every turn (light onboarding fetch on cache hit).
         """
         cache_key = str(user_id)
-        now = time.monotonic()
+        now_m = time.monotonic()
         hit = _CONTEXT_CACHE.get(cache_key)
-        if hit and (now - hit[0]) < _CONTEXT_CACHE_TTL_SEC:
-            return hit[1]
+        if hit and (now_m - hit[0]) < _CONTEXT_CACHE_TTL_SEC:
+            ob = await self._fetch_onboarding_for_time(user_id, db)
+            return hit[1] + "\n\n" + _authoritative_local_time_block(ob)
 
-        built = await self._build_full_context_uncached(user_id, db, rds_db)
+        core, onboarding = await self._build_full_context_uncached(user_id, db, rds_db)
 
         # Best-effort LRU: if cache is full, evict the oldest entry.
         if len(_CONTEXT_CACHE) >= _CONTEXT_CACHE_MAX:
@@ -314,14 +339,23 @@ class CoachingService:
                 _CONTEXT_CACHE.pop(oldest_key, None)
             except ValueError:
                 pass
-        _CONTEXT_CACHE[cache_key] = (now, built)
-        return built
+        _CONTEXT_CACHE[cache_key] = (now_m, core)
+        return core + "\n\n" + _authoritative_local_time_block(onboarding)
 
-    async def _build_full_context_uncached(self, user_id: str, db: AsyncSession, rds_db=None) -> str:
+    async def _fetch_onboarding_for_time(self, user_id: str, db: AsyncSession) -> dict[str, Any]:
+        """Single-column read for fresh timezone without rebuilding full context."""
+        user_uuid = UUID(user_id)
+        result = await db.execute(select(User.onboarding).where(User.id == user_uuid))
+        ob = result.scalar_one_or_none()
+        return ob if isinstance(ob, dict) else {}
+
+    async def _build_full_context_uncached(
+        self, user_id: str, db: AsyncSession, rds_db=None
+    ) -> Tuple[str, dict[str, Any]]:
         user_uuid = UUID(user_id)
         user = await db.get(User, user_uuid)
         if not user:
-            return ""
+            return "", {}
 
         parts = []
         onboarding = user.onboarding or {}
@@ -677,7 +711,7 @@ class CoachingService:
         if user.ai_context:
             parts.append(f"MEMORY (from past convos):\n{user.ai_context}")
 
-        return "\n".join(parts)
+        return "\n".join(parts), onboarding
 
     # ------------------------------------------------------------------
     # Check-in message generation — fully AI-driven, no hardcoded tone
