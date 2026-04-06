@@ -4,6 +4,8 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
+    "start:clear": "expo start --clear",
+    "start:web:local": "expo start --web --localhost --clear",
     "android": "expo run:android",
     "ios": "expo run:ios",
     "web": "expo start --web",
