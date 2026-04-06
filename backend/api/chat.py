@@ -38,6 +38,32 @@ _WAKE_SLEEP_NEVER_ASK = (
 )
 
 
+def _friendly_llm_error_message(llm_err: BaseException) -> str:
+    """After primary+fallback LLM both fail, map quota/rate errors to clearer copy."""
+    blob = f"{type(llm_err).__name__} {llm_err}".lower()
+    if any(
+        x in blob
+        for x in (
+            "429",
+            "quota",
+            "resourceexhausted",
+            "insufficient_quota",
+            "rate_limit",
+            "ratelimit",
+            "too many requests",
+        )
+    ):
+        return (
+            "The AI service hit a usage or billing limit (not your Wi‑Fi). "
+            "Try again in a few minutes. If it keeps happening, the server needs fresh API quota "
+            "for Gemini and/or OpenAI. Your message was saved."
+        )
+    return (
+        "I'm having trouble reaching my brain right now — please try again "
+        "in a moment. Your message was saved."
+    )
+
+
 def _coerce_chat_maxx_id(raw: Optional[str]) -> Optional[str]:
     """Normalize init_context / inferred maxx id so HairMax, hair-max, etc. hit the right SYSTEM branch."""
     if not raw:
@@ -2333,10 +2359,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         result = await llm_chat(message, history, user_context, image_data, channel)
     except Exception as llm_err:
         logger.exception("llm_chat failed for user %s: %s", user_id, llm_err)
-        return _finalize_assistant_message(
-            "I'm having trouble reaching my brain right now — please try again "
-            "in a moment. Your message was saved."
-        ), []
+        return _finalize_assistant_message(_friendly_llm_error_message(llm_err)), []
     response_text = result.get("text", "")
     tool_calls = result.get("tool_calls", [])
     
