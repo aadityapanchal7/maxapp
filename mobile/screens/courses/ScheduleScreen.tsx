@@ -3,13 +3,14 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, RefreshControl, Modal, TextInput, Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { queryKeys } from '../../lib/queryClient';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { buildMaxxMaps, moduleColorForSchedule, moduleLabelForSchedule } from '../../utils/scheduleAggregation';
 
 
@@ -95,6 +96,7 @@ const formatTimeTo12Hour = (time24: string) => {
 export default function ScheduleScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const { courseId, moduleNumber, courseTitle, scheduleId: paramScheduleId, maxxId } = route.params || {};
 
@@ -182,26 +184,46 @@ export default function ScheduleScreen() {
     }
   };
 
-  const handleCompleteTask = async (taskId: string) => {
+  const handleToggleTask = async (taskId: string, currentStatus: string) => {
     if (!schedule) return;
+    const completing = currentStatus !== 'completed';
+    setSchedule(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev, days: prev.days.map(day => ({
+          ...day,
+          tasks: day.tasks.map(t =>
+            t.task_id === taskId
+              ? { ...t, status: completing ? 'completed' : 'pending' }
+              : t
+          ),
+        }))
+      };
+    });
     try {
-      await api.completeScheduleTask(schedule.id, taskId);
+      if (completing) {
+        await api.completeScheduleTask(schedule.id, taskId);
+      } else {
+        await api.uncompleteScheduleTask(schedule.id, taskId);
+      }
       void queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
       const mid = schedule.maxx_id || maxxId;
       if (mid) void queryClient.invalidateQueries({ queryKey: queryKeys.maxxSchedule(mid) });
+    } catch (e) {
+      console.error('Failed to toggle task:', e);
       setSchedule(prev => {
         if (!prev) return prev;
         return {
           ...prev, days: prev.days.map(day => ({
             ...day,
             tasks: day.tasks.map(t =>
-              t.task_id === taskId ? { ...t, status: 'completed' } : t
+              t.task_id === taskId
+                ? { ...t, status: completing ? 'pending' : 'completed' }
+                : t
             ),
           }))
         };
       });
-    } catch (e) {
-      console.error('Failed to complete task:', e);
     }
   };
 
@@ -370,7 +392,7 @@ export default function ScheduleScreen() {
           <View style={{ width: 40 }} />
         </View>
         <View style={[styles.emptyState, styles.center]}>
-          <Ionicons name="calendar-outline" size={64} color={colors.textMuted} />
+          <Ionicons name="calendar-outline" size={36} color={colors.textMuted} style={{ marginBottom: spacing.lg }} />
           <Text style={styles.emptyTitle}>No Active Schedule</Text>
           <TouchableOpacity
             style={styles.generateButton}
@@ -379,12 +401,9 @@ export default function ScheduleScreen() {
             activeOpacity={0.7}
           >
             {generating ? (
-              <ActivityIndicator color={colors.buttonText} />
+              <ActivityIndicator color={colors.foreground} />
             ) : (
-              <>
-                <Ionicons name="sparkles" size={18} color={colors.buttonText} />
-                <Text style={styles.generateButtonText}>Generate AI Schedule</Text>
-              </>
+              <Text style={styles.generateButtonText}>Generate Schedule</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -395,7 +414,7 @@ export default function ScheduleScreen() {
   // ── Main schedule view ────────────────────────────────────────────────────
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top + spacing.sm, 56) }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={22} color={colors.foreground} />
         </TouchableOpacity>
@@ -417,13 +436,14 @@ export default function ScheduleScreen() {
           return (
             <TouchableOpacity
               key={day.day_number}
-              style={[styles.dayPill, isSelected && styles.dayPillActive, dayCompleted && styles.dayPillDone]}
+              style={styles.dayPill}
               onPress={() => setSelectedDayIndex(idx)}
               activeOpacity={0.7}
             >
               <Text style={[styles.dayPillLabel, isSelected && styles.dayPillLabelActive]}>{dayName}</Text>
               <Text style={[styles.dayPillNumber, isSelected && styles.dayPillNumberActive]}>{dayNum}</Text>
-              {dayCompleted && <View style={styles.dayCompleteDot} />}
+              {isSelected && <View style={styles.dayUnderline} />}
+              {!isSelected && dayCompleted && <View style={styles.dayCompleteDot} />}
             </TouchableOpacity>
           );
         })}
@@ -437,16 +457,11 @@ export default function ScheduleScreen() {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.foreground} />}
       >
-        {/* Motivation */}
         {selectedDay?.motivation_message ? (
-          <View style={styles.motivationCard}>
-            <Ionicons name="flash" size={18} color={colors.warning} />
-            <Text style={styles.motivationText}>{selectedDay.motivation_message}</Text>
-          </View>
+          <Text style={styles.motivationText}>{selectedDay.motivation_message}</Text>
         ) : null}
 
-        {/* Progress bar */}
-        <View style={styles.progressRow}>
+        <View style={styles.progressPanel}>
           <Text style={styles.progressText}>{completedCount}/{totalCount} completed</Text>
           <View style={styles.progressBar}>
             <View style={[styles.progressFill, { width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` }]} />
@@ -454,57 +469,55 @@ export default function ScheduleScreen() {
         </View>
 
         {fitmaxIndicators.length > 0 && (
-          <View style={styles.fitmaxIndicatorCard}>
-            <Text style={styles.fitmaxIndicatorTitle}>Fitmax Targets</Text>
-            <View style={styles.fitmaxIndicatorWrap}>
-              {fitmaxIndicators.map((item) => (
-                <View key={item.label} style={styles.fitmaxIndicatorChip}>
-                  <Text style={styles.fitmaxIndicatorLabel}>{item.label}</Text>
-                  <Text style={styles.fitmaxIndicatorValue}>{item.value}</Text>
-                </View>
-              ))}
-            </View>
+          <View style={styles.fitmaxRow}>
+            {fitmaxIndicators.map((item, i) => (
+              <React.Fragment key={item.label}>
+                {i > 0 && <Text style={styles.fitmaxDot}>·</Text>}
+                <Text style={styles.fitmaxPair}>
+                  <Text style={styles.fitmaxLabel}>{item.label} </Text>
+                  <Text style={styles.fitmaxValue}>{item.value}</Text>
+                </Text>
+              </React.Fragment>
+            ))}
           </View>
         )}
 
-        {/* Task cards */}
-        {selectedDay?.tasks?.map((task) => {
+        {selectedDay?.tasks?.map((task, index) => {
           const isDone = task.status === 'completed';
           return (
-            <View key={task.task_id} style={[styles.taskCard, isDone && styles.taskCardDone]}>
-              <View style={[styles.scheduleTaskAccent, { backgroundColor: scheduleModuleColor }]} />
-              {/* Checkbox */}
-              <TouchableOpacity
-                style={[styles.taskCheck, isDone && styles.taskCheckDone]}
-                onPress={() => !isDone && handleCompleteTask(task.task_id)}
-              >
-                {isDone && <Ionicons name="checkmark" size={14} color={colors.buttonText} />}
-              </TouchableOpacity>
-
-              {/* Content */}
-              <View style={styles.taskContent}>
-                <View style={styles.taskHeader}>
-                  <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>{formatTimeTo12Hour(task.time)}</Text>
-                  <View style={styles.taskTypeBadge}>
-                    <Ionicons name={getTaskIcon(task.task_type) as any} size={12} color={colors.textMuted} />
-                    <Text style={styles.taskTypeText}>{task.duration_minutes}m</Text>
+            <View key={task.task_id}>
+              {index > 0 && <View style={styles.taskDivider} />}
+              <View style={[styles.taskRow, isDone && styles.taskRowDone]}>
+                <View style={styles.taskRowLeft}>
+                  <View style={[styles.scheduleTaskAccent, { backgroundColor: scheduleModuleColor }]} />
+                  <TouchableOpacity
+                    style={[styles.taskCheck, isDone && styles.taskCheckDone]}
+                    onPress={() => handleToggleTask(task.task_id, task.status)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    {isDone && <Ionicons name="checkmark" size={11} color={colors.buttonText} />}
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.taskContent}>
+                  <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>
+                    {formatTimeTo12Hour(task.time)}{task.duration_minutes ? ` · ${task.duration_minutes}m` : ''}
+                  </Text>
+                  <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>{task.title}</Text>
+                  {task.description ? (
+                    <Text style={styles.taskDescription} numberOfLines={2}>{task.description}</Text>
+                  ) : null}
+                </View>
+                {!isDone && (
+                  <View style={styles.taskActions}>
+                    <TouchableOpacity onPress={() => openEditModal(task)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="pencil-outline" size={13} color={colors.textMuted} />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleDeleteTask(task)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Ionicons name="trash-outline" size={13} color={colors.textMuted} />
+                    </TouchableOpacity>
                   </View>
-                </View>
-                <Text style={[styles.taskTitle, isDone && styles.taskTitleDone]}>{task.title}</Text>
-                <Text style={styles.taskDescription} numberOfLines={2}>{task.description}</Text>
+                )}
               </View>
-
-              {/* Edit / Delete buttons */}
-              {!isDone && (
-                <View style={styles.taskActions}>
-                  <TouchableOpacity onPress={() => openEditModal(task)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Ionicons name="pencil-outline" size={16} color={colors.textMuted} />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => handleDeleteTask(task)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Ionicons name="trash-outline" size={16} color={colors.error} />
-                  </TouchableOpacity>
-                </View>
-              )}
             </View>
           );
         })}
@@ -592,21 +605,32 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.lg, paddingBottom: spacing.md + 4,
   },
   backButton: { padding: spacing.xs },
-  headerTitle: { ...typography.h3, flex: 1, textAlign: 'center' },
+  headerTitle: { ...typography.h2, flex: 1, textAlign: 'center' },
 
-  // Empty state
   emptyState: { flex: 1, paddingHorizontal: spacing.xl },
-  emptyTitle: { ...typography.h2, marginTop: spacing.lg, marginBottom: spacing.sm },
-  emptySubtitle: { ...typography.bodySmall, textAlign: 'center', marginBottom: spacing.xl },
-  generateButton: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: colors.foreground, paddingHorizontal: spacing.xl, paddingVertical: 14,
-    borderRadius: borderRadius.full, ...shadows.md,
+  emptyTitle: {
+    fontFamily: fonts.serif,
+    fontSize: 22,
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+    marginBottom: spacing.lg,
   },
-  generateButtonText: { ...typography.button },
+  generateButton: {
+    paddingVertical: 10,
+    paddingHorizontal: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.foreground,
+    borderRadius: borderRadius.full,
+  },
+  generateButtonText: {
+    fontSize: 13,
+    fontWeight: '500' as const,
+    color: colors.foreground,
+    letterSpacing: 0.3,
+  },
 
   dayStripWrap: {
     flexGrow: 0,
@@ -614,125 +638,143 @@ const styles = StyleSheet.create({
   },
   daySelectorContainer: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    gap: 8,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.md,
+    gap: 20,
     flexGrow: 1,
     alignItems: 'center',
   },
   dayPill: {
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.card,
-    minWidth: 44,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    minWidth: 40,
   },
-  dayPillActive: { backgroundColor: colors.foreground },
-  dayPillDone: { borderWidth: 1.5, borderColor: colors.success },
   dayPillLabel: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '500' as const,
     color: colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 1,
+    textTransform: 'uppercase' as const,
+    letterSpacing: 0.6,
+    marginBottom: 2,
   },
-  dayPillLabelActive: { color: colors.buttonText },
-  dayPillNumber: { fontSize: 13, fontWeight: '700', color: colors.foreground },
-  dayPillNumberActive: { color: colors.buttonText },
+  dayPillLabelActive: { color: colors.foreground, fontWeight: '700' as const },
+  dayPillNumber: { fontSize: 14, fontWeight: '500' as const, color: colors.textMuted },
+  dayPillNumberActive: { color: colors.foreground, fontWeight: '700' as const },
+  dayUnderline: {
+    width: 16,
+    height: 2,
+    backgroundColor: colors.foreground,
+    borderRadius: 1,
+    marginTop: 5,
+  },
   dayCompleteDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: colors.success,
-    marginTop: 2,
+    backgroundColor: colors.textSecondary,
+    marginTop: 5,
   },
 
-  // Tasks
   taskList: { flex: 1, paddingHorizontal: spacing.lg },
 
-  motivationCard: {
-    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-    backgroundColor: 'rgba(245, 158, 11, 0.08)', padding: spacing.md,
-    borderRadius: borderRadius.md, marginBottom: spacing.md, marginTop: spacing.sm,
+  motivationText: {
+    fontFamily: fonts.serif,
+    fontSize: 16,
+    color: colors.textSecondary,
+    lineHeight: 26,
+    fontStyle: 'italic' as const,
+    marginTop: spacing.md,
+    marginBottom: spacing.lg + spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
-  motivationText: { ...typography.bodySmall, color: colors.textPrimary, flex: 1, fontStyle: 'italic' },
 
-  progressRow: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: spacing.md,
+  progressPanel: {
+    marginBottom: spacing.lg,
   },
-  progressText: { ...typography.caption, textAlign: 'center', marginBottom: spacing.sm },
+  progressText: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.sm },
   progressBar: {
-    width: '100%',
-    height: 4,
+    height: 1,
     backgroundColor: colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
+    overflow: 'hidden' as const,
+    marginHorizontal: -spacing.lg,
   },
-  progressFill: { height: '100%', backgroundColor: colors.success, borderRadius: 2 },
-  fitmaxIndicatorCard: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    ...shadows.sm,
-  },
-  fitmaxIndicatorTitle: {
-    ...typography.label,
-    marginBottom: spacing.sm,
-  },
-  fitmaxIndicatorWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  fitmaxIndicatorChip: {
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    minWidth: 96,
-  },
-  fitmaxIndicatorLabel: { ...typography.caption, color: colors.textMuted },
-  fitmaxIndicatorValue: { fontSize: 13, fontWeight: '700', color: colors.foreground, marginTop: 2 },
+  progressFill: { height: '100%' as const, backgroundColor: colors.textSecondary },
 
-  taskCard: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md,
-    backgroundColor: colors.card, padding: spacing.md, borderRadius: borderRadius.lg,
-    marginBottom: spacing.sm, ...shadows.sm,
+  fitmaxRow: {
+    flexDirection: 'row' as const,
+    flexWrap: 'wrap' as const,
+    alignItems: 'center' as const,
+    marginBottom: spacing.lg,
+    gap: 6,
   },
-  taskCardDone: { opacity: 0.6 },
+  fitmaxDot: { fontSize: 14, color: colors.textMuted, lineHeight: 18 },
+  fitmaxPair: { fontSize: 12, lineHeight: 18 },
+  fitmaxLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '400' as const },
+  fitmaxValue: { color: colors.foreground, fontSize: 12, fontWeight: '600' as const },
+
+  taskDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginHorizontal: -spacing.lg,
+  },
+  taskRow: {
+    flexDirection: 'row' as const,
+    alignItems: 'flex-start' as const,
+    paddingVertical: 24,
+    gap: spacing.md,
+  },
+  taskRowDone: { opacity: 0.5 },
+  taskRowLeft: {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 8,
+    paddingTop: 2,
+  },
   scheduleTaskAccent: {
-    width: 4,
-    alignSelf: 'stretch',
-    borderRadius: 2,
-    minHeight: 44,
+    width: 2,
+    height: 18,
+    borderRadius: 1,
+    opacity: 0.85,
   },
   taskCheck: {
-    width: 24, height: 24, borderRadius: 12, borderWidth: 2,
-    borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginTop: 2, marginLeft: spacing.xs,
+    width: 20, height: 20, borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.textMuted,
+    alignItems: 'center' as const,
+    justifyContent: 'center' as const,
   },
-  taskCheckDone: { backgroundColor: colors.success, borderColor: colors.success },
+  taskCheckDone: { backgroundColor: colors.foreground, borderColor: colors.foreground },
 
   taskContent: { flex: 1 },
-  taskHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
-  taskTime: { fontSize: 12, fontWeight: '700', color: colors.foreground, letterSpacing: 0.3 },
-  taskTimeDone: { textDecorationLine: 'line-through', color: colors.textMuted },
-  taskTypeBadge: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  taskTypeText: { ...typography.caption },
-  taskTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground, marginBottom: 2 },
-  taskTitleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
+  taskTime: {
+    fontSize: 10,
+    fontWeight: '500' as const,
+    color: colors.textMuted,
+    letterSpacing: 1,
+    textTransform: 'uppercase' as const,
+    marginBottom: 4,
+  },
+  taskTimeDone: { textDecorationLine: 'line-through' as const },
+  taskTitle: {
+    fontSize: 15,
+    fontWeight: '500' as const,
+    color: colors.foreground,
+    marginBottom: 3,
+  },
+  taskTitleDone: { textDecorationLine: 'line-through' as const, color: colors.textMuted },
   taskDescription: { ...typography.bodySmall },
 
-  // Task action buttons (edit / delete)
-  taskActions: { gap: 12, alignItems: 'center', paddingTop: 2 },
+  taskActions: {
+    flexDirection: 'row' as const,
+    gap: 16,
+    alignItems: 'center' as const,
+    paddingTop: 2,
+  },
 
-  // Edit modal
   modalOverlay: {
     flex: 1, backgroundColor: colors.overlay,
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-end' as const,
   },
   modalContent: {
     backgroundColor: colors.background, borderTopLeftRadius: borderRadius['2xl'],
@@ -740,7 +782,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? 40 : spacing.lg,
   },
   modalHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    flexDirection: 'row' as const, justifyContent: 'space-between' as const, alignItems: 'center' as const,
     marginBottom: spacing.lg,
   },
   modalTitle: { ...typography.h2 },
@@ -750,11 +792,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card, borderRadius: borderRadius.md, padding: spacing.md,
     fontSize: 15, color: colors.foreground, borderWidth: 1, borderColor: colors.border,
   },
-  inputMultiline: { minHeight: 80, textAlignVertical: 'top' },
+  inputMultiline: { minHeight: 80, textAlignVertical: 'top' as const },
 
   saveButton: {
-    backgroundColor: colors.foreground, padding: spacing.md, borderRadius: borderRadius.full,
-    alignItems: 'center', marginTop: spacing.xl, ...shadows.md,
+    backgroundColor: colors.foreground,
+    paddingVertical: 12,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.md,
+    alignItems: 'center' as const,
+    marginTop: spacing.xl,
   },
   saveButtonText: { ...typography.button },
   caption: { ...typography.caption, color: colors.textMuted, marginTop: 4 },

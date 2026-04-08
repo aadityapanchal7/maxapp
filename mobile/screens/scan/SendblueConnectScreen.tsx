@@ -21,7 +21,7 @@ import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
 type RouteParams = { next?: 'ModuleSelect' | 'Main' };
@@ -238,11 +238,10 @@ const styles = StyleSheet.create({
     card: {
         backgroundColor: colors.card,
         borderRadius: borderRadius.xl,
-        padding: spacing.xl,
+        padding: spacing.xl + spacing.sm,
         borderWidth: 1,
         borderColor: colors.border,
-        ...shadows.md,
-        marginBottom: spacing.lg,
+        marginBottom: spacing.xl,
     },
     cardLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.8, marginBottom: spacing.sm },
     phoneUser: {
@@ -260,8 +259,10 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: spacing.sm,
         backgroundColor: colors.foreground,
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
+        paddingVertical: 12,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     primaryBtnText: { ...typography.button, color: colors.background, fontSize: 16 },
     waitingRow: {
@@ -283,9 +284,9 @@ const styles = StyleSheet.create({
     secondaryBtn: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
-        borderWidth: 2,
+        paddingVertical: 12,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
         borderColor: colors.foreground,
     },
     secondaryBtnDisabled: { opacity: 0.5 },
@@ -294,37 +295,37 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'flex-start',
         gap: spacing.sm,
-        marginTop: spacing.xl,
+        marginTop: spacing.xl + spacing.sm,
         marginBottom: spacing.sm,
-        backgroundColor: colors.card,
-        borderRadius: borderRadius.lg,
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
         borderWidth: 1,
-        borderColor: colors.error,
+        borderColor: colors.warning + '55',
         padding: spacing.md,
     },
     skipSmsWarning: {
         flex: 1,
         fontSize: 13,
-        color: colors.error,
+        color: colors.textSecondary,
         lineHeight: 19,
         fontWeight: '500',
     },
     skipSmsBtn: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 13,
-        borderRadius: borderRadius.full,
+        paddingVertical: 11,
+        borderRadius: borderRadius.md,
         borderWidth: 1,
-        borderColor: colors.error,
+        borderColor: colors.error + '99',
         marginBottom: spacing.lg,
     },
     skipSmsBtnText: { fontSize: 14, fontWeight: '600', color: colors.error },
     devSkipBtn: {
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 12,
+        paddingVertical: 10,
         marginTop: spacing.lg,
-        borderRadius: borderRadius.full,
+        borderRadius: borderRadius.md,
         borderWidth: 1,
         borderColor: colors.border,
         backgroundColor: colors.card,

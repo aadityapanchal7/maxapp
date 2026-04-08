@@ -3,33 +3,96 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { getItemAsync, setItemAsync, deleteItemAsync } from './storage';
 
+function envTargetsLoopback(url: string): boolean {
+    return /localhost|127\.0\.0\.1|\[::1\]/i.test(url);
+}
+
+/** RFC1918 IPv4 — page opened as http://192.168.x.x:8081 (e.g. phone browser on LAN). */
+function isPrivateLanIPv4(hostname: string): boolean {
+    if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) return false;
+    const parts = hostname.split('.').map((p) => parseInt(p, 10));
+    if (parts.some((n) => Number.isNaN(n) || n > 255)) return false;
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    return false;
+}
+
+function replaceUrlHostname(url: string, hostname: string): string {
+    try {
+        const u = new URL(url);
+        u.hostname = hostname;
+        let out = u.toString();
+        if (url.endsWith('/') && !out.endsWith('/')) out += '/';
+        return out;
+    } catch {
+        return url;
+    }
+}
+
 /**
- * Web dev: use the same loopback hostname as the page (localhost vs 127.0.0.1).
- * Mismatch breaks some browsers / Private Network Access when Expo is :8081 and .env is 127.0.0.1.
+ * Expo Go / dev client report the machine IP in debuggerHost (e.g. 192.168.1.5:8081).
+ * Physical devices must call the API on that host, not 127.0.0.1.
+ */
+function ipv4HostFromDevUri(raw: string | undefined | null): string | null {
+    if (!raw) return null;
+    const host = raw.split(':')[0]?.trim();
+    if (!host || host === 'localhost') return null;
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return null;
+    return host;
+}
+
+function getExpoDevBundlerHost(): string | null {
+    if (!__DEV__) return null;
+    const raw: string | undefined =
+        Constants.expoGoConfig?.debuggerHost ??
+        Constants.expoConfig?.hostUri ??
+        (Constants.manifest2 as { debuggerHost?: string } | undefined)?.debuggerHost ??
+        (Constants.manifest as { debuggerHost?: string } | undefined)?.debuggerHost;
+    return ipv4HostFromDevUri(raw);
+}
+
+/**
+ * - Web localhost: match page hostname (localhost vs 127.0.0.1) for PNA / cookies.
+ * - Web on LAN IP: point API at same host as the page (phone browser → Mac).
+ * - Native dev: if .env is still loopback, use Metro’s dev-machine IP (physical iPhone).
  */
 function resolveApiBaseUrl(): string {
     const fromEnv =
         process.env.EXPO_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8000/api/';
-    if (Platform.OS !== 'web' || typeof window === 'undefined') {
-        return fromEnv;
+
+    if (__DEV__ && Platform.OS !== 'web' && envTargetsLoopback(fromEnv)) {
+        const devHost = getExpoDevBundlerHost();
+        if (devHost) {
+            const next = replaceUrlHostname(fromEnv, devHost);
+            if (__DEV__) {
+                console.log(`[Max] API base ${next} (dev host from Metro; .env used loopback)`);
+            }
+            return next;
+        }
     }
-    if (!__DEV__) {
-        return fromEnv;
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && __DEV__) {
+        const host = window.location.hostname;
+        const loopbackPage =
+            host === 'localhost' ||
+            host === '127.0.0.1' ||
+            host === '[::1]' ||
+            host === '::1';
+        if (loopbackPage && envTargetsLoopback(fromEnv)) {
+            const apiHost = host === '[::1]' || host === '::1' ? '127.0.0.1' : host;
+            return replaceUrlHostname(fromEnv, apiHost);
+        }
+        if (isPrivateLanIPv4(host) && envTargetsLoopback(fromEnv)) {
+            return replaceUrlHostname(fromEnv, host);
+        }
     }
-    const host = window.location.hostname;
-    const loopbackPage =
-        host === 'localhost' ||
-        host === '127.0.0.1' ||
-        host === '[::1]' ||
-        host === '::1';
-    const envPointsLocal = /localhost|127\.0\.0\.1/i.test(fromEnv);
-    if (loopbackPage && envPointsLocal) {
-        const apiHost = host === '[::1]' || host === '::1' ? '127.0.0.1' : host;
-        return `http://${apiHost}:8000/api/`;
-    }
+
     return fromEnv;
 }
 
@@ -119,12 +182,13 @@ class ApiService {
      * FastAPI exposes GET /health on the server root (not under /api).
      * Confirms the app can reach the same host as EXPO_PUBLIC_API_BASE_URL.
      */
-    async checkBackendHealth(): Promise<boolean> {
+    async checkBackendHealth(opts?: { timeoutMs?: number }): Promise<boolean> {
         try {
             const root = API_BASE_URL.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
             if (!root.startsWith('http')) return false;
+            const timeout = opts?.timeoutMs ?? (Platform.OS === 'web' ? 12_000 : 5_000);
             const { data } = await axios.get<{ status?: string }>(`${root}/health`, {
-                timeout: Platform.OS === 'web' ? 12_000 : 5_000,
+                timeout,
             });
             return data?.status === 'healthy';
         } catch {
@@ -687,11 +751,11 @@ class ApiService {
             attachment_type: attachmentType,
         };
         if (initContext) body.init_context = initContext;
-        // AI responses usually return in <15s. Cap at 25s so users don't stare at
-        // a spinner forever — retry interceptor (see constructor) is disabled for
-        // this call to avoid multi-minute hangs on repeat attempts.
+        // LLM can take ~20s per provider and failover tries a second provider,
+        // so worst case is ~45s. 50s cap avoids premature timeout while the
+        // server is still working. Retry interceptor stays disabled.
         const response = await this.client.post('chat/message', body, {
-            timeout: 25_000,
+            timeout: 50_000,
             // @ts-expect-error custom flag consumed by response interceptor
             _skipNetRetry: true,
         });

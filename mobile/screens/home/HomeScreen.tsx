@@ -1,21 +1,82 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, ActivityIndicator, Alert } from 'react-native';
+import {
+    View, Text, StyleSheet, ScrollView, TouchableOpacity,
+    Animated, ActivityIndicator,
+} from 'react-native';
 import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { Circle } from 'react-native-svg';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, typography, fonts, borderRadius } from '../../theme/dark';
+import { normalizeMaxxTintHex } from '../../components/MaxxProgramRow';
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
 import { useMaxxesQuery, useActiveSchedulesFullQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
 import { CachedImage } from '../../components/CachedImage';
-import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 import { StreakFireBadge } from '../../components/StreakFireBadge';
+import { getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 
-const HOME_TODAY_TASK_PREVIEW = 3;
+/* ─── Progress Ring ─── */
+
+const RING_SIZE = 120;
+const RING_STROKE = 6;
+const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
+const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
+function ProgressRing({ done, total }: { done: number; total: number }) {
+    const pct = total > 0 ? done / total : 0;
+    const offset = RING_CIRCUMFERENCE * (1 - pct);
+
+    return (
+        <View style={ring.wrap}>
+            <Svg width={RING_SIZE} height={RING_SIZE}>
+                <Circle
+                    cx={RING_SIZE / 2}
+                    cy={RING_SIZE / 2}
+                    r={RING_RADIUS}
+                    stroke={colors.border}
+                    strokeWidth={RING_STROKE}
+                    fill="none"
+                />
+                {total > 0 && (
+                    <Circle
+                        cx={RING_SIZE / 2}
+                        cy={RING_SIZE / 2}
+                        r={RING_RADIUS}
+                        stroke={colors.foreground}
+                        strokeWidth={RING_STROKE}
+                        fill="none"
+                        strokeDasharray={`${RING_CIRCUMFERENCE} ${RING_CIRCUMFERENCE}`}
+                        strokeDashoffset={offset}
+                        strokeLinecap="round"
+                        rotation="-90"
+                        origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
+                    />
+                )}
+            </Svg>
+            <View style={ring.label}>
+                <Text style={ring.fraction}>
+                    {done}<Text style={ring.fractionMuted}>/{total}</Text>
+                </Text>
+                <Text style={ring.sub}>done</Text>
+            </View>
+        </View>
+    );
+}
+
+const ring = StyleSheet.create({
+    wrap: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
+    label: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+    fraction: { fontSize: 26, fontFamily: fonts.sansBold, fontWeight: '700', color: colors.foreground, letterSpacing: -1 },
+    fractionMuted: { fontSize: 16, fontWeight: '400', color: colors.textMuted },
+    sub: { fontSize: 10, fontFamily: fonts.sansMedium, fontWeight: '500', color: colors.textMuted, letterSpacing: 1, textTransform: 'uppercase', marginTop: 1 },
+});
+
+/* ─── Helpers ─── */
 
 function formatTimeTo12Hour(time24: string) {
     if (!time24 || typeof time24 !== 'string' || !time24.includes(':')) return time24 || '';
@@ -32,18 +93,36 @@ function formatTimeTo12Hour(time24: string) {
     }
 }
 
+function formatScheduleDayLabel(isoDate: string | undefined | null) {
+    if (!isoDate || typeof isoDate !== 'string') return null;
+    const parts = isoDate.split('-').map((p) => parseInt(p, 10));
+    if (parts.length !== 3 || parts.some((n) => isNaN(n))) return null;
+    const [y, m, d] = parts;
+    const dt = new Date(y, m - 1, d);
+    return dt.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function greetingForHour(): string {
+    const h = new Date().getHours();
+    if (h < 12) return 'Good morning,';
+    if (h < 17) return 'Good afternoon,';
+    return 'Good evening,';
+}
+
+/* ─── Screen ─── */
+
 export default function HomeScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
-    const { user, refreshUser, isPremium, isPaid } = useAuth();
+    const { user } = useAuth();
     const maxesQuery = useMaxxesQuery();
     const schedulesQuery = useActiveSchedulesFullQuery();
 
     const [completingTaskKey, setCompletingTaskKey] = useState<string | null>(null);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
-    const slideAnim = useRef(new Animated.Value(20)).current;
+    const slideAnim = useRef(new Animated.Value(18)).current;
     const postPayRedirected = useRef(false);
 
     const maxes = maxesQuery.data?.maxes ?? [];
@@ -82,7 +161,7 @@ export default function HomeScreen() {
             const msg =
                 (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail ||
                 (e as Error)?.message ||
-                'Could not load today’s tasks.';
+                'Could not load today\u2019s tasks.';
             return {
                 scheduleRows: [] as MergedScheduleTask[],
                 scheduleStreak: { current: 0 },
@@ -93,9 +172,21 @@ export default function HomeScreen() {
 
     const querySchedulesError =
         schedulesQuery.isError && schedulesQuery.error
-            ? String((schedulesQuery.error as Error)?.message || 'Could not load today’s tasks.')
+            ? String((schedulesQuery.error as Error)?.message || 'Could not load today\u2019s tasks.')
             : null;
     const displaySchedulesError = schedulesError || querySchedulesError;
+
+    const todayDisplayLabel = useMemo(() => {
+        const full = schedulesQuery.data;
+        const raw =
+            full?.today_date ||
+            full?.schedule_streak?.today_date ||
+            new Date().toISOString().split('T')[0];
+        return (
+            formatScheduleDayLabel(raw) ||
+            new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
+        );
+    }, [schedulesQuery.data]);
 
     useEffect(() => {
         if (!(user?.onboarding as { post_subscription_onboarding?: boolean })?.post_subscription_onboarding) {
@@ -108,16 +199,8 @@ export default function HomeScreen() {
             const ob = user?.onboarding as { post_subscription_onboarding?: boolean } | undefined;
             if (!ob?.post_subscription_onboarding || postPayRedirected.current) return;
             postPayRedirected.current = true;
-            void (async () => {
-                try {
-                    await refreshUser();
-                } catch (e) {
-                    console.error(e);
-                } finally {
-                    navigation.navigate('FaceScanResults', { postPay: true });
-                }
-            })();
-        }, [user?.onboarding, navigation, refreshUser]),
+            navigation.navigate('FaceScanResults', { postPay: true });
+        }, [user?.onboarding, navigation]),
     );
 
     useEffect(() => {
@@ -144,423 +227,515 @@ export default function HomeScreen() {
         return filtered;
     }, [maxes, activeIdSet]);
 
-    const completeTodayTask = async (row: MergedScheduleTask) => {
-        if (row.status === 'completed') return;
+    const completedCount = scheduleRows.filter(r => r.status === 'completed').length;
+    const totalCount = scheduleRows.length;
+
+    const toggleTodayTask = async (row: MergedScheduleTask) => {
         const key = `${row.scheduleId}-${row.task_id}`;
         if (completingTaskKey) return;
         setCompletingTaskKey(key);
+        const completing = row.status !== 'completed';
+        const newStatus = completing ? 'completed' : 'pending';
+        const prevData = queryClient.getQueryData(queryKeys.schedulesActiveFull);
+        queryClient.setQueryData(queryKeys.schedulesActiveFull, (old: any) => {
+            if (!old?.schedules) return old;
+            return {
+                ...old,
+                schedules: old.schedules.map((s: any) => s.id !== row.scheduleId ? s : {
+                    ...s,
+                    days: (s.days ?? []).map((d: any) => ({
+                        ...d,
+                        tasks: (d.tasks ?? []).map((t: any) =>
+                            t.task_id === row.task_id ? { ...t, status: newStatus } : t
+                        ),
+                    })),
+                }),
+            };
+        });
+        setCompletingTaskKey(null);
         try {
-            await api.completeScheduleTask(row.scheduleId, row.task_id);
-            await queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
+            if (completing) {
+                await api.completeScheduleTask(row.scheduleId, row.task_id);
+            } else {
+                await api.uncompleteScheduleTask(row.scheduleId, row.task_id);
+            }
+            void queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
         } catch (e) {
-            console.error('completeTodayTask', e);
-        } finally {
-            setCompletingTaskKey(null);
+            console.error('toggleTodayTask', e);
+            queryClient.setQueryData(queryKeys.schedulesActiveFull, prevData);
         }
     };
 
+    const greeting = greetingForHour();
+
+    /* ───── JSX ───── */
+
     return (
-        <View style={styles.container}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <View style={s.root}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.scroll}>
                 <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
-                    <View style={styles.hero}>
-                        <View style={styles.heroTop}>
-                            <View style={styles.heroTextBlock}>
-                                <Text style={styles.greeting}>Welcome back,</Text>
-                                <Text style={styles.userName}>{userName}</Text>
-                            </View>
-                            <View style={styles.heroActions}>
-                                {(scheduleStreak.current > 0 || scheduleRows.length > 0) && (
-                                    <TouchableOpacity
-                                        onPress={() => navigation.navigate('MasterScheduleTab')}
-                                        activeOpacity={0.75}
-                                        accessibilityRole="button"
-                                        accessibilityLabel={`Streak ${scheduleStreak.current} days. Open schedule.`}
-                                    >
-                                        <StreakFireBadge streakDays={scheduleStreak.current} variant="hero" />
-                                    </TouchableOpacity>
-                                )}
-                                <TouchableOpacity
-                                    style={styles.profileButton}
-                                    onPress={() => navigation.dispatch(CommonActions.navigate({ name: 'Profile' }))}
-                                    activeOpacity={0.7}
-                                >
-                                    <View style={styles.profileIcon}>
-                                        {user?.profile?.avatar_url ? (
-                                            <CachedImage
-                                                uri={api.resolveAttachmentUrl(user.profile.avatar_url)}
-                                                style={styles.profileAvatar}
-                                            />
-                                        ) : (
-                                            <Text style={styles.profileInitial}>{(user?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase()}</Text>
-                                        )}
-                                    </View>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
 
-                    <View style={styles.todaySection}>
-                        <View style={styles.todayHeader}>
-                            <Text style={styles.todayLabel}>TODAY&apos;S TASKS</Text>
-                            {schedulesLoading ? <ActivityIndicator size="small" color={colors.textMuted} /> : null}
+                    {/* ── TOP BAR ── */}
+                    <View style={[s.topBar, { paddingTop: Math.max(insets.top + 12, 52) }]}>
+                        <View style={s.topLeft}>
+                            <Text style={s.greeting}>{greeting}</Text>
+                            <Text style={s.userName} numberOfLines={1}>{userName}</Text>
                         </View>
-                        {displaySchedulesError ? <Text style={styles.todayError}>{displaySchedulesError}</Text> : null}
-                        {!schedulesLoading && !displaySchedulesError && scheduleRows.length === 0 ? (
-                            <Text style={styles.todayEmpty}>No tasks scheduled for today across your active programs.</Text>
-                        ) : null}
-                        {scheduleRows.slice(0, HOME_TODAY_TASK_PREVIEW).map((row, idx) => {
-                            const done = row.status === 'completed';
-                            const rowKey = `${row.scheduleId}-${row.task_id}`;
-                            const busy = completingTaskKey === rowKey;
-                            return (
-                                <View key={rowKey} style={[styles.todayRow, idx > 0 && styles.todayRowBorder]}>
-                                    {done ? (
-                                        <View style={styles.todayCheckHit} accessibilityRole="text" accessibilityLabel="Task completed">
-                                            <View style={[styles.todayCheckCircle, styles.todayCheckDone]}>
-                                                <Ionicons name="checkmark" size={12} color={colors.buttonText} />
-                                            </View>
-                                        </View>
-                                    ) : (
-                                        <TouchableOpacity
-                                            style={styles.todayCheckHit}
-                                            onPress={() => completeTodayTask(row)}
-                                            disabled={busy}
-                                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                            accessibilityRole="checkbox"
-                                            accessibilityState={{ checked: false, disabled: busy }}
-                                        >
-                                            {busy ? (
-                                                <ActivityIndicator size="small" color={colors.textMuted} />
-                                            ) : (
-                                                <View style={styles.todayCheckCircle} />
-                                            )}
-                                        </TouchableOpacity>
-                                    )}
-                                    <TouchableOpacity
-                                        style={styles.todayRowTap}
-                                        onPress={() => navigation.navigate('Schedule', { scheduleId: row.scheduleId })}
-                                        activeOpacity={0.75}
-                                    >
-                                        <View style={[styles.todayAccent, { backgroundColor: row.moduleColor }]} />
-                                        <View style={styles.todayRowBody}>
-                                            <Text style={styles.todayTime}>{formatTimeTo12Hour(row.time)}</Text>
-                                            <Text style={styles.todayTitle} numberOfLines={1}>
-                                                {row.title}
-                                            </Text>
-                                            <Text style={styles.todayModule} numberOfLines={1}>
-                                                {row.moduleLabel}
-                                            </Text>
-                                        </View>
-                                    </TouchableOpacity>
-                                    <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                                </View>
-                            );
-                        })}
-                        {!schedulesLoading && !displaySchedulesError && scheduleRows.length > HOME_TODAY_TASK_PREVIEW ? (
+                        <View style={s.topRight}>
+                            {scheduleStreak.current > 0 && (
+                                <StreakFireBadge streakDays={scheduleStreak.current} variant="header" />
+                            )}
                             <TouchableOpacity
-                                onPress={() => navigation.navigate('MasterScheduleTab')}
-                                style={styles.todaySeeMoreBtn}
+                                style={s.avatarHit}
+                                onPress={() => navigation.dispatch(CommonActions.navigate({ name: 'Profile' }))}
                                 activeOpacity={0.7}
+                                accessibilityRole="button"
+                                accessibilityLabel="Open profile"
                             >
-                                <Text style={styles.todaySeeMoreText}>Open full schedule</Text>
-                                <Ionicons name="chevron-forward" size={14} color={colors.textSecondary} />
+                                <View style={s.avatar}>
+                                    {user?.profile?.avatar_url ? (
+                                        <CachedImage
+                                            uri={api.resolveAttachmentUrl(user.profile.avatar_url)}
+                                            style={s.avatarImg}
+                                        />
+                                    ) : (
+                                        <Text style={s.avatarInitial}>
+                                            {(user?.first_name?.charAt(0) || user?.email?.charAt(0) || 'U').toUpperCase()}
+                                        </Text>
+                                    )}
+                                </View>
                             </TouchableOpacity>
-                        ) : null}
+                        </View>
                     </View>
 
-                    <View style={styles.section}>
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionLabel}>MY MAXXES</Text>
-                            {activeMaxxes.length > 0 && (
-                                <Text style={styles.sectionCount}>
-                                    {activeMaxxes.length} active · max {maxHomeSlots}
+                    {/* ── PROGRAMS (horizontal scroll, top of screen) ── */}
+                    {activeMaxxes.length > 0 && (
+                        <View style={s.programsBar}>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                contentContainerStyle={s.programsScroll}
+                            >
+                                {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string }) => {
+                                    if (!maxx.id) return null;
+                                    const tint = normalizeMaxxTintHex(maxx.color);
+                                    return (
+                                        <TouchableOpacity
+                                            key={maxx.id}
+                                            style={s.programPill}
+                                            onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
+                                            activeOpacity={0.72}
+                                        >
+                                            <View style={[s.programDot, { backgroundColor: tint }]} />
+                                            <Text style={s.programName} numberOfLines={1}>
+                                                {getMaxxDisplayLabel(maxx)}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                                <TouchableOpacity
+                                    style={s.addPill}
+                                    onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                                    activeOpacity={0.65}
+                                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                >
+                                    <Ionicons name="add" size={16} color={colors.textMuted} />
+                                </TouchableOpacity>
+                            </ScrollView>
+                        </View>
+                    )}
+
+                    {/* ── PROGRESS HERO ── */}
+                    <TouchableOpacity
+                        style={s.progressHero}
+                        onPress={() => navigation.navigate('MasterScheduleTab')}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${completedCount} of ${totalCount} tasks completed. Open schedule.`}
+                    >
+                        {schedulesLoading ? (
+                            <ActivityIndicator size="large" color={colors.textMuted} style={{ height: RING_SIZE }} />
+                        ) : (
+                            <ProgressRing done={completedCount} total={totalCount} />
+                        )}
+                        <View style={s.progressMeta}>
+                            <Text style={s.dateLabel}>{todayDisplayLabel}</Text>
+                            {scheduleStreak.current > 0 && (
+                                <View style={s.streakRow}>
+                                    <View style={s.streakDot} />
+                                    <Text style={s.streakText}>
+                                        {scheduleStreak.current} day{scheduleStreak.current === 1 ? '' : 's'} streak
+                                    </Text>
+                                </View>
+                            )}
+                        </View>
+                    </TouchableOpacity>
+
+                    {/* ── TASKS ── */}
+                    <View style={s.section}>
+                        <View style={s.sectionHead}>
+                            <Text style={s.sectionLabel}>Today's tasks</Text>
+                            {scheduleRows.length > 0 && (
+                                <Text style={s.sectionCount}>
+                                    {completedCount}/{totalCount}
                                 </Text>
                             )}
                         </View>
 
-                        {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string; label?: string; description?: string }) => {
-                            if (!maxx.id) return null;
+                        {displaySchedulesError ? (
+                            <Text style={s.errorText}>{displaySchedulesError}</Text>
+                        ) : null}
+
+                        {!schedulesLoading && !displaySchedulesError && scheduleRows.length === 0 ? (
+                            <View style={s.emptyTasks}>
+                                <Text style={s.emptyText}>No tasks for today.</Text>
+                                <Text style={s.emptyHint}>Start a program to see your daily schedule here.</Text>
+                            </View>
+                        ) : null}
+
+                        {scheduleRows.map((row, idx) => {
+                            const done = row.status === 'completed';
+                            const rowKey = `${row.scheduleId}-${row.task_id}`;
+                            const busy = completingTaskKey === rowKey;
                             return (
-                                <TouchableOpacity
-                                    key={maxx.id}
-                                    style={styles.courseCard}
-                                    onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
-                                    activeOpacity={0.7}
-                                >
-                                    <View style={styles.courseRow}>
-                                        <View style={[styles.courseIcon, maxx.color ? { backgroundColor: maxx.color + '22' } : {}]}>
-                                            <Ionicons name={(maxx.icon || 'book-outline') as any} size={20} color={maxx.color || colors.textSecondary} />
-                                        </View>
-                                        <View style={styles.courseContent}>
-                                            <Text style={styles.courseTitle} numberOfLines={1}>
-                                                {getMaxxDisplayLabel(maxx)}
-                                            </Text>
-                                            <Text style={[styles.emptyDesc, { fontSize: 12, marginBottom: 0, textAlign: 'left' }]} numberOfLines={2}>
-                                                {getMaxxDisplayDescription(maxx) ?? maxx.description}
-                                            </Text>
-                                        </View>
-                                        <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                                <View key={rowKey}>
+                                    {idx > 0 && <View style={s.hairline} />}
+                                    <View style={[s.taskRow, done && s.taskRowDone]}>
+                                        <TouchableOpacity
+                                            style={s.checkHit}
+                                            onPress={() => toggleTodayTask(row)}
+                                            disabled={busy}
+                                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                            accessibilityRole="checkbox"
+                                            accessibilityState={{ checked: done, disabled: busy }}
+                                        >
+                                            {busy ? (
+                                                <ActivityIndicator size="small" color={colors.textMuted} />
+                                            ) : done ? (
+                                                <View style={[s.checkCircle, s.checkDone]}>
+                                                    <Ionicons name="checkmark" size={11} color={colors.buttonText} />
+                                                </View>
+                                            ) : (
+                                                <View style={s.checkCircle} />
+                                            )}
+                                        </TouchableOpacity>
+                                        <TouchableOpacity
+                                            style={s.taskTap}
+                                            onPress={() => navigation.navigate('Schedule', { scheduleId: row.scheduleId })}
+                                            activeOpacity={0.75}
+                                        >
+                                            <View style={[s.taskAccent, { backgroundColor: row.moduleColor }]} />
+                                            <View style={s.taskBody}>
+                                                <Text style={[s.taskTime, done && s.taskMuted]}>{formatTimeTo12Hour(row.time)}</Text>
+                                                <Text style={[s.taskTitle, done && s.taskTitleDone]} numberOfLines={1}>{row.title}</Text>
+                                            </View>
+                                        </TouchableOpacity>
                                     </View>
-                                </TouchableOpacity>
+                                </View>
                             );
                         })}
 
-                        {activeMaxxes.length > 0 && (
+                        {!schedulesLoading && !displaySchedulesError && scheduleRows.length > 0 && (
                             <TouchableOpacity
-                                style={styles.manageMaxxesFooter}
-                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
-                                activeOpacity={0.65}
-                                accessibilityRole="button"
-                                accessibilityLabel={
-                                    rawGoalIds.length >= maxHomeSlots ? 'Manage Maxxes' : 'Add Maxxes'
-                                }
-                            >
-                                <Text style={styles.manageMaxxesFooterText}>
-                                    {rawGoalIds.length >= maxHomeSlots ? 'Manage maxxes' : 'Add maxxes'}
-                                </Text>
-                                <Ionicons name="chevron-forward" size={13} color={colors.textMuted} />
-                            </TouchableOpacity>
-                        )}
-
-                        {activeMaxxes.length === 0 && (
-                            <TouchableOpacity
-                                style={styles.emptyCard}
-                                onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                                onPress={() => navigation.navigate('MasterScheduleTab')}
+                                style={s.scheduleBtn}
                                 activeOpacity={0.7}
                             >
-                                <Text style={styles.emptyTitle}>No Maxxes active</Text>
-                                <Text style={styles.emptyDesc}>Select a max goal in your profile to begin.</Text>
-                                <View style={styles.emptyButton}>
-                                    <Text style={styles.emptyButtonText}>Select Goals</Text>
-                                </View>
+                                <Text style={s.scheduleBtnText}>View full schedule</Text>
+                                <Ionicons name="arrow-forward" size={12} color={colors.textMuted} />
                             </TouchableOpacity>
                         )}
                     </View>
+
+                    {/* ── EMPTY: no programs yet ── */}
+                    {activeMaxxes.length === 0 && !schedulesLoading && (
+                        <TouchableOpacity
+                            style={s.emptyPrograms}
+                            onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                            activeOpacity={0.72}
+                        >
+                            <Ionicons name="sparkles-outline" size={20} color={colors.textMuted} />
+                            <Text style={s.emptyProgramText}>Select goals to start your first program</Text>
+                        </TouchableOpacity>
+                    )}
+
                 </Animated.View>
             </ScrollView>
-
-            {isPaid ? (
-                <TouchableOpacity
-                    style={[styles.faceScanFab, { bottom: 52 + insets.bottom + 14, right: spacing.lg }]}
-                    onPress={() => {
-                        if (isPremium) {
-                            navigation.navigate('FaceScan');
-                        } else {
-                            Alert.alert(
-                                'Face scans',
-                                'Face scans are not available on Basic. Upgrade to Premium for daily scans.',
-                                [
-                                    { text: 'OK', style: 'cancel' },
-                                    { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
-                                ],
-                            );
-                        }
-                    }}
-                    activeOpacity={0.88}
-                    accessibilityRole="button"
-                    accessibilityLabel={isPremium ? 'Face scan' : 'Face scan (Premium)'}
-                >
-                    <Ionicons name="add" size={26} color={colors.background} />
-                    {!isPremium && (
-                        <View style={styles.fabLockBadge}>
-                            <Ionicons name="lock-closed" size={10} color="#fff" />
-                        </View>
-                    )}
-                </TouchableOpacity>
-            ) : null}
         </View>
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
-    faceScanFab: {
-        position: 'absolute',
-        width: 50,
-        height: 50,
-        borderRadius: 25,
-        backgroundColor: colors.foreground,
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 20,
-        ...shadows.md,
-    },
-    fabLockBadge: {
-        position: 'absolute',
-        bottom: -2,
-        right: -2,
-        width: 18,
-        height: 18,
-        borderRadius: 9,
-        backgroundColor: colors.textMuted,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 2,
-        borderColor: colors.background,
-    },
-    scrollContent: { paddingBottom: spacing.xxxl + 24 },
-    hero: { paddingHorizontal: spacing.lg, paddingTop: 64, paddingBottom: spacing.sm },
-    heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm },
-    heroTextBlock: { flex: 1, minWidth: 0 },
-    heroActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-    greeting: { fontSize: 13, color: colors.textMuted, marginBottom: 2, letterSpacing: 0.3 },
-    userName: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
-    profileButton: { padding: 2 },
-    profileIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: colors.foreground,
-        alignItems: 'center',
-        justifyContent: 'center',
-        ...shadows.sm,
-    },
-    profileAvatar: { width: 40, height: 40, borderRadius: 20 },
-    profileInitial: { fontSize: 16, fontWeight: '600', color: colors.buttonText },
-    todaySection: {
-        marginHorizontal: spacing.lg,
-        marginTop: spacing.md,
-        marginBottom: spacing.sm,
-        backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
-        padding: spacing.md,
-        ...shadows.sm,
-    },
-    todayHeader: {
+/* ─────────────────────── STYLES ─────────────────────── */
+
+const PAD = 24;
+
+const s = StyleSheet.create({
+    root: { flex: 1, backgroundColor: colors.background },
+    scroll: { paddingBottom: spacing.xxxl + 40 },
+
+    /* Top bar */
+    topBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: spacing.sm,
+        paddingHorizontal: PAD,
+        paddingBottom: 16,
     },
-    todayLabel: { ...typography.label, fontSize: 11 },
-    todayError: { ...typography.bodySmall, color: colors.error, marginBottom: spacing.xs },
-    todayEmpty: { ...typography.bodySmall, color: colors.textMuted, lineHeight: 20 },
-    todayRow: {
+    topLeft: { flex: 1, minWidth: 0 },
+    greeting: {
+        fontSize: 13,
+        fontFamily: fonts.sans,
+        color: colors.textMuted,
+        letterSpacing: 0.2,
+        marginBottom: 2,
+    },
+    userName: {
+        fontFamily: fonts.serif,
+        fontSize: 28,
+        fontWeight: '400',
+        lineHeight: 34,
+        letterSpacing: -0.6,
+        color: colors.foreground,
+    },
+    topRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    avatarHit: { padding: 2 },
+    avatar: {
+        width: 38,
+        height: 38,
+        borderRadius: 19,
+        backgroundColor: colors.foreground,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarImg: { width: 38, height: 38, borderRadius: 19 },
+    avatarInitial: { fontSize: 15, fontWeight: '600', color: colors.buttonText },
+
+    /* Progress hero */
+    progressHero: {
+        alignItems: 'center',
+        paddingVertical: 28,
+        marginHorizontal: PAD,
+        borderTopWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: colors.border,
+    },
+    progressMeta: {
+        alignItems: 'center',
+        marginTop: 14,
+        gap: 6,
+    },
+    dateLabel: {
+        fontSize: 13,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.textSecondary,
+        letterSpacing: 0.3,
+    },
+    streakRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.sm,
-        paddingVertical: spacing.sm,
+        gap: 6,
     },
-    todayRowBorder: {
-        borderTopWidth: 1,
-        borderTopColor: colors.borderLight,
+    streakDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+        backgroundColor: colors.foreground,
     },
-    todayCheckHit: {
-        width: 36,
+    streakText: {
+        fontSize: 12,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.foreground,
+        letterSpacing: 0.4,
+    },
+
+    /* Section */
+    section: {
+        paddingHorizontal: PAD,
+        paddingTop: 24,
+    },
+    sectionHead: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+        justifyContent: 'space-between',
+        marginBottom: 12,
+    },
+    sectionLabel: {
+        fontSize: 11,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.textMuted,
+        letterSpacing: 2,
+        textTransform: 'uppercase',
+    },
+    sectionCount: {
+        fontSize: 12,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.textMuted,
+        letterSpacing: 0.3,
+    },
+
+    /* Tasks */
+    hairline: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.borderLight,
+    },
+    taskRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingVertical: 14,
+    },
+    taskRowDone: { opacity: 0.45 },
+    checkHit: {
+        width: 28,
         alignItems: 'center',
         justifyContent: 'center',
         flexShrink: 0,
     },
-    todayCheckCircle: {
-        width: 22,
-        height: 22,
-        borderRadius: 11,
-        borderWidth: 2,
+    checkCircle: {
+        width: 20,
+        height: 20,
+        borderRadius: 10,
+        borderWidth: 1.5,
         borderColor: colors.border,
         backgroundColor: 'transparent',
     },
-    todayCheckDone: {
-        backgroundColor: colors.success,
-        borderColor: colors.success,
+    checkDone: {
+        backgroundColor: colors.foreground,
+        borderColor: colors.foreground,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    /** Bar + text in one row (web flex needs explicit row + flexShrink on bar). */
-    todayRowTap: {
+    taskTap: {
         flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.sm,
+        gap: 12,
         minWidth: 0,
     },
-    todayAccent: {
-        width: 4,
+    taskAccent: {
+        width: 2,
         alignSelf: 'stretch',
-        minHeight: 44,
-        maxHeight: 52,
-        borderRadius: 2,
+        minHeight: 36,
+        borderRadius: 1,
         flexShrink: 0,
     },
-    todayRowBody: { flex: 1, minWidth: 0 },
-    todayTime: { fontSize: 12, fontWeight: '700', color: colors.foreground },
-    todayTitle: { fontSize: 14, fontWeight: '600', color: colors.foreground, marginTop: 2 },
-    todayModule: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-    todaySeeMoreBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 4,
-        marginTop: spacing.sm,
-        paddingVertical: spacing.xs,
-    },
-    todaySeeMoreText: { ...typography.caption, fontWeight: '600', color: colors.foreground },
-    section: { paddingHorizontal: spacing.lg, marginTop: spacing.md },
-    sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
-    sectionLabel: { ...typography.label },
-    sectionCount: {
+    taskBody: { flex: 1, minWidth: 0 },
+    taskTime: {
         fontSize: 11,
-        fontWeight: '600',
-        color: colors.textSecondary,
-        backgroundColor: colors.surface,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.textMuted,
+        letterSpacing: 0.6,
+        marginBottom: 2,
     },
-    /** Below last Maxx card only — minimal, no filled pill */
-    manageMaxxesFooter: {
-        alignSelf: 'stretch',
-        marginTop: spacing.sm,
-        paddingTop: spacing.md,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: colors.borderLight,
+    taskTitle: {
+        fontSize: 15,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.foreground,
+        letterSpacing: -0.2,
+    },
+    taskTitleDone: {
+        textDecorationLine: 'line-through',
+        color: colors.textMuted,
+    },
+    taskMuted: { color: colors.textMuted },
+    errorText: { ...typography.bodySmall, color: colors.error, marginBottom: spacing.sm },
+    emptyTasks: {
+        paddingVertical: 24,
+        alignItems: 'center',
+    },
+    emptyText: {
+        fontSize: 14,
+        fontFamily: fonts.sans,
+        color: colors.textMuted,
+        marginBottom: 4,
+    },
+    emptyHint: {
+        fontSize: 12,
+        fontFamily: fonts.sans,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 18,
+        maxWidth: 240,
+    },
+
+    scheduleBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+        height: 40,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: borderRadius.full,
+        backgroundColor: 'transparent',
+        marginTop: 16,
         gap: 8,
-        paddingVertical: spacing.sm,
     },
-    manageMaxxesFooterText: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: colors.textSecondary,
-        letterSpacing: 0.6,
+    scheduleBtnText: {
+        fontSize: 11,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.foreground,
+        letterSpacing: 1.2,
         textTransform: 'uppercase',
     },
-    courseCard: {
-        backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
-        paddingVertical: spacing.xl,
-        paddingHorizontal: spacing.lg,
-        marginBottom: spacing.sm,
-        ...shadows.md,
+
+    /* Programs bar (top, below greeting) */
+    programsBar: {
+        paddingBottom: 4,
     },
-    courseRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-    courseIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: borderRadius.md,
-        backgroundColor: colors.surface,
+    programsScroll: {
+        gap: 8,
+        paddingHorizontal: PAD,
+    },
+    programPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingVertical: 7,
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.card,
+    },
+    programDot: {
+        width: 7,
+        height: 7,
+        borderRadius: 4,
+    },
+    programName: {
+        fontSize: 12,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.foreground,
+        letterSpacing: -0.1,
+        maxWidth: 120,
+    },
+    addPill: {
+        paddingVertical: 6,
+        paddingHorizontal: 4,
         alignItems: 'center',
         justifyContent: 'center',
+        alignSelf: 'center',
     },
-    courseContent: { flex: 1 },
-    courseTitle: { fontSize: 16, fontWeight: '600', color: colors.foreground, marginBottom: 4, letterSpacing: -0.2 },
-    emptyCard: {
-        backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
-        padding: spacing.xxl,
+    emptyPrograms: {
+        flexDirection: 'row',
         alignItems: 'center',
-        ...shadows.md,
+        justifyContent: 'center',
+        gap: 10,
+        paddingVertical: 20,
+        paddingHorizontal: PAD,
     },
-    emptyTitle: { fontSize: 17, fontWeight: '600', color: colors.foreground, marginBottom: spacing.xs },
-    emptyDesc: { fontSize: 13, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg },
-    emptyButton: {
-        backgroundColor: colors.foreground,
-        paddingHorizontal: spacing.xl,
-        paddingVertical: spacing.sm + 2,
-        borderRadius: borderRadius.full,
-        ...shadows.sm,
+    emptyProgramText: {
+        fontSize: 13,
+        fontFamily: fonts.sans,
+        color: colors.textMuted,
+        letterSpacing: 0.2,
     },
-    emptyButtonText: { fontSize: 13, fontWeight: '600', color: colors.buttonText },
 });

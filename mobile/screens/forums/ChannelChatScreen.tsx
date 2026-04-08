@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { CachedImage } from '../../components/CachedImage';
-import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius } from '../../theme/dark';
 
 interface Message {
     id: string;
@@ -728,9 +728,8 @@ const styles = StyleSheet.create({
         marginBottom: 10,
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: 'transparent',
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     msgRowGrouped: {
         marginTop: -6,
@@ -814,9 +813,8 @@ const styles = StyleSheet.create({
         marginHorizontal: spacing.lg,
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.borderLight,
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     errorTitle: { fontSize: 18, fontWeight: '600', color: colors.foreground, marginTop: spacing.md, letterSpacing: -0.3 },
     errorSubtitle: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, lineHeight: 20 },
@@ -827,9 +825,8 @@ const styles = StyleSheet.create({
         padding: spacing.md,
         backgroundColor: colors.card,
         borderRadius: borderRadius['2xl'],
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: 'transparent',
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     threadHeaderHero: { flexDirection: 'row', alignItems: 'flex-start' },
     threadIconWrap: {
@@ -884,7 +881,15 @@ const styles = StyleSheet.create({
     replyPreviewText: { color: colors.textSecondary, fontSize: 13, flex: 1 },
     imagePreviewContainer: { position: 'relative', marginBottom: spacing.sm, alignSelf: 'flex-start' },
     imagePreview: { width: 88, height: 88, borderRadius: 12 },
-    removeImageBtn: { position: 'absolute', top: -6, right: -6, backgroundColor: colors.card, borderRadius: 14, ...shadows.sm },
+    removeImageBtn: {
+        position: 'absolute',
+        top: -6,
+        right: -6,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
     uploadOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', borderRadius: borderRadius.md },
     inputContainer: {
         flexDirection: 'row',
@@ -894,9 +899,8 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.sm,
         paddingVertical: 8,
         paddingRight: 6,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: 'transparent',
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     attachBtn: { padding: 8, marginRight: 4 },
     input: { flex: 1, color: colors.textPrimary, paddingHorizontal: spacing.sm, fontSize: 15, maxHeight: 100, minHeight: 38 },

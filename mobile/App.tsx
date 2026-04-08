@@ -115,6 +115,11 @@ export default function App() {
     const [fontsLoaded] = useFonts({
         'Matter-Regular': require('./assets/fonts/Matter-Regular.ttf'),
         'Matter-Medium': require('./assets/fonts/Matter-Medium.ttf'),
+        'Matter-SemiBold': require('./assets/fonts/Matter-SemiBold.ttf'),
+        'Matter-Bold': require('./assets/fonts/Matter-Bold.ttf'),
+        'Matter-Light': require('./assets/fonts/Matter-Light.ttf'),
+        'PlayfairDisplay': require('./assets/fonts/PlayfairDisplay-Variable.ttf'),
+        'PlayfairDisplay-Italic': require('./assets/fonts/PlayfairDisplay-Italic-Variable.ttf'),
     });
 
     if (!fontsLoaded) {

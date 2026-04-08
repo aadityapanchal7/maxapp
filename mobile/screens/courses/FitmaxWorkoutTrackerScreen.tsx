@@ -3,7 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
+import { borderRadius, colors, spacing, typography } from '../../theme/dark';
 import { defaultWorkoutLibrary, fitmaxAccent } from '../../features/fitmax/fitmax';
 
 export default function FitmaxWorkoutTrackerScreen() {
@@ -18,7 +18,7 @@ export default function FitmaxWorkoutTrackerScreen() {
 
   const activeWorkout = workouts.Push;
   const current = activeWorkout[Math.min(exerciseIndex, activeWorkout.length - 1)];
-  const totalSets = Number((current.setsReps || '3').split('×')[0].trim() || 3);
+  const totalSets = Number((current.setsReps || '3').split('ï¿½')[0].trim() || 3);
 
   const logSet = async () => {
     if (showRest) return;
@@ -100,7 +100,13 @@ const styles = StyleSheet.create({
   header: { paddingTop: 60, paddingBottom: spacing.lg, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
   headerTitle: { ...typography.h3 },
-  card: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.lg, ...shadows.md },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   exerciseName: { fontSize: 28, fontWeight: '700', color: colors.foreground },
   setLabel: { ...typography.bodySmall, marginTop: 6 },
   metricRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg },
@@ -112,7 +118,14 @@ const styles = StyleSheet.create({
   stepTxt: { fontSize: 16, fontWeight: '700', color: colors.textSecondary },
   logButton: { marginTop: spacing.lg, height: 56, borderRadius: borderRadius.lg, alignItems: 'center', justifyContent: 'center', backgroundColor: fitmaxAccent },
   logText: { color: colors.buttonText, fontSize: 16, fontWeight: '700' },
-  restCard: { marginTop: spacing.lg, backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.lg, ...shadows.md },
+  restCard: {
+    marginTop: spacing.lg,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   restLabel: { ...typography.caption, textAlign: 'center' },
   restValue: { marginTop: 4, textAlign: 'center', fontSize: 42, fontWeight: '700', color: fitmaxAccent },
   restBtns: { marginTop: spacing.md, flexDirection: 'row', gap: 8 },

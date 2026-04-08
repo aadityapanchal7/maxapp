@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator, Animated } from 'react-native';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 export default function LeaderboardScreen() {
     const [entries, setEntries] = useState<any[]>([]);
@@ -111,10 +111,11 @@ const styles = StyleSheet.create({
     myRankCard: {
         marginHorizontal: spacing.lg,
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.lg,
         marginBottom: spacing.lg,
-        ...shadows.md,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     myRankTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
     myRankLabel: { ...typography.label, marginBottom: 4 },
@@ -122,11 +123,14 @@ const styles = StyleSheet.create({
     myRankTotal: { fontSize: 16, fontWeight: '400', color: colors.textMuted },
     myRankMessage: { ...typography.body, marginTop: spacing.xs, color: colors.textSecondary },
     myRankScoreBubble: {
-        alignItems: 'center', justifyContent: 'center',
+        alignItems: 'center',
+        justifyContent: 'center',
         backgroundColor: colors.surface,
         borderRadius: borderRadius.md,
-        paddingHorizontal: 14, paddingVertical: 8,
-        ...shadows.sm,
+        paddingHorizontal: 14,
+        paddingVertical: 8,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     myRankScoreValue: { fontSize: 18, fontWeight: '700', color: colors.foreground },
     myRankScoreUnit: { fontSize: 10, fontWeight: '500', color: colors.textMuted, marginTop: -2 },

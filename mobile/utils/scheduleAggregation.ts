@@ -2,6 +2,8 @@
  * Shared merge + colors for master schedule and Home "today" tasks.
  */
 
+import { normalizeMaxxNameSuffix } from './maxxDisplay';
+
 export const FALLBACK_MODULE_COLORS = ['#6366f1', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6', '#0ea5e9'];
 
 /** Must match backend seed_rds_maxes / app naming so tasks never pick up the wrong program from course_title alone. */
@@ -152,7 +154,7 @@ export function buildMaxxMaps(maxxes: any[]): {
     if (x?.id) {
       const id = normalizeMaxxId(x.id);
       if (!id) continue;
-      labels[id] = x.label || DEFAULT_MAXX_LABELS[id] || x.id;
+      labels[id] = normalizeMaxxNameSuffix(String(x.label || DEFAULT_MAXX_LABELS[id] || x.id));
       if (x.color) colors[id] = x.color;
     }
   }
@@ -178,9 +180,13 @@ export function mergeSchedules(
 
   for (const s of schedules || []) {
     const mid = normalizeMaxxId(s.maxx_id);
-    const label = mid
-      ? maxxLabels[mid] || DEFAULT_MAXX_LABELS[mid] || s.maxx_id || mid
-      : s.course_title || s.maxx_id || 'Program';
+    const label = normalizeMaxxNameSuffix(
+      String(
+        mid
+          ? maxxLabels[mid] || DEFAULT_MAXX_LABELS[mid] || s.maxx_id || mid
+          : s.course_title || s.maxx_id || 'Program',
+      ),
+    );
     const color = mid
       ? maxxColors[mid] || DEFAULT_MAXX_COLORS[mid] || fallbackColor(mid)
       : fallbackColor(String(s.course_title || s.maxx_id || 'program').toLowerCase());
@@ -248,7 +254,9 @@ export function moduleLabelForSchedule(
   if (!schedule) return 'Program';
   const mid = normalizeMaxxId(schedule.maxx_id);
   if (mid) {
-    return maxxLabels[mid] || DEFAULT_MAXX_LABELS[mid] || schedule.maxx_id || mid;
+    return normalizeMaxxNameSuffix(
+      String(maxxLabels[mid] || DEFAULT_MAXX_LABELS[mid] || schedule.maxx_id || mid),
+    );
   }
-  return schedule.course_title || schedule.maxx_id || 'Program';
+  return normalizeMaxxNameSuffix(String(schedule.course_title || schedule.maxx_id || 'Program'));
 }

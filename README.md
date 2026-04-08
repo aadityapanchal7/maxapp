@@ -13,7 +13,7 @@ A comprehensive facial analysis and self-improvement platform with mobile app, b
 ### Prerequisites
 
 - Python 3.8+
-- Node.js 16+
+- Node.js 16
 - MongoDB
 - Expo CLI
 - Android Studio/iOS Xcode (for mobile development)

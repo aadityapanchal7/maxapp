@@ -63,8 +63,16 @@ app.add_middleware(GZipMiddleware, minimum_size=800)
 _cors_origins = settings.cors_origins_list
 _app_env = (getattr(settings, "app_env", "") or "").strip().lower()
 _allow_localhost_regex = _app_env != "production" or getattr(settings, "debug", False)
+# LAN IPs: Expo web opened as http://192.168.x.x:8081 (phone) must be allowed to call the API.
 _cors_regex = (
-    r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+    (
+        r"https?://("
+        r"localhost|127\.0\.0\.1|\[::1\]"
+        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        r"|192\.168\.\d{1,3}\.\d{1,3}"
+        r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+        r")(:\d)?$"
+    )
     if _allow_localhost_regex
     else None
 )

@@ -28,7 +28,7 @@ router = APIRouter(prefix="/admin/forums/v2", tags=["Admin Forums V2"])
 
 def _slugify(name: str) -> str:
     s = (name or "").strip().lower()
-    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"[^a-z0-9]", "-", s)
     s = re.sub(r"-{2,}", "-", s).strip("-")
     return s[:64] or "category"
 

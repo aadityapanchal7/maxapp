@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius } from '../../theme/dark';
 
 interface Message { role: 'user' | 'assistant'; content: string; }
 
@@ -88,12 +88,32 @@ const styles = StyleSheet.create({
     emptySubtext: { fontSize: 12, color: colors.textMuted, marginTop: 4, textAlign: 'center' },
     messageList: { padding: spacing.lg, paddingBottom: spacing.xl },
     messageBubble: { maxWidth: '80%', padding: spacing.md, borderRadius: borderRadius.lg, marginBottom: spacing.sm },
-    userBubble: { alignSelf: 'flex-start', backgroundColor: colors.card, ...shadows.sm },
-    adminBubble: { alignSelf: 'flex-end', backgroundColor: colors.foreground, ...shadows.sm },
+    userBubble: { alignSelf: 'flex-start', backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+    adminBubble: { alignSelf: 'flex-end', backgroundColor: colors.foreground, borderWidth: 1, borderColor: colors.foreground },
     messageText: { fontSize: 14, color: colors.foreground, lineHeight: 20 },
     adminMessageText: { color: colors.buttonText },
     inputContainer: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderLight },
-    input: { flex: 1, backgroundColor: colors.card, borderRadius: borderRadius.lg, padding: spacing.md, color: colors.textPrimary, maxHeight: 100, fontSize: 14, ...shadows.sm },
-    sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center', marginLeft: spacing.sm, ...shadows.sm },
+    input: {
+        flex: 1,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
+        padding: spacing.md,
+        color: colors.textPrimary,
+        maxHeight: 100,
+        fontSize: 14,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    sendButton: {
+        width: 40,
+        height: 40,
+        borderRadius: borderRadius.md,
+        backgroundColor: colors.foreground,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.foreground,
+    },
     disabledButton: { opacity: 0.3 },
 });

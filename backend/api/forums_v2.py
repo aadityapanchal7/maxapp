@@ -705,7 +705,7 @@ async def vote_post(
     if not existing:
         rds_db.add(ForumPostVote(post_id=pid, user_id=uid, value=v, created_at=datetime.now(timezone.utc)))
         if v == 1:
-            up += 1
+            up = 1
         else:
             down += 1
         score += v

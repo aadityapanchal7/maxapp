@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 
 function formatDate(dateStr: string): string {
     const d = new Date(dateStr);
@@ -156,13 +156,14 @@ const styles = StyleSheet.create({
     backButton: {
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: borderRadius.md,
         backgroundColor: colors.card,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
-    headerTitle: { fontSize: 17, fontWeight: '600', color: colors.foreground },
+    headerTitle: { fontFamily: fonts.serif, fontSize: 18, fontWeight: '400', color: colors.foreground },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.xl },
     emptyText: { marginTop: spacing.md, color: colors.foreground, fontSize: 15, fontWeight: '700' },
@@ -170,9 +171,10 @@ const styles = StyleSheet.create({
         marginTop: spacing.lg,
         backgroundColor: colors.foreground,
         paddingHorizontal: spacing.xl,
-        paddingVertical: 14,
-        borderRadius: borderRadius.full,
-        ...shadows.md,
+        paddingVertical: 12,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     primaryBtnText: { color: colors.buttonText, fontSize: 14, fontWeight: '700' },
     list: { padding: spacing.lg, paddingBottom: spacing.xxl },
@@ -184,7 +186,6 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.lg,
         padding: spacing.lg,
         marginBottom: spacing.md,
-        ...shadows.sm,
     },
     cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
     cardTitle: { color: colors.foreground, fontSize: 14, fontWeight: '900' },

@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useChannelsQuery } from '../../hooks/useAppQueries';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 
 type ForumChannel = {
     id: string;
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
     header: { paddingBottom: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderLight },
     contentWrap: { width: '100%', maxWidth: 720, alignSelf: 'center', paddingHorizontal: spacing.lg },
     headerTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
-    headerTitle: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.8 },
+    headerTitle: { fontFamily: fonts.serif, fontSize: 28, fontWeight: '400', color: colors.foreground, letterSpacing: -0.6 },
     filterRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md, flexWrap: 'wrap' },
     segmentRow: { flexDirection: 'row', gap: 4, alignItems: 'center', backgroundColor: colors.surface, padding: 3, borderRadius: borderRadius.full },
     filterPill: {
@@ -447,7 +447,7 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.full,
         backgroundColor: 'transparent',
     },
-    filterPillActive: { backgroundColor: colors.card, ...shadows.sm },
+    filterPillActive: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
     filterText: { fontSize: 13, fontWeight: '600', color: colors.textMuted },
     filterTextActive: { color: colors.foreground },
     createButton: {
@@ -457,7 +457,9 @@ const styles = StyleSheet.create({
         backgroundColor: colors.foreground,
         paddingHorizontal: 16,
         paddingVertical: 10,
-        borderRadius: borderRadius.lg,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     createButtonText: { color: colors.background, fontSize: 13, fontWeight: '700' },
     filtersButton: {
@@ -500,13 +502,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'stretch',
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         paddingVertical: spacing.md,
         paddingHorizontal: spacing.md,
         marginBottom: 12,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: 'transparent',
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     channelRowActive: {
         borderColor: colors.foreground,
@@ -622,14 +623,13 @@ const styles = StyleSheet.create({
     modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: spacing.lg },
     modalCard: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.xl,
         width: '100%',
         maxWidth: 420,
         alignSelf: 'center',
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.borderLight,
-        ...shadows.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     modalTitle: { ...typography.h3, marginBottom: spacing.xs, letterSpacing: -0.4 },
     modalSubtitle: { ...typography.bodySmall, color: colors.textSecondary, marginBottom: spacing.lg, lineHeight: 20 },

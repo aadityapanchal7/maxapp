@@ -4,22 +4,15 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { useMaxxQuery, useMaxxScheduleQuery, useActiveSchedulesSummaryQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 import { useAuth } from '../../context/AuthContext';
-import { defaultFitmaxMacroSummary, deriveCalorieLogFromMessages, fitmaxAccent } from '../../features/fitmax/fitmax';
+import { defaultFitmaxMacroSummary, deriveCalorieLogFromMessages } from '../../features/fitmax/fitmax';
 import { buildModuleReaderContent, modulePreviewFromContent, isFitmaxCourseShape } from '../../utils/maxxModuleReader';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'];
-
-const MODULE_PHASE_ACCENTS: Record<string, string> = {
-    Foundation: '#0ea5e9',
-    Execution: '#22c55e',
-    Optimization: '#f59e0b',
-    'Identity & Mastery': '#a855f7',
-};
 
 /**
  * Modules at the tail end of each maxx are premium-only.
@@ -291,14 +284,10 @@ export default function MaxxDetailScreen() {
     const previewPills = tagLabels.slice(0, MAX_PILLS);
     const morePillCount = tagLabels.length - previewPills.length;
 
-    const headerColor = maxx.color || colors.foreground;
-    const fitmaxHeaderBg = '#16a34a14';
-    const fitmaxIconBg = '#16a34a1f';
-
     return (
         <View style={styles.container}>
             {isFitmax ? (
-                <View style={[styles.headerWrapFitmax, { backgroundColor: fitmaxHeaderBg }]}>
+                <View style={styles.headerWrapFitmax}>
                     <TouchableOpacity
                         onPress={() => navigation.goBack()}
                         style={styles.backButton}
@@ -306,8 +295,8 @@ export default function MaxxDetailScreen() {
                     >
                         <Ionicons name="arrow-back" size={24} color={colors.foreground} />
                     </TouchableOpacity>
-                    <View style={[styles.headerIcon, { backgroundColor: fitmaxIconBg }]}>
-                        <Ionicons name="barbell-outline" size={28} color={fitmaxAccent} />
+                    <View style={[styles.headerIcon, styles.headerIconElevated, styles.headerIconNeutral]}>
+                        <Ionicons name="barbell-outline" size={28} color={colors.foreground} />
                     </View>
                     <View style={styles.macroChip}>
                         <Text style={styles.macroChipTitle}>Today</Text>
@@ -319,12 +308,12 @@ export default function MaxxDetailScreen() {
                     <Text style={styles.headerTitleFitmax}>{getMaxxDisplayLabel(maxx)}</Text>
                 </View>
             ) : (
-                <View style={[styles.headerBanner, maxx.color && { backgroundColor: maxx.color + '18' }]}>
+                <View style={styles.headerBanner}>
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                         <Ionicons name="arrow-back" size={24} color={colors.foreground} />
                     </TouchableOpacity>
-                    <View style={[styles.headerIcon, maxx.color && { backgroundColor: maxx.color + '30' }]}>
-                        <Ionicons name={(maxx.icon || 'book-outline') as any} size={28} color={headerColor} />
+                    <View style={[styles.headerIcon, styles.headerIconElevated, styles.headerIconNeutral]}>
+                        <Ionicons name={(maxx.icon || 'book-outline') as any} size={28} color={colors.foreground} />
                     </View>
                     <Text style={styles.headerTitle}>{getMaxxDisplayLabel(maxx)}</Text>
                 </View>
@@ -337,7 +326,7 @@ export default function MaxxDetailScreen() {
                     <View style={styles.scheduleActions}>
                         {atLimit ? (
                             <View style={styles.limitBanner}>
-                                <Ionicons name="alert-circle-outline" size={18} color={colors.warning || '#f59e0b'} />
+                                <Ionicons name="alert-circle-outline" size={18} color={colors.textSecondary} />
                                 <Text style={styles.limitBannerText}>
                                     You have 2 active modules ({activeLabels.join(', ')}). Stop one to start this.
                                 </Text>
@@ -376,7 +365,7 @@ export default function MaxxDetailScreen() {
                                     <Text style={styles.viewScheduleText}>View Schedule</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={styles.stopButton} activeOpacity={0.7} onPress={handleStopSchedule}>
-                                    <Ionicons name="stop-circle-outline" size={20} color="#ef4444" />
+                                    <Ionicons name="stop-circle-outline" size={20} color={colors.textSecondary} />
                                     <Text style={styles.stopButtonText}>Stop Schedule</Text>
                                 </TouchableOpacity>
                             </>
@@ -403,9 +392,7 @@ export default function MaxxDetailScreen() {
                     const premium = isModulePremium(maxxId, mod);
                     const lockedPremium = premium && !isPremium;
                     const fitShape = isFitmaxCourseShape(mod);
-                    const phaseAccent = fitShape
-                        ? MODULE_PHASE_ACCENTS[mod.phase as string] || fitmaxAccent
-                        : headerColor;
+                    const phaseAccent = premium ? colors.foreground : colors.textMuted;
                     const statusLine = getModuleStatusLine(maxxId, mod.title, activeSchedule);
                     const readerBody = buildModuleReaderContent(mod);
                     const preview = modulePreviewFromContent(readerBody);
@@ -430,24 +417,29 @@ export default function MaxxDetailScreen() {
                             }}
                         >
                             <View style={styles.moduleHeaderRow}>
-                                <View style={[styles.phaseDot, { backgroundColor: premium ? colors.premium : phaseAccent }]} />
-                                <Text style={styles.moduleNumberLabel}>
-                                    {fitShape && typeof mod.id === 'number' ? `Module ${mod.id}` : `Part ${idx + 1}`}
-                                </Text>
-                                {premium ? (
-                                    <View style={styles.premiumBadge}>
-                                        <Ionicons name={lockedPremium ? 'lock-closed' : 'star'} size={10} color="#fff" />
-                                        <Text style={styles.premiumBadgeText}>PREMIUM</Text>
-                                    </View>
-                                ) : fitShape && fitStatus ? (
-                                    <Text style={[styles.moduleStatusChip, mod.status === 'complete' && styles.moduleStatusComplete]}>
-                                        {fitStatus}
+                                <View style={styles.moduleHeaderLeft}>
+                                    <View style={[styles.phaseDot, { backgroundColor: phaseAccent }]} />
+                                    <Text style={styles.moduleNumberLabel} numberOfLines={1}>
+                                        {fitShape && typeof mod.id === 'number' ? `Module ${mod.id}` : `Part ${idx + 1}`}
                                     </Text>
-                                ) : (
-                                    <Text style={styles.moduleStatusChipMuted} numberOfLines={1}>
-                                        {statusLine}
-                                    </Text>
-                                )}
+                                </View>
+                                <View style={styles.moduleHeaderRight}>
+                                    {premium ? (
+                                        <View style={styles.premiumBadge}>
+                                            <Ionicons name={lockedPremium ? 'lock-closed' : 'star'} size={10} color={colors.buttonText} />
+                                            <Text style={styles.premiumBadgeText}>PREMIUM</Text>
+                                        </View>
+                                    ) : fitShape && fitStatus ? (
+                                        <Text style={[styles.moduleStatusChip, mod.status === 'complete' && styles.moduleStatusComplete]}>
+                                            {fitStatus}
+                                        </Text>
+                                    ) : (
+                                        <Text style={styles.moduleStatusChipMuted} numberOfLines={1}>
+                                            {statusLine}
+                                        </Text>
+                                    )}
+                                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                                </View>
                             </View>
                             <Text style={[styles.moduleTitleRich, lockedPremium && styles.moduleTitleLocked]}>{mod.title}</Text>
                             <Text style={styles.moduleMetaRich}>
@@ -459,9 +451,11 @@ export default function MaxxDetailScreen() {
                                         ? `${mod.steps.length} sections`
                                         : 'Open to read'}
                             </Text>
-                            <Text style={styles.modulePreviewRich} numberOfLines={lockedPremium ? 2 : undefined}>
-                                {preview}
-                            </Text>
+                            <View style={styles.modulePreviewWrap}>
+                                <Text style={styles.modulePreviewRich} numberOfLines={lockedPremium ? 2 : 3}>
+                                    {preview}
+                                </Text>
+                            </View>
                             {lockedPremium ? (
                                 <Text style={styles.moduleScheduleHint}>Upgrade to unlock</Text>
                             ) : !fitShape ? (
@@ -482,18 +476,26 @@ const styles = StyleSheet.create({
     retryButton: { paddingHorizontal: 20, paddingVertical: 10, backgroundColor: colors.surface, borderRadius: borderRadius.md },
     retryText: { color: colors.foreground, fontWeight: '600' },
     headerBanner: {
+        position: 'relative',
+        overflow: 'hidden',
         paddingTop: 56,
         paddingBottom: spacing.xl,
         paddingHorizontal: spacing.lg,
+        backgroundColor: colors.surface,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
     },
     headerWrapFitmax: {
+        position: 'relative',
+        overflow: 'hidden',
         paddingTop: 56,
         paddingBottom: spacing.lg,
         paddingHorizontal: spacing.lg,
-        borderBottomLeftRadius: 24,
-        borderBottomRightRadius: 24,
+        backgroundColor: colors.surface,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
     },
-    backButton: { marginBottom: spacing.md },
+    backButton: { marginBottom: spacing.md, zIndex: 1 },
     headerIcon: {
         width: 56,
         height: 56,
@@ -501,26 +503,35 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: spacing.sm,
+        zIndex: 1,
     },
-    headerTitle: { fontSize: 28, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
+    headerIconElevated: {
+        borderWidth: 1,
+    },
+    headerIconNeutral: {
+        backgroundColor: colors.card,
+        borderColor: colors.border,
+    },
+    headerTitle: { ...typography.h1, fontSize: 28, lineHeight: 34, letterSpacing: -0.4, zIndex: 1 },
     headerTitleFitmax: {
+        ...typography.h1,
         fontSize: 28,
-        fontWeight: '700',
-        color: colors.foreground,
-        letterSpacing: -0.5,
+        lineHeight: 34,
+        letterSpacing: -0.4,
         paddingRight: 160,
+        zIndex: 1,
     },
     macroChip: {
         position: 'absolute',
         right: spacing.lg,
         top: 64,
+        zIndex: 2,
         backgroundColor: colors.card,
-        borderRadius: borderRadius.md,
+        borderRadius: borderRadius.sm,
         borderWidth: 1,
         borderColor: colors.border,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        ...shadows.sm,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
     },
     macroChipTitle: { ...typography.caption, color: colors.textMuted },
     macroChipCalories: { fontSize: 12, fontWeight: '700', color: colors.foreground, marginTop: 2 },
@@ -557,40 +568,83 @@ const styles = StyleSheet.create({
         color: colors.textMuted,
     },
     moduleCardRich: {
+        position: 'relative',
         backgroundColor: colors.card,
-        borderRadius: borderRadius.xl,
-        padding: spacing.lg,
-        marginBottom: spacing.md,
-        ...shadows.md,
+        borderRadius: borderRadius.lg,
+        paddingHorizontal: spacing.lg + 2,
+        paddingVertical: spacing.lg,
+        marginBottom: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
+        overflow: 'hidden',
     },
     moduleCardLocked: { opacity: 0.72 },
     moduleCardPremium: {
         borderWidth: 1,
-        borderColor: colors.premiumBorder,
-        backgroundColor: colors.premiumLight,
+        borderColor: colors.foreground,
+        backgroundColor: colors.card,
     },
     moduleCardPremiumLocked: { opacity: 0.8 },
-    moduleHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
-    phaseDot: { width: 10, height: 10, borderRadius: 5, marginRight: 8 },
-    moduleNumberLabel: { ...typography.caption, flex: 1 },
-    moduleStatusChip: { fontSize: 11, fontWeight: '700', color: fitmaxAccent },
-    moduleStatusChipMuted: { fontSize: 11, fontWeight: '600', color: colors.textMuted, maxWidth: '42%', textAlign: 'right' },
-    moduleStatusComplete: { color: colors.success },
-    moduleTitleRich: { fontSize: 17, lineHeight: 24, fontWeight: '700', color: colors.foreground },
+    moduleHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 10,
+        marginBottom: 12,
+        zIndex: 1,
+    },
+    moduleHeaderLeft: { flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, gap: 8 },
+    moduleHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 0 },
+    phaseDot: { width: 8, height: 8, borderRadius: 4 },
+    moduleNumberLabel: { ...typography.caption, flex: 1, textTransform: 'uppercase', letterSpacing: 0.45, color: colors.textMuted },
+    moduleStatusChip: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: colors.textSecondary,
+        textTransform: 'uppercase',
+        letterSpacing: 0.35,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: borderRadius.sm,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+    },
+    moduleStatusChipMuted: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: colors.textMuted,
+        maxWidth: '45%',
+        textAlign: 'right',
+        textTransform: 'uppercase',
+        letterSpacing: 0.35,
+    },
+    moduleStatusComplete: { color: colors.foreground },
+    moduleTitleRich: { ...typography.h3, fontSize: 17, lineHeight: 24, zIndex: 1 },
     moduleTitleLocked: { color: colors.textMuted },
-    moduleMetaRich: { ...typography.caption, marginTop: 6 },
-    modulePreviewRich: { ...typography.bodySmall, marginTop: spacing.sm, lineHeight: 20 },
-    moduleScheduleHint: { ...typography.caption, marginTop: 8, color: colors.textMuted },
+    moduleMetaRich: { ...typography.caption, marginTop: 4, color: colors.textSecondary, zIndex: 1 },
+    modulePreviewWrap: {
+        marginTop: spacing.md,
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        paddingHorizontal: spacing.md + 2,
+        paddingVertical: 12,
+        zIndex: 1,
+    },
+    modulePreviewRich: { ...typography.bodySmall, color: colors.textSecondary, lineHeight: 19 },
+    moduleScheduleHint: { ...typography.caption, marginTop: 10, color: colors.textMuted, zIndex: 1 },
     premiumBadge: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 3,
-        backgroundColor: colors.premium,
-        borderRadius: 6,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
+        backgroundColor: colors.foreground,
+        borderRadius: borderRadius.sm,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
     },
-    premiumBadgeText: { color: '#fff', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+    premiumBadgeText: { color: colors.buttonText, fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
     scheduleActions: {
         marginBottom: spacing.xl,
         gap: spacing.md,
@@ -601,12 +655,11 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: 8,
         backgroundColor: colors.foreground,
-        paddingVertical: 14,
-        borderRadius: borderRadius.xl,
-        ...shadows.md,
+        paddingVertical: 11,
+        borderRadius: borderRadius.md,
     },
     scheduleButtonText: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '600',
         color: colors.buttonText,
     },
@@ -616,13 +669,13 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: 8,
         backgroundColor: colors.card,
-        paddingVertical: 14,
-        borderRadius: borderRadius.xl,
+        paddingVertical: 11,
+        borderRadius: borderRadius.md,
         borderWidth: 1,
         borderColor: colors.border,
     },
     viewScheduleText: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '600',
         color: colors.foreground,
     },
@@ -631,26 +684,26 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        paddingVertical: 14,
-        borderRadius: borderRadius.xl,
+        paddingVertical: 11,
+        borderRadius: borderRadius.md,
         borderWidth: 1,
-        borderColor: '#ef444440',
-        backgroundColor: '#ef444410',
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
     },
     stopButtonText: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '600',
-        color: '#ef4444',
+        color: colors.textSecondary,
     },
     limitBanner: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 10,
-        backgroundColor: '#f59e0b15',
-        borderRadius: borderRadius.xl,
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
         borderWidth: 1,
-        borderColor: '#f59e0b40',
-        paddingVertical: 14,
+        borderColor: colors.border,
+        paddingVertical: 12,
         paddingHorizontal: spacing.lg,
     },
     limitBannerText: {

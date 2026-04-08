@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { deriveCalorieLogFromMessages, fitmaxAccent } from '../../features/fitmax/fitmax';
-import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
+import { borderRadius, colors, spacing, typography } from '../../theme/dark';
 
 export default function FitmaxCalorieLogScreen() {
   const navigation = useNavigation<any>();
@@ -94,19 +94,40 @@ const styles = StyleSheet.create({
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
   headerTitle: { ...typography.h3 },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  ringCard: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.lg, alignItems: 'center', ...shadows.md },
+  ringCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   ringTop: { ...typography.caption },
   ringMain: { marginTop: 8, fontSize: 44, fontWeight: '700', color: fitmaxAccent, letterSpacing: -1 },
   ringSub: { ...typography.bodySmall },
   ringFoot: { marginTop: 8, ...typography.caption },
-  macroCard: { marginTop: spacing.md, backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.md, ...shadows.md },
+  macroCard: {
+    marginTop: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   macroRow: { marginBottom: spacing.md },
   macroRowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   macroLabel: { fontSize: 13, fontWeight: '700', color: colors.foreground },
   macroValue: { ...typography.caption },
   progressTrack: { width: '100%', height: 8, borderRadius: 999, backgroundColor: colors.surface, overflow: 'hidden' },
   progressFill: { height: '100%', backgroundColor: fitmaxAccent },
-  mealCard: { marginTop: spacing.md, backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.md, ...shadows.md },
+  mealCard: {
+    marginTop: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   mealTitle: { fontSize: 15, fontWeight: '700', color: colors.foreground, marginBottom: spacing.sm },
   empty: { ...typography.caption },
   mealRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border },

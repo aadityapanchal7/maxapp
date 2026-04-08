@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 export default function LeaderboardManageScreen() {
     const [rankings, setRankings] = useState<any[]>([]);
@@ -49,10 +49,14 @@ const styles = StyleSheet.create({
     title: { ...typography.h2 },
     list: { paddingHorizontal: spacing.lg },
     card: {
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: colors.card, borderRadius: borderRadius.lg,
-        padding: spacing.md, marginBottom: spacing.sm,
-        ...shadows.sm,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
+        padding: spacing.md,
+        marginBottom: spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     rank: { fontSize: 18, fontWeight: '700', color: colors.foreground, width: 40 },
     info: { flex: 1 },

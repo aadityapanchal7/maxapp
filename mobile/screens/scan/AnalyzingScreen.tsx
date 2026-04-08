@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, Animated, LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, typography, borderRadius, fonts } from '../../theme/dark';
 
 interface Props {
     currentStep: number;
@@ -10,38 +10,16 @@ interface Props {
 
 const ANALYSIS_STEPS = [
     'Uploading your photos',
-    'Scoring your facial metrics',
+    'Building your facial ratings',
     'Preparing your scan summary',
 ];
 
 const GRID_N = 7;
 
-/** Map discrete step → target % (Cal-AI style milestones) */
 function targetProgressForStep(step: number): number {
     if (step <= 0) return 22;
     if (step === 1) return 58;
     return 94;
-}
-
-/** Slow climb with pauses: moves a bit, “hangs”, then continues (repeat) */
-function buildStutterSequence(anim: Animated.Value, from: number, to: number, pieceCount: number): Animated.CompositeAnimation {
-    if (to <= from + 0.5) {
-        return Animated.timing(anim, { toValue: to, duration: 400, useNativeDriver: false });
-    }
-    const anims: Animated.CompositeAnimation[] = [];
-    for (let i = 1; i <= pieceCount; i++) {
-        const next = from + ((to - from) * i) / pieceCount;
-        anims.push(
-            Animated.timing(anim, {
-                toValue: next,
-                duration: 950 + i * 110,
-                useNativeDriver: false,
-            }),
-        );
-        const pauseMs = 320 + (i % 4) * 140 + (i % 2) * 90;
-        anims.push(Animated.delay(pauseMs));
-    }
-    return Animated.sequence(anims);
 }
 
 function ScanningGrid() {
@@ -98,7 +76,6 @@ const gridStyles = StyleSheet.create({
         borderWidth: 1,
         borderColor: colors.border,
         borderStyle: 'dashed',
-        ...shadows.lg,
         flexDirection: 'column',
         justifyContent: 'center',
         alignItems: 'stretch',
@@ -132,53 +109,73 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
     const insets = useSafeAreaInsets();
     const [trackWidth, setTrackWidth] = useState(0);
     const progressAnim = useRef(new Animated.Value(0)).current;
-    const displayedPct = useRef(0);
     const [pctLabel, setPctLabel] = useState(0);
-    const stutterHandle = useRef<Animated.CompositeAnimation | null>(null);
+    const highWaterMark = useRef(0);
+    const runningAnim = useRef<Animated.CompositeAnimation | null>(null);
 
     const [dots] = useState([new Animated.Value(1), new Animated.Value(0.3), new Animated.Value(0.3)]);
 
     useEffect(() => {
         const listenerId = progressAnim.addListener(({ value }) => {
-            const p = Math.min(100, Math.max(0, Math.round(value)));
-            if (p !== displayedPct.current) {
-                displayedPct.current = p;
-                setPctLabel(p);
-            }
+            const clamped = Math.min(100, Math.max(0, value));
+            const safe = Math.max(clamped, highWaterMark.current);
+            const rounded = Math.round(safe);
+            if (rounded > highWaterMark.current) highWaterMark.current = rounded;
+            if (rounded !== pctLabel) setPctLabel(rounded);
         });
         return () => progressAnim.removeListener(listenerId);
     }, [progressAnim]);
 
     useEffect(() => {
         const target = targetProgressForStep(currentStep);
-        stutterHandle.current?.stop?.();
+        runningAnim.current?.stop();
 
-        progressAnim.stopAnimation((startVal) => {
-            const from = typeof startVal === 'number' ? Math.min(100, Math.max(0, startVal)) : 0;
-            if (from > target) {
-                const snap = Animated.timing(progressAnim, { toValue: target, duration: 350, useNativeDriver: false });
-                stutterHandle.current = snap;
-                snap.start();
+        progressAnim.stopAnimation((rawVal) => {
+            const from = Math.max(
+                typeof rawVal === 'number' ? rawVal : 0,
+                highWaterMark.current,
+            );
+            if (from >= target) {
+                if (currentStep >= 2 && from < 100) {
+                    const toFull = Animated.timing(progressAnim, {
+                        toValue: 100,
+                        duration: 12000,
+                        useNativeDriver: false,
+                    });
+                    runningAnim.current = toFull;
+                    toFull.start();
+                }
                 return;
             }
-            const pieceCount = currentStep >= 2 ? 7 : 6;
-            const main = buildStutterSequence(progressAnim, from, target, pieceCount);
-            stutterHandle.current = main;
-            main.start(({ finished }) => {
+
+            const distance = target - from;
+            const duration = currentStep >= 2
+                ? Math.max(3000, distance * 120)
+                : Math.max(6000, distance * 180);
+
+            const ramp = Animated.timing(progressAnim, {
+                toValue: target,
+                duration,
+                useNativeDriver: false,
+            });
+
+            runningAnim.current = ramp;
+            ramp.start(({ finished }) => {
                 if (!finished) return;
-                if (currentStep >= 2 && target >= 94) {
-                    progressAnim.stopAnimation((v) => {
-                        const v0 = typeof v === 'number' ? v : 94;
-                        const to100 = buildStutterSequence(progressAnim, Math.max(v0, 94), 100, 8);
-                        stutterHandle.current = to100;
-                        to100.start();
+                if (currentStep >= 2) {
+                    const toFull = Animated.timing(progressAnim, {
+                        toValue: 100,
+                        duration: 12000,
+                        useNativeDriver: false,
                     });
+                    runningAnim.current = toFull;
+                    toFull.start();
                 }
             });
         });
 
         return () => {
-            stutterHandle.current?.stop?.();
+            runningAnim.current?.stop();
         };
     }, [currentStep, progressAnim]);
 
@@ -225,7 +222,7 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
             >
                 <View style={styles.progressTopRow}>
                     <Text style={styles.progressTitle} numberOfLines={1} ellipsizeMode="tail">
-                        Analyzing
+                        Analyzing your scan
                     </Text>
                     <Text style={styles.progressPct}>{pctLabel}%</Text>
                 </View>
@@ -234,41 +231,16 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                         <Animated.View style={[styles.trackFill, { width: fillWidth }]} />
                     </View>
                 </View>
+                <Text style={styles.stepHint}>
+                    {ANALYSIS_STEPS[Math.min(currentStep, ANALYSIS_STEPS.length - 1)]}…
+                </Text>
                 <Text style={styles.stayInAppNotice}>
-                    Stay in app — switching away may interrupt analysis.
+                    Stay in the app until this finishes—leaving can delay or interrupt your results.
                 </Text>
             </View>
 
             <View style={styles.centerStage}>
                 <ScanningGrid />
-            </View>
-
-            <View style={styles.stepsContainer}>
-                {ANALYSIS_STEPS.map((step, index) => {
-                    const isCompleted = index < currentStep;
-                    const isActive = index === currentStep;
-                    return (
-                        <View key={index} style={styles.stepRow}>
-                            {isCompleted ? (
-                                <Ionicons name="checkmark" size={16} color={colors.foreground} />
-                            ) : isActive ? (
-                                <Ionicons name="sync" size={16} color={colors.foreground} />
-                            ) : (
-                                <View style={styles.emptyIcon} />
-                            )}
-                            <Text
-                                style={[
-                                    styles.stepText,
-                                    isCompleted && styles.stepTextCompleted,
-                                    isActive && styles.stepTextActive,
-                                    !isCompleted && !isActive && styles.stepTextPending,
-                                ]}
-                            >
-                                {step}
-                            </Text>
-                        </View>
-                    );
-                })}
             </View>
 
             <View style={styles.dotsContainer}>
@@ -298,17 +270,17 @@ const styles = StyleSheet.create({
         marginTop: 22,
     },
     progressTitle: {
-        ...typography.h3,
-        fontSize: 20,
-        fontWeight: '700',
+        fontFamily: fonts.serif,
+        fontSize: 22,
+        fontWeight: '400',
         color: colors.foreground,
-        letterSpacing: -0.5,
+        letterSpacing: -0.3,
     },
-    progressPct: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.5 },
+    progressPct: { fontSize: 22, fontWeight: '600', color: colors.foreground, letterSpacing: -0.5 },
     track: {
-        height: 10,
+        height: 4,
         borderRadius: borderRadius.full,
-        backgroundColor: colors.borderLight,
+        backgroundColor: colors.surface,
         overflow: 'hidden',
     },
     trackFill: {
@@ -316,11 +288,18 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.full,
         backgroundColor: colors.foreground,
     },
-    stayInAppNotice: {
+    stepHint: {
         marginTop: spacing.md,
-        fontSize: 13,
-        lineHeight: 19,
-        color: colors.textSecondary,
+        fontSize: 15,
+        fontWeight: '500',
+        color: colors.foreground,
+        textAlign: 'center',
+    },
+    stayInAppNotice: {
+        marginTop: spacing.sm,
+        fontSize: 12,
+        lineHeight: 18,
+        color: colors.textMuted,
         textAlign: 'center',
         paddingHorizontal: spacing.sm,
     },
@@ -331,20 +310,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         minHeight: 200,
     },
-    stepsContainer: { alignSelf: 'stretch', alignItems: 'center', marginBottom: spacing.xl },
-    stepRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: spacing.md,
-        gap: spacing.sm,
-        flexWrap: 'wrap',
-    },
-    emptyIcon: { width: 16, height: 16 },
-    stepText: { fontSize: 15, color: colors.textMuted, textAlign: 'center', flexShrink: 1 },
-    stepTextCompleted: { color: colors.foreground },
-    stepTextActive: { color: colors.foreground, fontWeight: '600' },
-    stepTextPending: { color: colors.textMuted },
     dotsContainer: {
         flexDirection: 'row',
         justifyContent: 'center',

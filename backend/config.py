@@ -27,9 +27,9 @@ class Settings(BaseSettings):
     supabase_db_name: str = Field(default="postgres")
     # Keep small on Session pooler (5432). If you see MaxClientsInSessionMode:
     # - Switch SUPABASE_DB_PORT to 6543 (Transaction pooler in Supabase Dashboard), and/or
-    # - Set SUPABASE_DB_POOL_SIZE=1 and SUPABASE_DB_MAX_OVERFLOW=0 on Render.
-    supabase_db_pool_size: int = Field(default=1)
-    supabase_db_max_overflow: int = Field(default=0)
+    # - Lower pool on Render. Locally we need >1 so the scheduler doesn't block API requests.
+    supabase_db_pool_size: int = Field(default=3)
+    supabase_db_max_overflow: int = Field(default=2)
 
     # AWS RDS (shared data)
     aws_rds_host: str = Field(default="localhost")
@@ -151,8 +151,34 @@ class Settings(BaseSettings):
     
     @property
     def cors_origins_list(self) -> List[str]:
-        """Parse CORS origins string into list"""
-        return [origin.strip() for origin in self.cors_origins.split(",")]
+        """Parse CORS origins string into list.
+
+        In development (or when debug is on), merge common Expo web ports (8081–8095, etc.)
+        so the browser Origin header matches even if Metro uses 8082+ after a port conflict.
+        Production with debug off uses only the explicit env list.
+        """
+        parsed = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        allow_dev_extras = self.app_env.strip().lower() != "production" or self.debug
+        if not allow_dev_extras:
+            return parsed
+        dev_extras: List[str] = []
+        for port in range(8081, 8096):
+            dev_extras.extend(
+                [
+                    f"http://localhost:{port}",
+                    f"http://127.0.0.1:{port}",
+                    f"http://[::1]:{port}",
+                ]
+            )
+        for port in (19000, 19006, 8080, 3000):
+            dev_extras.extend(
+                [
+                    f"http://localhost:{port}",
+                    f"http://127.0.0.1:{port}",
+                    f"http://[::1]:{port}",
+                ]
+            )
+        return list(dict.fromkeys(parsed + dev_extras))
 
     @property
     def supabase_db_url(self) -> str:

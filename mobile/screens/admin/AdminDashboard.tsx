@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 export default function AdminDashboard() {
     const [stats, setStats] = useState<any>(null);
@@ -73,11 +73,12 @@ const styles = StyleSheet.create({
     card: {
         width: '45%',
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.lg,
         margin: '2.5%',
         alignItems: 'center',
-        ...shadows.md,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     iconContainer: { width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center', marginBottom: spacing.md },
     cardValue: { fontSize: 24, fontWeight: '700', color: colors.foreground },

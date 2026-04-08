@@ -3,7 +3,7 @@ import { AppState, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, 
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 
 const UNLOCKED = [
     'All courses & Maxx programs',
@@ -90,7 +90,7 @@ export default function PaymentThankYouScreen() {
         >
             <View style={styles.card}>
                 <View style={styles.iconWrap}>
-                    <Ionicons name="checkmark-circle" size={72} color={colors.primary} />
+                    <Ionicons name="checkmark-circle" size={72} color={colors.success} />
                 </View>
                 <Text style={styles.title}>{paid ? 'You’re in' : 'Thanks — almost there'}</Text>
                 <Text style={styles.subtitle}>
@@ -103,7 +103,7 @@ export default function PaymentThankYouScreen() {
                     <Text style={styles.listTitle}>Included with your membership</Text>
                     {UNLOCKED.map((line, i) => (
                         <View key={i} style={styles.listRow}>
-                            <Ionicons name="checkmark-circle" size={18} color={colors.accent} />
+                            <Ionicons name="checkmark-circle" size={18} color={colors.foreground} />
                             <Text style={styles.listText}>{line}</Text>
                         </View>
                     ))}
@@ -132,7 +132,7 @@ export default function PaymentThankYouScreen() {
                     activeOpacity={0.7}
                 >
                     {refreshing ? (
-                        <ActivityIndicator color={colors.accent} size="small" />
+                        <ActivityIndicator color={colors.foreground} size="small" />
                     ) : (
                         <Text style={styles.secondaryText}>Payment still pending? Tap to refresh account</Text>
                     )}
@@ -147,29 +147,29 @@ const styles = StyleSheet.create({
     scrollContent: {
         flexGrow: 1,
         justifyContent: 'center',
-        padding: spacing.lg,
-        paddingVertical: spacing.xl * 2,
+        padding: spacing.xl,
+        paddingVertical: spacing.xxl * 2,
     },
     card: {
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius['2xl'],
-        padding: spacing.xl,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        padding: spacing.xl + spacing.md,
         alignItems: 'center',
         maxWidth: 400,
         alignSelf: 'center',
         width: '100%',
         borderWidth: 1,
         borderColor: colors.border,
-        ...shadows.md,
     },
     iconWrap: { marginBottom: spacing.md },
     title: {
+        fontFamily: fonts.serif,
         fontSize: 26,
-        fontWeight: '700',
+        fontWeight: '400',
         color: colors.foreground,
-        marginBottom: spacing.sm,
+        marginBottom: spacing.md,
         textAlign: 'center',
-        letterSpacing: -0.5,
+        letterSpacing: -0.4,
     },
     subtitle: {
         fontSize: 15,
@@ -202,11 +202,12 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: spacing.sm,
         backgroundColor: colors.foreground,
-        paddingVertical: spacing.md + 2,
+        paddingVertical: 12,
         paddingHorizontal: spacing.xl,
-        borderRadius: borderRadius.full,
+        borderRadius: borderRadius.md,
         minWidth: 220,
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     buttonDisabled: { opacity: 0.7 },
     buttonText: {
@@ -222,7 +223,7 @@ const styles = StyleSheet.create({
     secondaryText: {
         fontSize: 14,
         fontWeight: '600',
-        color: colors.accent,
+        color: colors.textSecondary,
         textAlign: 'center',
     },
 });

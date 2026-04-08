@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-nati
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
+import { borderRadius, colors, spacing, typography } from '../../theme/dark';
 import { defaultFitmaxMacroSummary, defaultFitmaxSplit, defaultWorkoutLibrary, fitmaxAccent } from '../../features/fitmax/fitmax';
 
 export default function FitmaxPlanScreen() {
@@ -88,7 +88,13 @@ const styles = StyleSheet.create({
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
   headerTitle: { ...typography.h3 },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  macroCard: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.lg, ...shadows.md },
+  macroCard: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   editBtn: { position: 'absolute', top: spacing.md, right: spacing.md, paddingHorizontal: 10, paddingVertical: 4, borderRadius: borderRadius.full, backgroundColor: colors.surface },
   editText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
   calLabel: { ...typography.caption, textAlign: 'center', marginTop: spacing.md },
@@ -107,7 +113,13 @@ const styles = StyleSheet.create({
   dayLabel: { ...typography.caption },
   dayLabelTrain: { color: fitmaxAccent, fontWeight: '700' },
   dayShort: { fontSize: 11, fontWeight: '600', color: colors.textSecondary, marginTop: 2 },
-  listCard: { marginTop: spacing.md, backgroundColor: colors.card, borderRadius: borderRadius.xl, ...shadows.md },
+  listCard: {
+    marginTop: spacing.md,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   rowTitle: { fontSize: 14, fontWeight: '700', color: colors.foreground },
   rowSub: { ...typography.caption, marginTop: 2 },

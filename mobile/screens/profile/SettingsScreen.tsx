@@ -6,7 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { elevatedCardSurface } from '../../theme/screenAesthetic';
 import type { LegalDocId } from '../legal/legalDocuments';
 import { LEGAL_SUPPORT_EMAIL } from '../legal/legalConstants';
 
@@ -63,13 +64,18 @@ export default function SettingsScreen() {
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                     <Ionicons name="arrow-back" size={22} color={colors.foreground} />
                 </TouchableOpacity>
-                <Text style={styles.title}>Settings</Text>
+                <View style={styles.topBarTitleBlock}>
+                    <Text style={styles.titleEyebrow}>App</Text>
+                    <Text style={styles.title}>Settings</Text>
+                </View>
                 <View style={{ width: 40 }} />
             </View>
+            <View style={styles.topBarDivider} />
 
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
                 {/* Account section */}
                 <Text style={styles.sectionLabel}>ACCOUNT</Text>
+                <View style={styles.cardGroup}>
                 {isPaid ? (
                     <TouchableOpacity
                         style={styles.menuRow}
@@ -97,14 +103,16 @@ export default function SettingsScreen() {
                     <Text style={styles.menuRowText}>Edit personal info</Text>
                     <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('EditPersonal')} activeOpacity={0.7}>
+                <TouchableOpacity style={[styles.menuRow, styles.menuRowLast]} onPress={() => navigation.navigate('EditPersonal')} activeOpacity={0.7}>
                     <Ionicons name="leaf-outline" size={22} color={colors.foreground} />
                     <Text style={styles.menuRowText}>Edit lifestyle</Text>
                     <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                 </TouchableOpacity>
+                </View>
 
                 {/* Support & legal */}
-                <Text style={[styles.sectionLabel, { marginTop: spacing.xl }]}>SUPPORT & LEGAL</Text>
+                <Text style={[styles.sectionLabel, styles.sectionLabelSpaced]}>SUPPORT & LEGAL</Text>
+                <View style={styles.cardGroup}>
                 <Pressable
                     onPress={openSupport}
                     style={({ pressed }) => [styles.menuRow, pressed && { opacity: 0.6 }]}
@@ -118,11 +126,15 @@ export default function SettingsScreen() {
                     </View>
                     <Ionicons name="open-outline" size={18} color={colors.textMuted} />
                 </Pressable>
-                {POLICY_ROWS.map((row) => (
+                {POLICY_ROWS.map((row, idx) => (
                     <Pressable
                         key={row.id}
                         onPress={() => openDoc(row.id)}
-                        style={({ pressed }) => [styles.menuRow, pressed && { opacity: 0.6 }]}
+                        style={({ pressed }) => [
+                            styles.menuRow,
+                            idx === POLICY_ROWS.length - 1 && styles.menuRowLast,
+                            pressed && { opacity: 0.6 },
+                        ]}
                         accessibilityRole="link"
                     >
                         <Ionicons name={row.icon as any} size={22} color={colors.foreground} />
@@ -130,14 +142,17 @@ export default function SettingsScreen() {
                         <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                     </Pressable>
                 ))}
+                </View>
 
                 {/* Danger zone */}
-                <Text style={[styles.sectionLabel, { marginTop: spacing.xl }]}>DANGER ZONE</Text>
-                <TouchableOpacity style={[styles.menuRow, styles.deleteRow]} onPress={() => setDeleteModalVisible(true)} activeOpacity={0.7}>
+                <Text style={[styles.sectionLabel, styles.sectionLabelSpaced]}>DANGER ZONE</Text>
+                <View style={styles.cardGroup}>
+                <TouchableOpacity style={[styles.menuRow, styles.menuRowLast, styles.deleteRow]} onPress={() => setDeleteModalVisible(true)} activeOpacity={0.7}>
                     <Ionicons name="trash-outline" size={22} color={colors.error} />
                     <Text style={[styles.menuRowText, { color: colors.error }]}>Delete account</Text>
                     <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                 </TouchableOpacity>
+                </View>
 
                 <TouchableOpacity style={styles.logoutButton} onPress={logout} activeOpacity={0.7}>
                     <Text style={styles.logoutText}>Sign out</Text>
@@ -147,8 +162,17 @@ export default function SettingsScreen() {
             </ScrollView>
 
             {deleteModalVisible && (
-                <Pressable style={styles.modalOverlay} onPress={() => { Keyboard.dismiss(); setDeleteModalVisible(false); }}>
-                    <Pressable style={styles.modalContent} onPress={() => Keyboard.dismiss()}>
+                <View style={styles.modalOverlay} pointerEvents="box-none">
+                    <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => {
+                            Keyboard.dismiss();
+                            setDeleteModalVisible(false);
+                        }}
+                        accessibilityLabel="Close delete account dialog"
+                        accessibilityRole="button"
+                    />
+                    <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Delete account</Text>
                             <TouchableOpacity onPress={() => setDeleteModalVisible(false)} style={styles.modalClose} activeOpacity={0.7}>
@@ -178,8 +202,8 @@ export default function SettingsScreen() {
                                 {deleteBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.deleteActionButtonText}>Delete</Text>}
                             </TouchableOpacity>
                         </View>
-                    </Pressable>
-                </Pressable>
+                    </View>
+                </View>
             )}
         </View>
     );
@@ -191,59 +215,95 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: spacing.md,
-        paddingBottom: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        ...shadows.sm,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.sm,
+        backgroundColor: 'transparent',
+    },
+    topBarDivider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.divider,
+        marginHorizontal: spacing.lg,
+        opacity: 0.9,
     },
     backBtn: { padding: spacing.xs },
-    title: { ...typography.h3, color: colors.foreground, fontWeight: '700' },
-    scroll: { padding: spacing.lg, paddingBottom: spacing.xxl, maxWidth: 720, width: '100%', alignSelf: 'center' },
+    topBarTitleBlock: { flex: 1, alignItems: 'center', paddingHorizontal: spacing.sm },
+    titleEyebrow: {
+        ...typography.caption,
+        letterSpacing: 1.2,
+        textTransform: 'uppercase',
+        marginBottom: 2,
+    },
+    title: { ...typography.h3, fontSize: 17, textAlign: 'center' },
+    scroll: {
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.xl,
+        paddingBottom: spacing.xxxl,
+        maxWidth: 720,
+        width: '100%',
+        alignSelf: 'center',
+    },
     sectionLabel: {
         ...typography.label,
         color: colors.textMuted,
         marginBottom: spacing.sm,
-        marginTop: spacing.md,
-        letterSpacing: 1,
+        marginTop: 0,
+        letterSpacing: 1.2,
+    },
+    sectionLabelSpaced: {
+        marginTop: spacing.xl + spacing.sm,
+    },
+    cardGroup: {
+        ...elevatedCardSurface,
+        overflow: 'hidden',
+        paddingVertical: 0,
+        paddingHorizontal: 0,
+        marginBottom: spacing.sm,
+        borderRadius: borderRadius.lg,
     },
     menuRow: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.card,
-        paddingVertical: spacing.md,
+        paddingVertical: spacing.md + 2,
         paddingHorizontal: spacing.lg,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
         gap: spacing.md,
-        marginBottom: spacing.sm,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.divider,
+    },
+    menuRowLast: {
+        borderBottomWidth: 0,
     },
     menuRowText: {
         flex: 1,
-        fontSize: 16,
-        fontWeight: '500',
+        fontSize: 15,
+        fontWeight: '400',
         color: colors.foreground,
+        letterSpacing: 0.1,
     },
     supportHint: {
-        fontSize: 11,
+        fontSize: 12,
         color: colors.textMuted,
-        opacity: 0.85,
-        marginTop: 2,
+        marginTop: 4,
+        fontWeight: '400',
     },
     deleteRow: {
-        borderColor: 'rgba(220, 38, 38, 0.35)',
         backgroundColor: colors.card,
     },
     logoutButton: {
-        alignItems: 'center',
-        marginTop: spacing.xl,
-        paddingVertical: spacing.md,
+        alignSelf: 'center',
+        marginTop: spacing.xl + spacing.sm,
+        paddingVertical: spacing.sm + 2,
+        paddingHorizontal: spacing.xl,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.background,
     },
     logoutText: {
-        fontSize: 15,
+        fontSize: 13,
         fontWeight: '500',
-        color: colors.textMuted,
+        color: colors.textSecondary,
+        letterSpacing: 0.2,
     },
     modalOverlay: {
         position: 'absolute',
@@ -258,11 +318,13 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.xl,
         maxWidth: 440,
         width: '100%',
-        ...shadows.xl,
+        zIndex: 1,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xl },
     modalTitle: { ...typography.h3 },
@@ -274,9 +336,12 @@ const styles = StyleSheet.create({
         marginBottom: spacing.md,
     },
     input: {
-        backgroundColor: colors.surface,
+        backgroundColor: colors.background,
         borderRadius: borderRadius.md,
-        padding: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.md,
         color: colors.textPrimary,
         fontSize: 16,
         marginBottom: spacing.sm,
@@ -286,10 +351,11 @@ const styles = StyleSheet.create({
     cancelButtonText: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
     deleteActionButton: {
         backgroundColor: colors.error,
-        borderRadius: borderRadius.full,
-        paddingHorizontal: spacing.xl,
-        paddingVertical: spacing.md,
-        ...shadows.sm,
+        borderRadius: borderRadius.md,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: 10,
+        borderWidth: 1,
+        borderColor: colors.error,
     },
     deleteActionButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

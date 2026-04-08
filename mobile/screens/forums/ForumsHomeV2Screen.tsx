@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import {
     View,
     Text,
@@ -8,14 +8,21 @@ import {
     ActivityIndicator,
     TextInput,
     FlatList,
+    RefreshControl,
+    LayoutAnimation,
+    Platform,
+    UIManager,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { useForumV2CategoriesQuery, useForumV2SubforumsQuery, useForumV2SearchQuery } from '../../hooks/useAppQueries';
-import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, typography, fonts } from '../../theme/dark';
 
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 type Category = { id: string; name: string; slug: string; description?: string; order?: number };
 type Subforum = {
     id: string;
@@ -42,12 +49,26 @@ export default function ForumsHomeV2Screen() {
     const catsQ = useForumV2CategoriesQuery();
     const subsQ = useForumV2SubforumsQuery(null);
 
+    const [searchActive, setSearchActive] = useState(false);
+    const searchInputRef = useRef<TextInput>(null);
     const [searchInput, setSearchInput] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
     useEffect(() => {
         const t = setTimeout(() => setDebouncedSearch(searchInput.trim()), 400);
         return () => clearTimeout(t);
     }, [searchInput]);
+
+    const openSearch = () => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setSearchActive(true);
+        setTimeout(() => searchInputRef.current?.focus(), 100);
+    };
+    const closeSearch = () => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setSearchInput('');
+        setSearchActive(false);
+        searchInputRef.current?.blur();
+    };
 
     const searchQ = useForumV2SearchQuery(debouncedSearch);
     const searchHits: SearchHit[] = useMemo(() => (searchQ.data ?? []) as SearchHit[], [searchQ.data]);
@@ -91,38 +112,67 @@ export default function ForumsHomeV2Screen() {
 
     const showSearchResults = debouncedSearch.length >= 2;
 
+    const refreshing =
+        (catsQ.isRefetching && !catsQ.isPending) || (subsQ.isRefetching && !subsQ.isPending) || (searchQ.isRefetching && showSearchResults);
+    const onRefresh = useCallback(() => {
+        void Promise.all([
+            catsQ.refetch(),
+            subsQ.refetch(),
+            ...(showSearchResults && debouncedSearch.length >= 2 ? [searchQ.refetch()] : []),
+        ]);
+    }, [catsQ, subsQ, searchQ, showSearchResults, debouncedSearch]);
+
     return (
         <View style={styles.container}>
-            <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-                <View style={styles.headerRow}>
-                    <Text style={styles.title}>Forums</Text>
-                    <TouchableOpacity
-                        style={styles.iconBtn}
-                        onPress={() => navigation.navigate('ForumNotificationsV2')}
-                        activeOpacity={0.8}
-                    >
-                        <Ionicons name="notifications-outline" size={20} color={colors.textSecondary} />
-                    </TouchableOpacity>
-                </View>
-                <View style={styles.searchRow}>
-                    <Ionicons name="search" size={18} color={colors.textMuted} style={{ marginRight: 8 }} />
-                    <TextInput
-                        style={styles.searchInput}
-                        placeholder="Search all threads…"
-                        placeholderTextColor={colors.textMuted}
-                        value={searchInput}
-                        onChangeText={setSearchInput}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        clearButtonMode="while-editing"
-                    />
-                    {searchInput.length > 0 ? (
-                        <TouchableOpacity onPress={() => setSearchInput('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+            <View style={[styles.header, { paddingTop: insets.top + spacing.lg }]}>
+                {searchActive ? (
+                    <View style={styles.searchBarActive}>
+                        <Ionicons name="search-outline" size={17} color={colors.textMuted} />
+                        <TextInput
+                            ref={searchInputRef}
+                            style={styles.searchInput}
+                            placeholder="Search all threads…"
+                            placeholderTextColor={colors.textMuted}
+                            value={searchInput}
+                            onChangeText={setSearchInput}
+                            autoCapitalize="none"
+                            autoCorrect={false}
+                        />
+                        <TouchableOpacity
+                            onPress={closeSearch}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                            style={styles.searchCancelHit}
+                            accessibilityRole="button"
+                            accessibilityLabel="Close search"
+                        >
+                            <Text style={styles.searchCancelText}>Cancel</Text>
                         </TouchableOpacity>
-                    ) : null}
-                </View>
-                <Text style={styles.subTitle}>pick a board. post something useful.</Text>
+                    </View>
+                ) : (
+                    <View style={styles.headerRow}>
+                        <Text style={styles.title}>Forums</Text>
+                        <View style={styles.headerActions}>
+                            <TouchableOpacity
+                                style={styles.iconBtn}
+                                onPress={openSearch}
+                                activeOpacity={0.7}
+                                accessibilityRole="button"
+                                accessibilityLabel="Search forums"
+                            >
+                                <Ionicons name="search-outline" size={20} color={colors.textMuted} />
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.iconBtn}
+                                onPress={() => navigation.navigate('ForumNotificationsV2')}
+                                activeOpacity={0.7}
+                                accessibilityRole="button"
+                                accessibilityLabel="Forum notifications"
+                            >
+                                <Ionicons name="notifications-outline" size={20} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                )}
             </View>
 
             {showSearchResults ? (
@@ -133,7 +183,9 @@ export default function ForumsHomeV2Screen() {
                         </View>
                     ) : searchHits.length === 0 ? (
                         <View style={styles.emptySearch}>
+                            <Ionicons name="search-outline" size={24} color={colors.textMuted} style={{ marginBottom: spacing.md }} />
                             <Text style={styles.emptySearchText}>No threads match “{debouncedSearch}”</Text>
+                            <Text style={styles.emptySearchHint}>Try different words or check spelling.</Text>
                         </View>
                     ) : (
                         <FlatList
@@ -141,8 +193,18 @@ export default function ForumsHomeV2Screen() {
                             keyExtractor={(item) => item.id}
                             contentContainerStyle={styles.searchList}
                             keyboardShouldPersistTaps="handled"
+                            refreshControl={
+                                <RefreshControl refreshing={!!refreshing && showSearchResults} onRefresh={onRefresh} tintColor={colors.foreground} />
+                            }
+                            ItemSeparatorComponent={() => <View style={styles.divider} />}
                             renderItem={({ item }) => (
-                                <TouchableOpacity style={styles.searchHitRow} onPress={() => openThread(item)} activeOpacity={0.85}>
+                                <TouchableOpacity
+                                    style={styles.searchHitRow}
+                                    onPress={() => openThread(item)}
+                                    activeOpacity={0.7}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Thread: ${item.title}`}
+                                >
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.searchHitTitle} numberOfLines={2}>
                                             {item.title}
@@ -153,7 +215,7 @@ export default function ForumsHomeV2Screen() {
                                             </Text>
                                         ) : null}
                                     </View>
-                                    <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+                                    <Ionicons name="chevron-forward" size={14} color={colors.textMuted} style={{ opacity: 0.5 }} />
                                 </TouchableOpacity>
                             )}
                         />
@@ -164,60 +226,82 @@ export default function ForumsHomeV2Screen() {
                     <ActivityIndicator size="large" color={colors.foreground} />
                 </View>
             ) : (
-                <ScrollView contentContainerStyle={styles.scroll}>
+                <ScrollView
+                    contentContainerStyle={styles.scroll}
+                    keyboardShouldPersistTaps="handled"
+                    refreshControl={
+                        <RefreshControl refreshing={!!refreshing && !showSearchResults} onRefresh={onRefresh} tintColor={colors.foreground} />
+                    }
+                >
                     {categories.map((c) => {
                         const boards = subsByCategory.get(c.id) ?? [];
                         if (boards.length === 0) return null;
                         return (
                             <View key={c.id} style={styles.section}>
-                                <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleCollapsed(c.id)} activeOpacity={0.85}>
+                                <TouchableOpacity
+                                    style={styles.sectionHeader}
+                                    onPress={() => toggleCollapsed(c.id)}
+                                    activeOpacity={0.7}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`${collapsed[c.id] ? 'Expand' : 'Collapse'} ${c.name}`}
+                                    accessibilityState={{ expanded: !collapsed[c.id] }}
+                                >
                                     <View style={{ flex: 1 }}>
                                         <Text style={styles.sectionTitle}>{c.name}</Text>
                                         {c.description ? <Text style={styles.sectionDesc}>{c.description}</Text> : null}
                                     </View>
                                     <Ionicons
                                         name={collapsed[c.id] ? 'chevron-down' : 'chevron-up'}
-                                        size={18}
+                                        size={12}
                                         color={colors.textMuted}
+                                        style={{ opacity: 0.35 }}
                                     />
                                 </TouchableOpacity>
                                 {!collapsed[c.id] ? (
-                                    <View style={styles.card}>
-                                        {boards.map((s) => {
+                                    <>
+                                        {boards.map((s, idx) => {
                                             const isPremiumBoard = (s.access_tier ?? 'public').toLowerCase() === 'premium';
                                             const isLocked = isPremiumBoard && !canAccessPremium;
                                             return (
-                                                <TouchableOpacity
-                                                    key={s.id}
-                                                    style={[styles.boardRow, isLocked && styles.boardRowLocked]}
-                                                    onPress={() => openSubforum(s)}
-                                                    activeOpacity={0.8}
-                                                >
-                                                    <View style={styles.boardMain}>
-                                                        <View style={styles.boardTitleRow}>
-                                                            <Text style={[styles.boardName, isLocked && styles.boardNameLocked]} numberOfLines={1}>
-                                                                {s.name}
-                                                            </Text>
-                                                            {isPremiumBoard ? (
-                                                                <View style={styles.premiumBadge}>
-                                                                    <Ionicons name={isLocked ? 'lock-closed' : 'star'} size={10} color="#fff" />
+                                                <View key={s.id}>
+                                                    {idx > 0 && <View style={styles.boardDivider} />}
+                                                    <TouchableOpacity
+                                                        style={[
+                                                        styles.boardRow,
+                                                        isLocked && styles.boardRowLocked,
+                                                        ]}
+                                                        onPress={() => openSubforum(s)}
+                                                        activeOpacity={0.7}
+                                                    >
+                                                        <View style={[styles.boardAccent, isPremiumBoard && styles.boardAccentPremium]} />
+                                                        <View style={styles.boardMain}>
+                                                            <View style={styles.boardTitleRow}>
+                                                                <Text style={[styles.boardName, isLocked && styles.boardNameLocked]} numberOfLines={1}>
+                                                                    {s.name}
+                                                                </Text>
+                                                                {isPremiumBoard ? (
                                                                     <Text style={styles.premiumBadgeText}>PREMIUM</Text>
-                                                                </View>
+                                                                ) : null}
+                                                                {s.is_read_only ? <Text style={styles.readOnly}>read-only</Text> : null}
+                                                            </View>
+                                                            {s.description ? (
+                                                                <Text style={styles.boardDesc} numberOfLines={2}>
+                                                                    {s.description}
+                                                                </Text>
                                                             ) : null}
-                                                            {s.is_read_only ? <Text style={styles.readOnly}>read-only</Text> : null}
+                                                            <Text style={styles.meta}>{(s.thread_count ?? 0).toString()} threads</Text>
                                                         </View>
-                                                        {s.description ? (
-                                                            <Text style={styles.boardDesc} numberOfLines={2}>
-                                                                {s.description}
-                                                            </Text>
-                                                        ) : null}
-                                                        <Text style={styles.meta}>{(s.thread_count ?? 0).toString()} threads</Text>
-                                                    </View>
-                                                    <Ionicons name={isLocked ? 'lock-closed' : 'chevron-forward'} size={18} color={colors.textMuted} />
-                                                </TouchableOpacity>
+                                                        <Ionicons
+                                                            name={isLocked ? 'lock-closed' : 'chevron-forward'}
+                                                            size={14}
+                                                            color={colors.textMuted}
+                                                            style={{ opacity: isLocked ? 0.6 : 0.4 }}
+                                                        />
+                                                    </TouchableOpacity>
+                                                </View>
                                             );
                                         })}
-                                    </View>
+                                    </>
                                 ) : null}
                             </View>
                         );
@@ -231,95 +315,199 @@ export default function ForumsHomeV2Screen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: {
-        paddingHorizontal: spacing.lg,
-        paddingBottom: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-        backgroundColor: colors.card,
+        paddingHorizontal: spacing.xl,
+        paddingBottom: spacing.lg,
+        backgroundColor: colors.background,
     },
-    headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    title: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.4 },
-    subTitle: { marginTop: 6, color: colors.textMuted, fontSize: 12 },
-    searchRow: {
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: 'space-between',
+    },
+    headerActions: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: spacing.md,
-        paddingHorizontal: spacing.md,
-        height: 44,
-        borderRadius: borderRadius.lg,
-        backgroundColor: colors.surfaceLight,
-        borderWidth: 1,
-        borderColor: colors.border,
+        gap: 2,
     },
-    searchInput: { flex: 1, color: colors.foreground, fontSize: 15, paddingVertical: 8 },
+    title: {
+        fontFamily: fonts.serif,
+        fontSize: 34,
+        fontWeight: '400',
+        color: colors.textPrimary,
+        letterSpacing: -0.5,
+        lineHeight: 42,
+    },
+    subTitle: {
+        marginTop: spacing.sm,
+        color: colors.textMuted,
+        fontSize: 13,
+        lineHeight: 20,
+        fontWeight: '400',
+        letterSpacing: 0.1,
+    },
+    searchBarActive: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        paddingVertical: 10,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.border,
+    },
+    searchInput: {
+        flex: 1,
+        color: colors.foreground,
+        fontSize: 15,
+        paddingVertical: 4,
+        fontFamily: fonts.sans,
+    },
+    searchCancelHit: {
+        paddingVertical: 6,
+        paddingHorizontal: 4,
+    },
+    searchCancelText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.textSecondary,
+    },
     iconBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+        width: 44,
+        height: 44,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: colors.surfaceLight,
-        borderWidth: 1,
-        borderColor: colors.border,
     },
     searchBody: { flex: 1 },
-    searchList: { padding: spacing.lg, paddingBottom: spacing.xxl },
+    searchList: {
+        paddingHorizontal: spacing.xl,
+        paddingTop: spacing.lg,
+        paddingBottom: spacing.xxxl,
+    },
     searchHitRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: spacing.md,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.border,
-        gap: 8,
+        paddingVertical: 20,
     },
-    searchHitTitle: { color: colors.foreground, fontSize: 15, fontWeight: '700' },
-    searchHitMeta: { color: colors.textMuted, fontSize: 12, marginTop: 4 },
-    emptySearch: { padding: spacing.xl, alignItems: 'center' },
-    emptySearchText: { color: colors.textMuted, fontSize: 14 },
+    searchHitTitle: {
+        ...typography.body,
+        fontSize: 15,
+        fontWeight: '500',
+        fontFamily: fonts.sansMedium,
+    },
+    searchHitMeta: {
+        color: colors.textMuted,
+        fontSize: 12,
+        marginTop: 4,
+        letterSpacing: 0.2,
+    },
+    divider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.border,
+    },
+    emptySearch: {
+        flex: 1,
+        paddingHorizontal: spacing.xl,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emptySearchText: {
+        fontFamily: fonts.serif,
+        fontSize: 17,
+        color: colors.textPrimary,
+        textAlign: 'center',
+        lineHeight: 24,
+    },
+    emptySearchHint: {
+        color: colors.textMuted,
+        fontSize: 13,
+        marginTop: spacing.sm,
+        textAlign: 'center',
+        lineHeight: 18,
+    },
     loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    scroll: { padding: spacing.lg, paddingBottom: spacing.xxl },
-    section: { marginBottom: spacing.lg },
+    scroll: {
+        paddingHorizontal: spacing.xl,
+        paddingTop: spacing.md,
+        paddingBottom: spacing.xxxl,
+    },
+    section: {
+        marginBottom: 40,
+    },
     sectionHeader: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
         justifyContent: 'space-between',
-        marginBottom: 10,
+        paddingBottom: spacing.md,
     },
-    sectionTitle: { color: colors.foreground, fontSize: 16, fontWeight: '800' },
-    sectionDesc: { color: colors.textMuted, fontSize: 12, marginTop: 4, marginBottom: 10 },
-    card: {
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderRadius: borderRadius.lg,
-        overflow: 'hidden',
-        ...shadows.sm,
+    sectionTitle: {
+        fontFamily: fonts.serif,
+        fontSize: 20,
+        fontWeight: '400',
+        color: colors.textPrimary,
+        letterSpacing: -0.2,
+        lineHeight: 28,
+    },
+    sectionDesc: {
+        color: colors.textMuted,
+        fontSize: 13,
+        marginTop: 6,
+        lineHeight: 18,
+    },
+    boardDivider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.border,
     },
     boardRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: spacing.lg,
-        paddingVertical: spacing.md,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
+        paddingVertical: 18,
+        gap: spacing.md,
     },
-    boardMain: { flex: 1, paddingRight: 10 },
-    boardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-    boardRowLocked: { opacity: 0.65, backgroundColor: colors.premiumLight },
-    boardName: { color: colors.foreground, fontSize: 14, fontWeight: '800', maxWidth: '70%' },
-    boardNameLocked: { color: colors.textMuted },
-    premiumBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 3,
+    boardAccent: {
+        width: 3,
+        height: 28,
+        borderRadius: 1.5,
+        backgroundColor: colors.foreground,
+        opacity: 0.15,
+    },
+    boardAccentPremium: {
         backgroundColor: colors.premium,
-        borderRadius: 6,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
+        opacity: 0.5,
     },
-    premiumBadgeText: { color: '#fff', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
-    boardDesc: { color: colors.textMuted, fontSize: 12, marginTop: 6, lineHeight: 16 },
-    meta: { color: colors.textMuted, fontSize: 11, marginTop: 6 },
-    readOnly: { color: colors.textMuted, fontSize: 11, fontWeight: '700' },
+    boardMain: { flex: 1, paddingRight: spacing.md },
+    boardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
+    boardRowLocked: { opacity: 0.5 },
+    boardName: {
+        color: colors.foreground,
+        fontSize: 16,
+        fontWeight: '500',
+        fontFamily: fonts.sansMedium,
+        letterSpacing: -0.1,
+    },
+    boardNameLocked: { color: colors.textMuted },
+    premiumBadgeText: {
+        color: colors.textMuted,
+        fontSize: 9,
+        fontWeight: '600',
+        letterSpacing: 1.2,
+    },
+    boardDesc: {
+        color: colors.textMuted,
+        fontSize: 13,
+        marginTop: 4,
+        lineHeight: 19,
+    },
+    meta: {
+        color: colors.textMuted,
+        fontSize: 9,
+        marginTop: 6,
+        letterSpacing: 1,
+        textTransform: 'uppercase',
+        fontWeight: '500',
+    },
+    readOnly: {
+        color: colors.textMuted,
+        fontSize: 9,
+        fontWeight: '600',
+        letterSpacing: 1.0,
+        textTransform: 'uppercase',
+    },
 });

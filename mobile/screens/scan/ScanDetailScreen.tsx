@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 export default function ScanDetailScreen() {
     const navigation = useNavigation<any>();
@@ -85,25 +85,40 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     centerContent: { justifyContent: 'center', alignItems: 'center' },
     content: { paddingBottom: spacing.xxl },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 64, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingTop: 64,
+        paddingHorizontal: spacing.xl,
+        paddingBottom: spacing.lg,
+    },
     backButton: { width: 40, height: 40, justifyContent: 'center' },
     title: { ...typography.h2 },
     dateText: { fontSize: 13, textAlign: 'center', color: colors.textMuted, marginBottom: spacing.md },
     loadingText: { fontSize: 14, marginTop: spacing.md, color: colors.textSecondary },
     errorText: { fontSize: 14, color: colors.error, marginBottom: spacing.md },
     scoreCard: {
-        margin: spacing.lg, backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'], padding: spacing.xl,
-        alignItems: 'center', ...shadows.lg,
+        marginHorizontal: spacing.xl,
+        marginBottom: spacing.lg,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        padding: spacing.xl + spacing.sm,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     scoreLabel: { ...typography.label, marginBottom: spacing.sm },
     score: { fontSize: 72, fontWeight: '700', lineHeight: 82 },
     scoreMax: { fontSize: 18, fontWeight: '500', color: colors.textMuted },
-    sectionLabel: { ...typography.label, marginHorizontal: spacing.lg, marginTop: spacing.lg, marginBottom: spacing.md },
+    sectionLabel: { ...typography.label, marginHorizontal: spacing.xl, marginTop: spacing.lg, marginBottom: spacing.md },
     metricsCard: {
-        marginHorizontal: spacing.lg, backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'], padding: spacing.lg,
-        ...shadows.md,
+        marginHorizontal: spacing.xl,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        padding: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     metricItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
     metricLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
@@ -113,9 +128,13 @@ const styles = StyleSheet.create({
     metricFill: { height: '100%', borderRadius: 2 },
     metricValue: { fontSize: 14, fontWeight: '700', width: 35, textAlign: 'right' },
     recommendationsCard: {
-        marginHorizontal: spacing.lg, backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'], padding: spacing.lg, gap: spacing.md,
-        ...shadows.md,
+        marginHorizontal: spacing.xl,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        padding: spacing.lg,
+        gap: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     recItem: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md },
     recContent: { flex: 1 },

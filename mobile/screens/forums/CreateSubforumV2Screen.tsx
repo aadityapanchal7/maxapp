@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
 import { useForumV2CategoriesQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
-import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius } from '../../theme/dark';
 
 type Category = { id: string; name: string; slug: string };
 
@@ -160,7 +160,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: spacing.lg,
         paddingVertical: spacing.md,
         color: colors.foreground,
-        ...shadows.sm,
     },
     desc: { minHeight: 90, textAlignVertical: 'top' as any },
 });

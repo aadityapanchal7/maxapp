@@ -352,33 +352,27 @@ async def upload_avatar(
     """
     Upload profile picture
     """
-    # Read file content
     content = await file.read()
-    
-    # Delete previous avatar if it exists
+
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     try:
-        user_uuid = UUID(current_user["id"])
-        user = await db.get(User, user_uuid)
-        if user and user.profile and user.profile.get("avatar_url"):
+        if user.profile and user.profile.get("avatar_url"):
             delete_by_url(user.profile.get("avatar_url"))
     except Exception as e:
         logger.warning("Avatar cleanup failed: %s", e)
 
-    # Upload to storage
     avatar_url = await storage_service.upload_image(
         content,
         current_user["id"],
         image_type="avatar"
     )
-    
+
     if not avatar_url:
         raise HTTPException(status_code=500, detail="Failed to upload image")
-    
-    # Update user profile
-    user_uuid = UUID(current_user["id"])
-    user = await db.get(User, user_uuid)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
     # Assign a new dict to ensure SQLAlchemy tracks JSON changes
     current_profile = dict(user.profile or {})

@@ -11,7 +11,7 @@ import {
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import type { LegalBlock } from './legalTypes';
 import { getLegalBlocks, type LegalDocId } from './legalDocuments';
 import { LEGAL_SUPPORT_EMAIL } from './legalConstants';
@@ -125,7 +125,6 @@ const styles = StyleSheet.create({
         paddingBottom: spacing.md,
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
-        ...shadows.sm,
     },
     backBtn: { padding: spacing.xs },
     title: { ...typography.h3, color: colors.foreground, fontWeight: '700', flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },

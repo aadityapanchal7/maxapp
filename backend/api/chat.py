@@ -2024,10 +2024,15 @@ async def process_chat_message(
 
     existing_maxx = None
     if maxx_id:
-        try:
-            existing_maxx = await schedule_service.get_maxx_schedule(user_id, maxx_id, db=db)
-        except Exception:
-            existing_maxx = None
+        if maxx_id == "fitmax":
+            existing_maxx = fitmax_schedule_active
+        elif maxx_id == "hairmax":
+            existing_maxx = hairmax_schedule_active
+        else:
+            try:
+                existing_maxx = await schedule_service.get_maxx_schedule(user_id, maxx_id, db=db)
+            except Exception:
+                existing_maxx = None
 
         # App "Start schedule" for HeightMax + full onboarding → generate immediately (no redundant LLM Q&A).
         if (
@@ -2367,6 +2372,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     modify_schedule_ran = False
     for tool in tool_calls:
         if tool["name"] == "modify_schedule" and active_schedule:
+            modify_schedule_ran = True
             try:
                 if _looks_like_informational_question(message_text):
                     logger.info(
@@ -2376,7 +2382,6 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     continue
                 feedback = tool["args"].get("feedback")
                 if feedback:
-                    modify_schedule_ran = True
                     adapt_result = await schedule_service.adapt_schedule(
                         user_id=user_id,
                         schedule_id=active_schedule["id"],

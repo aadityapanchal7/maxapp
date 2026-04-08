@@ -97,6 +97,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const queryClient = useQueryClient();
 
     const checkAuth = useCallback(async () => {
+        if (__DEV__) {
+            const base = api.getBaseUrl();
+            // Physical devices cannot reach the host machine via 127.0.0.1 / localhost.
+            if (Platform.OS !== 'web' && /127\.0\.0\.1|localhost/i.test(base)) {
+                console.warn(
+                    '[Max] EXPO_PUBLIC_API_BASE_URL points at loopback on a native build. ' +
+                        'Use your computer’s LAN IP (e.g. http://10.x.x.x:8000/api/) and `npx expo start --lan`, ' +
+                        'or use the hosted API URL from mobile/.env comments.',
+                );
+            }
+            // Do not await — health check used to block boot for up to 12s on web and felt like a hang.
+            void api.checkBackendHealth({ timeoutMs: 4_000 }).then((healthy) => {
+                if (!healthy) {
+                    const root = base.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
+                    console.warn(
+                        `[Max] Backend unreachable at ${base} (${root}/health failed). ` +
+                            'Start uvicorn (maxapp/backend, port 8000), set EXPO_PUBLIC_API_BASE_URL in mobile/.env ' +
+                            '(must end with /api/). On a phone, use your Mac LAN IP, not 127.0.0.1.',
+                    );
+                } else {
+                    console.log(`[Max] API OK — ${base}`);
+                }
+            });
+        }
         try {
             const token = await getItemAsync('access_token');
             if (token) {
@@ -134,25 +158,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         })();
     }, [user?.id]);
-
-    useEffect(() => {
-        if (!__DEV__) return;
-        void api.checkBackendHealth().then((ok) => {
-            if (!ok) {
-                const base = api.getBaseUrl();
-                const root = base.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
-                if (Platform.OS === 'web') {
-                    console.warn(
-                        `[Max] Backend not reachable at ${root}/health from the browser. Start uvicorn (maxapp/backend, port 8000), ensure CORS includes this page origin, EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api/, then restart Metro.`,
-                    );
-                } else {
-                    console.warn(
-                        `[Max] Backend not reachable (${root}/health). API base: ${base} — start FastAPI from maxapp/backend or fix EXPO_PUBLIC_API_BASE_URL, then restart Metro.`,
-                    );
-                }
-            }
-        });
-    }, []);
 
     const login = useCallback(async (identifier: string, password: string) => {
         await api.login(identifier, password);

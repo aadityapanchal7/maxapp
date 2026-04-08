@@ -1,13 +1,17 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, Alert, ActivityIndicator, Animated, Pressable, Platform, useWindowDimensions, Keyboard } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { CachedImage } from '../../components/CachedImage';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { formatFaceRatingLabel } from '../../utils/faceRatingLabel';
+import { useMaxxesQuery } from '../../hooks/useAppQueries';
+import { getMaxxDisplayLabel } from '../../utils/maxxDisplay';
+import { normalizeMaxxTintHex } from '../../components/MaxxProgramRow';
 
 const getImageModalWidth = (width: number) =>
     Platform.OS === 'web' && width > 600
@@ -24,12 +28,17 @@ function formatProgressDate(dateStr: string): string {
 
 export default function ProfileScreen() {
     const navigation = useNavigation<any>();
+    const insets = useSafeAreaInsets();
     const { width: winWidth } = useWindowDimensions();
-    const isDesktop = Platform.OS === 'web' && winWidth > 480;
-    const gridColumns = Platform.OS === 'web' ? (winWidth > 800 ? 3 : winWidth > 500 ? 2 : 3) : 3;
-    const gridItemWidth = `${100 / gridColumns}%` as any;
     const imageModalWidth = getImageModalWidth(winWidth);
     const { user, refreshUser, isPaid, isPremium } = useAuth();
+    const maxxesQuery = useMaxxesQuery();
+    const activeMaxxes = useMemo(() => {
+        const allMaxxes = maxxesQuery.data?.maxes ?? [];
+        const userGoalIds = new Set(((user?.onboarding?.goals || []) as string[]).map((g: string) => g.toLowerCase()));
+        if (userGoalIds.size === 0) return [];
+        return allMaxxes.filter((m: any) => m.id && userGoalIds.has(m.id.toLowerCase()));
+    }, [maxxesQuery.data, user?.onboarding?.goals]);
     const [loading, setLoading] = useState(true);
     const [progressPhotos, setProgressPhotos] = useState<any[]>([]);
     const [progressModalVisible, setProgressModalVisible] = useState(false);
@@ -60,13 +69,13 @@ export default function ProfileScreen() {
         }
     };
 
-    const handleEditPress = () => { 
-        setEditBio(user?.profile?.bio || ''); 
-        setEditFirstName(user?.first_name || ''); 
-        setEditLastName(user?.last_name || ''); 
-        setEditUsername(user?.username || ''); 
-        setEditAvatarUri(null); 
-        setEditModalVisible(true); 
+    const handleEditPress = () => {
+        setEditBio(user?.profile?.bio || '');
+        setEditFirstName(user?.first_name || '');
+        setEditLastName(user?.last_name || '');
+        setEditUsername(user?.username || '');
+        setEditAvatarUri(null);
+        setEditModalVisible(true);
     };
     const pickImage = async () => { const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 }); if (!result.canceled) setEditAvatarUri(result.assets[0].uri); };
 
@@ -93,7 +102,8 @@ export default function ProfileScreen() {
             setProgressPhotos(progressRes.photos || []);
         } catch (e) {
             console.error(e);
-            Alert.alert('Error', 'Could not upload progress photo. Please try again.');
+            const msg = 'Could not upload progress photo. Please try again.';
+            Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Error', msg);
         } finally {
             setUploadingProgress(false);
         }
@@ -107,45 +117,52 @@ export default function ProfileScreen() {
     const deleteProgressPhoto = async (index: number) => {
         const photo = progressPhotos[index];
         if (!photo) return;
-        Alert.alert('Delete photo', 'Are you sure you want to delete this progress photo?', [
-            { text: 'Cancel', style: 'cancel' },
-            {
-                text: 'Delete',
-                style: 'destructive',
-                onPress: async () => {
-                    try {
-                        await api.deleteProgressPhoto(photo.id);
-                        const updated = progressPhotos.filter((_, i) => i !== index);
-                        setProgressPhotos(updated);
-                        if (updated.length === 0) {
-                            setProgressModalVisible(false);
-                        } else {
-                            setSelectedPhotoIndex(Math.min(index, updated.length - 1));
-                        }
-                    } catch (e) {
-                        console.error(e);
-                        Alert.alert('Error', 'Could not delete photo. Please try again.');
-                    }
-                },
-            },
-        ]);
+
+        const doDelete = async () => {
+            try {
+                await api.deleteProgressPhoto(photo.id);
+                const updated = progressPhotos.filter((_, i) => i !== index);
+                setProgressPhotos(updated);
+                if (updated.length === 0) {
+                    setProgressModalVisible(false);
+                } else {
+                    setSelectedPhotoIndex(Math.min(index, updated.length - 1));
+                }
+            } catch (e) {
+                console.error(e);
+                if (Platform.OS === 'web') {
+                    window.alert('Could not delete photo. Please try again.');
+                } else {
+                    Alert.alert('Error', 'Could not delete photo. Please try again.');
+                }
+            }
+        };
+
+        if (Platform.OS === 'web') {
+            if (window.confirm('Are you sure you want to delete this progress photo?')) {
+                await doDelete();
+            }
+        } else {
+            Alert.alert('Delete photo', 'Are you sure you want to delete this progress photo?', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Delete', style: 'destructive', onPress: doDelete },
+            ]);
+        }
     };
 
     const saveProfile = async () => {
         setSaveLoading(true);
         try {
             let newAvatarUrl = user?.profile?.avatar_url;
-            if (editAvatarUri) { 
+            if (editAvatarUri) {
                 try {
-                    const res = await api.uploadAvatar(editAvatarUri); 
-                    newAvatarUrl = res.avatar_url; 
+                    const res = await api.uploadAvatar(editAvatarUri);
+                    newAvatarUrl = res.avatar_url;
                 } catch (avatarError: any) {
                     console.error('Avatar upload error:', avatarError);
-                    // Continue with profile update even if avatar fails
                 }
             }
-            
-            // Update profile (bio, avatar)
+
             try {
                 await api.updateProfile({ bio: editBio, avatar_url: newAvatarUrl });
                 console.log('Profile updated successfully');
@@ -153,14 +170,12 @@ export default function ProfileScreen() {
                 console.error('Profile update error:', profileError);
                 throw profileError;
             }
-            
-            // Update account info (first_name, last_name, username)
+
             const accountUpdates: any = {};
             const currentFirstName = user?.first_name || '';
             const currentLastName = user?.last_name || '';
             const currentUsername = user?.username || '';
-            
-            // Always include fields that have changed or are being set for the first time
+
             if (editFirstName.trim() !== currentFirstName) {
                 accountUpdates.first_name = editFirstName.trim() || null;
             }
@@ -171,20 +186,21 @@ export default function ProfileScreen() {
                 const trimmedUsername = editUsername.trim();
                 if (trimmedUsername) {
                     if (trimmedUsername.length < 3) {
-                        Alert.alert('Error', 'Username must be at least 3 characters');
+                        const msg = 'Username must be at least 3 characters';
+                        Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Error', msg);
                         setSaveLoading(false);
                         return;
                     }
                     if (!/^[a-zA-Z0-9_]+$/.test(trimmedUsername)) {
-                        Alert.alert('Error', 'Username can only contain letters, numbers, and underscores');
+                        const msg = 'Username can only contain letters, numbers, and underscores';
+                        Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Error', msg);
                         setSaveLoading(false);
                         return;
                     }
                 }
                 accountUpdates.username = trimmedUsername || null;
             }
-            
-            // Always call updateAccount if there are any changes
+
             if (Object.keys(accountUpdates).length > 0) {
                 console.log('Updating account with:', accountUpdates);
                 try {
@@ -197,63 +213,98 @@ export default function ProfileScreen() {
             } else {
                 console.log('No account fields to update');
             }
-            
-            // Refresh user data to get latest changes
-            await refreshUser(); 
-            setEditModalVisible(false); 
-            Alert.alert('Success', 'Profile updated!');
-        } catch (e: any) { 
-            console.error('Save profile error:', e); 
-            console.error('Error response:', e?.response);
-            console.error('Error response data:', e?.response?.data);
+
+            await refreshUser();
+            setEditModalVisible(false);
+        } catch (e: any) {
+            console.error('Save profile error:', e);
             const errorMsg = e?.response?.data?.detail || e?.message || 'Failed to update profile';
-            Alert.alert('Error', errorMsg); 
+            if (Platform.OS === 'web') {
+                window.alert(errorMsg);
+            } else {
+                Alert.alert('Error', errorMsg);
+            }
         }
         finally { setSaveLoading(false); }
     };
 
+    const onFaceScansPress = () => {
+        if (isPremium) {
+            navigation.navigate('FaceScanArchive');
+        } else {
+            Alert.alert(
+                'Face scans',
+                'Face scans are not available on Basic. Upgrade to Premium for daily scans.',
+                [
+                    { text: 'OK', style: 'cancel' },
+                    { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
+                ],
+            );
+        }
+    };
+
     const renderSkeleton = () => (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            <View style={styles.header}>
-                <View style={[styles.avatarPlaceholder, styles.avatarSkeleton]} />
+            <View style={styles.topBarSkeletonPad} />
+            <View style={styles.identitySkeletonSection}>
+                <View style={styles.avatarRingSkeleton}>
+                    <View style={[styles.avatarPlaceholder, styles.avatarSkeleton]} />
+                </View>
+                <View style={styles.skeletonHint} />
                 <View style={styles.textSkeletonRow}>
                     <View style={styles.skeletonLine} />
-                    <View style={[styles.skeletonLine, { width: '70%' }]} />
+                    <View style={[styles.skeletonLine, { width: '50%' }]} />
                 </View>
                 <View style={styles.textSkeletonBio} />
-                <View style={styles.headerActionsRow}>
+                <View style={styles.actionsColSkeleton}>
                     <View style={styles.pillSkeleton} />
                     <View style={styles.pillSkeleton} />
                 </View>
             </View>
-            <View style={styles.section}>
-                <View style={[styles.skeletonLine, { width: 80, height: 18, marginBottom: 12 }]} />
+            <View style={styles.gridDivider} />
+            <View style={styles.progressSkeletonSection}>
+                <View style={styles.sectionEyebrowSkeleton} />
+                <View style={styles.sectionTitleSkeleton} />
                 <View style={styles.archiveSkeletonRow}>
                     <View style={styles.archiveSkeletonItem} />
                     <View style={styles.archiveSkeletonItem} />
                     <View style={styles.archiveSkeletonItem} />
                 </View>
             </View>
-            <View style={styles.section}>
-                <View style={[styles.skeletonLine, { height: 52, borderRadius: 12 }]} />
-            </View>
+            {isPaid ? (
+                <>
+                    <View style={styles.gridDivider} />
+                    <View style={styles.toolsSkeletonSection}>
+                        <View style={styles.listRowSkeleton} />
+                    </View>
+                </>
+            ) : null}
         </ScrollView>
     );
 
     return (
         <View style={styles.container}>
-            <View style={styles.topBar}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton} activeOpacity={0.7}>
+            <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) }]}>
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
+                    style={styles.iconButton}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                >
                     <Ionicons name="arrow-back" size={20} color={colors.foreground} />
                 </TouchableOpacity>
-                <Text style={styles.topBarTitle}>Profile</Text>
+                <Text style={styles.topBarTitle} numberOfLines={1}>
+                    {user?.username ? user.username : 'Profile'}
+                </Text>
                 <TouchableOpacity
                     onPress={() => navigation.navigate('Settings')}
-                    style={styles.backButton}
+                    style={styles.iconButton}
                     activeOpacity={0.7}
                     accessibilityLabel="Settings"
+                    accessibilityRole="button"
                 >
-                    <Ionicons name="settings-outline" size={22} color={colors.foreground} />
+                    <Ionicons name="settings-outline" size={20} color={colors.foreground} />
                 </TouchableOpacity>
             </View>
 
@@ -261,128 +312,146 @@ export default function ProfileScreen() {
                 renderSkeleton()
             ) : (
                 <Animated.ScrollView showsVerticalScrollIndicator={false} style={{ opacity: fadeAnim }} contentContainerStyle={styles.scrollContent}>
-                    <View style={styles.header}>
-                        <TouchableOpacity onPress={handleEditPress} style={styles.avatarContainer} activeOpacity={0.8}>
-                            {user?.profile?.avatar_url ? (
-                                <CachedImage uri={api.resolveAttachmentUrl(user.profile.avatar_url)} style={styles.avatarImage} />
-                            ) : (
-                                <View style={styles.avatarPlaceholder}><Ionicons name="person" size={40} color={colors.textMuted} /></View>
-                            )}
+                    <View style={styles.identitySection}>
+                        <TouchableOpacity
+                            onPress={handleEditPress}
+                            activeOpacity={0.85}
+                            accessibilityRole="button"
+                            accessibilityLabel="Edit profile photo"
+                        >
+                            <View style={styles.avatarRing}>
+                                {user?.profile?.avatar_url ? (
+                                    <CachedImage uri={api.resolveAttachmentUrl(user.profile.avatar_url)} style={styles.avatarImage} />
+                                ) : (
+                                    <View style={styles.avatarPlaceholder}>
+                                        <Ionicons name="person" size={36} color={colors.textMuted} />
+                                    </View>
+                                )}
+                            </View>
                         </TouchableOpacity>
-                        <Text style={styles.headerName}>{user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.email}</Text>
-                        {user?.username && <Text style={styles.headerUsername}>@{user.username}</Text>}
-                        {user?.profile?.bio ? <Text style={styles.headerBio}>{user.profile.bio}</Text> : null}
-                        <View style={styles.headerActionsRow}>
-                            <TouchableOpacity style={styles.editPill} onPress={handleEditPress} activeOpacity={0.7}>
-                                <Text style={styles.editPillText}>Edit Profile</Text>
+
+                        <Text style={styles.headerName}>
+                            {user?.first_name ? `${user.first_name} ${user.last_name || ''}`.trim() : user?.email}
+                        </Text>
+
+                        {user?.username ? (
+                            <Text style={styles.headerHandle}>@{user.username}</Text>
+                        ) : null}
+
+                        {user?.profile?.bio ? (
+                            <Text style={styles.headerBio}>{user.profile.bio}</Text>
+                        ) : null}
+
+                        {activeMaxxes.length > 0 ? (
+                            <View style={styles.maxxTagsRow}>
+                                {activeMaxxes.map((m: any) => {
+                                    const tint = normalizeMaxxTintHex(m.color);
+                                    return (
+                                        <TouchableOpacity
+                                            key={m.id}
+                                            style={styles.maxxTag}
+                                            onPress={() => navigation.navigate('MaxxDetail', { maxxId: m.id })}
+                                            activeOpacity={0.72}
+                                        >
+                                            <View style={[styles.maxxDot, { backgroundColor: tint }]} />
+                                            <Text style={styles.maxxTagText}>{getMaxxDisplayLabel(m)}</Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+                        ) : null}
+
+                        <View style={styles.actionsRow}>
+                            <TouchableOpacity
+                                style={styles.actionBtn}
+                                onPress={handleEditPress}
+                                activeOpacity={0.75}
+                                accessibilityRole="button"
+                                accessibilityLabel="Edit profile"
+                            >
+                                <Ionicons name="create-outline" size={15} color={colors.foreground} />
+                                <Text style={styles.actionBtnText}>Edit</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.editPill, styles.progressPill]}
+                                style={[styles.actionBtn, styles.actionBtnFilled, uploadingProgress && styles.actionBtnDisabled]}
                                 onPress={uploadProgressImage}
                                 disabled={uploadingProgress}
-                                activeOpacity={0.7}
+                                activeOpacity={0.75}
+                                accessibilityRole="button"
+                                accessibilityLabel={uploadingProgress ? 'Uploading progress photo' : 'Add progress photo'}
+                                accessibilityState={{ disabled: uploadingProgress }}
                             >
-                                <Ionicons name="camera-outline" size={14} color={colors.textSecondary} />
-                                <Text style={[styles.editPillText, { marginLeft: 6 }]}>
-                                    {uploadingProgress ? 'Uploading...' : 'Add progress'}
+                                <Ionicons name="add" size={16} color={colors.card} />
+                                <Text style={styles.actionBtnFilledText}>
+                                    {uploadingProgress ? 'Uploading…' : 'Progress'}
                                 </Text>
                             </TouchableOpacity>
                         </View>
                     </View>
 
-                    {/* Progress archive - grid like IG */}
-                    <View style={[styles.section, isDesktop && styles.progressSectionDesktop]}>
-                        <View style={styles.sectionHeader}>
-                            <Text style={styles.sectionTitle}>Progress</Text>
-                        </View>
-                        {progressPhotos.length === 0 ? (
-                            <TouchableOpacity style={styles.archiveEmpty} onPress={uploadProgressImage} activeOpacity={0.8}>
-                                <View style={styles.archiveEmptyIcon}>
-                                    <Ionicons name="images-outline" size={40} color={colors.textMuted} />
-                                </View>
-                                <Text style={styles.archiveEmptyTitle}>No photos yet</Text>
-                                <Text style={styles.archiveEmptySub}>Add progress photos to your private archive</Text>
-                            </TouchableOpacity>
-                        ) : (
-                            <>
-                                <View style={[styles.archiveGrid, isDesktop && styles.archiveGridDesktop]}>
-                                    {(progressPhotos.length > 3 ? progressPhotos.slice(0, 3) : progressPhotos).map((item, index) => (
-                                        <TouchableOpacity
-                                            key={item.id}
-                                            style={[styles.archiveGridItem, isDesktop && styles.archiveGridItemDesktop, Platform.OS === 'web' && { width: gridItemWidth, padding: 6 }]}
-                                            onPress={() => openProgressArchiveAt(index)}
-                                            activeOpacity={0.9}
-                                        >
-                                            <View style={styles.archiveThumbBox}>
-                                                <CachedImage uri={api.resolveAttachmentUrl(item.image_url)} style={styles.archiveGridImage} />
-                                                {item.face_rating != null && Number.isFinite(Number(item.face_rating)) ? (
-                                                    <Text style={styles.progressRatingBadge}>
-                                                        {formatFaceRatingLabel(Number(item.face_rating))}
-                                                    </Text>
-                                                ) : null}
-                                            </View>
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
-                                {progressPhotos.length > 3 && (
-                                    <TouchableOpacity
-                                        style={styles.viewMoreButton}
-                                        onPress={() => navigation.navigate('ProgressArchive')}
-                                        activeOpacity={0.7}
-                                    >
-                                        <Text style={styles.viewMoreText}>View more</Text>
-                                        <Ionicons name="chevron-forward" size={18} color={colors.foreground} />
-                                    </TouchableOpacity>
-                                )}
-                            </>
-                        )}
-                    </View>
+                    <View style={styles.gridDivider} />
 
-                    {/* Settings - minimal list */}
-                    <View style={styles.section}>
-                        {isPaid ? (
-                            <TouchableOpacity
-                                style={[styles.menuRow, { marginBottom: spacing.sm }]}
-                                onPress={() => {
-                                    if (isPremium) {
-                                        navigation.navigate('FaceScanArchive');
-                                    } else {
-                                        Alert.alert(
-                                            'Face scans',
-                                            'Face scans are not available on Basic. Upgrade to Premium for daily scans.',
-                                            [
-                                                { text: 'OK', style: 'cancel' },
-                                                { text: 'Upgrade', onPress: () => navigation.navigate('ManageSubscription') },
-                                            ],
-                                        );
-                                    }
-                                }}
-                                activeOpacity={0.7}
-                            >
-                                <Ionicons name="scan-outline" size={22} color={isPremium ? colors.foreground : colors.textMuted} />
-                                <Text style={[styles.menuRowText, !isPremium && { color: colors.textMuted }]}>Face scans</Text>
-                                {isPremium ? (
-                                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                                ) : (
-                                    <Ionicons name="lock-closed" size={18} color={colors.textMuted} />
-                                )}
-                            </TouchableOpacity>
-                        ) : null}
-                    </View>
-                    <View style={{ height: 40 }} />
+                    {progressPhotos.length === 0 ? (
+                        <TouchableOpacity
+                            style={styles.archiveEmpty}
+                            onPress={uploadProgressImage}
+                            activeOpacity={0.85}
+                            accessibilityRole="button"
+                            accessibilityLabel="Add your first progress photo"
+                        >
+                            <Ionicons name="images-outline" size={24} color={colors.textMuted} style={{ marginBottom: spacing.sm }} />
+                            <Text style={styles.archiveEmptyTitle}>No progress photos yet</Text>
+                            <Text style={styles.archiveEmptySub}>Tap to add your first shot</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={styles.photoGrid}>
+                            {progressPhotos.map((item, index) => (
+                                <TouchableOpacity
+                                    key={item.id}
+                                    style={styles.photoGridItem}
+                                    onPress={() => openProgressArchiveAt(index)}
+                                    activeOpacity={0.9}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Progress photo ${index + 1}`}
+                                >
+                                    <CachedImage uri={api.resolveAttachmentUrl(item.image_url)} style={styles.photoGridImage} />
+                                    {item.face_rating != null && Number.isFinite(Number(item.face_rating)) ? (
+                                        <Text style={styles.progressRatingBadge}>
+                                            {formatFaceRatingLabel(Number(item.face_rating))}
+                                        </Text>
+                                    ) : null}
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
+
+                    <View style={{ height: spacing.xxxl }} />
                 </Animated.ScrollView>
             )}
 
             <Modal animationType="fade" transparent visible={editModalVisible} onRequestClose={() => setEditModalVisible(false)}>
-                <Pressable style={styles.modalOverlay} onPress={() => { Keyboard.dismiss(); setEditModalVisible(false); }}>
-                    <Pressable style={styles.modalContent} onPress={() => Keyboard.dismiss()}>
+                <Pressable
+                    style={styles.modalOverlay}
+                    onPress={() => {
+                        Keyboard.dismiss();
+                        setEditModalVisible(false);
+                    }}
+                    accessibilityLabel="Close edit profile"
+                    accessibilityRole="button"
+                >
+                    <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
                         <View style={styles.modalHeader}>
                             <Text style={styles.modalTitle}>Edit Profile</Text>
                             <TouchableOpacity onPress={() => setEditModalVisible(false)} style={styles.modalClose} activeOpacity={0.7}>
                                 <Ionicons name="close" size={18} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
-                        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.editModalScroll}>
+                        <ScrollView
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={styles.editModalScroll}
+                            keyboardShouldPersistTaps="handled"
+                            keyboardDismissMode="on-drag"
+                        >
                             <TouchableOpacity onPress={pickImage} style={styles.modalAvatarContainer}>
                                 {editAvatarUri ? <CachedImage uri={editAvatarUri} style={styles.modalAvatar} /> : user?.profile?.avatar_url ? <CachedImage uri={api.resolveAttachmentUrl(user.profile.avatar_url)} style={styles.modalAvatar} /> : <View style={styles.modalAvatarPlaceholder}><Ionicons name="camera" size={28} color={colors.textMuted} /></View>}
                                 <Text style={styles.changePhotoText}>Change Photo</Text>
@@ -412,7 +481,7 @@ export default function ProfileScreen() {
                 onRequestClose={() => setProgressModalVisible(false)}
             >
                 <Pressable style={styles.modalOverlay} onPress={() => setProgressModalVisible(false)}>
-                    <Pressable style={[styles.progressModalContent, { width: imageModalWidth + spacing.lg * 2 }]} onPress={() => {}}>
+                    <Pressable style={[styles.progressModalContent, { width: imageModalWidth + spacing.lg * 2 }]} onPress={(e) => e.stopPropagation()}>
                         <TouchableOpacity
                             style={styles.progressModalClose}
                             onPress={() => setProgressModalVisible(false)}
@@ -482,32 +551,47 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    scrollContent: { paddingBottom: spacing.xxl },
+    scrollContent: { paddingBottom: spacing.xxxl },
+
+    // ── Top bar ──────────────────────────────────────────────────────────
     topBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingTop: 56,
         paddingHorizontal: spacing.lg,
-        paddingBottom: spacing.sm,
+        paddingBottom: spacing.md,
+        backgroundColor: 'transparent',
     },
-    backButton: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: colors.card,
+    topBarTitle: {
+        flex: 1,
+        fontFamily: fonts.serif,
+        fontSize: 17,
+        fontWeight: '400',
+        color: colors.foreground,
+        letterSpacing: -0.2,
+        textAlign: 'center',
+    },
+    iconButton: {
+        width: 40,
+        height: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.sm,
     },
-    topBarTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground },
-    header: {
+
+    // ── Identity section ────────────────────────────────────────────────
+    identitySection: {
         alignItems: 'center',
+        paddingHorizontal: spacing.lg,
         paddingTop: spacing.lg,
-        paddingBottom: spacing.xl,
+        paddingBottom: spacing.lg,
     },
-    avatarContainer: { position: 'relative' },
-    avatarImage: { width: 88, height: 88, borderRadius: 44, ...shadows.md },
+    avatarRing: {
+        padding: 3,
+        borderRadius: borderRadius.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+    },
+    avatarImage: { width: 88, height: 88, borderRadius: 44 },
     avatarPlaceholder: {
         width: 88,
         height: 88,
@@ -515,150 +599,199 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surface,
         justifyContent: 'center',
         alignItems: 'center',
-        ...shadows.sm,
     },
-    avatarSkeleton: { backgroundColor: colors.surfaceLight },
-    headerName: { fontSize: 15, fontWeight: '600', color: colors.foreground, marginTop: spacing.md },
-    headerUsername: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
-    headerBio: { fontSize: 13, color: colors.textSecondary, marginTop: 4, textAlign: 'center', paddingHorizontal: spacing.xxl },
-    textSkeletonRow: { width: '60%', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm, marginBottom: spacing.sm },
-    textSkeletonBio: {
-        height: 32,
-        borderRadius: borderRadius.md,
-        backgroundColor: colors.surfaceLight,
-        width: '80%',
-        marginTop: spacing.sm,
-        marginBottom: spacing.lg,
-    },
-    headerActionsRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.sm,
+    headerName: {
+        fontFamily: fonts.serif,
+        fontSize: 22,
+        fontWeight: '400',
+        color: colors.foreground,
+        letterSpacing: -0.3,
         marginTop: spacing.md,
+        textAlign: 'center',
     },
-    editPill: { paddingHorizontal: spacing.lg, paddingVertical: 8, borderRadius: borderRadius.full, backgroundColor: colors.card, ...shadows.sm },
-    progressPill: { flexDirection: 'row', alignItems: 'center' },
-    editPillText: { fontSize: 12, fontWeight: '500', color: colors.textSecondary },
-    pillSkeleton: {
-        flex: 1,
-        height: 32,
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.surfaceLight,
-    },
-    section: {
-        paddingHorizontal: spacing.lg,
-        marginTop: spacing.xl,
-    },
-    sectionHeader: { marginBottom: spacing.md },
-    sectionTitle: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: colors.foreground,
-    },
-    archiveEmpty: {
-        backgroundColor: colors.card,
-        borderRadius: 16,
-        paddingVertical: spacing.xxl,
-        paddingHorizontal: spacing.lg,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderStyle: 'dashed',
-    },
-    archiveEmptyIcon: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
-        backgroundColor: colors.surface,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: spacing.md,
-    },
-    archiveEmptyTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: colors.foreground,
-        marginBottom: 4,
-    },
-    archiveEmptySub: {
+    headerHandle: {
         fontSize: 13,
+        fontWeight: '400',
         color: colors.textMuted,
+        marginTop: 3,
+        textAlign: 'center',
     },
-    progressSectionDesktop: {
-        maxWidth: 900,
-        width: '100%',
-        alignSelf: 'center',
+    headerBio: {
+        fontSize: 13,
+        fontWeight: '400',
+        color: colors.textSecondary,
+        lineHeight: 18,
+        marginTop: spacing.sm,
+        textAlign: 'center',
+        paddingHorizontal: spacing.xl,
     },
-    archiveGrid: {
+
+    // ── Maxx tags (colored dot + label) ─────────────────────────────────
+    maxxTagsRow: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        marginHorizontal: -2,
+        justifyContent: 'center',
+        gap: 8,
+        marginTop: spacing.md,
     },
-    archiveGridDesktop: {
-        marginHorizontal: -3,
+    maxxTag: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        paddingVertical: 6,
+        paddingHorizontal: 14,
     },
-    archiveGridItem: {
-        width: '33.33%',
-        padding: 2,
-        aspectRatio: 1,
-    },
-    archiveGridItemDesktop: {
-        width: '33.33%',
-        padding: 8,
-    },
-    archiveThumbBox: {
-        flex: 1,
-        width: '100%',
+    maxxDot: {
+        width: 7,
+        height: 7,
         borderRadius: 4,
-        overflow: 'hidden',
-        position: 'relative',
-        backgroundColor: colors.surface,
     },
-    archiveGridImage: {
+    maxxTagText: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: colors.foreground,
+    },
+
+    // ── Actions ──────────────────────────────────────────────────────────
+    actionsRow: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        gap: 10,
+        marginTop: spacing.lg,
+    },
+    actionBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 5,
+        borderRadius: borderRadius.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        paddingVertical: 9,
+        paddingHorizontal: 22,
+    },
+    actionBtnText: {
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.foreground,
+    },
+    actionBtnFilled: {
+        backgroundColor: colors.foreground,
+        borderColor: colors.foreground,
+    },
+    actionBtnFilledText: {
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.card,
+    },
+    actionBtnDisabled: {
+        opacity: 0.45,
+    },
+
+    // ── Grid divider ─────────────────────────────────────────────────────
+    gridDivider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.divider,
+    },
+
+    // ── Photo grid ───────────────────────────────────────────────────────
+    photoGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+    },
+    photoGridItem: {
+        width: '33.33%',
+        aspectRatio: 1,
+        padding: 0.5,
+        position: 'relative' as const,
+    },
+    photoGridImage: {
         width: '100%',
         height: '100%',
-        borderRadius: 4,
         backgroundColor: colors.surface,
     },
     progressRatingBadge: {
         position: 'absolute',
-        bottom: 5,
-        right: 5,
-        fontSize: 11,
-        fontWeight: '800',
-        color: '#FFFFFF',
-        textShadowColor: 'rgba(0,0,0,0.85)',
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 4,
-    },
-    viewMoreButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        marginTop: spacing.md,
-        paddingVertical: spacing.md,
-        paddingHorizontal: spacing.lg,
-        backgroundColor: colors.card,
-        borderRadius: borderRadius.lg,
-        borderWidth: 1,
-        borderColor: colors.border,
-        ...shadows.sm,
-    },
-    viewMoreText: {
-        fontSize: 15,
+        bottom: 4,
+        right: 4,
+        fontSize: 10,
         fontWeight: '600',
-        color: colors.foreground,
-    },
-    archiveSkeletonRow: {
-        flexDirection: 'row',
-        gap: 4,
-    },
-    archiveSkeletonItem: {
-        flex: 1,
-        aspectRatio: 1,
+        color: '#FFF',
+        backgroundColor: 'rgba(10, 10, 10, 0.5)',
+        paddingHorizontal: 5,
+        paddingVertical: 2,
         borderRadius: 4,
+        overflow: 'hidden',
+    },
+    archiveEmpty: {
+        paddingVertical: spacing.xxxl,
+        paddingHorizontal: spacing.xl,
+        alignItems: 'center',
+    },
+    archiveEmptyTitle: {
+        fontFamily: fonts.serif,
+        fontSize: 18,
+        fontWeight: '400',
+        color: colors.textPrimary,
+        marginBottom: 6,
+    },
+    archiveEmptySub: {
+        fontSize: 13,
+        color: colors.textMuted,
+        textAlign: 'center',
+        lineHeight: 18,
+    },
+
+    // ── Skeleton ─────────────────────────────────────────────────────────
+    topBarSkeletonPad: {
+        height: 56,
+        marginHorizontal: spacing.lg,
+        marginTop: spacing.sm,
+    },
+    identitySkeletonSection: {
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+        paddingBottom: spacing.md,
+    },
+    avatarRingSkeleton: {
+        padding: 2,
+        borderRadius: borderRadius.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
+    },
+    avatarSkeleton: { backgroundColor: colors.surfaceLight },
+    skeletonHint: {
+        width: 72,
+        height: 11,
+        borderRadius: 6,
         backgroundColor: colors.surfaceLight,
+        marginTop: spacing.sm,
+        marginBottom: spacing.xs,
+    },
+    textSkeletonRow: { width: '70%', alignItems: 'center', gap: spacing.sm, marginTop: spacing.md },
+    textSkeletonBio: {
+        height: 36,
+        borderRadius: borderRadius.md,
+        backgroundColor: colors.surfaceLight,
+        width: '85%',
+        marginTop: spacing.md,
+    },
+    actionsColSkeleton: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        width: '100%',
+        marginTop: spacing.lg,
+        gap: spacing.sm,
+    },
+    pillSkeleton: {
+        height: 36,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.surfaceLight,
+        width: 120,
     },
     skeletonLine: {
         height: 14,
@@ -666,46 +799,115 @@ const styles = StyleSheet.create({
         backgroundColor: colors.surfaceLight,
         width: '100%',
     },
-    menuRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: colors.card,
-        paddingVertical: spacing.md,
+    progressSkeletonSection: {
         paddingHorizontal: spacing.lg,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: colors.border,
-        gap: spacing.md,
+        paddingTop: spacing.xl,
+        paddingBottom: spacing.lg,
     },
-    menuRowText: {
+    sectionEyebrowSkeleton: {
+        width: 100,
+        height: 11,
+        borderRadius: 6,
+        backgroundColor: colors.surfaceLight,
+        marginBottom: spacing.sm,
+    },
+    sectionTitleSkeleton: {
+        width: 120,
+        height: 22,
+        borderRadius: 8,
+        backgroundColor: colors.surfaceLight,
+        marginBottom: spacing.md,
+    },
+    archiveSkeletonRow: {
+        flexDirection: 'row',
+        gap: spacing.sm,
+    },
+    archiveSkeletonItem: {
         flex: 1,
-        fontSize: 16,
-        fontWeight: '500',
-        color: colors.foreground,
+        aspectRatio: 1,
+        borderRadius: borderRadius.sm,
+        backgroundColor: colors.surfaceLight,
     },
-    modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', alignItems: 'center', padding: spacing.lg },
+    toolsSkeletonSection: {
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
+    },
+    listRowSkeleton: {
+        height: 56,
+        borderRadius: borderRadius.sm,
+        backgroundColor: colors.surfaceLight,
+    },
+
+    // ── Edit modal ───────────────────────────────────────────────────────
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: colors.overlay,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: spacing.lg,
+    },
     modalContent: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.xl,
+        paddingTop: spacing.lg,
         maxWidth: 440,
         width: '100%',
         maxHeight: '90%',
-        ...shadows.xl,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
     },
     editModalScroll: { paddingBottom: spacing.xl },
-    modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xl },
-    modalTitle: { ...typography.h3 },
-    modalClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+    modalHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: spacing.xl,
+    },
+    modalTitle: {
+        fontFamily: 'PlayfairDisplay',
+        fontSize: 20,
+        fontWeight: '400',
+        color: colors.textPrimary,
+        letterSpacing: -0.2,
+    },
+    modalClose: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     modalAvatarContainer: { alignSelf: 'center', alignItems: 'center', marginBottom: spacing.xl },
     modalAvatar: { width: 80, height: 80, borderRadius: 40 },
-    modalAvatarPlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center' },
-    changePhotoText: { fontSize: 13, color: colors.info, fontWeight: '500', marginTop: spacing.sm },
-    inputLabel: { ...typography.label, marginBottom: spacing.sm, marginLeft: 2, marginTop: spacing.md },
-    input: {
+    modalAvatarPlaceholder: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
         backgroundColor: colors.surface,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    changePhotoText: {
+        fontSize: 12,
+        color: colors.textSecondary,
+        fontWeight: '500',
+        marginTop: spacing.sm,
+        letterSpacing: 0.2,
+    },
+    inputLabel: {
+        ...typography.label,
+        marginBottom: spacing.sm,
+        marginLeft: 2,
+        marginTop: spacing.md,
+    },
+    input: {
+        backgroundColor: colors.background,
         borderRadius: borderRadius.md,
-        padding: spacing.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.md,
         color: colors.textPrimary,
         fontSize: 16,
         marginBottom: spacing.sm,
@@ -715,20 +917,41 @@ const styles = StyleSheet.create({
         backgroundColor: colors.card,
     },
     bioInput: {
-        backgroundColor: colors.surface,
+        backgroundColor: colors.background,
         borderRadius: borderRadius.md,
-        padding: spacing.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
+        paddingVertical: spacing.md,
+        paddingHorizontal: spacing.md,
         color: colors.textPrimary,
         fontSize: 16,
         textAlignVertical: 'top',
         minHeight: 100,
     },
+    modalButtons: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        marginTop: spacing.xxl,
+        gap: spacing.md,
+    },
+    cancelButton: { padding: spacing.md },
+    cancelButtonText: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
+    saveButton: {
+        backgroundColor: colors.foreground,
+        borderRadius: borderRadius.full,
+        paddingHorizontal: spacing.xl,
+        paddingVertical: 10,
+    },
+    saveButtonText: { ...typography.button },
+
+    // ── Progress modal ───────────────────────────────────────────────────
     progressModalContent: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
-        padding: spacing.lg,
+        borderRadius: borderRadius.xl,
+        padding: spacing.xl,
         maxHeight: '90%',
-        ...shadows.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
         alignItems: 'center',
     },
     progressModalClose: {
@@ -736,19 +959,15 @@ const styles = StyleSheet.create({
         top: spacing.md,
         right: spacing.md,
         zIndex: 10,
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: colors.card,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.md,
     },
     progressImageBox: {
         position: 'relative',
-        borderRadius: borderRadius.lg,
-        borderWidth: 1,
-        borderColor: colors.border || colors.surfaceLight,
+        borderRadius: borderRadius.md,
         backgroundColor: colors.surface,
         overflow: 'hidden',
         alignItems: 'center',
@@ -758,17 +977,20 @@ const styles = StyleSheet.create({
         position: 'absolute',
         bottom: 10,
         right: 10,
-        fontSize: 14,
-        fontWeight: '800',
-        color: '#FFFFFF',
-        textShadowColor: 'rgba(0,0,0,0.85)',
-        textShadowOffset: { width: 0, height: 1 },
-        textShadowRadius: 4,
+        fontSize: 12,
+        fontWeight: '600',
+        color: colors.card,
+        backgroundColor: 'rgba(10, 10, 10, 0.5)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: borderRadius.sm,
+        overflow: 'hidden',
     },
     progressModalDate: {
-        marginTop: spacing.md,
+        marginTop: spacing.lg,
+        fontFamily: 'PlayfairDisplay',
         fontSize: 18,
-        fontWeight: '600',
+        fontWeight: '400',
         color: colors.foreground,
     },
     progressDeleteBtn: {
@@ -814,9 +1036,4 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: colors.textMuted,
     },
-    modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.xl, gap: spacing.md },
-    cancelButton: { padding: spacing.md },
-    cancelButtonText: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
-    saveButton: { backgroundColor: colors.foreground, borderRadius: borderRadius.full, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, ...shadows.sm },
-    saveButtonText: { ...typography.button },
 });

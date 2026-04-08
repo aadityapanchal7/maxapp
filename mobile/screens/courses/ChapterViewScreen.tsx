@@ -4,7 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 
 export default function ChapterViewScreen() {
@@ -82,8 +82,24 @@ const styles = StyleSheet.create({
     listItem: { flexDirection: 'row', marginBottom: spacing.sm },
     bullet: { color: colors.textMuted, marginRight: spacing.sm, fontSize: 14 },
     listText: { fontSize: 14, color: colors.foreground, flex: 1, lineHeight: 20 },
-    footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: spacing.lg, backgroundColor: colors.background, ...shadows.lg },
-    completeButton: { backgroundColor: colors.foreground, paddingVertical: spacing.md, borderRadius: borderRadius.full, alignItems: 'center', ...shadows.md },
+    footer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        padding: spacing.lg,
+        backgroundColor: colors.background,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+    },
+    completeButton: {
+        backgroundColor: colors.foreground,
+        paddingVertical: 12,
+        borderRadius: borderRadius.md,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: colors.foreground,
+    },
     completedButton: { backgroundColor: colors.success },
     buttonText: { ...typography.button },
     completedText: { color: '#fff' },

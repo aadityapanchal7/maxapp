@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-/** White screen with black “max” — app boot / auth loading. */
 export default function MaxLoadingView() {
     return (
         <View style={styles.root} accessibilityLabel="Loading">
@@ -15,12 +14,12 @@ const styles = StyleSheet.create({
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#FFFFFF',
+        backgroundColor: '#F5F5F3',
     },
     word: {
-        fontSize: 40,
-        fontWeight: '600',
-        color: '#000000',
-        letterSpacing: -0.5,
+        fontSize: 44,
+        fontWeight: '300',
+        color: '#0A0A0A',
+        letterSpacing: -1,
     },
 });

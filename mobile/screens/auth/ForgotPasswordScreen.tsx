@@ -15,7 +15,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { PHONE_COUNTRIES, type PhoneCountry } from '../../constants/phoneCountryCodes';
 import { buildFullPhoneNational } from '../../utils/buildLoginIdentifier';
 
@@ -240,13 +240,13 @@ export default function ForgotPasswordScreen() {
 
                     {apiError && (
                         <View style={styles.apiErrorBox}>
-                            <Ionicons name="alert-circle-outline" size={18} color="#ef4444" />
+                            <Ionicons name="alert-circle-outline" size={18} color={colors.error} />
                             <Text style={styles.apiErrorText}>{apiError}</Text>
                         </View>
                     )}
                     {info && !apiError && (
                         <View style={styles.infoBox}>
-                            <Ionicons name="checkmark-circle-outline" size={18} color="#22c55e" />
+                            <Ionicons name="checkmark-circle-outline" size={18} color={colors.success} />
                             <Text style={styles.infoText}>{info}</Text>
                         </View>
                     )}
@@ -269,30 +269,34 @@ export default function ForgotPasswordScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    keyboardView: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg },
+    keyboardView: { flex: 1, justifyContent: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
     card: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
-        padding: spacing.xl,
-        ...shadows.xl,
+        borderRadius: borderRadius.xl,
+        padding: spacing.xl + spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     backRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: spacing.md },
     backText: { fontSize: 15, color: colors.textSecondary },
     title: {
-        fontSize: 28,
-        fontWeight: '600',
+        fontFamily: fonts.serif,
+        fontSize: 26,
+        fontWeight: '400',
         color: colors.foreground,
-        letterSpacing: -0.5,
-        marginBottom: spacing.sm,
+        letterSpacing: -0.4,
+        marginBottom: spacing.md,
     },
-    sub: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.xl, lineHeight: 20 },
+    sub: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.xl + spacing.sm, lineHeight: 22 },
     form: { gap: spacing.md },
     inputGroup: { gap: spacing.xs },
     label: { ...typography.label, marginLeft: 2 },
     input: {
         backgroundColor: colors.surface,
         borderRadius: borderRadius.md,
-        paddingVertical: 15,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
+        paddingVertical: 12,
         paddingHorizontal: spacing.md,
         color: colors.textPrimary,
         fontSize: 15,
@@ -302,13 +306,15 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: colors.surface,
         borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
         overflow: 'hidden',
     },
     countryCodeButton: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingVertical: 15,
+        paddingVertical: 12,
         paddingLeft: spacing.md,
         paddingRight: spacing.sm,
         borderRightWidth: 1,
@@ -324,7 +330,7 @@ const styles = StyleSheet.create({
     },
     phoneNationalInput: {
         flex: 1,
-        paddingVertical: 15,
+        paddingVertical: 12,
         paddingHorizontal: spacing.md,
         color: colors.textPrimary,
         fontSize: 15,
@@ -341,10 +347,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: colors.surface,
         borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
     },
     passwordInput: {
         flex: 1,
-        paddingVertical: 15,
+        paddingVertical: 12,
         paddingLeft: spacing.md,
         paddingRight: 8,
         color: colors.textPrimary,
@@ -376,7 +384,7 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.border,
     },
-    modalTitle: { fontSize: 17, fontWeight: '700', color: colors.foreground },
+    modalTitle: { fontFamily: fonts.serif, fontSize: 18, fontWeight: '400', color: colors.foreground },
     countryRow: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -394,33 +402,34 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        backgroundColor: colors.surface,
         padding: spacing.md,
         borderRadius: borderRadius.md,
-        marginTop: spacing.sm,
+        marginTop: spacing.md,
         borderWidth: 1,
-        borderColor: 'rgba(239, 68, 68, 0.3)',
+        borderColor: colors.error + '44',
     },
-    apiErrorText: { flex: 1, fontSize: 13, color: '#ef4444', fontWeight: '500' },
+    apiErrorText: { flex: 1, fontSize: 13, color: colors.error, fontWeight: '500' },
     infoBox: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+        backgroundColor: colors.surface,
         padding: spacing.md,
         borderRadius: borderRadius.md,
-        marginTop: spacing.sm,
+        marginTop: spacing.md,
         borderWidth: 1,
-        borderColor: 'rgba(34, 197, 94, 0.25)',
+        borderColor: colors.success + '44',
     },
-    infoText: { flex: 1, fontSize: 13, color: '#22c55e', fontWeight: '500' },
+    infoText: { flex: 1, fontSize: 13, color: colors.success, fontWeight: '500' },
     button: {
         backgroundColor: colors.foreground,
-        borderRadius: borderRadius.full,
-        paddingVertical: 16,
+        borderRadius: borderRadius.md,
+        paddingVertical: 12,
         alignItems: 'center',
-        marginTop: spacing.md,
-        ...shadows.md,
+        marginTop: spacing.lg,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     buttonDisabled: { opacity: 0.5 },
     buttonText: { ...typography.button },

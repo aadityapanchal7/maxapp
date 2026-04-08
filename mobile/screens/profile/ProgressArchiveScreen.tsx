@@ -18,7 +18,7 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import api from '../../services/api';
 import { CachedImage } from '../../components/CachedImage';
-import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import { formatFaceRatingLabel } from '../../utils/faceRatingLabel';
 
 function formatProgressDate(dateStr: string): string {
@@ -331,18 +331,18 @@ export default function ProgressArchiveScreen() {
                         const isPick2 = comparePicks[1] === index;
                         const isSelected = isPick1 || isPick2;
                         return (
-                            <TouchableOpacity
-                                key={item.id}
-                                style={[styles.gridItem, { width: `${100 / gridColumns}%`, padding: gridItemPadding }]}
+                        <TouchableOpacity
+                            key={item.id}
+                            style={[styles.gridItem, { width: `${100 / gridColumns}%`, padding: gridItemPadding }]}
                                 onPress={() => handleGridPress(index)}
-                                activeOpacity={0.9}
-                            >
+                            activeOpacity={0.9}
+                        >
                                 <View style={[styles.gridThumbWrap, isSelected && styles.gridThumbSelected]}>
-                                    <CachedImage
-                                        uri={api.resolveAttachmentUrl(item.image_url)}
-                                        style={styles.gridImage}
-                                        contentFit="cover"
-                                    />
+                            <CachedImage
+                                uri={api.resolveAttachmentUrl(item.image_url)}
+                                style={styles.gridImage}
+                                contentFit="cover"
+                            />
                                     {item.face_rating != null && Number.isFinite(Number(item.face_rating)) ? (
                                         <Text style={styles.gridRatingBadge}>
                                             {formatFaceRatingLabel(Number(item.face_rating))}
@@ -354,7 +354,7 @@ export default function ProgressArchiveScreen() {
                                         </View>
                                     )}
                                 </View>
-                            </TouchableOpacity>
+                        </TouchableOpacity>
                         );
                     })}
                 </View>
@@ -650,13 +650,14 @@ const styles = StyleSheet.create({
     backButton: {
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: borderRadius.md,
         backgroundColor: colors.card,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
-    headerTitle: { fontSize: 17, fontWeight: '600', color: colors.foreground, flex: 1, textAlign: 'center' },
+    headerTitle: { fontFamily: fonts.serif, fontSize: 18, fontWeight: '400', color: colors.foreground, flex: 1, textAlign: 'center' },
     headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4, minWidth: 40 },
     headerIconBtn: {
         width: 36,
@@ -737,10 +738,11 @@ const styles = StyleSheet.create({
     },
     viewerContent: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.lg,
         alignItems: 'center',
-        ...shadows.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     viewerClose: {
         position: 'absolute',
@@ -749,11 +751,12 @@ const styles = StyleSheet.create({
         zIndex: 10,
         width: 40,
         height: 40,
-        borderRadius: 20,
+        borderRadius: borderRadius.md,
         backgroundColor: colors.card,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.md,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     imageBox: {
         position: 'relative',
@@ -834,12 +837,13 @@ const styles = StyleSheet.create({
     counterText: { fontSize: 14, color: colors.textMuted },
     compareContent: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.lg,
         paddingTop: spacing.xl + spacing.md,
         alignItems: 'center',
         maxWidth: '95%',
-        ...shadows.lg,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     compareTitle: {
         fontSize: 18,
