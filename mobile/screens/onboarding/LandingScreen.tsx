@@ -9,10 +9,13 @@ import {
     NativeSyntheticEvent,
     NativeScrollEvent,
     Platform,
+    ActivityIndicator,
+    Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
+import { useAuth } from '../../context/AuthContext';
 
 const isWeb = Platform.OS === 'web';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -45,8 +48,27 @@ const SLIDES = [
 
 export default function LandingScreen() {
     const navigation = useNavigation<any>();
+    const { fauxSignup } = useAuth();
     const [currentIndex, setCurrentIndex] = useState(0);
+    const [demoLoading, setDemoLoading] = useState(false);
     const flatListRef = useRef<FlatList>(null);
+
+    const handleTryNow = async () => {
+        if (demoLoading) return;
+        setDemoLoading(true);
+        try {
+            await fauxSignup();
+        } catch (e: any) {
+            const msg = e?.response?.data?.detail ?? e?.message ?? 'Something went wrong';
+            if (Platform.OS === 'web') {
+                window.alert(msg);
+            } else {
+                Alert.alert('Error', msg);
+            }
+        } finally {
+            setDemoLoading(false);
+        }
+    };
 
     const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
         const index = Math.min(
@@ -153,12 +175,38 @@ export default function LandingScreen() {
                         >
                             <Text style={styles.secondaryText}>Create account</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.demoButton}
+                            activeOpacity={0.7}
+                            onPress={handleTryNow}
+                            disabled={demoLoading}
+                        >
+                            {demoLoading ? (
+                                <ActivityIndicator size="small" color={colors.textMuted} />
+                            ) : (
+                                <Text style={styles.demoText}>Try it first — no account needed</Text>
+                            )}
+                        </TouchableOpacity>
                     </View>
                 ) : (
-                    <TouchableOpacity style={styles.nextButton} onPress={goNext} activeOpacity={0.85}>
-                        <Text style={styles.nextButtonText}>Next</Text>
-                        <Ionicons name="arrow-forward" size={18} color={colors.buttonText} />
-                    </TouchableOpacity>
+                    <View style={styles.actions}>
+                        <TouchableOpacity style={styles.nextButton} onPress={goNext} activeOpacity={0.85}>
+                            <Text style={styles.nextButtonText}>Next</Text>
+                            <Ionicons name="arrow-forward" size={18} color={colors.buttonText} />
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={styles.demoButton}
+                            activeOpacity={0.7}
+                            onPress={handleTryNow}
+                            disabled={demoLoading}
+                        >
+                            {demoLoading ? (
+                                <ActivityIndicator size="small" color={colors.textMuted} />
+                            ) : (
+                                <Text style={styles.demoText}>Try it first — no account needed</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
                 )}
             </View>
         </View>
@@ -354,5 +402,18 @@ const styles = StyleSheet.create({
         ...typography.button,
         fontSize: 13,
         letterSpacing: 0.8,
+    },
+    demoButton: {
+        paddingVertical: spacing.sm + 4,
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: 40,
+    },
+    demoText: {
+        fontSize: 13,
+        color: colors.textMuted,
+        fontWeight: '400',
+        letterSpacing: 0.2,
+        textDecorationLine: 'underline',
     },
 });

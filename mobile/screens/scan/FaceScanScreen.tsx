@@ -358,8 +358,10 @@ export default function FaceScanScreen() {
         } catch (err: unknown) {
             console.error(err);
             await clearPendingFaceScanSubmit().catch(() => undefined);
-            const ax = err as { response?: { data?: { detail?: string } } };
-            const detail = ax?.response?.data?.detail;
+            const e = err as any;
+            const detail =
+                e?.response?.data?.detail ??
+                (typeof e?.message === 'string' && e.message.length < 200 ? e.message : null);
             Alert.alert(
                 'Error',
                 typeof detail === 'string' && detail.trim()
@@ -443,17 +445,18 @@ export default function FaceScanScreen() {
             <View style={styles.actions}>
                 {!hasCurrent && (
                     <View style={styles.captureRow}>
-                        <View style={styles.captureSlot} />
-                        <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.8}>
-                            <View style={styles.captureRing}>
-                                <View style={styles.captureInner} />
-                            </View>
-                        </TouchableOpacity>
-                        <View style={styles.captureSlot}>
+                        <View style={styles.captureRowSpacer} />
+                        <View style={styles.captureControls}>
+                            <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.8}>
+                                <View style={styles.captureRing}>
+                                    <View style={styles.captureInner} />
+                                </View>
+                            </TouchableOpacity>
                             <TouchableOpacity style={styles.uploadHit} onPress={pickFromLibrary} activeOpacity={0.7}>
                                 <Ionicons name="images-outline" size={22} color={colors.textSecondary} />
                             </TouchableOpacity>
                         </View>
+                        <View style={styles.captureRowSpacer} />
                     </View>
                 )}
 
@@ -575,11 +578,16 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+        width: '100%',
     },
-    captureSlot: {
+    captureRowSpacer: {
         flex: 1,
+        minWidth: 0,
+    },
+    captureControls: {
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
+        gap: 28,
     },
     primaryBtn: {
         alignItems: 'center',

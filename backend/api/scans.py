@@ -157,7 +157,7 @@ async def upload_scan_triple(
                 detail="Basic includes one face scan. Upgrade to Premium for daily scans.",
             )
     else:
-        # Premium tier: one scan per day (UTC)
+        # Premium tier: one *successful* scan per day (UTC). Failed attempts don't count.
         now = datetime.utcnow()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
@@ -166,6 +166,7 @@ async def upload_scan_triple(
             .where(Scan.user_id == user_uuid)
             .where(Scan.created_at >= day_start)
             .where(Scan.created_at < day_end)
+            .where(Scan.processing_status != "failed")
             .limit(1)
         )
         if today_res.first():

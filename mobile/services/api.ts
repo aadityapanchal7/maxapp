@@ -262,6 +262,16 @@ class ApiService {
         return response.data;
     }
 
+    async fauxSignup() {
+        const response = await this.client.post(
+            'auth/faux-signup',
+            {},
+            { timeout: Platform.OS === 'web' ? WEB_AUTH_TIMEOUT_MS : undefined },
+        );
+        await this.setTokens(response.data.access_token, response.data.refresh_token);
+        return response.data;
+    }
+
     /** `identifier` = email, username, or phone (matches account on file). */
     async login(identifier: string, password: string) {
         const response = await this.client.post(
@@ -485,22 +495,26 @@ class ApiService {
                     form = await buildForm();
                     res = await doFetch(form);
                 }
-                if (res.status >= 500 && attempt < RETRY_DELAYS.length) {
-                    lastError = new Error(`Upload failed (${res.status})`);
-                    continue;
-                }
                 if (!res.ok) {
+                    if (res.status >= 500 && attempt < RETRY_DELAYS.length) {
+                        lastError = new Error(`Upload failed (${res.status})`);
+                        continue;
+                    }
                     const text = await res.text();
                     let msg = text;
                     try {
                         const j = JSON.parse(text);
                         msg = typeof j.detail === 'string' ? j.detail : JSON.stringify(j.detail ?? j);
                     } catch { /* keep text */ }
-                    throw new Error(`Upload failed (${res.status}): ${msg}`);
+                    const err = new Error(msg);
+                    (err as any).statusCode = res.status;
+                    throw err;
                 }
                 return res.json() as Promise<unknown>;
-            } catch (e) {
+            } catch (e: any) {
                 lastError = e;
+                const code = e?.statusCode;
+                if (code && code >= 400 && code < 500) throw e;
                 if (attempt < RETRY_DELAYS.length) continue;
             }
         }

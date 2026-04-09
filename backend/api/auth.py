@@ -4,8 +4,10 @@ Authentication API - Login, Signup, Token Management
 
 import hashlib
 import logging
+import random
 import re
 import secrets
+import string
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -177,6 +179,108 @@ async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
         access_token=access_token,
         refresh_token=refresh_token,
         token_type="bearer"
+    )
+
+
+def _random_string(length: int, chars: str = string.ascii_lowercase + string.digits) -> str:
+    return "".join(random.choices(chars, k=length))
+
+
+@router.post("/faux-signup", response_model=TokenResponse)
+async def faux_signup(db: AsyncSession = Depends(get_db)):
+    """
+    Create a throwaway demo account with pre-completed onboarding so the user
+    lands directly on FeaturesIntro → FaceScan.  No real PII required.
+    """
+    tag = _random_string(10)
+    email = f"demo_{tag}@trymax.app"
+    username = f"demo_{tag}"
+    password = secrets.token_urlsafe(16)
+    phone = f"+1555{random.randint(1000000, 9999999)}"
+
+    genders = ["male", "female"]
+    gender = random.choice(genders)
+    age = random.randint(16, 35)
+    unit_system = random.choice(["imperial", "metric"])
+    if unit_system == "imperial":
+        height = round(random.uniform(60, 76), 1)  # inches
+        weight = round(random.uniform(110, 220), 1)  # lbs
+        height_cm = round(height * 2.54, 1)
+        weight_kg = round(weight * 0.453592, 1)
+    else:
+        height_cm = round(random.uniform(155, 195), 1)
+        weight_kg = round(random.uniform(50, 100), 1)
+        height = height_cm
+        weight = weight_kg
+
+    priorities = ["face_structure", "skin", "hair", "body", "height"]
+    random.shuffle(priorities)
+    goals = random.sample(["skinmax", "hairmax", "fitmax", "bonemax", "heightmax"], k=2)
+
+    onboarding_data = {
+        "completed": True,
+        "questionnaire_v2_completed": True,
+        "goals": goals,
+        "priority_order": priorities,
+        "appearance_concerns": random.sample(
+            ["acne", "dark_circles", "jawline", "hair_thinning", "posture", "body_fat", "skin_texture"],
+            k=random.randint(1, 3),
+        ),
+        "age": age,
+        "gender": gender,
+        "height": height,
+        "weight": weight,
+        "height_cm": height_cm,
+        "weight_kg": weight_kg,
+        "unit_system": unit_system,
+        "timezone": "America/New_York",
+        "experience_level": random.choice(["beginner", "intermediate"]),
+        "activity_level": "moderate",
+        "skin_type": random.choice(["oily", "dry", "combination", "normal"]),
+        "equipment": random.sample(["dumbbells", "barbell", "pull_up_bar", "none"], k=1),
+        "wake_time": "07:00",
+        "sleep_time": "23:00",
+        "screen_hours_daily": random.choice(["under_4", "4_6", "6_8"]),
+        "primary_skin_concern": random.choice(["acne", "texture", "dark_circles", "none"]),
+        "secondary_skin_concern": "none",
+        "skincare_routine_level": random.choice(["none", "basic", "moderate"]),
+        "hair_family_history": random.choice(["yes", "no", "unsure"]),
+        "hair_current_loss": random.choice(["no", "starting", "yes_active"]),
+        "hair_treatments_current": "none",
+        "fitmax_primary_goal": random.choice(["muscle_gain", "fat_loss", "recomp"]),
+        "fitmax_training_experience": random.choice(["none", "beginner", "intermediate"]),
+        "fitmax_equipment": random.choice(["full_gym", "dumbbells", "bodyweight"]),
+        "fitmax_workout_days_per_week": random.randint(3, 6),
+        "preferred_workout_time": "08:00",
+    }
+
+    user = User(
+        email=email,
+        password_hash=hash_password(password),
+        first_name="Demo",
+        last_name="User",
+        username=username,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+        is_paid=False,
+        is_admin=False,
+        onboarding=onboarding_data,
+        profile=UserProfile().model_dump(),
+        first_scan_completed=False,
+        phone_number=phone,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    user_id = str(user.id)
+    access_token = create_access_token(user_id)
+    refresh_token = create_refresh_token(user_id)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
     )
 
 

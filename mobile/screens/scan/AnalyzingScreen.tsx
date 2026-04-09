@@ -1,321 +1,285 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Text, StyleSheet, Animated, LayoutChangeEvent } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, Animated, LayoutChangeEvent, Easing } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, typography, borderRadius, fonts } from '../../theme/dark';
+import { colors, spacing, fonts } from '../../theme/dark';
 
 interface Props {
     currentStep: number;
 }
 
-const ANALYSIS_STEPS = [
+const STEP_LABELS = [
     'Uploading your photos',
-    'Building your facial ratings',
-    'Preparing your scan summary',
+    'Building your facial profile',
+    'Preparing your results',
 ];
 
-const GRID_N = 7;
-
-function targetProgressForStep(step: number): number {
+function targetForStep(step: number): number {
     if (step <= 0) return 22;
     if (step === 1) return 58;
     return 94;
 }
 
-function ScanningGrid() {
-    const cellOpacities = useMemo(
-        () => Array.from({ length: GRID_N * GRID_N }, () => new Animated.Value(0.18)),
-        [],
-    );
-
-    useEffect(() => {
-        const wave = Animated.loop(
-            Animated.sequence([
-                Animated.stagger(
-                    32,
-                    cellOpacities.map((v) =>
-                        Animated.sequence([
-                            Animated.timing(v, { toValue: 1, duration: 340, useNativeDriver: true }),
-                            Animated.timing(v, { toValue: 0.2, duration: 380, useNativeDriver: true }),
-                        ]),
-                    ),
-                ),
-                Animated.delay(180),
-            ]),
-        );
-        wave.start();
-        return () => wave.stop();
-    }, [cellOpacities]);
-
-    return (
-        <View style={gridStyles.shell}>
-            <View style={gridStyles.glow} />
-            <View style={gridStyles.grid}>
-                {Array.from({ length: GRID_N }).map((_, row) => (
-                    <View key={row} style={gridStyles.row}>
-                        {Array.from({ length: GRID_N }).map((_, col) => {
-                            const idx = row * GRID_N + col;
-                            return (
-                                <Animated.View key={idx} style={[gridStyles.cell, { opacity: cellOpacities[idx] }]} />
-                            );
-                        })}
-                    </View>
-                ))}
-            </View>
-        </View>
-    );
-}
-
-const gridStyles = StyleSheet.create({
-    shell: {
-        width: 240,
-        height: 240,
-        borderRadius: borderRadius.xl,
-        padding: 18,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
-        borderStyle: 'dashed',
-        flexDirection: 'column',
-        justifyContent: 'center',
-        alignItems: 'stretch',
-        overflow: 'hidden',
-    },
-    glow: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(17, 17, 19, 0.03)',
-        borderRadius: borderRadius.xl,
-    },
-    grid: {
-        width: '100%',
-        flex: 1,
-        justifyContent: 'center',
-        rowGap: 6,
-    },
-    row: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        columnGap: 6,
-    },
-    cell: {
-        width: 24,
-        height: 24,
-        borderRadius: 4,
-        backgroundColor: colors.foreground,
-    },
-});
-
 export default function AnalyzingScreen({ currentStep = 0 }: Props) {
     const insets = useSafeAreaInsets();
     const [trackWidth, setTrackWidth] = useState(0);
     const progressAnim = useRef(new Animated.Value(0)).current;
-    const [pctLabel, setPctLabel] = useState(0);
-    const highWaterMark = useRef(0);
-    const runningAnim = useRef<Animated.CompositeAnimation | null>(null);
+    const [pct, setPct] = useState(0);
+    const highWater = useRef(0);
+    const activeAnim = useRef<Animated.CompositeAnimation | null>(null);
 
-    const [dots] = useState([new Animated.Value(1), new Animated.Value(0.3), new Animated.Value(0.3)]);
+    const fadeAnim = useRef(new Animated.Value(0.4)).current;
+    const ringSpin = useRef(new Animated.Value(0)).current;
+    const ringSpinRev = useRef(new Animated.Value(0)).current;
+    const heroBreath = useRef(new Animated.Value(1)).current;
 
+    // Listen to animated value and keep displayed % monotonically increasing
     useEffect(() => {
-        const listenerId = progressAnim.addListener(({ value }) => {
+        const id = progressAnim.addListener(({ value }) => {
             const clamped = Math.min(100, Math.max(0, value));
-            const safe = Math.max(clamped, highWaterMark.current);
+            const safe = Math.max(clamped, highWater.current);
             const rounded = Math.round(safe);
-            if (rounded > highWaterMark.current) highWaterMark.current = rounded;
-            if (rounded !== pctLabel) setPctLabel(rounded);
+            if (rounded > highWater.current) highWater.current = rounded;
+            if (rounded !== pct) setPct(rounded);
         });
-        return () => progressAnim.removeListener(listenerId);
+        return () => progressAnim.removeListener(id);
     }, [progressAnim]);
 
+    // Animate progress toward target when step changes
     useEffect(() => {
-        const target = targetProgressForStep(currentStep);
-        runningAnim.current?.stop();
+        const target = targetForStep(currentStep);
+        activeAnim.current?.stop();
 
-        progressAnim.stopAnimation((rawVal) => {
-            const from = Math.max(
-                typeof rawVal === 'number' ? rawVal : 0,
-                highWaterMark.current,
-            );
+        progressAnim.stopAnimation((raw) => {
+            const from = Math.max(typeof raw === 'number' ? raw : 0, highWater.current);
             if (from >= target) {
                 if (currentStep >= 2 && from < 100) {
-                    const toFull = Animated.timing(progressAnim, {
-                        toValue: 100,
-                        duration: 12000,
-                        useNativeDriver: false,
+                    const tail = Animated.timing(progressAnim, {
+                        toValue: 100, duration: 12000, useNativeDriver: false,
                     });
-                    runningAnim.current = toFull;
-                    toFull.start();
+                    activeAnim.current = tail;
+                    tail.start();
                 }
                 return;
             }
 
-            const distance = target - from;
-            const duration = currentStep >= 2
-                ? Math.max(3000, distance * 120)
-                : Math.max(6000, distance * 180);
+            const dist = target - from;
+            const dur = currentStep >= 2
+                ? Math.max(3000, dist * 120)
+                : Math.max(6000, dist * 180);
 
             const ramp = Animated.timing(progressAnim, {
-                toValue: target,
-                duration,
-                useNativeDriver: false,
+                toValue: target, duration: dur, useNativeDriver: false,
             });
-
-            runningAnim.current = ramp;
+            activeAnim.current = ramp;
             ramp.start(({ finished }) => {
                 if (!finished) return;
                 if (currentStep >= 2) {
-                    const toFull = Animated.timing(progressAnim, {
-                        toValue: 100,
-                        duration: 12000,
-                        useNativeDriver: false,
+                    const tail = Animated.timing(progressAnim, {
+                        toValue: 100, duration: 12000, useNativeDriver: false,
                     });
-                    runningAnim.current = toFull;
-                    toFull.start();
+                    activeAnim.current = tail;
+                    tail.start();
                 }
             });
         });
 
-        return () => {
-            runningAnim.current?.stop();
-        };
+        return () => { activeAnim.current?.stop(); };
     }, [currentStep, progressAnim]);
 
+    // Subtle breathing on the step label
     useEffect(() => {
-        let alive = true;
-        const animateDots = () => {
-            if (!alive) return;
+        const loop = Animated.loop(
             Animated.sequence([
-                Animated.timing(dots[0], { toValue: 1, duration: 300, useNativeDriver: true }),
-                Animated.timing(dots[1], { toValue: 1, duration: 300, useNativeDriver: true }),
-                Animated.timing(dots[2], { toValue: 1, duration: 300, useNativeDriver: true }),
-            ]).start(() => {
-                if (!alive) return;
-                dots.forEach((d) => d.setValue(0.3));
-                animateDots();
-            });
-        };
-        animateDots();
+                Animated.timing(fadeAnim, { toValue: 0.8, duration: 2000, useNativeDriver: true }),
+                Animated.timing(fadeAnim, { toValue: 0.4, duration: 2000, useNativeDriver: true }),
+            ]),
+        );
+        loop.start();
+        return () => loop.stop();
+    }, [fadeAnim]);
+
+    // Slow counter-rotating rings — calm, premium motion (native driver)
+    useEffect(() => {
+        const cw = Animated.loop(
+            Animated.timing(ringSpin, {
+                toValue: 1,
+                duration: 28000,
+                easing: Easing.linear,
+                useNativeDriver: true,
+            }),
+        );
+        const ccw = Animated.loop(
+            Animated.timing(ringSpinRev, {
+                toValue: 1,
+                duration: 22000,
+                easing: Easing.linear,
+                useNativeDriver: true,
+            }),
+        );
+        cw.start();
+        ccw.start();
         return () => {
-            alive = false;
+            cw.stop();
+            ccw.stop();
         };
-    }, []);
+    }, [ringSpin, ringSpinRev]);
 
-    const onTrackLayout = (e: LayoutChangeEvent) => {
-        setTrackWidth(e.nativeEvent.layout.width);
-    };
+    // Very gentle scale pulse on the hero number cluster
+    useEffect(() => {
+        const loop = Animated.loop(
+            Animated.sequence([
+                Animated.timing(heroBreath, {
+                    toValue: 1.02,
+                    duration: 3200,
+                    easing: Easing.inOut(Easing.quad),
+                    useNativeDriver: true,
+                }),
+                Animated.timing(heroBreath, {
+                    toValue: 1,
+                    duration: 3200,
+                    easing: Easing.inOut(Easing.quad),
+                    useNativeDriver: true,
+                }),
+            ]),
+        );
+        loop.start();
+        return () => loop.stop();
+    }, [heroBreath]);
 
-    const fillWidth =
-        trackWidth > 0
-            ? progressAnim.interpolate({
-                  inputRange: [0, 100],
-                  outputRange: [0, trackWidth],
-                  extrapolate: 'clamp',
-              })
-            : 0;
+    const onTrackLayout = (e: LayoutChangeEvent) => setTrackWidth(e.nativeEvent.layout.width);
+
+    const fillWidth = trackWidth > 0
+        ? progressAnim.interpolate({ inputRange: [0, 100], outputRange: [0, trackWidth], extrapolate: 'clamp' })
+        : 0;
+
+    const label = STEP_LABELS[Math.min(currentStep, STEP_LABELS.length - 1)];
+
+    const rotOuter = ringSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+    const rotInner = ringSpinRev.interpolate({ inputRange: [0, 1], outputRange: ['360deg', '0deg'] });
 
     return (
-        <View style={styles.container}>
-            <View
-                style={[
-                    styles.progressHeader,
-                    { paddingTop: Math.max(insets.top, 12) + 28 },
-                ]}
-            >
-                <View style={styles.progressTopRow}>
-                    <Text style={styles.progressTitle} numberOfLines={1} ellipsizeMode="tail">
-                        Analyzing your scan
-                    </Text>
-                    <Text style={styles.progressPct}>{pctLabel}%</Text>
+        <View style={st.container}>
+            {/* Centered hero — decorative rings + large serif percentage */}
+            <View style={[st.hero, { paddingTop: insets.top + 40 }]}>
+                <View style={st.heroArt} pointerEvents="none">
+                    <Animated.View style={[st.decorRing, st.decorRingOuter, { transform: [{ rotate: rotOuter }] }]} />
+                    <Animated.View style={[st.decorRing, st.decorRingMid, { transform: [{ rotate: rotInner }] }]} />
+                    <Animated.View style={[st.decorRing, st.decorRingInner, { transform: [{ rotate: rotOuter }] }]} />
                 </View>
-                <View style={styles.trackWrap}>
-                    <View style={styles.track} onLayout={onTrackLayout}>
-                        <Animated.View style={[styles.trackFill, { width: fillWidth }]} />
+                <Animated.View style={[st.heroNums, { transform: [{ scale: heroBreath }] }]}>
+                    <Text style={st.num}>{pct}</Text>
+                    <Text style={st.pctSign}>%</Text>
+                </Animated.View>
+            </View>
+
+            {/* Bottom strip */}
+            <View style={[st.foot, { paddingBottom: Math.max(insets.bottom, 20) + 32 }]}>
+                {/* Thin progress line */}
+                <View style={st.barWrap} onLayout={onTrackLayout}>
+                    <View style={st.barTrack}>
+                        <Animated.View style={[st.barFill, { width: fillWidth }]} />
                     </View>
                 </View>
-                <Text style={styles.stepHint}>
-                    {ANALYSIS_STEPS[Math.min(currentStep, ANALYSIS_STEPS.length - 1)]}…
+
+                <Animated.Text style={[st.stepText, { opacity: fadeAnim }]}>
+                    {label}
+                </Animated.Text>
+
+                <Text style={st.hint}>
+                    Keep the app open — this takes a moment.
                 </Text>
-                <Text style={styles.stayInAppNotice}>
-                    Stay in the app until this finishes—leaving can delay or interrupt your results.
-                </Text>
             </View>
-
-            <View style={styles.centerStage}>
-                <ScanningGrid />
-            </View>
-
-            <View style={styles.dotsContainer}>
-                {dots.map((opacity, index) => (
-                    <Animated.View key={index} style={[styles.dot, { opacity }]} />
-                ))}
-            </View>
-
         </View>
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, alignItems: 'center', paddingHorizontal: spacing.lg, backgroundColor: colors.background },
-    progressHeader: {
-        alignSelf: 'stretch',
-        marginBottom: spacing.lg,
-    },
-    progressTopRow: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'baseline',
-        gap: spacing.md,
-        marginBottom: 4,
-    },
-    trackWrap: {
-        marginTop: 22,
-    },
-    progressTitle: {
-        fontFamily: fonts.serif,
-        fontSize: 22,
-        fontWeight: '400',
-        color: colors.foreground,
-        letterSpacing: -0.3,
-    },
-    progressPct: { fontSize: 22, fontWeight: '600', color: colors.foreground, letterSpacing: -0.5 },
-    track: {
-        height: 4,
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.surface,
-        overflow: 'hidden',
-    },
-    trackFill: {
-        height: '100%',
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.foreground,
-    },
-    stepHint: {
-        marginTop: spacing.md,
-        fontSize: 15,
-        fontWeight: '500',
-        color: colors.foreground,
-        textAlign: 'center',
-    },
-    stayInAppNotice: {
-        marginTop: spacing.sm,
-        fontSize: 12,
-        lineHeight: 18,
-        color: colors.textMuted,
-        textAlign: 'center',
-        paddingHorizontal: spacing.sm,
-    },
-    centerStage: {
+const st = StyleSheet.create({
+    container: {
         flex: 1,
-        width: '100%',
+        backgroundColor: colors.background,
+    },
+
+    hero: {
+        flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        minHeight: 200,
     },
-    dotsContainer: {
-        flexDirection: 'row',
+    heroArt: {
+        ...StyleSheet.absoluteFillObject,
         justifyContent: 'center',
-        gap: spacing.sm,
-        marginBottom: spacing.xxl,
-        alignSelf: 'center',
+        alignItems: 'center',
     },
-    dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.foreground },
+    decorRing: {
+        position: 'absolute',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
+        borderRadius: 9999,
+        opacity: 0.55,
+    },
+    decorRingOuter: {
+        width: 280,
+        height: 280,
+    },
+    decorRingMid: {
+        width: 220,
+        height: 220,
+        opacity: 0.4,
+    },
+    decorRingInner: {
+        width: 164,
+        height: 164,
+        opacity: 0.35,
+    },
+    heroNums: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    num: {
+        fontFamily: fonts.serif,
+        fontSize: 108,
+        fontWeight: '400',
+        color: colors.foreground,
+        letterSpacing: -6,
+        includeFontPadding: false,
+    },
+    pctSign: {
+        fontFamily: fonts.serif,
+        fontSize: 32,
+        fontWeight: '400',
+        color: colors.textMuted,
+        marginLeft: 4,
+        marginTop: -36,
+        opacity: 0.5,
+    },
+
+    foot: {
+        paddingHorizontal: spacing.xl + spacing.lg,
+    },
+    barWrap: {
+        marginBottom: spacing.lg,
+    },
+    barTrack: {
+        height: 1.5,
+        backgroundColor: colors.borderLight,
+        overflow: 'hidden',
+    },
+    barFill: {
+        height: '100%',
+        backgroundColor: colors.foreground,
+    },
+    stepText: {
+        fontSize: 13,
+        fontWeight: '400',
+        color: colors.foreground,
+        textAlign: 'center',
+        letterSpacing: 0.2,
+    },
+    hint: {
+        fontSize: 11,
+        fontWeight: '400',
+        color: colors.textMuted,
+        textAlign: 'center',
+        marginTop: 6,
+        opacity: 0.5,
+    },
 });

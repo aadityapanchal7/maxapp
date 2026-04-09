@@ -1,5 +1,17 @@
 import React, { useState, type ComponentProps } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Platform, Alert, TextInput, ActivityIndicator, Keyboard } from 'react-native';
+import {
+    View,
+    Text,
+    StyleSheet,
+    ScrollView,
+    TouchableOpacity,
+    Pressable,
+    Platform,
+    Alert,
+    TextInput,
+    ActivityIndicator,
+    Keyboard,
+} from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,17 +19,52 @@ import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
-import { elevatedCardSurface } from '../../theme/screenAesthetic';
+import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import type { LegalDocId } from '../legal/legalDocuments';
 import { LEGAL_SUPPORT_EMAIL } from '../legal/legalConstants';
 
-const POLICY_ROWS: { id: LegalDocId; title: string; icon: ComponentProps<typeof Ionicons>['name'] }[] = [
-    { id: 'privacy', title: 'Privacy policy', icon: 'document-text-outline' },
-    { id: 'terms', title: 'Terms of service', icon: 'reader-outline' },
-    { id: 'community', title: 'Community guidelines', icon: 'people-outline' },
-    { id: 'cookies', title: 'Cookie notice', icon: 'information-circle-outline' },
+const LEGAL_ROWS: { id: LegalDocId; label: string }[] = [
+    { id: 'privacy', label: 'Privacy policy' },
+    { id: 'terms', label: 'Terms of service' },
+    { id: 'community', label: 'Community guidelines' },
+    { id: 'cookies', label: 'Cookie notice' },
 ];
+
+/* ── Primitives ──────────────────────────────────────────────────── */
+
+function Row({
+    label,
+    hint,
+    onPress,
+    trailing,
+    labelColor,
+    disabled,
+}: {
+    label: string;
+    hint?: string;
+    onPress: () => void;
+    trailing?: React.ReactNode;
+    labelColor?: string;
+    disabled?: boolean;
+}) {
+    return (
+        <TouchableOpacity
+            style={st.row}
+            onPress={onPress}
+            activeOpacity={0.5}
+            disabled={disabled}
+            accessibilityRole="button"
+        >
+            <View style={st.rowBody}>
+                <Text style={[st.rowLabel, labelColor ? { color: labelColor } : undefined]}>{label}</Text>
+                {hint ? <Text style={st.rowHint}>{hint}</Text> : null}
+            </View>
+            {trailing ?? <Ionicons name="chevron-forward" size={16} color={colors.textMuted} style={{ opacity: 0.4 }} />}
+        </TouchableOpacity>
+    );
+}
+
+/* ── Screen ──────────────────────────────────────────────────────── */
 
 export default function SettingsScreen() {
     const navigation = useNavigation<any>();
@@ -56,9 +103,7 @@ export default function SettingsScreen() {
         }
     };
 
-    const openDoc = (document: LegalDocId) => {
-        navigation.navigate('LegalDocument', { document });
-    };
+    const openDoc = (document: LegalDocId) => navigation.navigate('LegalDocument', { document });
 
     const openSupport = () => {
         const q = `subject=${encodeURIComponent('Max app support')}`;
@@ -85,148 +130,134 @@ export default function SettingsScreen() {
     };
 
     return (
-        <View style={styles.container}>
-            <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-                    <Ionicons name="arrow-back" size={22} color={colors.foreground} />
-                </TouchableOpacity>
-                <View style={styles.topBarTitleBlock}>
-                    <Text style={styles.titleEyebrow}>App</Text>
-                    <Text style={styles.title}>Settings</Text>
-                </View>
-                <View style={{ width: 40 }} />
-            </View>
-            <View style={styles.topBarDivider} />
-
-            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                {/* Account section */}
-                <Text style={styles.sectionLabel}>ACCOUNT</Text>
-                <View style={styles.cardGroup}>
-                {isPaid ? (
-                    <TouchableOpacity
-                        style={styles.menuRow}
-                        onPress={() => navigation.dispatch(CommonActions.navigate({ name: 'ManageSubscription' }))}
-                        activeOpacity={0.7}
-                    >
-                        <Ionicons name="card-outline" size={22} color={colors.foreground} />
-                        <Text style={styles.menuRowText}>Manage subscription</Text>
-                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                    </TouchableOpacity>
-                ) : null}
-                {isPaid ? (
-                    <TouchableOpacity
-                        style={styles.menuRow}
-                        onPress={() => navigation.navigate('NotificationChannels', { editMode: true })}
-                        activeOpacity={0.7}
-                    >
-                        <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
-                        <Text style={styles.menuRowText}>Notification preferences</Text>
-                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                    </TouchableOpacity>
-                ) : null}
-                <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('PersonalInfo')} activeOpacity={0.7}>
-                    <Ionicons name="id-card-outline" size={22} color={colors.foreground} />
-                    <Text style={styles.menuRowText}>Edit personal info</Text>
-                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('EditPersonal')} activeOpacity={0.7}>
-                    <Ionicons name="leaf-outline" size={22} color={colors.foreground} />
-                    <Text style={styles.menuRowText}>Edit lifestyle</Text>
-                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                </TouchableOpacity>
-                {Platform.OS === 'ios' ? (
-                    <TouchableOpacity
-                        style={[styles.menuRow, styles.menuRowLast]}
-                        onPress={sendTestPush}
-                        activeOpacity={0.7}
-                        disabled={pushBusy}
-                    >
-                        <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
-                        <Text style={[styles.menuRowText, { flex: 1 }]}>Test push notification</Text>
-                        {pushBusy ? (
-                            <ActivityIndicator size="small" color={colors.textMuted} />
-                        ) : (
-                            <Ionicons name="send-outline" size={18} color={colors.textMuted} />
-                        )}
-                    </TouchableOpacity>
-                ) : null}
-                </View>
-
-                {/* Support & legal */}
-                <Text style={[styles.sectionLabel, styles.sectionLabelSpaced]}>SUPPORT & LEGAL</Text>
-                <View style={styles.cardGroup}>
-                <Pressable
-                    onPress={openSupport}
-                    style={({ pressed }) => [styles.menuRow, pressed && { opacity: 0.6 }]}
-                    accessibilityRole="button"
-                    accessibilityLabel="Contact support"
+        <View style={st.container}>
+            {/* Header */}
+            <View style={[st.header, { paddingTop: Math.max(insets.top, 12) + 4 }]}>
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
+                    style={st.backBtn}
+                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                 >
-                    <Ionicons name="mail-outline" size={22} color={colors.foreground} />
-                    <View style={{ flex: 1 }}>
-                        <Text style={styles.menuRowText}>Contact support</Text>
-                        <Text style={styles.supportHint} numberOfLines={1}>{supportEmail}</Text>
+                    <Ionicons name="arrow-back" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+                <Text style={st.headerTitle}>Settings</Text>
+                <View style={{ width: 36 }} />
+            </View>
+
+            <ScrollView
+                contentContainerStyle={st.scroll}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+            >
+                {/* ── Membership ──────────────────────────────────────── */}
+                {isPaid ? (
+                    <View style={st.section}>
+                        <Text style={st.sectionLabel}>Membership</Text>
+                        <Row
+                            label="Manage subscription"
+                            hint="Plan, billing & renewal"
+                            onPress={() => navigation.dispatch(CommonActions.navigate({ name: 'ManageSubscription' }))}
+                        />
                     </View>
-                    <Ionicons name="open-outline" size={18} color={colors.textMuted} />
-                </Pressable>
-                {POLICY_ROWS.map((row, idx) => (
-                    <Pressable
-                        key={row.id}
-                        onPress={() => openDoc(row.id)}
-                        style={({ pressed }) => [
-                            styles.menuRow,
-                            idx === POLICY_ROWS.length - 1 && styles.menuRowLast,
-                            pressed && { opacity: 0.6 },
-                        ]}
-                        accessibilityRole="link"
-                    >
-                        <Ionicons name={row.icon as any} size={22} color={colors.foreground} />
-                        <Text style={styles.menuRowText}>{row.title}</Text>
-                        <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                    </Pressable>
-                ))}
+                ) : null}
+
+                {/* ── Coaching ────────────────────────────────────────── */}
+                <View style={st.section}>
+                    <Text style={st.sectionLabel}>Coaching</Text>
+                    {isPaid ? (
+                        <Row
+                            label="Notification preferences"
+                            hint="Reminders, timing & intensity"
+                            onPress={() => navigation.navigate('NotificationChannels', { editMode: true })}
+                        />
+                    ) : null}
+                    <Row
+                        label="Edit lifestyle"
+                        hint="Goals & habits for better recommendations"
+                        onPress={() => navigation.navigate('EditPersonal')}
+                    />
+                    {Platform.OS === 'ios' ? (
+                        <Row
+                            label="Test push notification"
+                            onPress={sendTestPush}
+                            disabled={pushBusy}
+                            trailing={
+                                pushBusy
+                                    ? <ActivityIndicator size="small" color={colors.textMuted} />
+                                    : <Ionicons name="send-outline" size={14} color={colors.textMuted} style={{ opacity: 0.5 }} />
+                            }
+                        />
+                    ) : null}
                 </View>
 
-                {/* Danger zone */}
-                <Text style={[styles.sectionLabel, styles.sectionLabelSpaced]}>DANGER ZONE</Text>
-                <View style={styles.cardGroup}>
-                <TouchableOpacity style={[styles.menuRow, styles.menuRowLast, styles.deleteRow]} onPress={() => setDeleteModalVisible(true)} activeOpacity={0.7}>
-                    <Ionicons name="trash-outline" size={22} color={colors.error} />
-                    <Text style={[styles.menuRowText, { color: colors.error }]}>Delete account</Text>
-                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
-                </TouchableOpacity>
+                {/* ── Profile ────────────────────────────────────────── */}
+                <View style={st.section}>
+                    <Text style={st.sectionLabel}>Profile</Text>
+                    <Row
+                        label="Edit personal info"
+                        hint="Name, email & account details"
+                        onPress={() => navigation.navigate('PersonalInfo')}
+                    />
                 </View>
 
-                <TouchableOpacity style={styles.logoutButton} onPress={logout} activeOpacity={0.7}>
-                    <Text style={styles.logoutText}>Sign out</Text>
+                {/* ── Support ────────────────────────────────────────── */}
+                <View style={st.section}>
+                    <Text style={st.sectionLabel}>Support</Text>
+                    <Row
+                        label="Contact support"
+                        hint={supportEmail}
+                        onPress={openSupport}
+                        trailing={<Ionicons name="open-outline" size={14} color={colors.textMuted} style={{ opacity: 0.4 }} />}
+                    />
+                    {LEGAL_ROWS.map((row) => (
+                        <Row key={row.id} label={row.label} onPress={() => openDoc(row.id)} />
+                    ))}
+                </View>
+
+                {/* ── Account ────────────────────────────────────────── */}
+                <View style={st.section}>
+                    <Text style={st.sectionLabel}>Account</Text>
+                    <Row
+                        label="Sign out"
+                        labelColor={colors.textSecondary}
+                        onPress={logout}
+                        trailing={null}
+                    />
+                </View>
+
+                <Text style={st.version}>
+                    v{Constants.expoConfig?.version ?? '–'}
+                    {Constants.expoConfig?.ios?.buildNumber ? ` (${Constants.expoConfig.ios.buildNumber})` : ''}
+                </Text>
+
+                <TouchableOpacity
+                    onPress={() => setDeleteModalVisible(true)}
+                    activeOpacity={0.4}
+                    style={st.dangerTap}
+                >
+                    <Text style={st.dangerText}>Delete account</Text>
                 </TouchableOpacity>
 
-                <View style={{ height: Platform.OS === 'ios' ? 48 : 32 }} />
+                <View style={{ height: Platform.OS === 'ios' ? 56 : 40 }} />
             </ScrollView>
 
+            {/* ── Delete modal ────────────────────────────────────────── */}
             {deleteModalVisible && (
-                <View style={styles.modalOverlay} pointerEvents="box-none">
+                <View style={st.overlay} pointerEvents="box-none">
                     <Pressable
                         style={StyleSheet.absoluteFill}
-                        onPress={() => {
-                            Keyboard.dismiss();
-                            setDeleteModalVisible(false);
-                        }}
-                        accessibilityLabel="Close delete account dialog"
+                        onPress={() => { Keyboard.dismiss(); setDeleteModalVisible(false); }}
+                        accessibilityLabel="Close"
                         accessibilityRole="button"
                     />
-                    <View style={styles.modalContent}>
-                        <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Delete account</Text>
-                            <TouchableOpacity onPress={() => setDeleteModalVisible(false)} style={styles.modalClose} activeOpacity={0.7}>
-                                <Ionicons name="close" size={18} color={colors.textSecondary} />
-                            </TouchableOpacity>
-                        </View>
-                        <Text style={styles.deleteHelpText}>
-                            This permanently removes your account and personal data. This action cannot be undone.
+                    <View style={st.modal}>
+                        <Text style={st.modalTitle}>Delete account</Text>
+                        <Text style={st.modalBody}>
+                            This permanently removes your account and all personal data. This cannot be undone.
                         </Text>
                         <TextInput
-                            style={styles.input}
-                            placeholder="Confirm with your password"
+                            style={st.modalInput}
+                            placeholder="Enter your password"
                             placeholderTextColor={colors.textMuted}
                             secureTextEntry
                             value={deletePassword}
@@ -236,12 +267,19 @@ export default function SettingsScreen() {
                             returnKeyType="done"
                             onSubmitEditing={confirmDeleteAccount}
                         />
-                        <View style={styles.modalButtons}>
-                            <TouchableOpacity style={styles.cancelButton} onPress={() => setDeleteModalVisible(false)}>
-                                <Text style={styles.cancelButtonText}>Cancel</Text>
+                        <View style={st.modalBtns}>
+                            <TouchableOpacity style={st.modalCancelBtn} onPress={() => setDeleteModalVisible(false)}>
+                                <Text style={st.modalCancelLabel}>Cancel</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={styles.deleteActionButton} onPress={confirmDeleteAccount} disabled={deleteBusy} activeOpacity={0.8}>
-                                {deleteBusy ? <ActivityIndicator color="#fff" /> : <Text style={styles.deleteActionButtonText}>Delete</Text>}
+                            <TouchableOpacity
+                                style={st.modalDeleteBtn}
+                                onPress={confirmDeleteAccount}
+                                disabled={deleteBusy}
+                                activeOpacity={0.8}
+                            >
+                                {deleteBusy
+                                    ? <ActivityIndicator color="#fff" />
+                                    : <Text style={st.modalDeleteLabel}>Delete</Text>}
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -251,153 +289,145 @@ export default function SettingsScreen() {
     );
 }
 
-const styles = StyleSheet.create({
+/* ── Styles ──────────────────────────────────────────────────────── */
+
+const st = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    topBar: {
+
+    header: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
         paddingHorizontal: spacing.lg,
-        paddingBottom: spacing.sm,
-        backgroundColor: 'transparent',
+        paddingBottom: spacing.md,
     },
-    topBarDivider: {
-        height: StyleSheet.hairlineWidth,
-        backgroundColor: colors.divider,
-        marginHorizontal: spacing.lg,
-        opacity: 0.9,
+    backBtn: { padding: spacing.xs, marginRight: spacing.sm },
+    headerTitle: {
+        flex: 1,
+        fontFamily: fonts.serif,
+        fontSize: 24,
+        fontWeight: '400',
+        letterSpacing: -0.4,
+        color: colors.foreground,
     },
-    backBtn: { padding: spacing.xs },
-    topBarTitleBlock: { flex: 1, alignItems: 'center', paddingHorizontal: spacing.sm },
-    titleEyebrow: {
-        ...typography.caption,
-        letterSpacing: 1.2,
-        textTransform: 'uppercase',
-        marginBottom: 2,
-    },
-    title: { ...typography.h3, fontSize: 17, textAlign: 'center' },
+
     scroll: {
         paddingHorizontal: spacing.lg,
-        paddingTop: spacing.xl,
+        paddingTop: spacing.sm,
         paddingBottom: spacing.xxxl,
-        maxWidth: 720,
+        maxWidth: 520,
         width: '100%',
         alignSelf: 'center',
     },
+
+    /* Sections — no cards, just label + rows + divider */
+    section: {
+        marginTop: spacing.lg + spacing.sm,
+    },
     sectionLabel: {
-        ...typography.label,
+        fontSize: 11,
+        fontWeight: '500',
         color: colors.textMuted,
-        marginBottom: spacing.sm,
-        marginTop: 0,
-        letterSpacing: 1.2,
+        letterSpacing: 1.4,
+        textTransform: 'uppercase',
+        marginBottom: spacing.xs,
+        opacity: 0.7,
     },
-    sectionLabelSpaced: {
-        marginTop: spacing.xl + spacing.sm,
-    },
-    cardGroup: {
-        ...elevatedCardSurface,
-        overflow: 'hidden',
-        paddingVertical: 0,
-        paddingHorizontal: 0,
-        marginBottom: spacing.sm,
-        borderRadius: borderRadius.lg,
-    },
-    menuRow: {
+
+    /* Rows — borderless, airy */
+    row: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: colors.card,
-        paddingVertical: spacing.md + 2,
-        paddingHorizontal: spacing.lg,
-        gap: spacing.md,
+        paddingVertical: 15,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: colors.divider,
+        borderBottomColor: colors.borderLight,
     },
-    menuRowLast: {
-        borderBottomWidth: 0,
-    },
-    menuRowText: {
-        flex: 1,
+    rowBody: { flex: 1, minWidth: 0 },
+    rowLabel: {
         fontSize: 15,
         fontWeight: '400',
         color: colors.foreground,
-        letterSpacing: 0.1,
     },
-    supportHint: {
+    rowHint: {
         fontSize: 12,
-        color: colors.textMuted,
-        marginTop: 4,
         fontWeight: '400',
+        color: colors.textMuted,
+        marginTop: 2,
     },
-    deleteRow: {
-        backgroundColor: colors.card,
-    },
-    logoutButton: {
+
+    dangerTap: {
         alignSelf: 'center',
-        marginTop: spacing.xl + spacing.sm,
-        paddingVertical: spacing.sm + 2,
-        paddingHorizontal: spacing.xl,
-        borderRadius: borderRadius.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.background,
+        paddingVertical: spacing.sm,
+        paddingHorizontal: spacing.lg,
+        marginTop: spacing.lg,
     },
-    logoutText: {
-        fontSize: 13,
-        fontWeight: '500',
-        color: colors.textSecondary,
-        letterSpacing: 0.2,
+    dangerText: {
+        fontSize: 12,
+        fontWeight: '400',
+        color: colors.textMuted,
+        opacity: 0.5,
     },
-    modalOverlay: {
+
+    version: {
+        fontSize: 11,
+        color: colors.textMuted,
+        textAlign: 'center',
+        marginTop: spacing.xxl,
+        opacity: 0.45,
+        letterSpacing: 0.3,
+    },
+
+    /* Modal */
+    overlay: {
         position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
+        top: 0, left: 0, right: 0, bottom: 0,
         backgroundColor: colors.overlay,
         justifyContent: 'center',
         alignItems: 'center',
         padding: spacing.lg,
     },
-    modalContent: {
+    modal: {
         backgroundColor: colors.card,
         borderRadius: borderRadius.xl,
         padding: spacing.xl,
-        maxWidth: 440,
+        maxWidth: 380,
         width: '100%',
         zIndex: 1,
-        borderWidth: 1,
-        borderColor: colors.border,
     },
-    modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xl },
-    modalTitle: { ...typography.h3 },
-    modalClose: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
-    deleteHelpText: {
+    modalTitle: {
+        fontFamily: fonts.serif,
+        fontSize: 20,
+        color: colors.foreground,
+        marginBottom: spacing.sm,
+    },
+    modalBody: {
         fontSize: 14,
         color: colors.textSecondary,
         lineHeight: 20,
-        marginBottom: spacing.md,
+        marginBottom: spacing.lg,
     },
-    input: {
+    modalInput: {
         backgroundColor: colors.background,
         borderRadius: borderRadius.md,
         borderWidth: 1,
         borderColor: colors.borderLight,
-        paddingVertical: spacing.md,
+        paddingVertical: 12,
         paddingHorizontal: spacing.md,
-        color: colors.textPrimary,
-        fontSize: 16,
-        marginBottom: spacing.sm,
+        color: colors.foreground,
+        fontSize: 15,
     },
-    modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: spacing.xl, gap: spacing.md },
-    cancelButton: { padding: spacing.md },
-    cancelButtonText: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
-    deleteActionButton: {
+    modalBtns: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        marginTop: spacing.xl,
+        gap: spacing.md,
+    },
+    modalCancelBtn: { paddingVertical: 10, paddingHorizontal: spacing.md },
+    modalCancelLabel: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
+    modalDeleteBtn: {
         backgroundColor: colors.error,
         borderRadius: borderRadius.md,
         paddingHorizontal: spacing.lg,
         paddingVertical: 10,
-        borderWidth: 1,
-        borderColor: colors.error,
     },
-    deleteActionButtonText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+    modalDeleteLabel: { color: '#fff', fontSize: 14, fontWeight: '600' },
 });

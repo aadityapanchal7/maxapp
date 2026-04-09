@@ -26,6 +26,13 @@ import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 import { userHasSignupPhone } from '../../utils/userPhone';
+import { getMaxxDisplayLabel } from '../../utils/maxxDisplay';
+
+function formatSuggestedModuleTitle(id: string): string {
+    const t = getMaxxDisplayLabel({ id }).trim();
+    if (!t) return id;
+    return t.charAt(0).toUpperCase() + t.slice(1);
+}
 
 /** Some DB drivers or legacy rows store analysis as a JSON string. */
 function coerceAnalysisObject(analysis: unknown): any {
@@ -791,7 +798,7 @@ export default function FaceScanResultsScreen() {
     return (
         <View style={styles.root}>
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                {/* ── Header ── */}
+                {/* ── Header row: back + photo + tier ── */}
                 <View style={styles.header}>
                     {postPayOnboardingFlow ? (
                         <View style={styles.iconHit} />
@@ -800,53 +807,57 @@ export default function FaceScanResultsScreen() {
                             <Ionicons name="chevron-back" size={22} color={colors.foreground} />
                         </TouchableOpacity>
                     )}
-                    <Text style={styles.headerTitle}>Your results</Text>
                     <View style={styles.iconHit} />
                 </View>
 
-                {/* ── Portrait photo ── */}
-                {frontUri ? (
-                    <View style={styles.heroPhoto}>
-                        <CachedImage uri={frontUri} style={styles.heroImg} />
-                    </View>
-                ) : null}
+                {/* ── Compact hero: photo left, scores right ── */}
+                <View style={styles.heroRow}>
+                    {frontUri ? (
+                        <View style={styles.heroThumb}>
+                            <CachedImage uri={frontUri} style={styles.heroThumbImg} />
+                        </View>
+                    ) : (
+                        <View style={[styles.heroThumb, styles.heroThumbEmpty]} />
+                    )}
 
-                {/* ── Dual scores ── */}
-                <View style={styles.scoresRow}>
-                    <View style={styles.scoreCol}>
-                        <Text style={styles.scoreColLabel}>Rating</Text>
-                        {isProcessing ? (
-                            <ActivityIndicator color={colors.foreground} style={{ marginVertical: 10 }} />
-                        ) : locked ? (
-                            <PaywallBlurShell minHeight={48}>
-                                <Text style={styles.scoreColNum}>
+                    <View style={styles.heroScores}>
+                        <View style={styles.heroScoreBlock}>
+                            <Text style={styles.heroScoreLabel}>RATING</Text>
+                            {isProcessing ? (
+                                <ActivityIndicator color={colors.foreground} style={{ marginVertical: 6 }} />
+                            ) : locked ? (
+                                <PaywallBlurShell minHeight={40}>
+                                    <Text style={styles.heroScoreNum}>
+                                        {ratingDisplay != null ? ratingDisplay.toFixed(1) : '—'}
+                                    </Text>
+                                </PaywallBlurShell>
+                            ) : (
+                                <Text style={styles.heroScoreNum}>
                                     {ratingDisplay != null ? ratingDisplay.toFixed(1) : '—'}
                                 </Text>
-                            </PaywallBlurShell>
-                        ) : (
-                            <Text style={styles.scoreColNum}>
-                                {ratingDisplay != null ? ratingDisplay.toFixed(1) : '—'}
-                            </Text>
-                        )}
-                    </View>
+                            )}
+                            <Text style={styles.heroScoreUnit}>/10</Text>
+                        </View>
 
-                    <View style={styles.scoreColSep} />
+                        <View style={styles.heroScoreDivider} />
 
-                    <View style={styles.scoreCol}>
-                        <Text style={styles.scoreColLabel}>Potential</Text>
-                        {isProcessing ? (
-                            <ActivityIndicator color={colors.foreground} style={{ marginVertical: 10 }} />
-                        ) : locked ? (
-                            <PaywallBlurShell minHeight={48}>
-                                <Text style={styles.scoreColNum}>
+                        <View style={styles.heroScoreBlock}>
+                            <Text style={styles.heroScoreLabel}>POTENTIAL</Text>
+                            {isProcessing ? (
+                                <ActivityIndicator color={colors.foreground} style={{ marginVertical: 6 }} />
+                            ) : locked ? (
+                                <PaywallBlurShell minHeight={40}>
+                                    <Text style={styles.heroScoreNum}>
+                                        {potentialDisplay.toFixed(1)}
+                                    </Text>
+                                </PaywallBlurShell>
+                            ) : (
+                                <Text style={styles.heroScoreNum}>
                                     {potentialDisplay.toFixed(1)}
                                 </Text>
-                            </PaywallBlurShell>
-                        ) : (
-                            <Text style={styles.scoreColNum}>
-                                {potentialDisplay.toFixed(1)}
-                            </Text>
-                        )}
+                            )}
+                            <Text style={styles.heroScoreUnit}>/10</Text>
+                        </View>
                     </View>
                 </View>
 
@@ -865,7 +876,7 @@ export default function FaceScanResultsScreen() {
 
                 {/* ── Breakdown rows ── */}
                 <View style={styles.breakdownSection}>
-                    <Text style={styles.breakdownHeading}>Breakdown</Text>
+                    <Text style={styles.sectionHeading}>Breakdown</Text>
                     {[
                         { label: 'Appeal', value: appealScore.toFixed(1) + '/10', color: getScoreColor(appealScore) },
                         { label: 'Archetype', value: archetype || '—', color: colors.foreground },
@@ -887,17 +898,16 @@ export default function FaceScanResultsScreen() {
                     ))}
                 </View>
 
-                {/* ── Suggested modules ── */}
+                {/* ── Suggested modules (compact rows matching breakdown) ── */}
                 {!locked && suggestedMods.length > 0 ? (
                     <View style={styles.modsSection}>
-                        <Text style={styles.breakdownHeading}>Recommended for you</Text>
-                        <View style={styles.modsRow}>
-                            {suggestedMods.map((m, i) => (
-                                <View key={i} style={styles.modChip}>
-                                    <Text style={styles.modChipText}>{m}</Text>
-                                </View>
-                            ))}
-                        </View>
+                        <Text style={styles.sectionHeading}>Recommended</Text>
+                        {suggestedMods.map((m, i) => (
+                            <View key={`${m}-${i}`} style={styles.modRow}>
+                                <View style={styles.modDot} />
+                                <Text style={styles.modLabel}>{formatSuggestedModuleTitle(m)}</Text>
+                            </View>
+                        ))}
                     </View>
                 ) : null}
 
@@ -936,7 +946,11 @@ export default function FaceScanResultsScreen() {
                     </View>
                 ) : null}
 
-                {/* ── CTA ── */}
+                {/* Brand + disclaimer first so a full-screen screenshot can show results without scrolling past CTAs */}
+                <Text style={styles.brandMark}>max</Text>
+                <Text style={styles.disclaimer}>For general wellness only — not medical advice.</Text>
+
+                {/* ── CTA (after shareable content — scroll down to act) ── */}
                 {!viewingHistory ? (
                     <>
                         <TouchableOpacity style={styles.cta} onPress={onPrimaryCta} activeOpacity={0.85}>
@@ -959,9 +973,6 @@ export default function FaceScanResultsScreen() {
                         ) : null}
                     </>
                 ) : null}
-
-                <Text style={styles.brandMark}>max</Text>
-                <Text style={styles.disclaimer}>For general wellness only — not medical advice.</Text>
             </ScrollView>
 
             {!locked && !isProcessing && Platform.OS !== 'web' ? (
@@ -1010,40 +1021,62 @@ const styles = StyleSheet.create({
     paywallFlatOverlay: { backgroundColor: 'rgba(245,245,243,0.55)' },
 
     /* ── Header ── */
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
     iconHit: { width: 36, height: 36, justifyContent: 'center' },
-    headerTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground, letterSpacing: 0.2 },
 
-    /* ── Hero photo ── */
-    heroPhoto: {
-        alignSelf: 'center', width: 200, height: 260, borderRadius: 20,
-        overflow: 'hidden', marginBottom: 24, backgroundColor: colors.surface,
+    /* ── Hero row: photo + scores side by side ── */
+    heroRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 20,
+        marginBottom: 18,
     },
-    heroImg: { width: '100%', height: '100%' },
-
-    /* ── Dual scores ── */
-    scoresRow: {
-        flexDirection: 'row', alignItems: 'center',
-        marginBottom: 14, paddingHorizontal: 4,
+    heroThumb: {
+        width: 120,
+        height: 150,
+        borderRadius: 14,
+        overflow: 'hidden',
+        backgroundColor: colors.surface,
     },
-    scoreCol: { flex: 1, alignItems: 'center' },
-    scoreColLabel: {
-        fontSize: 12, fontWeight: '500', color: colors.textMuted,
-        letterSpacing: 0.4, marginBottom: 2,
+    heroThumbEmpty: { backgroundColor: colors.borderLight },
+    heroThumbImg: { width: '100%', height: '100%' },
+    heroScores: {
+        flex: 1,
+        gap: 10,
     },
-    scoreColNum: {
-        fontFamily: fonts.serif, fontSize: 46, fontWeight: '700',
-        color: colors.foreground, letterSpacing: -1.5, lineHeight: 52,
+    heroScoreBlock: {
+        alignItems: 'flex-start',
     },
-    scoreColSep: {
-        width: StyleSheet.hairlineWidth, height: 44,
-        backgroundColor: colors.border, marginHorizontal: 4,
+    heroScoreLabel: {
+        fontSize: 10,
+        fontWeight: '600',
+        color: colors.textMuted,
+        letterSpacing: 1.2,
+        marginBottom: 1,
+    },
+    heroScoreNum: {
+        fontFamily: fonts.serif,
+        fontSize: 40,
+        fontWeight: '700',
+        color: colors.foreground,
+        letterSpacing: -1.5,
+        lineHeight: 44,
+    },
+    heroScoreUnit: {
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.textMuted,
+        marginTop: -2,
+    },
+    heroScoreDivider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: colors.border,
     },
 
     /* ── Tier ── */
-    tierRow: { alignItems: 'center', marginBottom: 20 },
+    tierRow: { alignItems: 'flex-start', marginBottom: 20 },
     tierPill: {
-        paddingHorizontal: 16, paddingVertical: 5, borderRadius: borderRadius.full,
+        paddingHorizontal: 14, paddingVertical: 5, borderRadius: borderRadius.full,
         borderWidth: 1, borderColor: colors.border,
     },
     tierPillText: {
@@ -1051,28 +1084,48 @@ const styles = StyleSheet.create({
         letterSpacing: 0.8, textTransform: 'uppercase',
     },
 
+    /* ── Section heading (shared) ── */
+    sectionHeading: {
+        fontSize: 12,
+        fontWeight: '600',
+        color: colors.textMuted,
+        letterSpacing: 1.0,
+        textTransform: 'uppercase',
+        marginBottom: 8,
+    },
+
     /* ── Breakdown ── */
     breakdownSection: { marginBottom: 20 },
-    breakdownHeading: {
-        fontFamily: fonts.serif, fontSize: 16, fontWeight: '600',
-        color: colors.foreground, letterSpacing: -0.2, marginBottom: 12,
-    },
     breakdownRow: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        paddingVertical: 12,
-        borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border,
+        paddingVertical: 11,
+        borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderLight,
     },
-    breakdownLabel: { fontSize: 14, fontWeight: '500', color: colors.textSecondary },
-    breakdownValue: { fontFamily: fonts.serif, fontSize: 15, fontWeight: '600', color: colors.foreground },
+    breakdownLabel: { fontSize: 14, fontWeight: '400', color: colors.textSecondary },
+    breakdownValue: { fontSize: 14, fontWeight: '600', color: colors.foreground },
 
-    /* ── Modules ── */
+    /* ── Modules — compact rows with dot ── */
     modsSection: { marginBottom: 20 },
-    modsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    modChip: {
-        paddingHorizontal: 14, paddingVertical: 7, borderRadius: borderRadius.full,
-        borderWidth: 1, borderColor: colors.border,
+    modRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 11,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.borderLight,
     },
-    modChipText: { fontSize: 12, fontWeight: '500', color: colors.foreground },
+    modDot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: colors.foreground,
+        opacity: 0.35,
+        marginRight: 12,
+    },
+    modLabel: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.foreground,
+    },
 
     /* ── Share ── */
     shareRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 16 },
@@ -1089,27 +1142,28 @@ const styles = StyleSheet.create({
     paywallTitle: { fontFamily: fonts.serif, fontSize: 18, fontWeight: '600', color: colors.foreground, letterSpacing: -0.2 },
     paywallSub: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: 'center', marginTop: 6, maxWidth: 280 },
 
-    /* ── CTA ── */
+    /* ── CTA (below brand — scroll up to capture results without button) ── */
     cta: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
         backgroundColor: colors.foreground, paddingVertical: 15, borderRadius: borderRadius.full,
+        marginTop: spacing.sm,
     },
     ctaText: { fontSize: 15, fontWeight: '600', color: colors.background, letterSpacing: 0.2 },
     skipBtn: { alignItems: 'center', paddingVertical: 14 },
     skipText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
 
-    /* ── Disclaimer ── */
+    /* ── Brand / disclaimer (above CTA for screenshot-friendly scroll) ── */
     brandMark: {
         fontFamily: fonts.serif,
         fontSize: 13,
         letterSpacing: 1.5,
         color: colors.textMuted,
         textAlign: 'center',
-        marginTop: spacing.xl,
+        marginTop: spacing.lg,
         opacity: 0.45,
         textTransform: 'uppercase',
     },
-    disclaimer: { fontSize: 10, color: colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 14 },
+    disclaimer: { fontSize: 10, color: colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 14, marginBottom: spacing.md },
 
     shareCardOffscreen: { position: 'absolute', width: SHARE_CARD_WIDTH, left: -4000, top: 0, opacity: 1 },
 });

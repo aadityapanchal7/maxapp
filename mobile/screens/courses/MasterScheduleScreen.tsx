@@ -637,33 +637,31 @@ export default function MasterScheduleScreen() {
                 return (
                   <View key={`${task.scheduleId}-${task.task_id}`}>
                     {index > 0 && <View style={styles.taskDivider} />}
-                    <View style={[styles.taskRow, isDone && styles.taskRowDone]}>
-                      <View style={styles.taskRowLeft}>
-                        <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
-                        <TouchableOpacity
-                          style={[styles.taskCheck, isDone && styles.taskCheckDone]}
-                          onPress={() => void toggleTaskComplete(task)}
-                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                          accessibilityRole="checkbox"
-                          accessibilityLabel={
-                            isDone
-                              ? `Mark task not done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
-                              : `Mark task done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
-                          }
-                          accessibilityState={{ checked: isDone }}
-                        >
-                          {isDone ? (
-                            <Ionicons name="checkmark" size={11} color={colors.buttonText} />
-                          ) : null}
-                        </TouchableOpacity>
-                      </View>
+                    <TouchableOpacity
+                      style={[styles.taskRow, isDone && styles.taskRowDone]}
+                      onPress={() => setExpandedTaskId((prev) => (prev === task.task_id ? null : task.task_id))}
+                      activeOpacity={0.75}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
+                    >
+                      <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
                       <TouchableOpacity
-                        style={styles.taskContent}
-                        onPress={() => setExpandedTaskId((prev) => (prev === task.task_id ? null : task.task_id))}
-                        activeOpacity={0.75}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
+                        style={[styles.taskCheck, isDone && styles.taskCheckDone]}
+                        onPress={(e) => { e.stopPropagation(); void toggleTaskComplete(task); }}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                        accessibilityRole="checkbox"
+                        accessibilityLabel={
+                          isDone
+                            ? `Mark task not done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
+                            : `Mark task done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
+                        }
+                        accessibilityState={{ checked: isDone }}
                       >
+                        {isDone ? (
+                          <Ionicons name="checkmark" size={11} color={colors.buttonText} />
+                        ) : null}
+                      </TouchableOpacity>
+                      <View style={styles.taskContent}>
                         <View style={styles.taskTopLine}>
                           <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>
                             {formatTimeTo12Hour(task.time)}
@@ -677,41 +675,33 @@ export default function MasterScheduleScreen() {
                         </View>
                         {isExpanded && (
                           <>
-                            <Text style={styles.taskModuleLabel} numberOfLines={1}>
-                              {task.moduleLabel}{task.duration_minutes ? ` · ${task.duration_minutes}m` : ''}
+                            <Text style={styles.taskMeta} numberOfLines={1}>
+                              {task.moduleLabel}{task.duration_minutes ? `  ·  ${task.duration_minutes}m` : ''}
                             </Text>
                             {task.description ? (
                               <Text style={styles.taskDescription}>
                                 {task.description}
                               </Text>
                             ) : null}
+                            <TouchableOpacity
+                              style={styles.askChatRow}
+                              onPress={(e) => { e.stopPropagation(); goToChatForTask(task); }}
+                              activeOpacity={0.75}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Ask Max about ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
+                            >
+                              <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.textMuted} />
+                              <Text style={styles.askChatLabel}>Ask Max</Text>
+                            </TouchableOpacity>
                           </>
                         )}
-                      </TouchableOpacity>
-                      <View style={styles.taskRowRight}>
-                        <Ionicons
-                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                          size={16}
-                          color={colors.textMuted}
-                        />
                       </View>
-                    </View>
-
-                    {isExpanded && (
-                      <View style={styles.taskExpanded}>
-                        <TouchableOpacity
-                          style={styles.askChatRow}
-                          onPress={() => goToChatForTask(task)}
-                          activeOpacity={0.75}
-                          accessibilityRole="button"
-                          accessibilityLabel={`Ask Max about ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
-                        >
-                          <Ionicons name="chatbubble-ellipses-outline" size={14} color={colors.foreground} />
-                          <Text style={styles.askChatLabel}>Ask Max</Text>
-                          <Ionicons name="chevron-forward" size={14} color={colors.textMuted} />
-                        </TouchableOpacity>
-                      </View>
-                    )}
+                      <Ionicons
+                        name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                        size={14}
+                        color={colors.textMuted}
+                      />
+                    </TouchableOpacity>
                   </View>
                 );
               })}
@@ -827,31 +817,27 @@ const styles = StyleSheet.create({
   },
   taskRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 16,
-    gap: spacing.md,
+    alignItems: 'flex-start',
+    paddingVertical: 14,
+    gap: 10,
   },
-  taskRowDone: { opacity: 0.5 },
-  taskRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingTop: 2,
-  },
+  taskRowDone: { opacity: 0.45 },
   scheduleTaskAccent: {
     width: 2,
-    height: 18,
+    alignSelf: 'stretch',
     borderRadius: 1,
     opacity: 0.85,
+    marginTop: 2,
   },
   taskCheck: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.2,
     borderColor: colors.textMuted,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: 1,
   },
   taskCheckDone: { backgroundColor: colors.foreground, borderColor: colors.foreground },
   taskContent: { flex: 1, minWidth: 0 },
@@ -860,11 +846,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.sm,
   },
-  taskRowRight: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 2,
-  },
   taskTime: {
     fontSize: 12,
     fontWeight: '500',
@@ -872,31 +853,37 @@ const styles = StyleSheet.create({
     minWidth: 62,
   },
   taskTimeDone: { textDecorationLine: 'line-through' },
-  taskModuleLabel: {
+  taskTitle: { fontSize: 15, fontWeight: '500', color: colors.foreground, flex: 1 },
+  taskTitleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
+  taskMeta: {
     ...typography.caption,
     color: colors.textMuted,
     marginTop: 4,
+    marginLeft: 62 + spacing.sm,
   },
-  taskTitle: { fontSize: 15, fontWeight: '500', color: colors.foreground, flex: 1 },
-  taskTitleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
-  taskExpanded: {
-    paddingBottom: 24,
-    paddingTop: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+  taskDescription: {
+    ...typography.bodySmall,
+    marginTop: 8,
+    lineHeight: 20,
+    color: colors.textSecondary,
+    marginLeft: 62 + spacing.sm,
   },
-  taskDescription: { ...typography.bodySmall },
   askChatRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
+    gap: 6,
+    marginTop: 10,
+    marginLeft: 62 + spacing.sm,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.sm,
+    alignSelf: 'flex-start',
   },
   askChatLabel: {
-    ...typography.caption,
-    flex: 1,
+    fontSize: 12,
     fontWeight: '500',
-    color: colors.foreground,
+    color: colors.textMuted,
   },
   emptyState: { flex: 1, paddingHorizontal: spacing.xl },
   emptyStateMinimal: {

@@ -86,13 +86,13 @@ class Settings(BaseSettings):
     # Sendblue (iMessage / SMS) — https://sendblue.com/
     sendblue_api_key_id: str = Field(default="", description="sb-api-key-id header")
     sendblue_api_secret_key: str = Field(default="", description="sb-api-secret-key header")
-    sendblue_from_number: str = Field(default="", description="Your Sendblue line E.164, e.g. +16468304204")
+    sendblue_from_number: str = Field(default="", description="Your Sendblue line E.164, e.g. 16468304204")
     sendblue_webhook_secret: str = Field(
         default="",
         description="Optional: must match Sendblue webhook secret header for /api/sendblue/receive",
     )
     # DEV ONLY: set SMS_SCHEDULER_TEST_FAST_MODE=true — 1-min scheduler ticks, bypass clock windows so SMS
-    # fires immediately; coaching + weekly send at most once per user until you restart the API process.
+    # fires immediately; coaching  weekly send at most once per user until you restart the API process.
     sms_scheduler_test_fast_mode: bool = Field(default=False)
 
     # Apple Push Notification service (direct HTTP/2) — .p8 key PEM or base64-of-PEM
@@ -154,7 +154,7 @@ class Settings(BaseSettings):
         """Parse CORS origins string into list.
 
         In development (or when debug is on), merge common Expo web ports (8081–8095, etc.)
-        so the browser Origin header matches even if Metro uses 8082+ after a port conflict.
+        so the browser Origin header matches even if Metro uses 8082 after a port conflict.
         Production with debug off uses only the explicit env list.
         """
         parsed = [o.strip() for o in self.cors_origins.split(",") if o.strip()]
