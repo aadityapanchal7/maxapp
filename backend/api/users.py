@@ -134,10 +134,16 @@ async def test_push_notification(
     db: AsyncSession = Depends(get_db),
 ):
     """Send a test push notification to the current user's stored APNs token."""
-    from services.apns_service import send_apns_alert, apns_configured
+    from services.apns_service import send_apns_alert, apns_configured, _apns_jwt
 
     if not apns_configured():
         raise HTTPException(status_code=503, detail="Push notifications are not configured on this server")
+
+    try:
+        _apns_jwt()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"APNs key is misconfigured: {e}")
+
     user_uuid = UUID(current_user["id"])
     user = await db.get(User, user_uuid)
     if not user:
@@ -152,7 +158,7 @@ async def test_push_notification(
         badge=1,
     )
     if not ok:
-        raise HTTPException(status_code=502, detail=f"APNs delivery failed (status {status_code}). Token may be expired.")
+        raise HTTPException(status_code=502, detail=f"APNs delivery failed (HTTP {status_code}). Check server logs for details.")
     return {"message": "Test notification sent"}
 
 

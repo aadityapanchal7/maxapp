@@ -30,6 +30,13 @@ def _load_private_key(pem_or_b64: str):
         raise ValueError("empty APNs key")
     if not raw.startswith("-----"):
         raw = base64.b64decode(raw).decode("utf-8")
+    # Env-var UIs often strip newlines — reconstruct valid PEM if needed.
+    if "-----BEGIN" in raw and "\n" not in raw:
+        raw = raw.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
+        raw = raw.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----\n")
+    # Also handle literal \n escape sequences from some env-var providers.
+    if "\\n" in raw:
+        raw = raw.replace("\\n", "\n")
     return serialization.load_pem_private_key(
         raw.encode("utf-8"),
         password=None,
@@ -104,7 +111,7 @@ async def send_apns_alert(
         async with httpx.AsyncClient(http2=True, timeout=30.0) as client:
             r = await client.post(url, headers=headers, content=json.dumps(payload))
     except Exception as e:
-        logger.warning("APNs request failed: %s", e)
+        logger.warning("APNs request failed (%s): %s", type(e).__name__, e)
         return False, None
 
     if r.status_code == 200:
