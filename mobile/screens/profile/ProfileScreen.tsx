@@ -12,6 +12,7 @@ import { formatFaceRatingLabel } from '../../utils/faceRatingLabel';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import { getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 import { normalizeMaxxTintHex } from '../../components/MaxxProgramRow';
+import { userHasSignupPhone } from '../../utils/userPhone';
 
 const getImageModalWidth = (width: number) =>
     Platform.OS === 'web' && width > 600
@@ -389,7 +390,28 @@ export default function ProfileScreen() {
                         </View>
                     </View>
 
-                    <View style={styles.gridDivider} />
+                    {isPaid && !userHasSignupPhone(user) ? (
+                        <>
+                            <View style={styles.smsSetupBanner}>
+                                <View style={styles.smsSetupTextCol}>
+                                    <Text style={styles.smsSetupTitle}>SMS not set up</Text>
+                                    <Text style={styles.smsSetupSub}>
+                                        Add a phone number to get SMS reminders and text Max from Messages.
+                                    </Text>
+                                </View>
+                                <TouchableOpacity
+                                    style={styles.smsSetupBtn}
+                                    onPress={() => navigation.navigate('SmsSetup')}
+                                    activeOpacity={0.85}
+                                >
+                                    <Text style={styles.smsSetupBtnText}>Set up SMS</Text>
+                                </TouchableOpacity>
+                            </View>
+                            <View style={styles.gridDivider} />
+                        </>
+                    ) : (
+                        <View style={styles.gridDivider} />
+                    )}
 
                     {progressPhotos.length === 0 ? (
                         <TouchableOpacity
@@ -690,6 +712,46 @@ const styles = StyleSheet.create({
     },
     actionBtnDisabled: {
         opacity: 0.45,
+    },
+
+    smsSetupBanner: {
+        marginHorizontal: spacing.lg,
+        marginTop: spacing.sm,
+        padding: spacing.md,
+        borderRadius: borderRadius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.md,
+    },
+    smsSetupTextCol: {
+        flex: 1,
+        minWidth: 0,
+    },
+    smsSetupTitle: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.foreground,
+        marginBottom: 4,
+    },
+    smsSetupSub: {
+        fontSize: 13,
+        fontWeight: '400',
+        color: colors.textSecondary,
+        lineHeight: 18,
+    },
+    smsSetupBtn: {
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.foreground,
+    },
+    smsSetupBtnText: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.card,
     },
 
     // ── Grid divider ─────────────────────────────────────────────────────

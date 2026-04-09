@@ -245,11 +245,19 @@ class ApiService {
 
     // Auth
     async signup(email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) {
-        const response = await this.client.post(
-            'auth/signup',
-            { email, password, first_name, last_name, username, phone_number },
-            { timeout: Platform.OS === 'web' ? WEB_AUTH_TIMEOUT_MS : undefined },
-        );
+        const body: Record<string, string> = {
+            email,
+            password,
+            first_name,
+            last_name,
+            username,
+        };
+        if (phone_number && String(phone_number).replace(/\D/g, '').length >= 7) {
+            body.phone_number = phone_number;
+        }
+        const response = await this.client.post('auth/signup', body, {
+            timeout: Platform.OS === 'web' ? WEB_AUTH_TIMEOUT_MS : undefined,
+        });
         await this.setTokens(response.data.access_token, response.data.refresh_token);
         return response.data;
     }
@@ -382,7 +390,7 @@ class ApiService {
         return response.data as { status: string; message?: string };
     }
 
-    async updateAccount(data: { first_name?: string; last_name?: string; username?: string }) {
+    async updateAccount(data: { first_name?: string; last_name?: string; username?: string; phone_number?: string | null }) {
         const response = await this.client.put('users/account', data);
         return response.data;
     }

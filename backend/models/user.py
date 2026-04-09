@@ -169,7 +169,10 @@ class UserCreate(BaseModel):
     last_name: str = Field(..., min_length=1, max_length=50)
     username: str = Field(..., min_length=3, max_length=30, pattern="^[a-zA-Z0-9_]+$")
     bio: Optional[str] = None
-    phone_number: str = Field(..., min_length=7, description="Phone number for SMS (with country code, e.g. +15551234567)")
+    phone_number: Optional[str] = Field(
+        default=None,
+        description="Optional E.164 phone for SMS; omit to add later in the app",
+    )
     
     class Config:
         json_schema_extra = {
@@ -276,9 +279,14 @@ class TokenRefreshRequest(BaseModel):
 
 class AccountUpdateRequest(BaseModel):
     """Request to update user account info"""
+
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     username: Optional[str] = None
+    phone_number: Optional[str] = Field(
+        default=None,
+        description="Add when none on file, or update before SMS is linked (sendblue_sms_engaged false).",
+    )
 
 
 class BlockUserRequest(BaseModel):

@@ -128,17 +128,25 @@ async def signup(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
             detail="Username already taken"
         )
 
-    # One phone number per account (match normalized + common stored variants)
-    normalized_phone = normalize_phone(user_data.phone_number.strip())
-    phone_candidates = list(
-        dict.fromkeys(phone_lookup_candidates(normalized_phone) + [normalized_phone])
-    )
-    result = await db.execute(select(User).where(User.phone_number.in_(phone_candidates)))
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Phone number already registered",
+    normalized_phone = None
+    raw_phone = (user_data.phone_number or "").strip()
+    if raw_phone:
+        normalized_phone = normalize_phone(raw_phone)
+        digits_only = re.sub(r"\D", "", normalized_phone)
+        if len(digits_only) < 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Enter a valid phone number with country code, or leave phone blank.",
+            )
+        phone_candidates = list(
+            dict.fromkeys(phone_lookup_candidates(normalized_phone) + [normalized_phone])
         )
+        result = await db.execute(select(User).where(User.phone_number.in_(phone_candidates)))
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number already registered",
+            )
 
     # Create user record
     user = User(

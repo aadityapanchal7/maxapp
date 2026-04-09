@@ -38,3 +38,21 @@ export const PHONE_COUNTRIES: PhoneCountry[] = [
     { name: 'Switzerland', dialCode: '+41', flag: '🇨🇭' },
     { name: 'United Arab Emirates', dialCode: '+971', flag: '🇦🇪' },
 ];
+
+/** Match stored E.164 against known dial codes (longest prefix wins). */
+export function parseE164WithKnownCountries(
+    raw: string | null | undefined,
+): { country: PhoneCountry; nationalDigits: string } | null {
+    const allDigits = (raw || '').replace(/\D/g, '');
+    if (!allDigits) return null;
+    const byDialLen = [...PHONE_COUNTRIES].sort(
+        (a, b) => b.dialCode.replace(/\D/g, '').length - a.dialCode.replace(/\D/g, '').length,
+    );
+    for (const c of byDialLen) {
+        const dc = c.dialCode.replace(/\D/g, '');
+        if (dc && allDigits.startsWith(dc)) {
+            return { country: c, nationalDigits: allDigits.slice(dc.length) };
+        }
+    }
+    return null;
+}

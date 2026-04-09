@@ -16,6 +16,7 @@ import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 import FeaturesIntroScreen from '../screens/onboarding/FeaturesIntroScreen';
 import FaceScanScreen from '../screens/scan/FaceScanScreen';
 import FaceScanResultsScreen from '../screens/scan/FaceScanResultsScreen';
+import SmsCoachingIntroScreen from '../screens/scan/SmsCoachingIntroScreen';
 import SendblueConnectScreen from '../screens/scan/SendblueConnectScreen';
 import NotificationChannelsScreen from '../screens/scan/NotificationChannelsScreen';
 import ModuleSelectScreen from '../screens/scan/ModuleSelectScreen';
@@ -23,6 +24,7 @@ import ScanDetailScreen from '../screens/scan/ScanDetailScreen';
 import PaymentScreen from '../screens/payment/PaymentScreen';
 import PaymentThankYouScreen from '../screens/payment/PaymentThankYouScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
+import SmsSetupScreen from '../screens/profile/SmsSetupScreen';
 import SettingsScreen from '../screens/profile/SettingsScreen';
 import EditPersonalScreen from '../screens/profile/EditPersonalScreen';
 import ManageSubscriptionScreen from '../screens/profile/ManageSubscriptionScreen';
@@ -43,6 +45,7 @@ import TabNavigator from './TabNavigator';
 import LandingScreen from '../screens/onboarding/LandingScreen';
 import LegalDocumentScreen from '../screens/legal/LegalDocumentScreen';
 import AdminNavigator from './AdminNavigator';
+import { userHasSignupPhone } from '../utils/userPhone';
 
 const Stack = createNativeStackNavigator();
 
@@ -72,7 +75,9 @@ export function RootNavigator() {
                         ? 'FaceScanResults'
                         : 'FeaturesIntro'
                 : !sendblueDone
-                    ? 'SendblueConnect'
+                    ? userHasSignupPhone(user)
+                        ? 'SendblueConnect'
+                        : 'SmsCoachingIntro'
                     : 'Main';
 
     const stackKey = !isAuthenticated
@@ -122,7 +127,9 @@ export function RootNavigator() {
                     <Stack.Screen name="Main" component={TabNavigator} />
                     <Stack.Screen name="FaceScan" component={FaceScanScreen} />
                     <Stack.Screen name="FaceScanResults" component={FaceScanResultsScreen} />
+                    <Stack.Screen name="SmsCoachingIntro" component={SmsCoachingIntroScreen} />
                     <Stack.Screen name="SendblueConnect" component={SendblueConnectScreen} />
+                    <Stack.Screen name="SmsSetup" component={SmsSetupScreen} />
                     <Stack.Screen name="NotificationChannels" component={NotificationChannelsScreen} />
                     <Stack.Screen name="ModuleSelect" component={ModuleSelectScreen} />
                     <Stack.Screen name="Profile" component={ProfileScreen} />

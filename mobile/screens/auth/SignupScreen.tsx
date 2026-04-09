@@ -107,7 +107,7 @@ export default function SignupScreen() {
         const pwdMismatch = !!(password && confirmPassword && password !== confirmPassword);
         if (pwdMismatch) { err.password = true; err.confirmPassword = true; }
         const nationalDigits = phoneNational.replace(/\D/g, '');
-        if (!nationalDigits || nationalDigits.length < 7) err.phone = true;
+        if (nationalDigits.length > 0 && nationalDigits.length < 7) err.phone = true;
 
         setFieldErrors(err);
         setApiError(null);
@@ -124,8 +124,9 @@ export default function SignupScreen() {
         setApiError(null);
         setFieldErrorMessages({});
         try {
+            const nationalDigits = phoneNational.replace(/\D/g, '');
             const fullPhone =
-                phoneCountry.dialCode + phoneNational.replace(/\D/g, '');
+                nationalDigits.length >= 7 ? phoneCountry.dialCode + nationalDigits : undefined;
             await signup(email, password, firstName, lastName, username, fullPhone);
             if (avatarUri) {
                 try {
@@ -241,7 +242,9 @@ export default function SignupScreen() {
                                 {fieldErrorMessages.phone ? (
                                     <Text style={styles.helperError}>{fieldErrorMessages.phone}</Text>
                                 ) : (
-                                    <Text style={styles.phoneHint}>Used for SMS coaching and account access.</Text>
+                                    <Text style={styles.phoneHint}>
+                                        Add now for SMS coaching, or skip and add later in Profile.
+                                    </Text>
                                 )}
                             </View>
 

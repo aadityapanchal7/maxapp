@@ -25,6 +25,7 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
+import { userHasSignupPhone } from '../../utils/userPhone';
 
 /** Some DB drivers or legacy rows store analysis as a JSON string. */
 function coerceAnalysisObject(analysis: unknown): any {
@@ -472,7 +473,7 @@ function ScanProcessingView() {
 export default function FaceScanResultsScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
-    const { isPaid, refreshUser, user } = useAuth() as any;
+    const { isPaid, refreshUser, user } = useAuth() as { isPaid: boolean; refreshUser: () => Promise<unknown>; user: any };
     const postPayParam = !!(route.params as RouteParams)?.postPay;
     const scanIdParam = (route.params as any)?.scanId as string | undefined;
     const viewingHistory = !!scanIdParam;
@@ -629,7 +630,12 @@ export default function FaceScanResultsScreen() {
             return;
         }
         if (sendbluePending) {
-            navigation.navigate('SendblueConnect', { next: postPay ? 'ModuleSelect' : 'Main' });
+            const next = postPay ? 'ModuleSelect' : 'Main';
+            if (isPaid === true && !userHasSignupPhone(user)) {
+                navigation.navigate('SmsCoachingIntro', { next });
+            } else {
+                navigation.navigate('SendblueConnect', { next });
+            }
             return;
         }
         if (postPay) {

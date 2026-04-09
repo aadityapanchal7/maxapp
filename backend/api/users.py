@@ -12,7 +12,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, update
+from sqlalchemy import and_, select, delete, update
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ from models.user import (
 )
 from models.sqlalchemy_models import User, UserProgressPhoto
 from models.rds_models import ChannelMessage
+from services.sendblue_service import normalize_phone, phone_lookup_candidates
 from api.auth import verify_password
 from config import settings
 
@@ -738,11 +739,17 @@ async def update_account(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Update user account info (first_name, last_name, username)
+    Update user account info (first_name, last_name, username, phone).
+    Phone: set when none on file, or replace while SMS is not yet linked (sendblue_sms_engaged false).
     Note: Email cannot be changed
     """
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
     update_fields = {}
-    
+
     if data.first_name is not None:
         update_fields["first_name"] = data.first_name.strip() if data.first_name.strip() else None
     if data.last_name is not None:
@@ -790,16 +797,50 @@ async def update_account(
             update_fields["last_username_change"] = _utcnow()
         elif not username_clean:
             update_fields["username"] = None
-    
+
+    if data.phone_number is not None:
+        existing_digits = re.sub(r"\D", "", (user.phone_number or ""))
+        ob = user.onboarding if isinstance(user.onboarding, dict) else {}
+        sendblue_sms_engaged = ob.get("sendblue_sms_engaged") is True
+        if len(existing_digits) >= 10 and sendblue_sms_engaged:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Phone number is already set on this account.",
+            )
+        raw = (data.phone_number or "").strip()
+        if not raw:
+            update_fields["phone_number"] = None
+        else:
+            normalized = normalize_phone(raw)
+            dig = re.sub(r"\D", "", normalized)
+            if len(dig) < 10:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Enter a valid phone number with country code.",
+                )
+            phone_candidates = list(
+                dict.fromkeys(phone_lookup_candidates(normalized) + [normalized])
+            )
+            dup = await db.execute(
+                select(User).where(
+                    and_(
+                        User.phone_number.in_(phone_candidates),
+                        User.id != user_uuid,
+                    )
+                )
+            )
+            if dup.scalars().first():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already registered",
+                )
+            update_fields["phone_number"] = normalized
+
     if not update_fields:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No fields to update"
         )
-
-    user = await db.get(User, UUID(current_user["id"]))
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     for key, value in update_fields.items():
         setattr(user, key, value)

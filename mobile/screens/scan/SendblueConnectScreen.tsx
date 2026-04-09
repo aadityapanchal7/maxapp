@@ -148,9 +148,27 @@ export default function SendblueConnectScreen() {
                 <View style={styles.card}>
                     <Text style={styles.cardLabel}>TEXT FROM THIS NUMBER</Text>
                     {signupDisplay ? (
-                        <Text style={styles.phoneUser} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
-                            {signupDisplay}
-                        </Text>
+                        <>
+                            <Text style={styles.phoneUser} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.65}>
+                                {signupDisplay}
+                            </Text>
+                            {!smsConfirmed ? (
+                                <TouchableOpacity
+                                    style={styles.changeNumberBtn}
+                                    onPress={() =>
+                                        navigation.navigate('SmsSetup', {
+                                            nextAfterSendblue: next,
+                                            continueTo: 'SendblueConnect',
+                                            prefillFromAccount: true,
+                                        })
+                                    }
+                                    activeOpacity={0.7}
+                                    hitSlop={8}
+                                >
+                                    <Text style={styles.changeNumberBtnText}>Change number</Text>
+                                </TouchableOpacity>
+                            ) : null}
+                        </>
                     ) : (
                         <Text style={styles.phoneMissing}>
                             We don&apos;t have a phone on your account. Add one in Profile, or use the number you signed up with in
@@ -248,8 +266,19 @@ const styles = StyleSheet.create({
         fontSize: 20,
         fontWeight: '700',
         color: colors.foreground,
-        marginBottom: spacing.sm,
+        marginBottom: spacing.xs,
         letterSpacing: 0.2,
+    },
+    changeNumberBtn: {
+        alignSelf: 'flex-start',
+        paddingVertical: 4,
+        marginBottom: spacing.sm,
+    },
+    changeNumberBtnText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.foreground,
+        textDecorationLine: 'underline',
     },
     phoneMissing: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: spacing.sm },
     cardHint: { fontSize: 13, color: colors.textSecondary, lineHeight: 19, marginBottom: spacing.lg },
