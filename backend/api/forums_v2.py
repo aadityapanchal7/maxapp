@@ -194,7 +194,9 @@ async def create_subforum(
     cat = await rds_db.get(ForumCategory, cid)
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
-    if (cat.slug or "").lower() in ("official", "premium", "influence") and not current_user.get("is_admin"):
+    if (cat.slug or "").lower() in ("official", "premium", "influence", "influencers") and not current_user.get(
+        "is_admin"
+    ):
         raise HTTPException(status_code=403, detail="You can't create boards in this category.")
 
     name = (data.name or "").strip()
@@ -653,6 +655,23 @@ async def create_post(
                     created_at=now,
                 )
             )
+        if quote_post_uuid:
+            qp = await rds_db.get(ForumPost, quote_post_uuid)
+            if qp and str(qp.user_id) != actor_id:
+                q_uid = str(qp.user_id)
+                # Thread OP already gets a "reply" notification for non-OP posts.
+                if q_uid != author_id:
+                    rds_db.add(
+                        ForumNotification(
+                            user_id=qp.user_id,
+                            type="quote",
+                            entity_id=UUID(str(post.id)),
+                            actor_user_id=_coerce_uuid(actor_id, label="actor_user_id"),
+                            payload={"thread_id": str(tid), "post_id": str(post.id), "quoted_post_id": str(qp.id)},
+                            is_read=False,
+                            created_at=now,
+                        )
+                    )
         # watchers
         wres = await rds_db.execute(select(ForumThreadWatch.user_id).where(ForumThreadWatch.thread_id == tid))
         watchers = [str(x) for x in wres.scalars().all()]

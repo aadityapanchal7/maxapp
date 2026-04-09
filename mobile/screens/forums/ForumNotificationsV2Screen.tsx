@@ -42,6 +42,7 @@ function notificationSummary(n: Notif): string {
     if (n.type === 'reply') return `${u}replied to your thread`;
     if (n.type === 'mention') return `${u}mentioned you`;
     if (n.type === 'watch') return 'New post in a watched thread';
+    if (n.type === 'quote') return `${u}quoted your post`;
     return 'Forum activity';
 }
 
@@ -63,7 +64,10 @@ export default function ForumNotificationsV2Screen() {
         } catch {
             /* still navigate */
         }
-        const threadId = n.payload?.thread_id || n.payload?.threadId || (n.type === 'reply' || n.type === 'watch' ? n.entity_id : null);
+        const threadId =
+            n.payload?.thread_id ||
+            n.payload?.threadId ||
+            (n.type === 'reply' || n.type === 'watch' ? n.entity_id : null);
         if (threadId) navigation.navigate('ThreadV2', { threadId, threadTitle: 'thread' });
     };
 
