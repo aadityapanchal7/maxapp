@@ -35,8 +35,19 @@ export default function SettingsScreen() {
     const sendTestPush = async () => {
         setPushBusy(true);
         try {
+            const { getIosApnsDeviceTokenForBackend } = await import('../../services/registerIosPushToken');
+            const freshToken = await getIosApnsDeviceTokenForBackend();
+            if (freshToken) {
+                await api.registerPushToken(freshToken);
+            }
             await api.sendTestPush();
-            Alert.alert('Sent', 'Check your notifications — a test push is on its way.');
+            Alert.alert(
+                'Sent',
+                'A push notification was sent. If it doesn\'t appear within 10 seconds:\n\n'
+                + '1. Check iOS Settings → Max → Notifications is ON\n'
+                + '2. Make sure Do Not Disturb / Focus is OFF\n'
+                + '3. Try locking the screen first, then sending',
+            );
         } catch (e: any) {
             const detail = e?.response?.data?.detail || e?.message || 'Could not send test push';
             Alert.alert('Error', detail);

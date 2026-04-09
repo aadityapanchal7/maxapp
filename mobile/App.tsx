@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
+import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { RootNavigator } from './navigation/RootNavigator';
 import { queryClient } from './lib/queryClient';
@@ -27,6 +28,29 @@ function AppNavigator() {
     const navRef = useNavigationContainerRef();
     const appStateRef = useRef<AppStateStatus>(AppState.currentState);
     const recoveryRunning = useRef(false);
+
+    // Clear badge count when the app enters the foreground and wire up
+    // notification-tap deep-linking.
+    useEffect(() => {
+        if (Platform.OS !== 'ios') return;
+        void Notifications.setBadgeCountAsync(0).catch(() => undefined);
+        const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
+            if (next === 'active') {
+                void Notifications.setBadgeCountAsync(0).catch(() => undefined);
+            }
+        });
+        return () => sub.remove();
+    }, []);
+
+    useEffect(() => {
+        const sub = Notifications.addNotificationResponseReceivedListener((_response) => {
+            // Future: read _response.notification.request.content.data for
+            // deep-link routing (e.g. navigate to a specific schedule or chat).
+            // For now, opening the app to the foreground is sufficient — the
+            // home screen shows today's tasks.
+        });
+        return () => sub.remove();
+    }, []);
 
     // Root-level face scan recovery: runs whenever the app comes back to the
     // foreground so a pending upload that was interrupted in the background

@@ -134,10 +134,16 @@ async def test_push_notification(
     db: AsyncSession = Depends(get_db),
 ):
     """Send a test push notification to the current user's stored APNs token."""
-    from services.apns_service import send_apns_alert, apns_configured
+    from services.apns_service import send_apns_alert, apns_configured, _apns_jwt, apns_response_should_invalidate_token
 
     if not apns_configured():
         raise HTTPException(status_code=503, detail="Push notifications are not configured on this server")
+
+    try:
+        _apns_jwt()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"APNs key is misconfigured: {e}")
+
     user_uuid = UUID(current_user["id"])
     user = await db.get(User, user_uuid)
     if not user:
@@ -145,15 +151,25 @@ async def test_push_notification(
     token = (user.apns_device_token or "").strip()
     if not token:
         raise HTTPException(status_code=400, detail="No push token registered for this device. Make sure notifications are enabled.")
-    ok, status_code = await send_apns_alert(
+
+    ok, http_code = await send_apns_alert(
         token,
         "Max",
         "Push notifications are working! You're all set.",
         badge=1,
     )
-    if not ok:
-        raise HTTPException(status_code=502, detail=f"APNs delivery failed (status {status_code}). Token may be expired.")
-    return {"message": "Test notification sent"}
+    if ok:
+        return {"message": "Test notification sent", "apns_status": http_code, "token_prefix": token[:8]}
+    if apns_response_should_invalidate_token(http_code):
+        user.apns_device_token = None
+        user.apns_token_updated_at = None
+        await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="Your push token was rejected by Apple (expired or invalid). "
+                   "Go to Notification preferences, toggle off and back on, then try again.",
+        )
+    raise HTTPException(status_code=502, detail=f"APNs delivery failed (HTTP {http_code}). Check server logs.")
 
 
 @router.delete("/push-token")
