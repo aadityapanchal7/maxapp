@@ -590,6 +590,11 @@ class ApiService {
         return response.data;
     }
 
+    async sendTestPush() {
+        const response = await this.client.post('users/test-push');
+        return response.data;
+    }
+
     async clearPushToken() {
         const response = await this.client.delete('users/push-token');
         return response.data;

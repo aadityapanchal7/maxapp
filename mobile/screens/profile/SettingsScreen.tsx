@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../services/api';
 import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { elevatedCardSurface } from '../../theme/screenAesthetic';
 import type { LegalDocId } from '../legal/legalDocuments';
@@ -29,6 +30,20 @@ export default function SettingsScreen() {
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [deletePassword, setDeletePassword] = useState('');
     const [deleteBusy, setDeleteBusy] = useState(false);
+    const [pushBusy, setPushBusy] = useState(false);
+
+    const sendTestPush = async () => {
+        setPushBusy(true);
+        try {
+            await api.sendTestPush();
+            Alert.alert('Sent', 'Check your notifications — a test push is on its way.');
+        } catch (e: any) {
+            const detail = e?.response?.data?.detail || e?.message || 'Could not send test push';
+            Alert.alert('Error', detail);
+        } finally {
+            setPushBusy(false);
+        }
+    };
 
     const openDoc = (document: LegalDocId) => {
         navigation.navigate('LegalDocument', { document });
@@ -103,11 +118,27 @@ export default function SettingsScreen() {
                     <Text style={styles.menuRowText}>Edit personal info</Text>
                     <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.menuRow, styles.menuRowLast]} onPress={() => navigation.navigate('EditPersonal')} activeOpacity={0.7}>
+                <TouchableOpacity style={styles.menuRow} onPress={() => navigation.navigate('EditPersonal')} activeOpacity={0.7}>
                     <Ionicons name="leaf-outline" size={22} color={colors.foreground} />
                     <Text style={styles.menuRowText}>Edit lifestyle</Text>
                     <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                 </TouchableOpacity>
+                {Platform.OS === 'ios' ? (
+                    <TouchableOpacity
+                        style={[styles.menuRow, styles.menuRowLast]}
+                        onPress={sendTestPush}
+                        activeOpacity={0.7}
+                        disabled={pushBusy}
+                    >
+                        <Ionicons name="notifications-outline" size={22} color={colors.foreground} />
+                        <Text style={[styles.menuRowText, { flex: 1 }]}>Test push notification</Text>
+                        {pushBusy ? (
+                            <ActivityIndicator size="small" color={colors.textMuted} />
+                        ) : (
+                            <Ionicons name="send-outline" size={18} color={colors.textMuted} />
+                        )}
+                    </TouchableOpacity>
+                ) : null}
                 </View>
 
                 {/* Support & legal */}
