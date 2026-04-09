@@ -78,6 +78,7 @@ def _user_dict(user: User) -> dict:
         "subscription_status": user.subscription_status,
         "subscription_id": user.subscription_id,
         "subscription_end_date": user.subscription_end_date,
+        "billing_provider": user.billing_provider,
         "stripe_customer_id": user.stripe_customer_id,
         "onboarding": user.onboarding or {},
         "profile": user.profile or {},

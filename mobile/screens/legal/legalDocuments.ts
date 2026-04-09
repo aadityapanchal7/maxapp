@@ -314,12 +314,12 @@ export const termsBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'Some features may require a paid subscription or one-time purchase. Prices, billing cycles, and taxes are shown at checkout or in the app store. Payments are processed by third parties (such as Apple, Google, or Stripe). Their terms also apply. Unless stated otherwise or required by law, fees are non-refundable. You may cancel subscriptions through your app store account settings.',
+            'Some features may require a paid subscription or one-time purchase. Prices, billing cycles, and taxes are shown at checkout or in the app store. On iPhone, Max’s subscription is purchased through Apple’s In-App Purchase system; on Android, subscriptions may be billed through Stripe or Google Play depending on how you subscribe. Their terms also apply. Unless stated otherwise or required by law, fees are non-refundable. You may cancel or change subscriptions in your Apple ID Subscriptions (iOS), Google Play (Android), or through Stripe where that flow is offered.',
     },
     {
         type: 'p',
         text:
-            'Auto-renewable subscriptions continue until you cancel in your Apple ID or Google Play account settings. Before you subscribe, the app and store checkout should show what you receive each period, the price, and how to cancel.',
+            'Auto-renewable subscriptions continue until you cancel in your Apple ID or Google Play account settings (or end a Stripe-billed plan where applicable). Before you subscribe, the app and store checkout should show what you receive each period, the price, and how to cancel. On iOS, if you reinstall Max or use a new device, use Restore Purchases where the app offers it to reconnect an existing App Store subscription to your Max account.',
     },
     { type: 'external', label: 'App Review Guidelines — Subscriptions (Apple)', url: APPLE_APP_REVIEW_BUSINESS },
 

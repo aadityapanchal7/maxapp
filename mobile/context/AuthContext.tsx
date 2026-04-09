@@ -71,6 +71,8 @@ interface User {
     is_admin: boolean;
     /** Server has an APNs token on file (iOS push). */
     has_apns_token?: boolean;
+    /** `apple` when subscribed via App Store IAP; `stripe` when billed via Stripe. */
+    billing_provider?: string | null;
 }
 
 interface AuthContextType {

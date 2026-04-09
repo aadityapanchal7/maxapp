@@ -225,6 +225,10 @@ class UserResponse(BaseModel):
     subscription_tier: Optional[str] = None
     subscription_status: Optional[str] = None
     subscription_end_date: Optional[datetime] = None
+    billing_provider: Optional[str] = Field(
+        default=None,
+        description="stripe | apple — where the current subscription is billed",
+    )
     onboarding: OnboardingData = Field(default_factory=OnboardingData)
     profile: UserProfile = Field(default_factory=UserProfile)
     first_scan_completed: bool = False

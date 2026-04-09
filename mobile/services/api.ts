@@ -680,6 +680,8 @@ class ApiService {
         current_period_start_iso?: string | null;
         /** False for dev test-activate and similar (no Stripe subscription id on file). */
         has_stripe_subscription?: boolean;
+        billing_provider?: 'stripe' | 'apple' | string | null;
+        manage_subscription_hint?: string | null;
         /** True when Stripe metadata could not be loaded; avoid destructive billing actions. */
         degraded?: boolean;
         subscription?: {
@@ -691,6 +693,11 @@ class ApiService {
         } | null;
     }> {
         const response = await this.client.get('payments/status');
+        return response.data;
+    }
+
+    async verifyAppleIapTransaction(transactionId: string): Promise<{ status: string; tier?: string | null }> {
+        const response = await this.client.post('payments/apple/verify', { transaction_id: transactionId });
         return response.data;
     }
 

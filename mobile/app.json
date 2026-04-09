@@ -83,7 +83,8 @@
           ],
           "enableGooglePay": true
         }
-      ]
+      ],
+      "react-native-iap"
     ],
     "scheme": "cannon",
     "platforms": [
@@ -101,7 +102,9 @@
       "communityGuidelinesUrl": "https://maxmaxmax.today/legal/community-guidelines",
       "cookieNoticeUrl": "https://maxmaxmax.today/legal/cookies",
       "sendblueSmsNumber": "+16468304204",
-      "sendblueDisplayNumber": "+1 (646) 830-4204"
+      "sendblueDisplayNumber": "+1 (646) 830-4204",
+      "appleIapBasicProductId": "com.cannon.mobile.subscribe.basic.weekly",
+      "appleIapPremiumProductId": "com.cannon.mobile.subscribe.premium.weekly"
     }
   }
 }

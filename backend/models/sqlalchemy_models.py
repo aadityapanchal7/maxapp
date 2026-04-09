@@ -47,6 +47,8 @@ class User(Base):
     subscription_id = Column(String, unique=True)
     subscription_end_date = Column(DateTime(timezone=True))
     stripe_customer_id = Column(String, unique=True)
+    # stripe | apple — controls cancel/change-tier/manage UI; null treated as stripe if stripe_customer_id set
+    billing_provider = Column(String)
 
     phone_number = Column(String)
     first_scan_completed = Column(Boolean, default=False)

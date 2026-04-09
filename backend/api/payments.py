@@ -1,13 +1,14 @@
 """
-Payments API — Stripe SetupIntent + Subscription flow
+Payments API — Stripe SetupIntent + Subscription flow, Apple IAP (iOS) verify + ASN V2.
 """
 
 import logging
 import stripe
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request, Depends
 from uuid import UUID
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from db import get_db
@@ -60,6 +61,8 @@ async def _activate_user(
     subscription_id: str | None,
     db: AsyncSession,
     subscription_tier: Optional[str] = None,
+    billing_provider: Optional[str] = None,
+    subscription_end_date: Optional[datetime] = None,
 ):
     """Shared activation logic for webhook + test-activate.
 
@@ -80,6 +83,10 @@ async def _activate_user(
     user.subscription_status = "active"
     if subscription_tier in ("basic", "premium"):
         user.subscription_tier = subscription_tier
+    if billing_provider is not None:
+        user.billing_provider = billing_provider
+    if subscription_end_date is not None:
+        user.subscription_end_date = subscription_end_date
     if not was_already_paid:
         ob = dict(user.onboarding or {})
         ob["post_subscription_onboarding"] = True
@@ -109,7 +116,39 @@ async def _deactivate_user(user_id: str, db: AsyncSession):
     user.subscription_status = "canceled"
     user.subscription_id = None
     user.subscription_tier = None
+    user.billing_provider = None
     await db.commit()
+
+
+def _is_apple_billed_user(current_user: dict) -> bool:
+    return (current_user.get("billing_provider") or "").lower() == "apple"
+
+
+async def _apple_sync_entitlement(user_id: str, claims: dict, db: AsyncSession) -> None:
+    """Apply App Store transaction claims to Supabase user (active or expired)."""
+    from services import apple_iap_service as apple
+
+    tier = apple.tier_for_product_id(claims.get("productId") or "")
+    if not tier:
+        raise ValueError("unknown_product")
+    original = str(claims.get("originalTransactionId") or "")
+    if not original:
+        raise ValueError("missing_original")
+    active = apple.subscription_active_from_claims(claims)
+    exp = apple.expires_datetime_from_claims(claims)
+    if not active:
+        user = await db.get(User, UUID(user_id))
+        if user and (user.billing_provider or "").lower() == "apple" and (user.subscription_id or "") == original:
+            await _deactivate_user(user_id, db)
+        return
+    await _activate_user(
+        user_id,
+        original,
+        db,
+        subscription_tier=tier,
+        billing_provider="apple",
+        subscription_end_date=exp,
+    )
 
 
 async def _sync_subscription_tier_from_stripe(user_id: str, subscription_id: str, db: AsyncSession) -> None:
@@ -194,7 +233,13 @@ async def subscribe(
     )
 
     if sub.status in ("active", "trialing"):
-        await _activate_user(user_id, sub.id, db, subscription_tier=body.tier)
+        await _activate_user(
+            user_id,
+            sub.id,
+            db,
+            subscription_tier=body.tier,
+            billing_provider="stripe",
+        )
 
     return SubscribeResponse(subscription_id=sub.id, status=sub.status)
 
@@ -209,6 +254,13 @@ async def cancel_subscription(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    user_row = await db.get(User, UUID(current_user["id"]))
+    if user_row and (user_row.billing_provider or "").lower() == "apple":
+        raise HTTPException(
+            status_code=409,
+            detail="This subscription was purchased through Apple. Open Settings → Apple ID → Subscriptions to cancel.",
+        )
+
     sub_id = current_user.get("subscription_id")
     if not sub_id:
         raise HTTPException(status_code=404, detail="No active subscription")
@@ -245,7 +297,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     event_type = result.get("event_type")
 
     if action == "activate" and uid:
-        await _activate_user(uid, sub_id, db)
+        await _activate_user(uid, sub_id, db, billing_provider="stripe")
         if sub_id:
             await _sync_subscription_tier_from_stripe(uid, sub_id, db)
 
@@ -265,6 +317,162 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         and action == "update"
     ):
         await _sync_subscription_tier_from_stripe(uid, sub_id, db)
+
+    return {"status": "ok"}
+
+
+class AppleVerifyRequest(BaseModel):
+    transaction_id: str
+
+
+@router.post("/apple/verify")
+async def apple_verify(
+    body: AppleVerifyRequest,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """iOS client sends StoreKit transaction id after a successful purchase; server verifies with Apple."""
+    from services import apple_iap_service as apple
+
+    if not apple.apple_iap_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Apple IAP is not configured on the server.",
+        )
+
+    paid = bool(current_user.get("is_paid"))
+    bp = (current_user.get("billing_provider") or "").lower()
+    if paid and bp != "apple":
+        raise HTTPException(
+            status_code=409,
+            detail="This account already has a subscription from another billing provider.",
+        )
+
+    try:
+        claims = await apple.fetch_transaction_claims(body.transaction_id.strip())
+        apple.validate_claims_for_user(claims, current_user["id"])
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        logger.warning("Apple verify failed: %s", e)
+        raise HTTPException(status_code=502, detail=str(e))
+
+    if not apple.subscription_active_from_claims(claims):
+        raise HTTPException(
+            status_code=400,
+            detail="This subscription is not active or has expired.",
+        )
+
+    try:
+        await _apple_sync_entitlement(str(current_user["id"]), claims, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    tier = apple.tier_for_product_id(claims.get("productId") or "")
+    return {"status": "ok", "tier": tier}
+
+
+@router.post("/apple/notifications")
+async def apple_server_notifications(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """App Store Server Notifications V2 (unsigned outer payload is OK if we re-fetch txn from Apple)."""
+    from services import apple_iap_service as apple
+
+    sec = (settings.apple_asn_shared_secret or "").strip()
+    if sec:
+        token = request.query_params.get("token") or request.query_params.get("secret")
+        if token != sec:
+            raise HTTPException(status_code=403, detail="Invalid notification token")
+
+    try:
+        payload_json: dict[str, Any] = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    signed = payload_json.get("signedPayload")
+    if not signed:
+        return {"status": "ok"}
+
+    try:
+        outer = apple.decode_notification_payload(signed)
+    except Exception as e:
+        logger.warning("ASN decode outer failed: %s", e)
+        return {"status": "ok"}
+
+    ntype = (outer.get("notificationType") or "").upper()
+    data = outer.get("data") or {}
+    signed_tx = data.get("signedTransactionInfo")
+    if not signed_tx:
+        return {"status": "ok"}
+
+    try:
+        txn_inner = apple.decode_notification_transaction(signed_tx)
+    except Exception as e:
+        logger.warning("ASN decode transaction failed: %s", e)
+        return {"status": "ok"}
+
+    txn_id = (txn_inner.get("transactionId") or "").strip() or None
+    original_id = str(txn_inner.get("originalTransactionId") or "")
+
+    app_token = txn_inner.get("appAccountToken")
+    user_id_str: Optional[str] = None
+    if app_token:
+        try:
+            UUID(str(app_token))
+            user_id_str = str(app_token)
+        except ValueError:
+            user_id_str = None
+
+    if not user_id_str and original_id:
+        res = await db.execute(select(User).where(User.subscription_id == original_id))
+        row = res.scalar_one_or_none()
+        if row:
+            user_id_str = str(row.id)
+
+    if not user_id_str:
+        logger.info("ASN %s: no user resolved (original=%s)", ntype, original_id)
+        return {"status": "ok"}
+
+    try:
+        if ntype in ("REFUND", "REVOKE", "EXPIRED"):
+            u = await db.get(User, UUID(user_id_str))
+            if (
+                u
+                and (u.billing_provider or "").lower() == "apple"
+                and (u.subscription_id or "") == original_id
+            ):
+                await _deactivate_user(user_id_str, db)
+        elif ntype in (
+            "SUBSCRIBED",
+            "DID_RENEW",
+            "INITIAL_BUY",
+            "DID_CHANGE_RENEWAL_PREF",
+            "DID_CHANGE_RENEWAL_STATUS",
+        ):
+            if txn_id and apple.apple_iap_configured():
+                try:
+                    claims = await apple.fetch_transaction_claims(txn_id)
+                    await _apple_sync_entitlement(user_id_str, claims, db)
+                except Exception as e:
+                    logger.warning("ASN sync fetch failed, using inner JWS: %s", e)
+                    try:
+                        await _apple_sync_entitlement(user_id_str, txn_inner, db)
+                    except ValueError:
+                        pass
+            else:
+                try:
+                    await _apple_sync_entitlement(user_id_str, txn_inner, db)
+                except ValueError:
+                    pass
+        elif ntype == "DID_FAIL_TO_RENEW":
+            u = await db.get(User, UUID(user_id_str))
+            if u:
+                u.subscription_status = "past_due"
+                await db.commit()
+    except Exception as e:
+        logger.exception("ASN handler error: %s", e)
 
     return {"status": "ok"}
 
@@ -297,6 +505,23 @@ async def get_subscription_status(
     )
     paid = bool(user_row.is_paid) if user_row else bool(current_user.get("is_paid"))
 
+    if user_row and (user_row.billing_provider or "").lower() == "apple":
+        end_iso = _dt_iso(user_row.subscription_end_date)
+        st = (user_row.subscription_status or "").lower()
+        is_active = paid and st not in ("canceled", "expired")
+        return {
+            "is_active": is_active,
+            "subscription_tier": tier,
+            "cancel_at_period_end": False,
+            "current_period_end_iso": end_iso,
+            "current_period_start_iso": None,
+            "has_stripe_subscription": False,
+            "billing_provider": "apple",
+            "manage_subscription_hint": "ios_settings",
+            "subscription": None,
+            "degraded": False,
+        }
+
     if not sub_id:
         end_iso = _dt_iso(user_row.subscription_end_date) if user_row else None
         return {
@@ -306,6 +531,7 @@ async def get_subscription_status(
             "current_period_end_iso": end_iso,
             "current_period_start_iso": None,
             "has_stripe_subscription": False,
+            "billing_provider": (user_row.billing_provider if user_row else None) or "stripe",
             "subscription": None,
             "degraded": False,
         }
@@ -325,6 +551,7 @@ async def get_subscription_status(
             "current_period_end_iso": end_iso,
             "current_period_start_iso": None,
             "has_stripe_subscription": True,
+            "billing_provider": (user_row.billing_provider if user_row else None) or "stripe",
             "subscription": None,
             "degraded": True,
         }
@@ -343,6 +570,7 @@ async def get_subscription_status(
         "current_period_end_iso": end_iso,
         "current_period_start_iso": start_iso,
         "has_stripe_subscription": True,
+        "billing_provider": (user_row.billing_provider if user_row else None) or "stripe",
         "subscription": {
             "id": sub.get("id"),
             "status": sub.get("status"),
@@ -365,6 +593,13 @@ async def change_subscription_tier(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    user_row = await db.get(User, UUID(current_user["id"]))
+    if user_row and (user_row.billing_provider or "").lower() == "apple":
+        raise HTTPException(
+            status_code=409,
+            detail="Plan changes for Apple subscriptions are done in Settings → Apple ID → Subscriptions.",
+        )
+
     sub_id = current_user.get("subscription_id")
     if not sub_id:
         raise HTTPException(status_code=404, detail="No active subscription")
@@ -412,6 +647,13 @@ async def resume_subscription(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    user_row = await db.get(User, UUID(current_user["id"]))
+    if user_row and (user_row.billing_provider or "").lower() == "apple":
+        raise HTTPException(
+            status_code=409,
+            detail="Resume or manage Apple subscriptions in Settings → Apple ID → Subscriptions.",
+        )
+
     sub_id = current_user.get("subscription_id")
     if not sub_id:
         raise HTTPException(status_code=404, detail="No active subscription")
@@ -475,7 +717,13 @@ async def test_activate_subscription(
 
     try:
         tier = body.tier if body.tier in ("basic", "premium") else "premium"
-        await _activate_user(current_user["id"], None, db, subscription_tier=tier)
+        await _activate_user(
+            current_user["id"],
+            None,
+            db,
+            subscription_tier=tier,
+            billing_provider="stripe",
+        )
     except Exception as e:
         await db.rollback()
         logger.error(f"test-activate failed: {e}")
