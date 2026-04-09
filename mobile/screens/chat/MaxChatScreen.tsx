@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState, type AppStateStatus, View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,7 +10,7 @@ import api from '../../services/api';
 import { useChatHistoryQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
 import { ChatTypingIndicator, ChatTypingMode } from '../../components/ChatTypingIndicator';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 
 const PENDING_CHAT_KEY = '@max_pending_chat_v1';
@@ -25,6 +26,7 @@ interface Message {
 
 export default function MaxChatScreen() {
     const route = useRoute<any>();
+    const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
     const chatHistoryQuery = useChatHistoryQuery();
     const [messages, setMessages] = useState<Message[]>([]);
@@ -40,9 +42,6 @@ export default function MaxChatScreen() {
     const [historyReady, setHistoryReady] = useState(false);
 
     useEffect(() => {
-        // #region agent log
-        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:historyEffect',message:'chat history query state',data:{isSuccess:chatHistoryQuery.isSuccess,isError:chatHistoryQuery.isError,isPending:chatHistoryQuery.isPending,historySeeded,dataLen:chatHistoryQuery.data?.length,error:String(chatHistoryQuery.error?.message||'').substring(0,200)},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         if (!chatHistoryQuery.isSuccess || historySeeded) return;
         setMessages(chatHistoryQuery.data ?? []);
         setHistoryReady(true);
@@ -78,9 +77,6 @@ export default function MaxChatScreen() {
     }, [route.params?.initQuestion, loading, historyReady]);
 
     const sendMessageWithContext = async (msg: string, initContext?: string) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessageWithContext',message:'sendMessageWithContext called',data:{msg:msg?.substring(0,80),initContext,loading,historyReady},timestamp:Date.now(),hypothesisId:'A,C'})}).catch(()=>{});
-        // #endregion
         if (!msg.trim() || loading) return;
         setLoading(true);
         setServerChoices([]);
@@ -96,31 +92,26 @@ export default function MaxChatScreen() {
                 { role: 'assistant', content: response },
             ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
-            // Update React Query cache with the new exchange instead of invalidating+refetching
-            // the whole history. Saves a roundtrip and avoids the loading spinner flash.
             queryClient.setQueryData<Message[]>(queryKeys.chatHistory, (prev = []) => [
                 ...prev,
                 { role: 'user', content: msg },
                 { role: 'assistant', content: response },
             ]);
+            queryClient.invalidateQueries({
+                predicate: (q) => {
+                    const k = q.queryKey;
+                    return k === queryKeys.schedulesActiveFull
+                        || k === queryKeys.activeSchedulesSummary
+                        || k === queryKeys.maxes;
+                },
+            });
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
-            // #region agent log
-            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessageWithContext:catch',message:'sendMessageWithContext error',data:{status:e?.response?.status,statusText:e?.response?.statusText,data:JSON.stringify(e?.response?.data)?.substring(0,300),message:e?.message,hasResponse:!!e?.response},timestamp:Date.now(),hypothesisId:'A,D,E'})}).catch(()=>{});
-            // #endregion
-            const isNetworkErr = !e?.response;
-            if (isNetworkErr) {
-                await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg, initContext })).catch(() => undefined);
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: "You\u2019re offline \u2014 your message is saved and I\u2019ll send it the moment you\u2019re back." },
-                ]);
-            } else {
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: 'My thinking was interrupted \u2014 please don\u2019t leave the app while I\u2019m working on your response. Try sending again.' },
-                ]);
-            }
+            const serverMsg = e?.response?.data?.response || e?.response?.data?.detail;
+            setMessages(prev => [
+                ...prev.filter((m) => !m.isTyping),
+                { role: 'assistant', content: serverMsg || 'Something went wrong — try sending again in a moment.' },
+            ]);
         } finally {
             setLoading(false);
         }
@@ -153,9 +144,6 @@ export default function MaxChatScreen() {
         const fromPreset = typeof presetArg === 'string' ? presetArg.trim() : '';
         const fromInput = String(input ?? '').trim();
         const userContent = fromPreset || fromInput;
-        // #region agent log
-        fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage',message:'sendMessage called',data:{userContent:userContent?.substring(0,80),fromPreset:!!fromPreset,loading,historyReady},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         if (!userContent || loading) return;
         setLoading(true);
         setServerChoices([]);
@@ -173,9 +161,6 @@ export default function MaxChatScreen() {
                 undefined,
                 scheduleCtx,
             );
-            // #region agent log
-            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage:success',message:'sendMessage got response',data:{responseLen:response?.length,responsePeek:response?.substring(0,100),choicesLen:choices?.length},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
                 { role: 'assistant', content: response },
@@ -186,24 +171,24 @@ export default function MaxChatScreen() {
                 { role: 'user', content: userContent },
                 { role: 'assistant', content: response },
             ]);
+            queryClient.invalidateQueries({
+                predicate: (q) => {
+                    const k = q.queryKey;
+                    return k === queryKeys.schedulesActiveFull
+                        || k === queryKeys.activeSchedulesSummary
+                        || k === queryKeys.maxes;
+                },
+            });
         } catch (e: any) {
             console.error(e);
-            // #region agent log
-            fetch('http://127.0.0.1:7566/ingest/6f717954-8152-4e14-9416-684887fdea59',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'da450c'},body:JSON.stringify({sessionId:'da450c',location:'MaxChatScreen.tsx:sendMessage:catch',message:'sendMessage error',data:{status:e?.response?.status,statusText:e?.response?.statusText,data:JSON.stringify(e?.response?.data)?.substring(0,300),message:e?.message,hasResponse:!!e?.response},timestamp:Date.now(),hypothesisId:'A,D,E'})}).catch(()=>{});
-            // #endregion
-            const isNetworkErr = !e?.response;
-            if (isNetworkErr) {
+            const serverMsg = e?.response?.data?.response || e?.response?.data?.detail;
+            if (!e?.response) {
                 await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg: userContent, initContext: scheduleCtx })).catch(() => undefined);
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: "You\u2019re offline \u2014 your message is saved and I\u2019ll send it the moment you\u2019re back." },
-                ]);
-            } else {
-                setMessages(prev => [
-                    ...prev.filter((m) => !m.isTyping),
-                    { role: 'assistant', content: 'My thinking was interrupted \u2014 please don\u2019t leave the app while I\u2019m working on your response. Try sending again.' },
-                ]);
             }
+            setMessages(prev => [
+                ...prev.filter((m) => !m.isTyping),
+                { role: 'assistant', content: serverMsg || 'Something went wrong — try sending again in a moment.' },
+            ]);
         }
         finally { setLoading(false); }
     };
@@ -250,7 +235,8 @@ export default function MaxChatScreen() {
             </View>
 
             <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-                <View style={styles.header}>
+                <View style={[styles.header, { paddingTop: Math.max(insets.top + spacing.md, 52) }]}>
+                    <Text style={styles.headerEyebrow}>Coach</Text>
                     <Text style={styles.title}>Max</Text>
                     <Text style={styles.subtitle}>Your lookmaxxing coach</Text>
                 </View>
@@ -274,7 +260,7 @@ export default function MaxChatScreen() {
                     />
                 )}
 
-                <View style={styles.outerInputContainer}>
+                <View style={[styles.outerInputContainer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
                     {!loading && quickReplies.length > 0 && (
                         <View style={styles.quickReplyRow}>
                             {quickReplies.map((choice) => (
@@ -326,15 +312,21 @@ const styles = StyleSheet.create({
         opacity: 0.07,
     },
     header: {
-        paddingTop: 64,
         paddingHorizontal: spacing.lg,
         paddingBottom: spacing.lg,
         borderBottomWidth: 1,
-        borderBottomColor: colors.border,
+        borderBottomColor: colors.borderLight,
         backgroundColor: colors.card,
     },
-    title: { fontSize: 26, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
-    subtitle: { fontSize: 14, color: colors.textMuted, marginTop: 4 },
+    headerEyebrow: {
+        ...typography.label,
+        fontSize: 10,
+        color: colors.textMuted,
+        marginBottom: 4,
+        letterSpacing: 1,
+    },
+    title: { fontFamily: fonts.serif, fontSize: 28, fontWeight: '400', color: colors.foreground, letterSpacing: -0.5 },
+    subtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 6, lineHeight: 20 },
     messageList: { padding: spacing.lg, paddingBottom: spacing.xl },
     messageListEmpty: { flexGrow: 1 },
     messageRow: { flexDirection: 'row', marginBottom: spacing.md, paddingHorizontal: 4 },
@@ -343,17 +335,18 @@ const styles = StyleSheet.create({
         maxWidth: '82%',
         paddingHorizontal: 16,
         paddingVertical: 12,
-        borderRadius: 18,
-        ...shadows.sm,
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
     },
     userBubble: {
         backgroundColor: colors.foreground,
-        borderBottomRightRadius: 6,
-        ...shadows.md,
+        borderBottomRightRadius: borderRadius.sm,
+        borderColor: colors.foreground,
     },
     assistantBubble: {
         backgroundColor: colors.card,
-        borderBottomLeftRadius: 6,
+        borderBottomLeftRadius: borderRadius.sm,
         borderWidth: 1,
         borderColor: colors.border,
     },
@@ -367,10 +360,9 @@ const styles = StyleSheet.create({
     emptySubtitle: { fontSize: 14, color: colors.textMuted, textAlign: 'center', lineHeight: 20 },
     outerInputContainer: {
         padding: spacing.md,
-        paddingBottom: spacing.lg,
         borderTopWidth: 1,
-        borderTopColor: colors.border,
-        backgroundColor: colors.background,
+        borderTopColor: colors.borderLight,
+        backgroundColor: colors.card,
     },
     quickReplyRow: {
         flexDirection: 'row',
@@ -379,9 +371,9 @@ const styles = StyleSheet.create({
         marginBottom: spacing.sm,
     },
     quickReplyButton: {
-        backgroundColor: colors.card,
+        backgroundColor: colors.surface,
         borderWidth: 1,
-        borderColor: colors.border,
+        borderColor: colors.borderLight,
         borderRadius: borderRadius.full,
         paddingHorizontal: 14,
         paddingVertical: 9,
@@ -395,14 +387,23 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'flex-end',
         backgroundColor: colors.card,
-        borderRadius: 24,
+        borderRadius: borderRadius.lg,
         paddingHorizontal: 14,
         paddingVertical: 8,
         borderWidth: 1,
         borderColor: colors.border,
-        ...shadows.sm,
     },
     input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 10, paddingHorizontal: 4, maxHeight: 100 },
-    sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.foreground, justifyContent: 'center', alignItems: 'center', marginLeft: 8, ...shadows.sm },
+    sendButton: {
+        width: 40,
+        height: 40,
+        borderRadius: borderRadius.md,
+        backgroundColor: colors.foreground,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginLeft: 8,
+        borderWidth: 1,
+        borderColor: colors.foreground,
+    },
     disabledButton: { opacity: 0.35 },
 });

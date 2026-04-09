@@ -3,10 +3,9 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIn
 import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 
 const BASIC_FEATURES = [
     'Up to 2 maxxes active',
@@ -325,21 +324,10 @@ export default function ManageSubscriptionScreen() {
                                         !isCurrent && styles.planCardNotCurrent,
                                     ]}
                                 >
-                                    <LinearGradient
-                                        colors={
-                                            isPremiumPlan
-                                                ? ['rgba(212,160,23,0.12)', 'rgba(255,255,255,0.02)']
-                                                : ['rgba(255,255,255,0.1)', 'rgba(255,255,255,0.02)']
-                                        }
-                                        start={{ x: 0, y: 0 }}
-                                        end={{ x: 1, y: 1 }}
-                                        style={styles.planSheen}
-                                        pointerEvents="none"
-                                    />
                                     <View style={styles.planHeader}>
                                         <View style={styles.planNameRow}>
                                             {isPremiumPlan ? (
-                                                <Ionicons name="sparkles" size={22} color={colors.premium} style={styles.planIcon} />
+                                                <Ionicons name="sparkles" size={22} color={colors.foreground} style={styles.planIcon} />
                                             ) : (
                                                 <Ionicons name="layers-outline" size={22} color={colors.textSecondary} style={styles.planIcon} />
                                             )}
@@ -386,7 +374,7 @@ export default function ManageSubscriptionScreen() {
                                                     <Ionicons
                                                         name="checkmark"
                                                         size={13}
-                                                        color={isPremiumPlan ? colors.foreground : colors.background}
+                                                        color={isPremiumPlan ? colors.buttonText : colors.background}
                                                     />
                                                 </View>
                                                 <Text style={styles.featureText}>{line}</Text>
@@ -406,18 +394,12 @@ export default function ManageSubscriptionScreen() {
                                                 disabled={actionBusy !== null}
                                                 activeOpacity={0.88}
                                             >
-                                                <LinearGradient
-                                                    colors={[colors.premium, '#b8860b']}
-                                                    start={{ x: 0, y: 0 }}
-                                                    end={{ x: 1, y: 1 }}
-                                                    style={StyleSheet.absoluteFill}
-                                                />
                                                 {busyThis ? (
-                                                    <ActivityIndicator color={colors.foreground} />
+                                                    <ActivityIndicator color={colors.buttonText} />
                                                 ) : (
                                                     <>
                                                         <Text style={styles.cardUpgradeBtnText}>Upgrade to Chad</Text>
-                                                        <Ionicons name="arrow-forward" size={18} color={colors.foreground} />
+                                                        <Ionicons name="arrow-forward" size={18} color={colors.buttonText} />
                                                     </>
                                                 )}
                                             </TouchableOpacity>
@@ -543,7 +525,7 @@ const styles = StyleSheet.create({
     },
     backButton: { padding: 4, marginTop: 2 },
     headerTitles: { flex: 1, alignItems: 'center', marginHorizontal: spacing.sm },
-    headerTitle: { ...typography.h3, fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+    headerTitle: { fontFamily: fonts.serif, fontSize: 20, fontWeight: '400', letterSpacing: -0.3, color: colors.foreground },
     headerSubtitle: {
         fontSize: 12,
         color: colors.textMuted,
@@ -569,8 +551,9 @@ const styles = StyleSheet.create({
         backgroundColor: colors.foreground,
         paddingHorizontal: spacing.xl,
         paddingVertical: spacing.sm + 2,
-        borderRadius: borderRadius.full,
-        ...shadows.sm,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     retryBtnText: { color: colors.buttonText, fontWeight: '700', fontSize: 14 },
     sectionKicker: {
@@ -582,24 +565,20 @@ const styles = StyleSheet.create({
     },
     planCard: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
-        padding: spacing.lg,
-        marginBottom: spacing.lg,
-        ...shadows.md,
+        borderRadius: borderRadius.xl,
+        padding: spacing.xl,
+        marginBottom: spacing.xl,
         borderWidth: 1,
         borderColor: colors.border,
-        overflow: 'hidden',
-        position: 'relative',
     },
     planCardBasic: {},
     planCardPremium: {
-        borderColor: colors.premiumBorder,
+        borderColor: colors.foreground,
         borderWidth: 2,
     },
     planCardNotCurrent: {
         opacity: 0.97,
     },
-    planSheen: { ...StyleSheet.absoluteFillObject },
     planHeader: {
         flexDirection: 'row',
         alignItems: 'flex-start',
@@ -620,18 +599,21 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 4,
-        backgroundColor: 'rgba(34, 197, 94, 0.12)',
+        backgroundColor: colors.surface,
         paddingHorizontal: 8,
         paddingVertical: 4,
-        borderRadius: borderRadius.full,
+        borderRadius: borderRadius.sm,
+        borderWidth: 1,
+        borderColor: colors.success + '44',
     },
     currentPillText: { fontSize: 11, fontWeight: '800', color: colors.success },
     planIcon: { marginRight: spacing.sm },
     planName: {
+        fontFamily: fonts.serif,
         fontSize: 24,
-        fontWeight: '700',
+        fontWeight: '400',
         color: colors.foreground,
-        letterSpacing: -0.5,
+        letterSpacing: -0.4,
     },
     planTag: {
         backgroundColor: colors.surface,
@@ -642,11 +624,11 @@ const styles = StyleSheet.create({
         paddingVertical: 5,
     },
     planTagPremium: {
-        backgroundColor: colors.premiumLight,
-        borderColor: colors.premiumBorder,
+        backgroundColor: colors.foreground,
+        borderColor: colors.foreground,
     },
     planTagText: { fontSize: 11, fontWeight: '700', color: colors.textSecondary },
-    planTagTextPremium: { color: colors.premium },
+    planTagTextPremium: { color: colors.buttonText },
     planSub: { fontSize: 14, color: colors.textSecondary, lineHeight: 20, marginBottom: spacing.sm },
     priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4, marginBottom: spacing.md },
     price: { fontSize: 30, fontWeight: '700', color: colors.foreground, letterSpacing: -0.5 },
@@ -679,9 +661,9 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'flex-start',
         gap: spacing.md,
-        backgroundColor: 'rgba(234, 179, 8, 0.08)',
+        backgroundColor: colors.surface,
         padding: spacing.md,
-        borderRadius: borderRadius.xl,
+        borderRadius: borderRadius.lg,
         marginBottom: spacing.md,
         borderWidth: 1,
         borderColor: colors.warning + '55',
@@ -694,7 +676,9 @@ const styles = StyleSheet.create({
         backgroundColor: colors.foreground,
         paddingHorizontal: spacing.md,
         paddingVertical: spacing.sm,
-        borderRadius: borderRadius.full,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     warnRefreshBtnText: { color: colors.buttonText, fontWeight: '700', fontSize: 13 },
     stripeActionPlaceholder: {
@@ -718,9 +702,9 @@ const styles = StyleSheet.create({
         backgroundColor: colors.foreground,
     },
     featureIconWrapPremium: {
-        backgroundColor: colors.premiumLight,
+        backgroundColor: colors.foreground,
         borderWidth: 1,
-        borderColor: colors.premiumBorder,
+        borderColor: colors.foreground,
     },
     featureText: { flex: 1, fontSize: 14, color: colors.foreground, lineHeight: 20 },
     currentPlanFooter: {
@@ -737,26 +721,28 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: spacing.sm,
-        paddingVertical: 14,
-        borderRadius: borderRadius.full,
-        overflow: 'hidden',
-        position: 'relative',
-        ...shadows.sm,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.md,
+        borderRadius: borderRadius.md,
+        backgroundColor: colors.foreground,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
-    cardUpgradeBtnText: { fontSize: 15, fontWeight: '800', color: colors.foreground, letterSpacing: -0.2 },
+    cardUpgradeBtnText: { fontSize: 14, fontWeight: '600', color: colors.buttonText, letterSpacing: -0.2 },
     cardDowngradeBtn: {
         marginTop: spacing.md,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: spacing.sm,
-        paddingVertical: 14,
-        borderRadius: borderRadius.full,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.md,
+        borderRadius: borderRadius.md,
         backgroundColor: colors.surface,
         borderWidth: 1,
         borderColor: colors.border,
     },
-    cardDowngradeBtnText: { fontSize: 15, fontWeight: '700', color: colors.foreground },
+    cardDowngradeBtnText: { fontSize: 14, fontWeight: '700', color: colors.foreground },
     prorationHint: {
         fontSize: 12,
         color: colors.textMuted,
@@ -771,13 +757,12 @@ const styles = StyleSheet.create({
         gap: spacing.md,
         backgroundColor: colors.card,
         padding: spacing.md,
-        borderRadius: borderRadius.xl,
+        borderRadius: borderRadius.lg,
         marginBottom: spacing.md,
         borderWidth: 1,
         borderColor: colors.border,
         overflow: 'hidden',
         position: 'relative',
-        ...shadows.sm,
     },
     statusBannerAccent: {
         position: 'absolute',
@@ -798,11 +783,10 @@ const styles = StyleSheet.create({
         gap: spacing.md,
         backgroundColor: colors.card,
         padding: spacing.md,
-        borderRadius: borderRadius.xl,
+        borderRadius: borderRadius.lg,
         marginBottom: spacing.lg,
         borderWidth: 1,
         borderColor: colors.border,
-        ...shadows.sm,
     },
     renewalIconCircle: {
         width: 44,
@@ -821,25 +805,28 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: spacing.sm,
         backgroundColor: colors.foreground,
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.md,
+        borderRadius: borderRadius.md,
         marginBottom: spacing.lg,
-        ...shadows.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
-    keepBtnText: { ...typography.button, color: colors.buttonText, fontSize: 16 },
+    keepBtnText: { ...typography.button, color: colors.buttonText, fontSize: 14 },
     dangerBlock: { marginTop: spacing.md },
     dangerBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: spacing.sm,
-        paddingVertical: 16,
-        borderRadius: borderRadius.xl,
+        paddingVertical: 10,
+        paddingHorizontal: spacing.sm + 6,
+        borderRadius: borderRadius.lg,
         borderWidth: 1,
         borderColor: colors.error + '40',
         backgroundColor: colors.card,
     },
-    dangerBtnText: { fontSize: 15, fontWeight: '700', color: colors.error },
+    dangerBtnText: { fontSize: 14, fontWeight: '700', color: colors.error },
     dangerHint: {
         fontSize: 12,
         color: colors.textMuted,

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from contextlib import asynccontextmanager
 import os
 import traceback
@@ -62,8 +63,16 @@ app.add_middleware(GZipMiddleware, minimum_size=800)
 _cors_origins = settings.cors_origins_list
 _app_env = (getattr(settings, "app_env", "") or "").strip().lower()
 _allow_localhost_regex = _app_env != "production" or getattr(settings, "debug", False)
+# LAN IPs: Expo web opened as http://192.168.x.x:8081 (phone) must be allowed to call the API.
 _cors_regex = (
-    r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$"
+    (
+        r"https?://("
+        r"localhost|127\.0\.0\.1|\[::1\]"
+        r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+        r"|192\.168\.\d{1,3}\.\d{1,3}"
+        r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+        r")(:\d)?$"
+    )
     if _allow_localhost_regex
     else None
 )
@@ -76,6 +85,19 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
+class PrivateNetworkAccessMiddleware(BaseHTTPMiddleware):
+    """Satisfy Chrome local-network preflight (browser → http://127.0.0.1:8000)."""
+
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.method == "OPTIONS":
+            response.headers["Access-Control-Allow-Private-Network"] = "true"
+        return response
+
+
+app.add_middleware(PrivateNetworkAccessMiddleware)
 
 
 @app.exception_handler(Exception)

@@ -15,7 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 const USERNAME_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
 
@@ -128,6 +128,8 @@ export default function PersonalInfoScreen() {
         <ScrollView
           contentContainerStyle={[styles.content, isWide && styles.contentWide]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <Text style={styles.inputLabel}>FIRST NAME</Text>
           <TextInput
@@ -256,10 +258,11 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     backgroundColor: colors.foreground,
-    borderRadius: borderRadius.full,
-    paddingVertical: 18,
+    borderRadius: borderRadius.md,
+    paddingVertical: 12,
     alignItems: 'center',
-    ...shadows.md,
+    borderWidth: 1,
+    borderColor: colors.foreground,
   },
   saveBtnText: { ...typography.button, color: colors.background },
 });

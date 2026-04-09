@@ -140,7 +140,7 @@ async def analyze_face_metrics(state: GraphState) -> GraphState:
     except Exception as e:
         retry_count = state.get("retry_count", 0)
         if retry_count < 2:
-            return {**state, "error": str(e), "retry_count": retry_count + 1}
+            return {**state, "error": str(e), "retry_count": retry_count  1}
         return {**state, "face_metrics": create_default_metrics_dict(), "error": f"Analysis failed: {e}"}
 
 
@@ -230,7 +230,7 @@ async def compile_analysis(state: GraphState) -> GraphState:
             strengths.append("Good facial symmetry")
         
         overall = metrics.get("overall_score", 5)
-        potential = min(10.0, overall + len(focus_areas) * 0.5)
+        potential = min(10.0, overall  len(focus_areas) * 0.5)
         
         analysis = {
             "metrics": metrics,

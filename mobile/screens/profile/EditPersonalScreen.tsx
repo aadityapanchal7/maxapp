@@ -16,11 +16,12 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 import { resolveMaxxBrand } from '../../utils/maxxBrand';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
+import { MaxxProgramRow } from '../../components/MaxxProgramRow';
 import {
   PRIORITY_LABELS,
   type PriorityKey,
@@ -410,22 +411,21 @@ export default function EditPersonalScreen() {
               const brand = resolveMaxxBrand(goal.id, apiMax?.color);
               const label = getMaxxDisplayLabel(merged);
               const desc = getMaxxDisplayDescription(merged) ?? apiMax?.description;
-              const tintBg = `${brand}22`;
-              const tintSelectedBg = `${brand}18`;
 
               return (
-                <TouchableOpacity
+                <MaxxProgramRow
                   key={goal.id}
-                  style={[
-                    styles.goalRow,
-                    onlyGoals && styles.goalRowSpaced,
-                    onlyGoals && styles.goalRowManageUniform,
-                    selected &&
-                      (onlyGoals
-                        ? styles.goalRowSelectedUniform
-                        : [styles.goalRowSelected, { borderColor: brand, backgroundColor: tintSelectedBg }]),
-                  ]}
-                  activeOpacity={0.85}
+                  tintHex={brand}
+                  iconName={(apiMax?.icon || goal.icon) as string}
+                  title={label}
+                  description={desc}
+                  accent={onlyGoals ? 'none' : 'stripe'}
+                  selected={selected}
+                  selectedVariant={onlyGoals ? 'uniform' : 'brand'}
+                  brandColor={brand}
+                  style={{ marginBottom: onlyGoals ? spacing.lg : spacing.sm }}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: selected }}
                   onPress={() =>
                     setSelectedGoals((prev) => {
                       if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
@@ -439,26 +439,7 @@ export default function EditPersonalScreen() {
                       return [...prev, goal.id];
                     })
                   }
-                >
-                  {!onlyGoals ? <View style={[styles.goalRowStripe, { backgroundColor: brand }]} /> : null}
-                  <View style={[styles.goalRowInner, onlyGoals && styles.goalRowInnerPaddedLeft]}>
-                    <View style={[styles.goalRowIcon, { backgroundColor: tintBg }]}>
-                      <Ionicons
-                        name={(apiMax?.icon || goal.icon) as any}
-                        size={22}
-                        color={brand}
-                      />
-                    </View>
-                    <View style={styles.goalRowCopy}>
-                      <Text style={styles.goalRowTitle} numberOfLines={1}>
-                        {label}
-                      </Text>
-                      {desc ? (
-                        <Text style={styles.goalRowDesc} numberOfLines={2}>
-                          {desc}
-                        </Text>
-                      ) : null}
-                    </View>
+                  trailing={
                     <View
                       style={[
                         styles.goalRowCheck,
@@ -469,13 +450,13 @@ export default function EditPersonalScreen() {
                       ]}
                     >
                       <Ionicons
-                        name={selected ? 'checkmark' : 'ellipse-outline'}
-                        size={selected ? 20 : 22}
-                        color={selected ? colors.background : colors.textMuted}
+                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={22}
+                        color={selected ? colors.foreground : colors.textMuted}
                       />
                     </View>
-                  </View>
-                </TouchableOpacity>
+                  }
+                />
               );
             })}
           </View>
@@ -768,12 +749,11 @@ const styles = StyleSheet.create({
   kicker: { ...typography.label, color: colors.textMuted, marginBottom: spacing.xs, letterSpacing: 1 },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: borderRadius['2xl'],
+    borderRadius: borderRadius.xl,
     padding: spacing.lg,
     marginTop: spacing.xl,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadows.sm,
   },
   cardTitle: { fontSize: 18, fontWeight: '700', color: colors.foreground, marginBottom: spacing.xs },
   cardHint: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.md, lineHeight: 18 },
@@ -794,71 +774,15 @@ const styles = StyleSheet.create({
   goalsListBleed: {
     paddingHorizontal: spacing.lg,
   },
-  goalRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    minHeight: 72,
-    marginBottom: spacing.sm,
-    borderRadius: borderRadius.xl,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    overflow: 'hidden',
-    ...shadows.sm,
-  },
-  goalRowSpaced: {
-    marginBottom: spacing.lg,
-  },
-  goalRowSelected: {
-    borderWidth: 2,
-  },
-  /** Manage / choose Maxxes only: no left stripe; pastel icon tiles match program picker. */
-  goalRowManageUniform: {
-    shadowColor: 'transparent',
-    shadowOpacity: 0,
-    shadowRadius: 0,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 0,
-  },
-  goalRowSelectedUniform: {
-    borderColor: colors.foreground,
-    backgroundColor: colors.surface,
-  },
-  goalRowInnerPaddedLeft: {
-    paddingLeft: spacing.md,
-  },
   goalRowCheckSelectedUniform: {
     borderColor: colors.foreground,
-    backgroundColor: colors.foreground,
+    backgroundColor: colors.surface,
   },
-  goalRowStripe: {
-    width: 5,
-    flexShrink: 0,
-  },
-  goalRowInner: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.md,
-    paddingRight: spacing.md,
-    minWidth: 0,
-  },
-  goalRowIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: borderRadius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  goalRowCopy: { flex: 1, minWidth: 0 },
-  goalRowTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground, letterSpacing: -0.3 },
-  goalRowDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
   goalRowCheck: {
     width: 36,
     height: 36,
-    borderRadius: 18,
-    borderWidth: 2,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
@@ -987,10 +911,11 @@ const styles = StyleSheet.create({
   },
   saveBtn: {
     backgroundColor: colors.foreground,
-    borderRadius: borderRadius.full,
-    paddingVertical: 18,
+    borderRadius: borderRadius.md,
+    paddingVertical: 12,
     alignItems: 'center',
-    ...shadows.md,
+    borderWidth: 1,
+    borderColor: colors.foreground,
   },
   saveBtnText: { ...typography.button, color: colors.background },
 });

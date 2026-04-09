@@ -1,5 +1,5 @@
 # Max API — local / `docker build -f backend/Dockerfile backend`
-# Render uses repo-root ../Dockerfile + context `.` (see render.yaml).
+# Render uses repo-root ../Dockerfile  context `.` (see render.yaml).
 FROM python:3.12-slim-bookworm
 
 WORKDIR /app

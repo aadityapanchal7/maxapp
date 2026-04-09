@@ -11,7 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 type Report = {
     id: string;
@@ -131,7 +131,8 @@ const styles = StyleSheet.create({
         borderRadius: borderRadius.lg,
         padding: spacing.md,
         marginBottom: spacing.md,
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm },
     reason: { flex: 1, fontSize: 14, fontWeight: '600', color: colors.foreground },

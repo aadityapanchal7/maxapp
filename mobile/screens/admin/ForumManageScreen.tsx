@@ -18,7 +18,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius } from '../../theme/dark';
 
 type SubforumRow = {
     id: string;
@@ -619,7 +619,8 @@ const styles = StyleSheet.create({
         backgroundColor: colors.card,
         borderRadius: borderRadius.xl,
         overflow: 'hidden',
-        ...shadows.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     catHeader: {
         flexDirection: 'row',

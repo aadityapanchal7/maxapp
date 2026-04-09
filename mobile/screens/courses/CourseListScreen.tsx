@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator }
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 
 export default function CourseListScreen() {
@@ -54,9 +54,12 @@ const styles = StyleSheet.create({
     headerTitle: { ...typography.h3 },
     list: { padding: spacing.lg },
     courseCard: {
-        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
-        marginBottom: spacing.lg, overflow: 'hidden',
-        ...shadows.md,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        marginBottom: spacing.lg,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     thumbnail: { width: '100%', height: 180, resizeMode: 'cover' },
     cardContent: { padding: spacing.md },

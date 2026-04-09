@@ -12,7 +12,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 
 export default function LoginScreen() {
     const navigation = useNavigation<any>();
@@ -24,11 +24,11 @@ export default function LoginScreen() {
     const [apiError, setApiError] = useState<string | null>(null);
 
     const fadeCard = useRef(new Animated.Value(0)).current;
-    const slideCard = useRef(new Animated.Value(30)).current;
+    const slideCard = useRef(new Animated.Value(20)).current;
     useEffect(() => {
         Animated.parallel([
-            Animated.timing(fadeCard, { toValue: 1, duration: 600, delay: 200, useNativeDriver: true }),
-            Animated.timing(slideCard, { toValue: 0, duration: 600, delay: 200, useNativeDriver: true }),
+            Animated.timing(fadeCard, { toValue: 1, duration: 500, delay: 100, useNativeDriver: true }),
+            Animated.timing(slideCard, { toValue: 0, duration: 500, delay: 100, useNativeDriver: true }),
         ]).start();
     }, []);
 
@@ -57,7 +57,7 @@ export default function LoginScreen() {
             >
                 <Animated.View style={[styles.card, { opacity: fadeCard, transform: [{ translateY: slideCard }] }]}>
                     <Text style={styles.wordmark}>max</Text>
-                    <Text style={styles.tagline}>Your lookmaxxing journey</Text>
+                    <Text style={styles.tagline}>Your personal aesthetic journey</Text>
 
                     <View style={styles.form}>
                         <View style={styles.inputGroup}>
@@ -101,7 +101,7 @@ export default function LoginScreen() {
                                 >
                                     <Ionicons
                                         name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                                        size={22}
+                                        size={20}
                                         color={colors.textMuted}
                                     />
                                 </TouchableOpacity>
@@ -110,7 +110,6 @@ export default function LoginScreen() {
 
                         {apiError && (
                             <View style={styles.apiErrorBox}>
-                                <Ionicons name="alert-circle-outline" size={18} color="#ef4444" />
                                 <Text style={styles.apiErrorText}>{apiError}</Text>
                             </View>
                         )}
@@ -121,7 +120,7 @@ export default function LoginScreen() {
                             disabled={loading}
                             activeOpacity={0.7}
                         >
-                            <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
+                            <Text style={styles.buttonText}>{loading ? 'Signing in…' : 'Sign In'}</Text>
                         </TouchableOpacity>
 
                         <TouchableOpacity
@@ -138,10 +137,6 @@ export default function LoginScreen() {
                             <Text style={styles.linkBold}>Create account</Text>
                         </Text>
                     </TouchableOpacity>
-
-                    <TouchableOpacity onPress={() => navigation.navigate('Settings')} activeOpacity={0.6} style={styles.legalLink}>
-                        <Text style={styles.legalLinkText}>Settings & policies</Text>
-                    </TouchableOpacity>
                 </Animated.View>
             </KeyboardAvoidingView>
         </View>
@@ -156,50 +151,56 @@ const styles = StyleSheet.create({
     keyboardView: {
         flex: 1,
         justifyContent: 'center',
-        paddingHorizontal: spacing.lg,
+        paddingHorizontal: spacing.xl,
         backgroundColor: colors.background,
     },
     card: {
         backgroundColor: colors.card,
-        borderRadius: borderRadius['2xl'],
+        borderRadius: borderRadius.xl,
         padding: spacing.xl,
-        ...shadows.xl,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     wordmark: {
-        fontSize: 44,
-        fontWeight: '300',
+        fontFamily: fonts.serif,
+        fontSize: 48,
+        fontWeight: '400',
         color: colors.foreground,
-        letterSpacing: -2,
+        letterSpacing: -1.5,
         textAlign: 'center',
         marginBottom: spacing.xs,
     },
     tagline: {
-        fontSize: 14,
-        color: colors.textSecondary,
+        fontSize: 13,
+        color: colors.textMuted,
         textAlign: 'center',
         marginBottom: spacing.xxl,
-        letterSpacing: 0.2,
+        letterSpacing: 0.5,
     },
-    form: { gap: spacing.md },
-    inputGroup: { gap: spacing.xs },
+    form: { gap: spacing.md + 4 },
+    inputGroup: { gap: spacing.xs + 2 },
     label: { ...typography.label, marginLeft: 2 },
     input: {
         backgroundColor: colors.surface,
-        borderRadius: borderRadius.md,
-        paddingVertical: 15,
+        borderRadius: borderRadius.sm,
+        paddingVertical: 14,
         paddingHorizontal: spacing.md,
         color: colors.textPrimary,
         fontSize: 15,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
     },
     passwordRow: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: colors.surface,
-        borderRadius: borderRadius.md,
+        borderRadius: borderRadius.sm,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
     },
     passwordInput: {
         flex: 1,
-        paddingVertical: 15,
+        paddingVertical: 14,
         paddingLeft: spacing.md,
         paddingRight: 8,
         color: colors.textPrimary,
@@ -211,32 +212,25 @@ const styles = StyleSheet.create({
         marginRight: spacing.xs,
     },
     apiErrorBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        backgroundColor: 'rgba(139, 58, 58, 0.06)',
         padding: spacing.md,
-        borderRadius: borderRadius.md,
-        marginTop: spacing.sm,
+        borderRadius: borderRadius.sm,
         borderWidth: 1,
-        borderColor: 'rgba(239, 68, 68, 0.3)',
+        borderColor: 'rgba(139, 58, 58, 0.15)',
     },
-    apiErrorText: { flex: 1, fontSize: 13, color: '#ef4444', fontWeight: '500' },
+    apiErrorText: { fontSize: 13, color: colors.error, fontWeight: '400' },
     button: {
         backgroundColor: colors.foreground,
-        borderRadius: borderRadius.full,
-        paddingVertical: 16,
+        borderRadius: borderRadius.sm,
+        paddingVertical: 14,
         alignItems: 'center',
-        marginTop: spacing.md,
-        ...shadows.md,
+        marginTop: spacing.sm,
     },
-    buttonDisabled: { opacity: 0.5 },
+    buttonDisabled: { opacity: 0.4 },
     buttonText: { ...typography.button },
     forgotLink: { marginTop: spacing.md, alignItems: 'center' },
-    forgotText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
+    forgotText: { fontSize: 13, color: colors.textMuted, fontWeight: '400' },
     linkContainer: { marginTop: spacing.xl, alignItems: 'center' },
-    linkText: { fontSize: 13, color: colors.textSecondary },
-    linkBold: { color: colors.foreground, fontWeight: '600' },
-    legalLink: { marginTop: spacing.md, alignItems: 'center', paddingVertical: spacing.sm },
-    legalLinkText: { fontSize: 12, color: colors.textMuted, fontWeight: '500' },
+    linkText: { fontSize: 13, color: colors.textMuted },
+    linkBold: { color: colors.foreground, fontWeight: '500' },
 });

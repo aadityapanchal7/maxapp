@@ -14,7 +14,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
 import { useMaxxesQuery, useActiveSchedulesFullQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
@@ -414,8 +414,6 @@ export default function MasterScheduleScreen() {
   };
 
   const tasksForDay = selectedDate ? merged.byDate[selectedDate] || [] : [];
-  const completedCount = tasksForDay.filter((t) => t.status === 'completed').length;
-  const totalCount = tasksForDay.length;
 
   const goToChatForTask = (task: MergedScheduleTask) => {
     const initQuestion =
@@ -478,37 +476,43 @@ export default function MasterScheduleScreen() {
     }
   };
 
+  const groupedTasks = useMemo(() => {
+    const morning: MergedScheduleTask[] = [];
+    const afternoon: MergedScheduleTask[] = [];
+    const evening: MergedScheduleTask[] = [];
+    for (const t of tasksForDay) {
+      const parts = parseTimeToHHMM(t.time);
+      if (!parts || parts.hh < 12) morning.push(t);
+      else if (parts.hh < 17) afternoon.push(t);
+      else evening.push(t);
+    }
+    const groups: { label: string; tasks: MergedScheduleTask[] }[] = [];
+    if (morning.length) groups.push({ label: 'Morning', tasks: morning });
+    if (afternoon.length) groups.push({ label: 'Afternoon', tasks: afternoon });
+    if (evening.length) groups.push({ label: 'Evening', tasks: evening });
+    if (groups.length === 0 && tasksForDay.length > 0) groups.push({ label: 'Today', tasks: tasksForDay });
+    return groups;
+  }, [tasksForDay]);
+
   const HeaderChrome = ({
     title,
-    subtitle,
     headerRight,
-    legend,
   }: {
     title: string;
-    subtitle?: string;
     headerRight?: ReactNode;
-    legend?: ReactNode;
   }) => (
     <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-      {isTab ? (
-        <View style={styles.headerSide} />
-      ) : (
-        <TouchableOpacity onPress={headerBack} style={styles.headerSide} hitSlop={{ top: 8, bottom: 8, right: 8 }}>
-          <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+      {!isTab && (
+        <TouchableOpacity onPress={headerBack} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, right: 8 }}>
+          <Ionicons name="arrow-back" size={20} color={colors.foreground} />
         </TouchableOpacity>
       )}
-      <View style={styles.headerCenter}>
+      <View style={styles.headerTextCol}>
         <Text style={styles.headerTitle} numberOfLines={1}>
           {title}
         </Text>
-        {subtitle ? (
-          <Text style={styles.subhead} numberOfLines={2}>
-            {subtitle}
-          </Text>
-        ) : null}
-        {legend ? <View style={styles.legendWrap}>{legend}</View> : null}
       </View>
-      <View style={styles.headerRightSlot}>{headerRight ?? <View style={styles.headerSide} />}</View>
+      {headerRight}
     </View>
   );
 
@@ -545,7 +549,6 @@ export default function MasterScheduleScreen() {
       <View style={styles.container}>
         <HeaderChrome
           title="Schedule"
-          subtitle="All your active tasks, in one place"
           headerRight={headerStreakRight}
         />
         <View style={[styles.emptyStateMinimal, styles.center]}>
@@ -564,35 +567,26 @@ export default function MasterScheduleScreen() {
     );
   }
 
-  const legendChips =
-    merged.legend.length > 0 ? (
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.legendScroll}
-        contentContainerStyle={styles.legendRowInHeader}
-      >
-        {merged.legend.map((item) => (
-          <View key={item.id} style={styles.legendChip}>
-            <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-            <Text style={styles.legendText} numberOfLines={1}>
-              {item.label}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-    ) : null;
-
   return (
     <View style={styles.container}>
-      <HeaderChrome
-        title="Schedule"
-        subtitle="All your active tasks, in one place"
-        headerRight={headerStreakRight}
-        legend={legendChips}
-      />
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
+        {!isTab && (
+          <TouchableOpacity onPress={headerBack} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, right: 8 }}>
+            <Ionicons name="arrow-back" size={20} color={colors.foreground} />
+          </TouchableOpacity>
+        )}
+        <View style={styles.headerTextCol}>
+          <Text style={styles.headerTitle}>Schedule</Text>
+        </View>
+        <StreakFireBadge streakDays={scheduleStreak.current} />
+      </View>
 
       <View style={styles.bodyBelowHeader}>
+        {selectedDate ? (
+          <Text style={styles.monthLabel}>
+            {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </Text>
+        ) : null}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -609,7 +603,7 @@ export default function MasterScheduleScreen() {
             return (
               <TouchableOpacity
                 key={dateStr}
-                style={[styles.dayPill, isSelected && styles.dayPillActive, dayDone && styles.dayPillDone]}
+                style={styles.dayPill}
                 onPress={() => setSelectedDate(dateStr)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
@@ -617,7 +611,8 @@ export default function MasterScheduleScreen() {
               >
                 <Text style={[styles.dayPillLabel, isSelected && styles.dayPillLabelActive]}>{dayName}</Text>
                 <Text style={[styles.dayPillNumber, isSelected && styles.dayPillNumberActive]}>{dayNum}</Text>
-                {dayDone && <View style={styles.dayCompleteDot} />}
+                {isSelected && <View style={styles.dayUnderline} />}
+                {!isSelected && dayDone && <View style={styles.dayCompleteDot} />}
               </TouchableOpacity>
             );
           })}
@@ -632,93 +627,78 @@ export default function MasterScheduleScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.foreground} />
           }
         >
-          <View style={styles.progressRow}>
-            <Text style={styles.progressText}>
-              {scheduleStreak.current > 0
-                ? `🔥 ${scheduleStreak.current} day${scheduleStreak.current === 1 ? '' : 's'} streak · `
-                : ''}
-              {completedCount}/{totalCount} completed
-              {merged.legend.length > 0
-                ? ` · ${merged.legend.length} program${merged.legend.length !== 1 ? 's' : ''}`
-                : ''}
-            </Text>
-            <View style={styles.progressBar}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%` },
-                ]}
-              />
-            </View>
-          </View>
-
-          {tasksForDay.map((task) => {
-            const isDone = task.status === 'completed';
-            const isExpanded = expandedTaskId === task.task_id;
-            return (
-              <View key={`${task.scheduleId}-${task.task_id}`} style={[styles.taskCard, isDone && styles.taskCardDone]}>
-                <View style={styles.taskCardInner}>
-                  <View style={styles.accentColumn}>
-                    <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
-                  </View>
-                  <View style={styles.taskCardMainCol}>
-                    <View style={styles.taskTopRow}>
+          {groupedTasks.map((group, gi) => (
+            <View key={group.label}>
+              {gi > 0 && <View style={styles.groupSpacer} />}
+              <Text style={styles.timeGroupLabel}>{group.label}</Text>
+              {group.tasks.map((task, index) => {
+                const isDone = task.status === 'completed';
+                const isExpanded = expandedTaskId === task.task_id;
+                return (
+                  <View key={`${task.scheduleId}-${task.task_id}`}>
+                    {index > 0 && <View style={styles.taskDivider} />}
+                    <View style={[styles.taskRow, isDone && styles.taskRowDone]}>
+                      <View style={styles.taskRowLeft}>
+                        <View style={[styles.scheduleTaskAccent, { backgroundColor: task.moduleColor }]} />
+                        <TouchableOpacity
+                          style={[styles.taskCheck, isDone && styles.taskCheckDone]}
+                          onPress={() => void toggleTaskComplete(task)}
+                          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                          accessibilityRole="checkbox"
+                          accessibilityLabel={
+                            isDone
+                              ? `Mark task not done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
+                              : `Mark task done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
+                          }
+                          accessibilityState={{ checked: isDone }}
+                        >
+                          {isDone ? (
+                            <Ionicons name="checkmark" size={11} color={colors.buttonText} />
+                          ) : null}
+                        </TouchableOpacity>
+                      </View>
                       <TouchableOpacity
-                        style={[styles.taskCheck, isDone && styles.taskCheckDone]}
-                        onPress={() => void toggleTaskComplete(task)}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        accessibilityRole="checkbox"
-                        accessibilityLabel={
-                          isDone
-                            ? `Mark task not done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
-                            : `Mark task done: ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`
-                        }
-                        accessibilityState={{ checked: isDone }}
-                      >
-                        {isDone ? (
-                          <Ionicons name="checkmark" size={14} color={colors.buttonText} />
-                        ) : null}
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.taskMainPress}
+                        style={styles.taskContent}
                         onPress={() => setExpandedTaskId((prev) => (prev === task.task_id ? null : task.task_id))}
                         activeOpacity={0.75}
                         accessibilityRole="button"
                         accessibilityLabel={`${isExpanded ? 'Collapse' : 'Expand'} details for ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
                       >
-                        <View style={styles.taskHeader}>
+                        <View style={styles.taskTopLine}>
                           <Text style={[styles.taskTime, isDone && styles.taskTimeDone]}>
                             {formatTimeTo12Hour(task.time)}
                           </Text>
-                          <View style={styles.taskHeaderRight}>
-                            <View style={styles.taskTypeBadge}>
-                              <Ionicons name={getTaskIcon(task.task_type) as any} size={12} color={colors.textMuted} />
-                              <Text style={styles.taskTypeText}>{task.duration_minutes}m</Text>
-                            </View>
-                            <Ionicons
-                              name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                              size={16}
-                              color={colors.textMuted}
-                            />
-                          </View>
+                          <Text
+                            style={[styles.taskTitle, isDone && styles.taskTitleDone]}
+                            numberOfLines={isExpanded ? undefined : 1}
+                          >
+                            {stripDuplicateModulePrefix(task.title, task.moduleLabel)}
+                          </Text>
                         </View>
-                        <Text style={styles.taskModuleLabel} numberOfLines={1}>
-                          {task.moduleLabel}
-                        </Text>
-                        <Text
-                          style={[styles.taskTitle, isDone && styles.taskTitleDone]}
-                          numberOfLines={isExpanded ? undefined : 2}
-                        >
-                          {stripDuplicateModulePrefix(task.title, task.moduleLabel)}
-                        </Text>
+                        {isExpanded && (
+                          <>
+                            <Text style={styles.taskModuleLabel} numberOfLines={1}>
+                              {task.moduleLabel}{task.duration_minutes ? ` · ${task.duration_minutes}m` : ''}
+                            </Text>
+                            {task.description ? (
+                              <Text style={styles.taskDescription}>
+                                {task.description}
+                              </Text>
+                            ) : null}
+                          </>
+                        )}
                       </TouchableOpacity>
+                      <View style={styles.taskRowRight}>
+                        <Ionicons
+                          name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                          size={16}
+                          color={colors.textMuted}
+                        />
+                      </View>
                     </View>
 
                     {isExpanded && (
                       <View style={styles.taskExpanded}>
-                        {task.description ? (
-                          <Text style={styles.taskDescriptionFull}>{task.description}</Text>
-                        ) : null}
                         <TouchableOpacity
                           style={styles.askChatRow}
                           onPress={() => goToChatForTask(task)}
@@ -733,10 +713,10 @@ export default function MasterScheduleScreen() {
                       </View>
                     )}
                   </View>
-                </View>
-              </View>
-            );
-          })}
+                );
+              })}
+            </View>
+          ))}
         </ScrollView>
       </View>
     </View>
@@ -751,107 +731,85 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.sm,
+    paddingBottom: spacing.md,
   },
-  headerSide: {
+  backBtn: {
     width: 40,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.xs,
   },
-  headerCenter: {
+  headerTextCol: {
     flex: 1,
-    alignItems: 'center',
-    paddingHorizontal: spacing.sm,
-    minWidth: 0,
-  },
-  headerRightSlot: {
-    width: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+    paddingHorizontal: spacing.xs,
   },
   headerTitle: {
-    fontSize: 22,
-    fontWeight: '900',
+    fontFamily: fonts.serif,
+    fontSize: 28,
+    fontWeight: '400',
     letterSpacing: -0.4,
     color: colors.foreground,
-    textAlign: 'center',
-    width: '100%',
   },
-  subhead: {
-    ...typography.bodySmall,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 18,
-    width: '100%',
-  },
-  legendWrap: {
-    width: '100%',
-    maxHeight: 22,
-    overflow: 'hidden',
-  },
-  legendScroll: {
-    flexGrow: 0,
-    maxHeight: 26,
-    width: '100%',
-  },
-  legendRowInHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: spacing.lg,
-    paddingTop: 2,
-  },
-  legendChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: colors.card,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-    borderRadius: borderRadius.full,
-    maxWidth: 200,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-  },
-  legendDot: { width: 4, height: 4, borderRadius: 2 },
-  legendText: { fontSize: 9, fontWeight: '600', color: colors.foreground, flexShrink: 1, lineHeight: 12 },
-  /** Compact day strip (shared with per-program ScheduleScreen) */
   daySelectorContainer: {
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.xs,
-    gap: 8,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.md,
+    gap: 20,
     flexGrow: 1,
     alignItems: 'center',
   },
   dayPill: {
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.card,
-    minWidth: 44,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    minWidth: 40,
   },
-  dayPillActive: { backgroundColor: colors.foreground },
-  dayPillDone: { borderWidth: 1.5, borderColor: colors.success },
   dayPillLabel: {
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '500',
     color: colors.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
-    marginBottom: 1,
+    letterSpacing: 0.6,
+    marginBottom: 2,
   },
-  dayPillLabelActive: { color: colors.buttonText },
-  dayPillNumber: { fontSize: 13, fontWeight: '700', color: colors.foreground },
-  dayPillNumberActive: { color: colors.buttonText },
+  dayPillLabelActive: { color: colors.foreground, fontWeight: '700' },
+  dayPillNumber: { fontSize: 14, fontWeight: '500', color: colors.textMuted },
+  dayPillNumberActive: { color: colors.foreground, fontWeight: '700' },
+  dayUnderline: {
+    width: 16,
+    height: 2,
+    backgroundColor: colors.foreground,
+    borderRadius: 1,
+    marginTop: 5,
+  },
   dayCompleteDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    backgroundColor: colors.success,
-    marginTop: 2,
+    backgroundColor: colors.textSecondary,
+    marginTop: 5,
+  },
+  monthLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textMuted,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+    marginTop: spacing.sm,
+  },
+  timeGroupLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textMuted,
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    marginTop: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  groupSpacer: {
+    height: spacing.md,
   },
   bodyBelowHeader: {
     flex: 1,
@@ -862,114 +820,82 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   taskList: { flex: 1, minHeight: 0, paddingHorizontal: spacing.lg },
-  progressRow: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-    marginTop: spacing.sm,
-  },
-  progressText: { ...typography.caption, textAlign: 'center', marginBottom: spacing.sm },
-  progressBar: {
-    width: '100%',
-    height: 4,
+  taskDivider: {
+    height: StyleSheet.hairlineWidth,
     backgroundColor: colors.border,
-    borderRadius: 2,
-    overflow: 'hidden',
+    marginHorizontal: -spacing.lg,
   },
-  progressFill: { height: '100%', backgroundColor: colors.success, borderRadius: 2 },
-  /** Match ScheduleScreen task cards */
-  taskCard: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.lg,
-    marginBottom: spacing.sm,
-    ...shadows.sm,
-    overflow: 'hidden',
-  },
-  taskCardDone: { opacity: 0.6 },
-  taskCardInner: {
+  taskRow: {
     flexDirection: 'row',
-    alignItems: 'stretch',
-    width: '100%',
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: spacing.md,
   },
-  accentColumn: {
-    width: 4,
+  taskRowDone: { opacity: 0.5 },
+  taskRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingTop: 2,
   },
   scheduleTaskAccent: {
-    flex: 1,
-    minHeight: 56,
-    borderRadius: 2,
-  },
-  taskCardMainCol: {
-    flex: 1,
-    minWidth: 0,
-    paddingVertical: spacing.md,
-    paddingLeft: spacing.sm,
-    paddingRight: spacing.md,
-  },
-  taskTopRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: spacing.sm,
+    width: 2,
+    height: 18,
+    borderRadius: 1,
+    opacity: 0.85,
   },
   taskCheck: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.border,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.textMuted,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 1,
   },
-  taskCheckDone: { backgroundColor: colors.success, borderColor: colors.success },
-  taskMainPress: { flex: 1, minWidth: 0 },
-  taskHeader: {
+  taskCheckDone: { backgroundColor: colors.foreground, borderColor: colors.foreground },
+  taskContent: { flex: 1, minWidth: 0 },
+  taskTopLine: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 2,
+    gap: spacing.sm,
   },
-  taskHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  taskTime: { fontSize: 12, fontWeight: '700', color: colors.foreground, letterSpacing: 0.3 },
-  taskTimeDone: { textDecorationLine: 'line-through', color: colors.textMuted },
-  taskTypeBadge: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  taskTypeText: { ...typography.caption },
+  taskRowRight: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingTop: 2,
+  },
+  taskTime: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textMuted,
+    minWidth: 62,
+  },
+  taskTimeDone: { textDecorationLine: 'line-through' },
   taskModuleLabel: {
     ...typography.caption,
     color: colors.textMuted,
-    fontWeight: '600',
-    marginBottom: 2,
+    marginTop: 4,
   },
-  taskTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground },
+  taskTitle: { fontSize: 15, fontWeight: '500', color: colors.foreground, flex: 1 },
   taskTitleDone: { textDecorationLine: 'line-through', color: colors.textMuted },
   taskExpanded: {
-    marginTop: spacing.sm,
+    paddingBottom: 24,
     paddingTop: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  taskDescriptionFull: {
-    ...typography.bodySmall,
-    color: colors.foreground,
-    marginBottom: spacing.sm,
-    lineHeight: 20,
-  },
+  taskDescription: { ...typography.bodySmall },
   askChatRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    backgroundColor: colors.background,
-    alignSelf: 'stretch',
   },
   askChatLabel: {
     ...typography.caption,
     flex: 1,
-    fontWeight: '600',
+    fontWeight: '500',
     color: colors.foreground,
   },
   emptyState: { flex: 1, paddingHorizontal: spacing.xl },
@@ -994,9 +920,10 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
   },
   emptyTitleMinimal: {
+    fontFamily: fonts.serif,
     fontSize: 22,
-    fontWeight: '600',
-    letterSpacing: -0.35,
+    fontWeight: '400',
+    letterSpacing: -0.3,
     color: colors.foreground,
     textAlign: 'center',
   },
@@ -1030,9 +957,10 @@ const styles = StyleSheet.create({
   primaryBtn: {
     backgroundColor: colors.foreground,
     paddingHorizontal: spacing.xl,
-    paddingVertical: 14,
-    borderRadius: borderRadius.full,
-    ...shadows.md,
+    paddingVertical: 12,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.foreground,
   },
   primaryBtnText: { ...typography.button },
 });

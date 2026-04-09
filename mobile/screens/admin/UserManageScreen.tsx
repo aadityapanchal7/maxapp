@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 export default function UserManageScreen({ navigation }: any) {
     const [users, setUsers] = useState<any[]>([]);
@@ -53,14 +53,27 @@ const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     header: { padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.borderLight },
     title: { ...typography.h2, marginBottom: spacing.md },
-    searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: borderRadius.md, paddingHorizontal: spacing.sm, height: 42, ...shadows.sm },
+    searchBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.md,
+        paddingHorizontal: spacing.sm,
+        height: 42,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
     input: { flex: 1, color: colors.textPrimary, marginLeft: spacing.sm, fontSize: 14 },
     list: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
     userCard: {
-        flexDirection: 'row', alignItems: 'center',
-        backgroundColor: colors.card, borderRadius: borderRadius.lg,
-        padding: spacing.md, marginBottom: spacing.sm,
-        ...shadows.sm,
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.lg,
+        padding: spacing.md,
+        marginBottom: spacing.sm,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     userInfo: { flex: 1 },
     userEmail: { fontSize: 14, fontWeight: '600', color: colors.foreground },

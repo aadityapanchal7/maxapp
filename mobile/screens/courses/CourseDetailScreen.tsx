@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 
 export default function CourseDetailScreen() {
@@ -122,19 +122,37 @@ const styles = StyleSheet.create({
     progressBadge: { backgroundColor: colors.foreground, paddingHorizontal: 10, paddingVertical: 4, borderRadius: borderRadius.full },
     progressText: { fontSize: 11, fontWeight: '700', color: colors.buttonText },
     description: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.xl, lineHeight: 20 },
-    joinButton: { backgroundColor: colors.foreground, padding: spacing.md, borderRadius: borderRadius.full, alignItems: 'center', marginBottom: spacing.xl, ...shadows.md },
+    joinButton: {
+        backgroundColor: colors.foreground,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.lg,
+        borderRadius: borderRadius.md,
+        alignItems: 'center',
+        marginBottom: spacing.xl,
+        borderWidth: 1,
+        borderColor: colors.foreground,
+    },
     joinText: { ...typography.button },
     scheduleButton: {
-        flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
-        backgroundColor: colors.card, padding: spacing.md, borderRadius: borderRadius.lg,
-        marginBottom: spacing.xl, ...shadows.sm,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.card,
+        padding: spacing.md,
+        borderRadius: borderRadius.lg,
+        marginBottom: spacing.xl,
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     scheduleButtonText: { flex: 1, fontSize: 14, fontWeight: '600' as const, color: colors.foreground },
     sectionLabel: { ...typography.label, marginBottom: spacing.md },
     moduleCard: {
-        backgroundColor: colors.card, borderRadius: borderRadius['2xl'],
-        marginBottom: spacing.md, overflow: 'hidden',
-        ...shadows.sm,
+        backgroundColor: colors.card,
+        borderRadius: borderRadius.xl,
+        marginBottom: spacing.md,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: colors.border,
     },
     moduleHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md, backgroundColor: colors.surface },
     moduleInfo: { flex: 1 },

@@ -128,6 +128,34 @@ async def register_push_token(
     return {"message": "ok"}
 
 
+@router.post("/test-push")
+async def test_push_notification(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a test push notification to the current user's stored APNs token."""
+    from services.apns_service import send_apns_alert, apns_configured
+
+    if not apns_configured():
+        raise HTTPException(status_code=503, detail="Push notifications are not configured on this server")
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    token = (user.apns_device_token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="No push token registered for this device. Make sure notifications are enabled.")
+    ok, status_code = await send_apns_alert(
+        token,
+        "Max",
+        "Push notifications are working! You're all set.",
+        badge=1,
+    )
+    if not ok:
+        raise HTTPException(status_code=502, detail=f"APNs delivery failed (status {status_code}). Token may be expired.")
+    return {"message": "Test notification sent"}
+
+
 @router.delete("/push-token")
 async def clear_push_token(
     current_user: dict = Depends(get_current_user),
@@ -220,19 +248,26 @@ async def complete_sendblue_connect(
     request: Request = None,
     prefs: Optional[SendblueConnectCompleteBody] = None,
 ):
-    """Mark post-pay Sendblue intro done — only after inbound SMS/iMessage confirmed (sendblue_sms_engaged)."""
+    """Mark post-pay Sendblue intro done. Idempotent: safe to call multiple times."""
     user_uuid = UUID(current_user["id"])
     user = await db.get(User, user_uuid)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     ob = dict(user.onboarding or {})
+    already_completed = ob.get("sendblue_connect_completed") is True
     dev_skip = False
     try:
         if request is not None:
             dev_skip = str(request.headers.get("x-dev-skip-sendblue", "")).strip() == "1"
     except Exception:
         dev_skip = False
-    if ob.get("sendblue_sms_engaged") is not True and not (settings.debug and dev_skip):
+    user_is_skipping_sms = prefs is not None and prefs.sms_opt_in is False
+    if (
+        ob.get("sendblue_sms_engaged") is not True
+        and not already_completed
+        and not (settings.debug and dev_skip)
+        and not user_is_skipping_sms
+    ):
         raise HTTPException(
             status_code=400,
             detail="We have not received a message from your number yet. Text the Max line from the phone on your account, wait a few seconds, then try again.",
@@ -345,33 +380,27 @@ async def upload_avatar(
     """
     Upload profile picture
     """
-    # Read file content
     content = await file.read()
-    
-    # Delete previous avatar if it exists
+
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     try:
-        user_uuid = UUID(current_user["id"])
-        user = await db.get(User, user_uuid)
-        if user and user.profile and user.profile.get("avatar_url"):
+        if user.profile and user.profile.get("avatar_url"):
             delete_by_url(user.profile.get("avatar_url"))
     except Exception as e:
         logger.warning("Avatar cleanup failed: %s", e)
 
-    # Upload to storage
     avatar_url = await storage_service.upload_image(
         content,
         current_user["id"],
         image_type="avatar"
     )
-    
+
     if not avatar_url:
         raise HTTPException(status_code=500, detail="Failed to upload image")
-    
-    # Update user profile
-    user_uuid = UUID(current_user["id"])
-    user = await db.get(User, user_uuid)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
     # Assign a new dict to ensure SQLAlchemy tracks JSON changes
     current_profile = dict(user.profile or {})

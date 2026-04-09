@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 import AnalyzingScreen from './AnalyzingScreen';
 import {
@@ -62,6 +62,7 @@ export default function FaceScanScreen() {
     const appStateRef = useRef<AppStateStatus>(AppState.currentState);
     const analyzingRef = useRef(false);
     analyzingRef.current = analyzing;
+    const uploadActiveRef = useRef(false);
 
     const navigateToResults = useCallback(() => {
         navigation.dispatch(
@@ -249,6 +250,7 @@ export default function FaceScanScreen() {
                 setCameraSession((s) => s + 1);
             }
             if (!analyzingRef.current) return;
+            if (uploadActiveRef.current) return;
             if (!prev.match(/inactive|background/) || next !== 'active') return;
             void runAnalyzingRecovery(true);
         });
@@ -327,6 +329,7 @@ export default function FaceScanScreen() {
         }
         setAnalyzing(true);
         setAnalysisStep(0);
+        uploadActiveRef.current = true;
         let didLeaveScan = false;
         if (user?.id) {
             try {
@@ -364,6 +367,7 @@ export default function FaceScanScreen() {
                     : 'Could not analyze photos. Check connection and try again.',
             );
         } finally {
+            uploadActiveRef.current = false;
             if (!didLeaveScan) setAnalyzing(false);
         }
     };
@@ -396,26 +400,27 @@ export default function FaceScanScreen() {
         <View style={styles.container}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerIcon} hitSlop={12}>
-                    <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+                    <Ionicons name="arrow-back" size={20} color={colors.foreground} />
                 </TouchableOpacity>
-                <Text style={styles.progressLabel}>
-                    Photo {stepIndex + 1} of {STEPS.length}
-                </Text>
+                <View style={styles.stepDots}>
+                    {STEPS.map((_, i) => (
+                        <View
+                            key={i}
+                            style={[
+                                styles.stepDot,
+                                i === stepIndex && styles.stepDotActive,
+                                i < stepIndex && styles.stepDotDone,
+                            ]}
+                        />
+                    ))}
+                </View>
                 <View style={styles.headerIcon} />
             </View>
 
-            <Text style={styles.medicalDisclaimer}>
-                For general wellness only — not medical advice.
-            </Text>
-
-            {isPaid && !isPremium ? (
-                <Text style={styles.basicScanCap}>
-                    Basic: one scan only. Upgrade to Premium for daily scans.
-                </Text>
-            ) : null}
-
-            <Text style={styles.title}>{step.title}</Text>
-            <Text style={styles.instruction}>{step.instruction}</Text>
+            <View style={styles.titleBlock}>
+                <Text style={styles.title}>{step.title}</Text>
+                <Text style={styles.instruction}>{step.instruction}</Text>
+            </View>
 
             <View style={styles.cameraContainer}>
                 {hasCurrent ? (
@@ -437,48 +442,53 @@ export default function FaceScanScreen() {
 
             <View style={styles.actions}>
                 {!hasCurrent && (
-                    <View style={styles.row}>
-                        <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.85}>
-                            <Ionicons name="camera" size={22} color={colors.background} style={{ marginRight: 8 }} />
-                            <Text style={styles.primaryBtnText}>Capture</Text>
+                    <View style={styles.captureRow}>
+                        <View style={styles.captureSlot} />
+                        <TouchableOpacity style={styles.primaryBtn} onPress={capture} activeOpacity={0.8}>
+                            <View style={styles.captureRing}>
+                                <View style={styles.captureInner} />
+                            </View>
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.uploadBtn} onPress={pickFromLibrary} activeOpacity={0.85}>
-                            <Ionicons name="images-outline" size={22} color={colors.foreground} style={{ marginRight: 8 }} />
-                            <Text style={styles.uploadBtnText}>Upload</Text>
-                        </TouchableOpacity>
+                        <View style={styles.captureSlot}>
+                            <TouchableOpacity style={styles.uploadHit} onPress={pickFromLibrary} activeOpacity={0.7}>
+                                <Ionicons name="images-outline" size={22} color={colors.textSecondary} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 )}
 
                 {hasCurrent && (
-                    <View style={styles.row}>
-                        <TouchableOpacity style={styles.secondaryBtn} onPress={retake}>
-                            <Text style={styles.secondaryBtnText}>Retake</Text>
+                    <View style={styles.confirmedRow}>
+                        <TouchableOpacity style={styles.outlineBtn} onPress={retake} activeOpacity={0.8}>
+                            <Text style={styles.outlineBtnText}>Retake</Text>
                         </TouchableOpacity>
                         {stepIndex < STEPS.length - 1 ? (
-                            <TouchableOpacity style={styles.primaryBtn} onPress={goNext}>
-                                <Text style={styles.primaryBtnText}>Next angle</Text>
+                            <TouchableOpacity style={styles.filledBtn} onPress={goNext} activeOpacity={0.8}>
+                                <Text style={styles.filledBtnText}>Next angle</Text>
+                                <Ionicons name="arrow-forward" size={16} color={colors.background} />
                             </TouchableOpacity>
                         ) : (
-                            <TouchableOpacity style={styles.primaryBtn} onPress={submitScans}>
-                                <Text style={styles.primaryBtnText}>Analyze</Text>
+                            <TouchableOpacity style={styles.filledBtn} onPress={submitScans} activeOpacity={0.8}>
+                                <Text style={styles.filledBtnText}>Analyze</Text>
+                                <Ionicons name="sparkles" size={16} color={colors.background} />
                             </TouchableOpacity>
                         )}
                     </View>
                 )}
 
                 {stepIndex > 0 && !hasCurrent && (
-                    <TouchableOpacity style={styles.linkBack} onPress={goBackStep}>
-                        <Text style={styles.linkBackText}>← Previous angle</Text>
+                    <TouchableOpacity style={styles.linkBack} onPress={goBackStep} activeOpacity={0.7}>
+                        <Text style={styles.linkBackText}>Previous angle</Text>
                     </TouchableOpacity>
                 )}
             </View>
 
             <Text style={styles.hint}>
                 {isPremium
-                    ? 'Premium: one three-photo scan per calendar day.'
+                    ? 'One scan per day · Premium'
                     : isPaid
-                      ? 'Basic: one scan only (no extras on this plan).'
-                      : 'One free preview — three angles, then Analyze.'}
+                      ? 'One scan included · Upgrade for daily scans'
+                      : 'Free preview scan · Three angles'}
             </Text>
         </View>
     );
@@ -487,107 +497,156 @@ export default function FaceScanScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     bootstrapRoot: { justifyContent: 'center', alignItems: 'center', gap: spacing.md },
-    bootstrapHint: { ...typography.body, color: colors.textMuted },
+    bootstrapHint: { fontSize: 14, color: colors.textMuted },
     permWrap: { justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
-    permText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg },
+    permText: { fontSize: 15, color: colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: spacing.lg },
     permBtn: {
         backgroundColor: colors.foreground,
         paddingHorizontal: spacing.xl,
-        paddingVertical: spacing.md,
+        paddingVertical: 14,
         borderRadius: borderRadius.full,
     },
-    permBtnText: { ...typography.button, color: colors.background },
+    permBtnText: { fontSize: 15, fontWeight: '600', color: colors.background },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingTop: 56,
-        paddingHorizontal: spacing.md,
+        paddingHorizontal: spacing.lg,
     },
     headerIcon: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-    progressLabel: { ...typography.label, color: colors.textMuted },
-    medicalDisclaimer: {
-        fontSize: 11,
-        color: colors.textMuted,
-        textAlign: 'center',
-        marginHorizontal: spacing.md,
-        marginTop: spacing.xs,
-        lineHeight: 16,
+    stepDots: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
     },
-    basicScanCap: {
-        fontSize: 12,
-        fontWeight: '600',
+    stepDot: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        backgroundColor: colors.surface,
+    },
+    stepDotActive: {
+        width: 24,
+        backgroundColor: colors.foreground,
+    },
+    stepDotDone: {
+        backgroundColor: colors.foreground,
+    },
+    titleBlock: {
+        paddingHorizontal: spacing.xl,
+        paddingTop: spacing.lg,
+        alignItems: 'center',
+    },
+    title: {
+        fontFamily: fonts.serif,
+        fontSize: 24,
+        fontWeight: '400',
         color: colors.foreground,
+        letterSpacing: -0.3,
         textAlign: 'center',
-        marginHorizontal: spacing.md,
-        marginTop: spacing.sm,
-        lineHeight: 18,
     },
-    title: { ...typography.h2, textAlign: 'center', marginTop: spacing.md },
     instruction: {
         fontSize: 14,
         color: colors.textSecondary,
         textAlign: 'center',
-        marginHorizontal: spacing.lg,
-        marginTop: spacing.sm,
-        lineHeight: 21,
+        marginTop: 4,
     },
     cameraContainer: {
         flex: 1,
-        margin: spacing.lg,
-        borderRadius: borderRadius['2xl'],
+        marginHorizontal: spacing.lg,
+        marginTop: spacing.lg,
+        borderRadius: borderRadius.xl,
         overflow: 'hidden',
         backgroundColor: '#000',
         minHeight: 360,
-        ...shadows.lg,
     },
     camera: { flex: 1, width: '100%', minHeight: 360 },
     cameraPaused: { backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
     cameraPausedText: { color: '#fff', fontSize: 15, opacity: 0.85 },
     preview: { flex: 1, width: '100%', minHeight: 360 },
-    actions: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl, gap: spacing.md },
-    row: { flexDirection: 'row', gap: spacing.md, justifyContent: 'center', flexWrap: 'wrap' },
+    actions: {
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.lg,
+        paddingBottom: spacing.md,
+        alignItems: 'center',
+    },
+    captureRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    captureSlot: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     primaryBtn: {
-        flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    captureRing: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        borderWidth: 3,
+        borderColor: colors.foreground,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    captureInner: {
+        width: 58,
+        height: 58,
+        borderRadius: 29,
         backgroundColor: colors.foreground,
-        paddingVertical: 14,
-        paddingHorizontal: spacing.xl,
-        borderRadius: borderRadius.full,
-        flexGrow: 1,
-        minWidth: 140,
     },
-    primaryBtnText: { ...typography.button, color: colors.background },
-    uploadBtn: {
+    uploadHit: {
+        width: 48,
+        height: 48,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    confirmedRow: {
+        flexDirection: 'row',
+        gap: 12,
+        width: '100%',
+    },
+    outlineBtn: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: borderRadius.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        paddingVertical: 14,
+    },
+    outlineBtnText: {
+        fontSize: 15,
+        fontWeight: '500',
+        color: colors.foreground,
+    },
+    filledBtn: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 14,
-        paddingHorizontal: spacing.xl,
+        gap: 6,
+        backgroundColor: colors.foreground,
         borderRadius: borderRadius.full,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.card,
-        minWidth: 140,
-    },
-    uploadBtnText: { ...typography.button, color: colors.foreground },
-    secondaryBtn: {
         paddingVertical: 14,
-        paddingHorizontal: spacing.xl,
-        borderRadius: borderRadius.full,
-        borderWidth: 1,
-        borderColor: colors.borderLight,
-        justifyContent: 'center',
     },
-    secondaryBtnText: { ...typography.button, color: colors.foreground },
-    linkBack: { alignItems: 'center', paddingVertical: spacing.sm },
-    linkBackText: { color: colors.textMuted, fontSize: 14 },
+    filledBtnText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.background,
+    },
+    linkBack: { alignItems: 'center', paddingVertical: spacing.sm, marginTop: spacing.xs },
+    linkBackText: { color: colors.textMuted, fontSize: 13 },
     hint: {
         fontSize: 12,
         color: colors.textMuted,
         textAlign: 'center',
         paddingHorizontal: spacing.lg,
-        marginBottom: spacing.md,
+        paddingBottom: spacing.lg,
     },
 });

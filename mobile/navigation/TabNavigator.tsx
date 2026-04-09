@@ -1,12 +1,14 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Platform, View, Text, TouchableOpacity, Modal } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, spacing, shadows } from '../theme/dark';
+import { colors, spacing, shadows, fonts, borderRadius } from '../theme/dark';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { queryClient } from '../lib/queryClient';
 import { prefetchMainTabData } from '../lib/prefetchMainTabData';
+import { useAuth } from '../context/AuthContext';
 
 import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
@@ -20,6 +22,8 @@ import MasterScheduleScreen from '../screens/courses/MasterScheduleScreen';
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+function ScanPlaceholder() { return null; }
+
 function ForumsStack() {
     return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -32,14 +36,130 @@ function ForumsStack() {
     );
 }
 
+function PremiumGateModal({
+    visible,
+    onClose,
+    onUpgrade,
+}: {
+    visible: boolean;
+    onClose: () => void;
+    onUpgrade: () => void;
+}) {
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <TouchableOpacity style={modal.overlay} activeOpacity={1} onPress={onClose}>
+                <TouchableOpacity style={modal.card} activeOpacity={1} onPress={() => {}}>
+                    <View style={modal.iconWrap}>
+                        <Ionicons name="scan-outline" size={28} color={colors.foreground} />
+                    </View>
+                    <Text style={modal.title}>Premium Feature</Text>
+                    <Text style={modal.body}>
+                        Face scans are only available for Premium subscribers. Upgrade to unlock daily AI-powered face analysis.
+                    </Text>
+                    <TouchableOpacity
+                        style={modal.upgradeBtn}
+                        onPress={onUpgrade}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={modal.upgradeBtnText}>Upgrade to Premium</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={modal.dismissBtn}
+                        onPress={onClose}
+                        activeOpacity={0.65}
+                    >
+                        <Text style={modal.dismissText}>Not now</Text>
+                    </TouchableOpacity>
+                </TouchableOpacity>
+            </TouchableOpacity>
+        </Modal>
+    );
+}
+
+const modal = StyleSheet.create({
+    overlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 32,
+    },
+    card: {
+        width: '100%',
+        maxWidth: 320,
+        backgroundColor: colors.background,
+        borderRadius: borderRadius['2xl'],
+        paddingVertical: 36,
+        paddingHorizontal: 28,
+        alignItems: 'center',
+    },
+    iconWrap: {
+        width: 56,
+        height: 56,
+        borderRadius: 28,
+        backgroundColor: colors.surface,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
+    title: {
+        fontFamily: fonts.serif,
+        fontSize: 22,
+        fontWeight: '400',
+        color: colors.foreground,
+        letterSpacing: -0.3,
+        marginBottom: 10,
+        textAlign: 'center',
+    },
+    body: {
+        fontSize: 14,
+        fontFamily: fonts.sans,
+        color: colors.textSecondary,
+        lineHeight: 21,
+        textAlign: 'center',
+        marginBottom: 28,
+        letterSpacing: 0.1,
+    },
+    upgradeBtn: {
+        width: '100%',
+        height: 46,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.foreground,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 14,
+    },
+    upgradeBtnText: {
+        fontSize: 14,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.buttonText,
+        letterSpacing: 0.3,
+    },
+    dismissBtn: {
+        paddingVertical: 6,
+    },
+    dismissText: {
+        fontSize: 13,
+        fontFamily: fonts.sansMedium,
+        fontWeight: '500',
+        color: colors.textMuted,
+        letterSpacing: 0.2,
+    },
+});
+
 export default function TabNavigator() {
     const insets = useSafeAreaInsets();
+    const { isPaid, isPremium } = useAuth();
+    const [showGate, setShowGate] = useState(false);
+    const navigation = useNavigation<any>();
 
     useEffect(() => {
         prefetchMainTabData(queryClient);
     }, []);
 
     return (
+        <>
         <Tab.Navigator
             screenOptions={{
                 headerShown: false,
@@ -72,6 +192,28 @@ export default function TabNavigator() {
                 }}
             />
             <Tab.Screen
+                name="ScanTab"
+                component={ScanPlaceholder}
+                listeners={({ navigation: nav }) => ({
+                    tabPress: (e) => {
+                        e.preventDefault();
+                        if (!isPaid) {
+                            nav.navigate('Payment');
+                        } else if (!isPremium) {
+                            setShowGate(true);
+                        } else {
+                            nav.navigate('FaceScan');
+                        }
+                    },
+                })}
+                options={{
+                    title: 'Scan',
+                    tabBarIcon: ({ color }) => (
+                        <Ionicons name="scan-outline" size={22} color={color} />
+                    ),
+                }}
+            />
+            <Tab.Screen
                 name="Chat"
                 component={MaxChatScreen}
                 options={{
@@ -88,6 +230,16 @@ export default function TabNavigator() {
                 }}
             />
         </Tab.Navigator>
+
+        <PremiumGateModal
+            visible={showGate}
+            onClose={() => setShowGate(false)}
+            onUpgrade={() => {
+                setShowGate(false);
+                navigation.navigate('ManageSubscription' as never);
+            }}
+        />
+        </>
     );
 }
 

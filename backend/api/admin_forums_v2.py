@@ -45,7 +45,7 @@ async def _commit_or_409(rds_db: AsyncSession) -> None:
 
 def _slugify(name: str) -> str:
     s = (name or "").strip().lower()
-    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"[^a-z0-9]", "-", s)
     s = re.sub(r"-{2,}", "-", s).strip("-")
     return s[:64] or "category"
 

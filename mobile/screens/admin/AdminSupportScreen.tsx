@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 
 export default function AdminSupportScreen() {
     const [targetUser, setTargetUser] = useState('');
@@ -62,7 +62,15 @@ const styles = StyleSheet.create({
     content: { padding: spacing.lg },
     title: { ...typography.h1 },
     subtitle: { fontSize: 14, color: colors.textMuted, marginBottom: spacing.xl },
-    typeSelector: { flexDirection: 'row', backgroundColor: colors.surface, borderRadius: borderRadius.full, padding: 3, marginBottom: spacing.xl, ...shadows.sm },
+    typeSelector: {
+        flexDirection: 'row',
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        padding: 3,
+        marginBottom: spacing.xl,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
     typeBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: borderRadius.full },
     activeType: { backgroundColor: colors.foreground },
     typeText: { color: colors.textMuted, fontWeight: '600', fontSize: 13 },
@@ -71,7 +79,16 @@ const styles = StyleSheet.create({
     label: { ...typography.label, marginBottom: spacing.xs, marginLeft: 2 },
     input: { backgroundColor: colors.surface, borderRadius: borderRadius.md, padding: spacing.md, color: colors.textPrimary, fontSize: 14 },
     textArea: { height: 120, textAlignVertical: 'top' },
-    sendBtn: { backgroundColor: colors.foreground, height: 50, borderRadius: borderRadius.full, alignItems: 'center', justifyContent: 'center', marginTop: spacing.md, ...shadows.md },
+    sendBtn: {
+        backgroundColor: colors.foreground,
+        height: 48,
+        borderRadius: borderRadius.md,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginTop: spacing.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
+    },
     sendBtnText: { ...typography.button },
     disabledBtn: { opacity: 0.5 },
 });

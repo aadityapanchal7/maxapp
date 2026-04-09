@@ -6,9 +6,10 @@ import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { resolveMaxxBrand, MAXX_ICON_FALLBACK } from '../../utils/maxxBrand';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
+import { MaxxProgramRow } from '../../components/MaxxProgramRow';
 
 type MaxxCard = {
     id: string;
@@ -112,38 +113,37 @@ export default function ModuleSelectScreen() {
 
                 {maxes.map((m) => {
                     const idKey = String(m.id || '').toLowerCase();
-                    const on = idKey && selectedIds.has(idKey);
+                    const on = !!idKey && selectedIds.has(idKey);
                     const brand = resolveMaxxBrand(m.id, m.color);
                     const merged = { id: m.id, label: m.label, description: m.description };
                     const label = getMaxxDisplayLabel(merged);
                     const desc = getMaxxDisplayDescription(merged) ?? m.description;
                     const iconName = (m.icon || MAXX_ICON_FALLBACK[idKey] || 'book-outline') as any;
                     return (
-                        <TouchableOpacity
+                        <MaxxProgramRow
                             key={m.id}
-                            style={[styles.card, on && styles.cardSelected]}
-                            activeOpacity={0.85}
+                            tintHex={brand}
+                            iconName={iconName}
+                            title={label}
+                            description={desc}
                             onPress={() => toggleMaxx(m.id)}
-                        >
-                            <View style={[styles.cardIcon, { backgroundColor: `${brand}22` }]}>
-                                <Ionicons name={iconName} size={22} color={brand} />
-                            </View>
-                            <View style={styles.cardText}>
-                                <Text style={styles.cardTitle}>{label}</Text>
-                                {desc ? (
-                                    <Text style={styles.cardDesc} numberOfLines={2}>
-                                        {desc}
-                                    </Text>
-                                ) : null}
-                            </View>
-                            <View style={[styles.checkCircle, on && styles.checkCircleOn]}>
-                                <Ionicons
-                                    name={on ? 'checkmark' : 'ellipse-outline'}
-                                    size={on ? 20 : 22}
-                                    color={on ? colors.background : colors.textMuted}
-                                />
-                            </View>
-                        </TouchableOpacity>
+                            trailing={
+                                <View style={[styles.checkCircle, on && styles.checkCircleOn]}>
+                                    <Ionicons
+                                        name={on ? 'checkmark-circle' : 'ellipse-outline'}
+                                        size={22}
+                                        color={on ? colors.foreground : colors.textMuted}
+                                    />
+                                </View>
+                            }
+                            selected={on}
+                            selectedVariant="uniform"
+                            accent="none"
+                            activeOpacity={0.9}
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked: on }}
+                            style={styles.programRow}
+                        />
                     );
                 })}
 
@@ -165,43 +165,17 @@ export default function ModuleSelectScreen() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.background },
     center: { justifyContent: 'center', alignItems: 'center' },
-    scroll: { padding: spacing.lg, paddingTop: 56, paddingBottom: 40 },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
+    scroll: { padding: spacing.xl, paddingTop: 56, paddingBottom: spacing.xxl },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
     iconHit: { width: 40, height: 40, justifyContent: 'center' },
     title: { ...typography.h2 },
-    lead: { fontSize: 15, color: colors.textSecondary, lineHeight: 22, marginBottom: spacing.xl },
-    card: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.md,
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius.xl,
-        padding: spacing.md,
-        marginBottom: spacing.sm,
-        borderWidth: 2,
-        borderColor: colors.border,
-        ...shadows.sm,
-    },
-    cardIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: borderRadius.md,
-        backgroundColor: colors.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    cardText: { flex: 1 },
-    cardTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground },
-    cardDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 4, lineHeight: 18 },
-    cardSelected: {
-        borderColor: colors.foreground,
-        backgroundColor: colors.surface,
-    },
+    lead: { fontSize: 15, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.xl + spacing.sm },
+    programRow: { marginBottom: spacing.sm },
     checkCircle: {
         width: 36,
         height: 36,
-        borderRadius: 18,
-        borderWidth: 2,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
         borderColor: colors.border,
         alignItems: 'center',
         justifyContent: 'center',
@@ -209,18 +183,19 @@ const styles = StyleSheet.create({
     },
     checkCircleOn: {
         borderColor: colors.foreground,
-        backgroundColor: colors.foreground,
+        backgroundColor: colors.surface,
     },
     cta: {
-        marginTop: spacing.xl,
+        marginTop: spacing.xl + spacing.sm,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
         gap: spacing.sm,
         backgroundColor: colors.foreground,
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
-        ...shadows.md,
+        paddingVertical: 12,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     ctaText: { ...typography.button, color: colors.background, fontSize: 16 },
 });

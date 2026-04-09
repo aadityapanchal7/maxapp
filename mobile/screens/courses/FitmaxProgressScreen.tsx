@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { deriveWeightTrend, fitmaxAccent } from '../../features/fitmax/fitmax';
-import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
+import { borderRadius, colors, spacing, typography } from '../../theme/dark';
 
 type Tab = 'Body' | 'Lifts' | 'Photos';
 
@@ -117,14 +117,27 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
   tabTextActive: { color: colors.buttonText },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl, gap: spacing.md },
-  card: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.md, ...shadows.md },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   cardTitle: { fontSize: 15, fontWeight: '700', color: colors.foreground },
   cardMeta: { ...typography.caption, marginTop: 4 },
   graphWrap: { marginTop: spacing.md, minHeight: 140, flexDirection: 'row', alignItems: 'flex-end', gap: 6 },
   bar: { flex: 1, borderRadius: 6, backgroundColor: fitmaxAccent },
   delta: { marginTop: spacing.sm, ...typography.bodySmall },
   cardRow: { flexDirection: 'row', gap: spacing.md },
-  sparkCard: { flex: 1, backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.md, ...shadows.md },
+  sparkCard: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: borderRadius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   sparkTitle: { ...typography.caption },
   sparkValue: { marginTop: 6, fontSize: 18, fontWeight: '700', color: colors.foreground },
   liftVal: { marginTop: 8, fontSize: 24, fontWeight: '700', color: fitmaxAccent },

@@ -16,7 +16,7 @@ def _supabase_connect_args() -> dict:
     asyncpg must disable statement cache when using PgBouncer transaction mode.
     """
     args: dict = {
-        "timeout": 30,
+        "timeout": 10,
         "ssl": "require",
         "server_settings": {"application_name": "maxapp_backend"},
     }
@@ -25,15 +25,13 @@ def _supabase_connect_args() -> dict:
     return args
 
 
-# Create async engine for Supabase
-# Session-mode pooler: total concurrent server connections are capped — use small pool + short sessions.
 engine = create_async_engine(
     settings.supabase_db_url,
     echo=settings.debug,
     pool_size=settings.supabase_db_pool_size,
     max_overflow=settings.supabase_db_max_overflow,
-    pool_recycle=300,
-    pool_timeout=60,
+    pool_recycle=180,
+    pool_timeout=10,
     pool_pre_ping=True,
     connect_args=_supabase_connect_args(),
 )

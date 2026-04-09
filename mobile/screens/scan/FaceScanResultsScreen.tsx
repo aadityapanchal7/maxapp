@@ -20,11 +20,10 @@ import { captureRef } from 'react-native-view-shot';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 
 /** Some DB drivers or legacy rows store analysis as a JSON string. */
@@ -95,7 +94,7 @@ function suggestedModulesFromUmax(analysis: any): string[] {
         }
     }
     if (!out.length) return ['fitmax', 'skinmax'];
-    return [...new Set(out)].slice(0, 5);
+    return [...new Set(out)].slice(0, 3);
 }
 
 function parseOverall(analysis: any): number | null {
@@ -316,6 +315,7 @@ function ResultsRatingShareCard({
                     <Text style={shareCardStyles.statValue}>{ageScore > 0 ? `${ageScore}` : '—'}</Text>
                 </View>
             </View>
+            <Text style={shareCardStyles.brand}>MAX</Text>
         </View>
     );
 }
@@ -346,7 +346,6 @@ const shareCardStyles = StyleSheet.create({
         borderColor: colors.border,
         marginBottom: 20,
         backgroundColor: colors.surface,
-        ...shadows.lg,
     },
     photoPlaceholder: { backgroundColor: colors.surface },
     photo: { width: '100%', height: '100%' },
@@ -360,7 +359,6 @@ const shareCardStyles = StyleSheet.create({
         borderColor: colors.borderLight,
         alignItems: 'center',
         justifyContent: 'center',
-        ...shadows.md,
     },
     scoreOrbLabel: {
         fontSize: 9,
@@ -390,6 +388,15 @@ const shareCardStyles = StyleSheet.create({
     statCellWide: { width: '100%' },
     statLabel: { fontSize: 10, fontWeight: '700', color: colors.textMuted, marginBottom: 4, letterSpacing: 0.6 },
     statValue: { fontSize: 15, fontWeight: '700', color: colors.foreground },
+    brand: {
+        fontFamily: fonts.serif,
+        fontSize: 12,
+        letterSpacing: 2,
+        color: colors.textMuted,
+        textAlign: 'center',
+        marginTop: 16,
+        opacity: 0.5,
+    },
 });
 
 /** Blurs only inner value content; render label outside this wrapper */
@@ -403,20 +410,7 @@ function PaywallBlurShell({ children, minHeight }: { children: React.ReactNode; 
                 style={StyleSheet.absoluteFill}
                 experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
             />
-            <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(255,255,255,0.34)', 'rgba(255,255,255,0.20)', 'rgba(255,255,255,0.30)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(255,255,255,0.18)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0.16)']}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={styles.paywallVignette}
-            />
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.paywallFlatOverlay]} />
         </View>
     );
 }
@@ -496,15 +490,8 @@ export default function FaceScanResultsScreen() {
     const bootstrap = useCallback(async () => {
         setHydrating(true);
         try {
-            if (postPayParam) {
-                try {
-                    await refreshUser();
-                } catch (e) {
-                    console.error(e);
-                }
-            }
             const result = scanIdParam ? await api.getScanById(scanIdParam) : await api.getLatestScan();
-            if (result?.is_unlocked) {
+            if (postPayParam || result?.is_unlocked) {
                 try {
                     await refreshUser();
                 } catch (e) {
@@ -632,6 +619,7 @@ export default function FaceScanResultsScreen() {
     if (!suggestedMods.length && a) {
         suggestedMods = suggestedModulesFromUmax(a);
     }
+    suggestedMods = suggestedMods.slice(0, 3);
 
     const goPayment = () => navigation.navigate('Payment');
 
@@ -797,213 +785,177 @@ export default function FaceScanResultsScreen() {
     return (
         <View style={styles.root}>
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+                {/* ── Header ── */}
                 <View style={styles.header}>
                     {postPayOnboardingFlow ? (
                         <View style={styles.iconHit} />
                     ) : (
                         <TouchableOpacity onPress={headerBack} style={styles.iconHit} hitSlop={12}>
-                            <Ionicons name="arrow-back" size={22} color={colors.foreground} />
+                            <Ionicons name="chevron-back" size={22} color={colors.foreground} />
                         </TouchableOpacity>
                     )}
                     <Text style={styles.headerTitle}>Your results</Text>
                     <View style={styles.iconHit} />
                 </View>
 
-                <Text style={styles.medicalDisclaimer}>
-                    Not medical advice. For general wellness insights only—not for diagnosis or treatment. See a qualified
-                    professional for medical decisions.
-                </Text>
-
-                <Text style={styles.kicker}>AI facial analysis</Text>
-
+                {/* ── Portrait photo ── */}
                 {frontUri ? (
-                    <View style={styles.photoCard}>
-                        <CachedImage uri={frontUri} style={styles.frontPhoto} />
+                    <View style={styles.heroPhoto}>
+                        <CachedImage uri={frontUri} style={styles.heroImg} />
                     </View>
                 ) : null}
 
-                <View style={styles.scoreRow}>
-                    <View style={styles.scoreOrb}>
-                        <Text style={styles.scoreOrbLabel}>Rating</Text>
+                {/* ── Dual scores ── */}
+                <View style={styles.scoresRow}>
+                    <View style={styles.scoreCol}>
+                        <Text style={styles.scoreColLabel}>Rating</Text>
                         {isProcessing ? (
-                            <ActivityIndicator color={colors.foreground} style={{ marginVertical: 12 }} />
+                            <ActivityIndicator color={colors.foreground} style={{ marginVertical: 10 }} />
                         ) : locked ? (
-                            <PaywallBlurShell minHeight={72}>
-                                <View style={styles.orbBlurInner}>
-                                    <Text
-                                        style={[
-                                            styles.scoreOrbNum,
-                                            ratingDisplay != null ? { color: getScoreColor(ratingColorScore) } : null,
-                                        ]}
-                                    >
-                                        {ratingDisplay != null ? ratingDisplay.toFixed(1) : '—'}
-                                    </Text>
-                                    <Text style={styles.scoreOrbOut}>/10</Text>
-                                </View>
-                            </PaywallBlurShell>
-                        ) : (
-                            <>
-                                <Text style={[styles.scoreOrbNum, ratingDisplay != null ? { color: getScoreColor(ratingColorScore) } : null]}>
+                            <PaywallBlurShell minHeight={48}>
+                                <Text style={styles.scoreColNum}>
                                     {ratingDisplay != null ? ratingDisplay.toFixed(1) : '—'}
                                 </Text>
-                                <Text style={styles.scoreOrbOut}>/10</Text>
-                            </>
-                        )}
-                    </View>
-                    <View style={styles.scoreOrb}>
-                        <Text style={styles.scoreOrbLabel}>Potential</Text>
-                        {isProcessing ? (
-                            <ActivityIndicator color={colors.foreground} style={{ marginVertical: 12 }} />
-                        ) : locked ? (
-                            <PaywallBlurShell minHeight={72}>
-                                <View style={styles.orbBlurInner}>
-                                    <Text style={[styles.scoreOrbNum, { color: getScoreColor(potentialDisplay) }]}>
-                                        {potentialDisplay.toFixed(1)}
-                                    </Text>
-                                    <Text style={styles.scoreOrbOut}>/10</Text>
-                                </View>
                             </PaywallBlurShell>
                         ) : (
-                            <>
-                                <Text style={[styles.scoreOrbNum, { color: getScoreColor(potentialDisplay) }]}>
+                            <Text style={styles.scoreColNum}>
+                                {ratingDisplay != null ? ratingDisplay.toFixed(1) : '—'}
+                            </Text>
+                        )}
+                    </View>
+
+                    <View style={styles.scoreColSep} />
+
+                    <View style={styles.scoreCol}>
+                        <Text style={styles.scoreColLabel}>Potential</Text>
+                        {isProcessing ? (
+                            <ActivityIndicator color={colors.foreground} style={{ marginVertical: 10 }} />
+                        ) : locked ? (
+                            <PaywallBlurShell minHeight={48}>
+                                <Text style={styles.scoreColNum}>
                                     {potentialDisplay.toFixed(1)}
                                 </Text>
-                                <Text style={styles.scoreOrbOut}>/10</Text>
-                            </>
+                            </PaywallBlurShell>
+                        ) : (
+                            <Text style={styles.scoreColNum}>
+                                {potentialDisplay.toFixed(1)}
+                            </Text>
                         )}
                     </View>
                 </View>
 
-                <View style={styles.statGrid}>
-                    <View style={styles.statCell}>
-                        <Text style={styles.statLabel}>Tier</Text>
+                {/* ── Tier badge ── */}
+                {pslTier && !isProcessing ? (
+                    <View style={styles.tierRow}>
                         {locked ? (
-                            <PaywallBlurShell minHeight={40}>
-                                <View style={styles.statBlurInner}>
-                                    <Text style={styles.statValue}>{pslTier || '—'}</Text>
-                                </View>
+                            <PaywallBlurShell minHeight={26}>
+                                <View style={styles.tierPill}><Text style={styles.tierPillText}>{pslTier}</Text></View>
                             </PaywallBlurShell>
                         ) : (
-                            <Text style={styles.statValue}>{pslTier || '—'}</Text>
+                            <View style={styles.tierPill}><Text style={styles.tierPillText}>{pslTier}</Text></View>
                         )}
                     </View>
-                    <View style={styles.statCell}>
-                        <Text style={styles.statLabel}>Appeal</Text>
-                        {locked ? (
-                            <PaywallBlurShell minHeight={40}>
-                                <View style={styles.statBlurInner}>
-                                    <Text style={[styles.statValue, { color: getScoreColor(appealScore) }]}>
-                                        {appealScore.toFixed(1)}/10
-                                    </Text>
-                                </View>
-                            </PaywallBlurShell>
-                        ) : (
-                            <Text style={[styles.statValue, { color: getScoreColor(appealScore) }]}>{appealScore.toFixed(1)}/10</Text>
-                        )}
-                    </View>
-                    <View style={styles.statCell}>
-                        <Text style={styles.statLabel}>Archetype</Text>
-                        {locked ? (
-                            <PaywallBlurShell minHeight={40}>
-                                <View style={styles.statBlurInner}>
-                                    <Text style={styles.statValue}>{archetype || '—'}</Text>
-                                </View>
-                            </PaywallBlurShell>
-                        ) : (
-                            <Text style={styles.statValue}>{archetype || '—'}</Text>
-                        )}
-                    </View>
-                    <View style={styles.statCell}>
-                        <Text style={styles.statLabel}>Ascension time</Text>
-                        {locked ? (
-                            <PaywallBlurShell minHeight={40}>
-                                <View style={styles.statBlurInner}>
-                                    <Text style={styles.statValue}>{ascensionLabelText}</Text>
-                                </View>
-                            </PaywallBlurShell>
-                        ) : (
-                            <Text style={styles.statValue}>{ascensionLabelText}</Text>
-                        )}
-                    </View>
-                    <View style={[styles.statCell, styles.statCellWide]}>
-                        <Text style={styles.statLabel}>Facial age (look)</Text>
-                        {locked ? (
-                            <PaywallBlurShell minHeight={40}>
-                                <View style={styles.statBlurInner}>
-                                    <Text style={styles.statValue}>{ageScore > 0 ? `${ageScore}` : '—'}</Text>
-                                </View>
-                            </PaywallBlurShell>
-                        ) : (
-                            <Text style={styles.statValue}>{ageScore > 0 ? `${ageScore}` : '—'}</Text>
-                        )}
-                    </View>
-                </View>
-
-                {!locked ? (
-                    <>
-                        <Text style={styles.sectionKicker}>Suggested modules</Text>
-                        <View style={styles.insightCard}>
-                            {suggestedMods.length > 0 ? (
-                                <View style={styles.moduleChips}>
-                                    {suggestedMods.map((m, i) => (
-                                        <View key={i} style={styles.moduleChip}>
-                                            <Text style={styles.moduleChipText}>{m}</Text>
-                                        </View>
-                                    ))}
-                                </View>
-                            ) : (
-                                <Text style={styles.bodyText}>Based on your scan and goals.</Text>
-                            )}
-                        </View>
-                    </>
                 ) : null}
 
+                {/* ── Breakdown rows ── */}
+                <View style={styles.breakdownSection}>
+                    <Text style={styles.breakdownHeading}>Breakdown</Text>
+                    {[
+                        { label: 'Appeal', value: appealScore.toFixed(1) + '/10', color: getScoreColor(appealScore) },
+                        { label: 'Archetype', value: archetype || '—', color: colors.foreground },
+                        { label: 'Ascension time', value: ascensionLabelText, color: colors.foreground },
+                        { label: 'Facial age', value: ageScore > 0 ? `${ageScore}` : '—', color: colors.foreground },
+                    ].map((item, idx) => (
+                        <View key={idx} style={styles.breakdownRow}>
+                            <Text style={styles.breakdownLabel}>{item.label}</Text>
+                            {isProcessing ? (
+                                <ActivityIndicator size="small" color={colors.textMuted} />
+                            ) : locked ? (
+                                <PaywallBlurShell minHeight={20}>
+                                    <Text style={[styles.breakdownValue, { color: item.color }]}>{item.value}</Text>
+                                </PaywallBlurShell>
+                            ) : (
+                                <Text style={[styles.breakdownValue, { color: item.color }]}>{item.value}</Text>
+                            )}
+                        </View>
+                    ))}
+                </View>
+
+                {/* ── Suggested modules ── */}
+                {!locked && suggestedMods.length > 0 ? (
+                    <View style={styles.modsSection}>
+                        <Text style={styles.breakdownHeading}>Recommended for you</Text>
+                        <View style={styles.modsRow}>
+                            {suggestedMods.map((m, i) => (
+                                <View key={i} style={styles.modChip}>
+                                    <Text style={styles.modChipText}>{m}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    </View>
+                ) : null}
+
+                {/* ── Share / Save ── */}
                 {!locked && !isProcessing ? (
                     <View style={styles.shareRow}>
                         <TouchableOpacity
                             style={[styles.shareBtn, shareCaptureBusy && styles.shareBtnDisabled]}
                             onPress={onSaveScanPhoto}
-                            activeOpacity={0.85}
+                            activeOpacity={0.8}
                             disabled={shareCaptureBusy}
                         >
-                            <Ionicons name="download-outline" size={20} color={colors.foreground} />
-                            <Text style={styles.shareBtnText}>Save to photos</Text>
+                            <Ionicons name="download-outline" size={17} color={colors.textSecondary} />
+                            <Text style={styles.shareBtnText}>Save</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.shareBtn, shareCaptureBusy && styles.shareBtnDisabled]}
                             onPress={onShareRating}
-                            activeOpacity={0.85}
+                            activeOpacity={0.8}
                             disabled={shareCaptureBusy}
                         >
-                            <Ionicons name="share-social-outline" size={20} color={colors.foreground} />
-                            <Text style={styles.shareBtnText}>Share my rating</Text>
+                            <Ionicons name="share-outline" size={17} color={colors.textSecondary} />
+                            <Text style={styles.shareBtnText}>Share</Text>
                         </TouchableOpacity>
                     </View>
                 ) : null}
 
+                {/* ── Paywall teaser ── */}
+                {locked && !isProcessing ? (
+                    <View style={styles.paywallTeaser}>
+                        <Ionicons name="lock-closed-outline" size={18} color={colors.textMuted} style={{ marginBottom: 8 }} />
+                        <Text style={styles.paywallTitle}>Unlock your full analysis</Text>
+                        <Text style={styles.paywallSub}>
+                            See exact scores, your archetype, potential ceiling, and a personalized improvement plan.
+                        </Text>
+                    </View>
+                ) : null}
+
+                {/* ── CTA ── */}
                 {!viewingHistory ? (
                     <>
-                        <TouchableOpacity style={styles.cta} onPress={onPrimaryCta} activeOpacity={0.88}>
+                        <TouchableOpacity style={styles.cta} onPress={onPrimaryCta} activeOpacity={0.85}>
                             <Text style={styles.ctaText}>
                                 {locked
-                                    ? 'Unlock plan'
+                                    ? 'Unlock full results'
                                     : postPay && sendbluePending
                                       ? 'Continue'
                                       : postPay
                                         ? 'Choose your programs'
                                         : 'Continue'}
                             </Text>
-                            <Ionicons name={locked ? 'lock-open-outline' : 'arrow-forward'} size={20} color={colors.background} />
+                            <Ionicons name={locked ? 'lock-open-outline' : 'arrow-forward'} size={17} color={colors.background} />
                         </TouchableOpacity>
 
                         {!locked && !postSubscriptionOnboarding ? (
-                            <TouchableOpacity style={styles.secondaryCta} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
-                                <Text style={styles.secondaryCtaText}>Skip to home</Text>
+                            <TouchableOpacity style={styles.skipBtn} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
+                                <Text style={styles.skipText}>Go to home</Text>
                             </TouchableOpacity>
                         ) : null}
                     </>
                 ) : null}
 
+                <Text style={styles.brandMark}>max</Text>
+                <Text style={styles.disclaimer}>For general wellness only — not medical advice.</Text>
             </ScrollView>
 
             {!locked && !isProcessing && Platform.OS !== 'web' ? (
@@ -1029,237 +981,129 @@ export default function FaceScanResultsScreen() {
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.background },
-    loadingRoot: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingHorizontal: spacing.lg,
-    },
+
+    /* ── Loading / fetching ── */
+    loadingRoot: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: spacing.lg },
     fetchingRoot: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
     fetchErrorText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md },
-    fetchRetryBtn: {
-        backgroundColor: colors.foreground,
-        paddingHorizontal: spacing.xl,
-        paddingVertical: spacing.md,
-        borderRadius: borderRadius.full,
-    },
+    fetchRetryBtn: { backgroundColor: colors.foreground, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: borderRadius.full },
     fetchRetryText: { ...typography.button, color: colors.background },
     loadingHeader: { marginBottom: spacing.md, width: '100%', maxWidth: 420, alignItems: 'center' },
     loadingTrackWrap: { alignSelf: 'stretch', width: '100%', marginTop: spacing.sm },
-    loadingSub: {
-        fontSize: 14,
-        color: colors.textSecondary,
-        marginTop: spacing.sm,
-        textAlign: 'center',
-        alignSelf: 'stretch',
-    },
-    stayInAppNotice: {
-        fontSize: 12,
-        lineHeight: 17,
-        color: colors.textMuted,
-        marginTop: spacing.md,
-        textAlign: 'center',
-        alignSelf: 'stretch',
-        paddingHorizontal: spacing.sm,
-    },
-    progressTopRow: {
-        flexDirection: 'row',
-        justifyContent: 'center',
-        alignItems: 'baseline',
-        gap: spacing.md,
-        marginBottom: 4,
-    },
+    loadingSub: { fontSize: 14, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center', alignSelf: 'stretch' },
+    stayInAppNotice: { fontSize: 12, lineHeight: 17, color: colors.textMuted, marginTop: spacing.md, textAlign: 'center', alignSelf: 'stretch', paddingHorizontal: spacing.sm },
+    progressTopRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'baseline', gap: spacing.md, marginBottom: 4 },
     progressTitle: { ...typography.h3, fontSize: 20, textAlign: 'center' },
     progressPct: { fontSize: 22, fontWeight: '800', color: colors.foreground, letterSpacing: -0.5 },
-    track: {
-        height: 10,
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.borderLight,
-        overflow: 'hidden',
+    track: { height: 10, borderRadius: borderRadius.full, backgroundColor: colors.borderLight, overflow: 'hidden' },
+    trackFill: { height: '100%', borderRadius: borderRadius.full, backgroundColor: colors.foreground },
+
+    /* ── Scroll / blur ── */
+    scroll: { paddingHorizontal: 20, paddingTop: 48, paddingBottom: 56 },
+    paywallBlurShell: { borderRadius: 8, overflow: 'hidden', backgroundColor: colors.surface, position: 'relative', alignSelf: 'stretch', width: '100%' },
+    paywallFlatOverlay: { backgroundColor: 'rgba(245,245,243,0.55)' },
+
+    /* ── Header ── */
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+    iconHit: { width: 36, height: 36, justifyContent: 'center' },
+    headerTitle: { fontSize: 15, fontWeight: '600', color: colors.foreground, letterSpacing: 0.2 },
+
+    /* ── Hero photo ── */
+    heroPhoto: {
+        alignSelf: 'center', width: 200, height: 260, borderRadius: 20,
+        overflow: 'hidden', marginBottom: 24, backgroundColor: colors.surface,
     },
-    trackFill: {
-        height: '100%',
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.foreground,
+    heroImg: { width: '100%', height: '100%' },
+
+    /* ── Dual scores ── */
+    scoresRow: {
+        flexDirection: 'row', alignItems: 'center',
+        marginBottom: 14, paddingHorizontal: 4,
     },
-    scroll: { paddingHorizontal: spacing.lg, paddingTop: 56, paddingBottom: 48 },
-    paywallBlurShell: {
-        borderRadius: borderRadius.lg,
-        overflow: 'hidden',
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        position: 'relative',
-        alignSelf: 'stretch',
-        width: '100%',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.28)',
+    scoreCol: { flex: 1, alignItems: 'center' },
+    scoreColLabel: {
+        fontSize: 12, fontWeight: '500', color: colors.textMuted,
+        letterSpacing: 0.4, marginBottom: 2,
     },
-    paywallVignette: {
-        ...StyleSheet.absoluteFillObject,
+    scoreColNum: {
+        fontFamily: fonts.serif, fontSize: 46, fontWeight: '700',
+        color: colors.foreground, letterSpacing: -1.5, lineHeight: 52,
     },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: spacing.md,
+    scoreColSep: {
+        width: StyleSheet.hairlineWidth, height: 44,
+        backgroundColor: colors.border, marginHorizontal: 4,
     },
-    iconHit: { width: 40, height: 40, justifyContent: 'center' },
-    headerTitle: { ...typography.h2 },
-    medicalDisclaimer: {
-        fontSize: 11,
-        color: colors.textMuted,
-        textAlign: 'center',
-        lineHeight: 16,
-        marginBottom: spacing.sm,
-        paddingHorizontal: spacing.xs,
+
+    /* ── Tier ── */
+    tierRow: { alignItems: 'center', marginBottom: 20 },
+    tierPill: {
+        paddingHorizontal: 16, paddingVertical: 5, borderRadius: borderRadius.full,
+        borderWidth: 1, borderColor: colors.border,
     },
-    kicker: {
-        fontSize: 11,
-        fontWeight: '600',
-        color: colors.textMuted,
-        letterSpacing: 0.6,
-        textAlign: 'center',
-        marginBottom: spacing.md,
-        textTransform: 'none',
+    tierPillText: {
+        fontSize: 11, fontWeight: '600', color: colors.textSecondary,
+        letterSpacing: 0.8, textTransform: 'uppercase',
     },
-    photoCard: {
-        alignSelf: 'center',
-        width: 200,
-        height: 200,
-        borderRadius: 100,
-        overflow: 'hidden',
-        borderWidth: 3,
-        borderColor: colors.border,
-        marginBottom: spacing.xl,
-        ...shadows.lg,
+
+    /* ── Breakdown ── */
+    breakdownSection: { marginBottom: 20 },
+    breakdownHeading: {
+        fontFamily: fonts.serif, fontSize: 16, fontWeight: '600',
+        color: colors.foreground, letterSpacing: -0.2, marginBottom: 12,
     },
-    photoCardPaywall: {
-        alignSelf: 'center',
-        width: 132,
-        height: 132,
-        borderRadius: 66,
-        overflow: 'hidden',
-        borderWidth: 2,
-        borderColor: colors.border,
-        marginBottom: spacing.md,
-        ...shadows.md,
+    breakdownRow: {
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        paddingVertical: 12,
+        borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border,
     },
-    frontPhoto: { width: '100%', height: '100%' },
-    frontPhotoPaywall: { width: '100%', height: '100%' },
-    scoreRow: { flexDirection: 'row', justifyContent: 'center', gap: spacing.lg, marginBottom: spacing.lg },
-    scoreOrb: {
-        width: 130,
-        height: 130,
-        borderRadius: 65,
-        backgroundColor: colors.card,
-        borderWidth: 2,
-        borderColor: colors.borderLight,
-        alignItems: 'center',
-        justifyContent: 'center',
-        ...shadows.md,
+    breakdownLabel: { fontSize: 14, fontWeight: '500', color: colors.textSecondary },
+    breakdownValue: { fontFamily: fonts.serif, fontSize: 15, fontWeight: '600', color: colors.foreground },
+
+    /* ── Modules ── */
+    modsSection: { marginBottom: 20 },
+    modsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    modChip: {
+        paddingHorizontal: 14, paddingVertical: 7, borderRadius: borderRadius.full,
+        borderWidth: 1, borderColor: colors.border,
     },
-    scoreOrbLabel: { ...typography.label, fontSize: 9, marginBottom: 4, textAlign: 'center', paddingHorizontal: 4 },
-    scoreOrbNum: { fontSize: 36, fontWeight: '800' },
-    scoreOrbOut: { fontSize: 14, fontWeight: '600', color: colors.textMuted },
-    orbBlurInner: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-        paddingVertical: 8,
-        gap: 2,
-        minHeight: 56,
-    },
-    statBlurInner: {
-        justifyContent: 'center',
-        minHeight: 22,
-        paddingVertical: 2,
-    },
-    statGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: spacing.sm,
-        marginBottom: spacing.lg,
-        justifyContent: 'space-between',
-    },
-    statCell: {
-        width: '47%',
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius.lg,
-        padding: spacing.sm,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    statCellWide: { width: '100%' },
-    statLabel: { fontSize: 10, fontWeight: '700', color: colors.textMuted, marginBottom: 4, letterSpacing: 0.6 },
-    statValue: { fontSize: 15, fontWeight: '700', color: colors.foreground },
-    sectionKicker: {
-        ...typography.label,
-        color: colors.textMuted,
-        marginBottom: spacing.md,
-        letterSpacing: 1,
-    },
-    sectionKickerTight: {
-        ...typography.label,
-        fontSize: 10,
-        color: colors.textMuted,
-        marginBottom: spacing.sm,
-        marginTop: spacing.xs,
-        letterSpacing: 1,
-    },
-    insightCard: {
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius.xl,
-        padding: spacing.md,
-        marginBottom: spacing.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    bodyText: { fontSize: 14, color: colors.textSecondary, lineHeight: 21 },
-    moduleChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-    moduleChip: {
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.card,
-        borderWidth: 1,
-        borderColor: colors.border,
-    },
-    moduleChipText: { fontSize: 12, fontWeight: '600', color: colors.foreground },
-    cta: {
-        marginTop: spacing.lg,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: spacing.sm,
-        backgroundColor: colors.foreground,
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
-        ...shadows.md,
-    },
-    ctaText: { ...typography.button, color: colors.background, fontSize: 16 },
-    secondaryCta: { alignItems: 'center', paddingVertical: spacing.md },
-    secondaryCtaText: { fontSize: 14, color: colors.textMuted, fontWeight: '600' },
-    shareRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+    modChipText: { fontSize: 12, fontWeight: '500', color: colors.foreground },
+
+    /* ── Share ── */
+    shareRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 16 },
     shareBtn: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        paddingVertical: 14,
-        paddingHorizontal: spacing.sm,
-        borderRadius: borderRadius.full,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.card,
-        ...shadows.sm,
+        flexDirection: 'row', alignItems: 'center', gap: 6,
+        paddingVertical: 9, paddingHorizontal: 16,
+        borderRadius: borderRadius.full, borderWidth: 1, borderColor: colors.border,
     },
-    shareBtnText: { fontSize: 13, fontWeight: '600', color: colors.foreground, flexShrink: 1 },
-    shareBtnDisabled: { opacity: 0.55 },
-    shareCardOffscreen: {
-        position: 'absolute',
-        width: SHARE_CARD_WIDTH,
-        left: -4000,
-        top: 0,
-        opacity: 1,
+    shareBtnText: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
+    shareBtnDisabled: { opacity: 0.4 },
+
+    /* ── Paywall teaser ── */
+    paywallTeaser: { alignItems: 'center', paddingVertical: 20, marginBottom: 4 },
+    paywallTitle: { fontFamily: fonts.serif, fontSize: 18, fontWeight: '600', color: colors.foreground, letterSpacing: -0.2 },
+    paywallSub: { fontSize: 13, lineHeight: 19, color: colors.textSecondary, textAlign: 'center', marginTop: 6, maxWidth: 280 },
+
+    /* ── CTA ── */
+    cta: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+        backgroundColor: colors.foreground, paddingVertical: 15, borderRadius: borderRadius.full,
     },
+    ctaText: { fontSize: 15, fontWeight: '600', color: colors.background, letterSpacing: 0.2 },
+    skipBtn: { alignItems: 'center', paddingVertical: 14 },
+    skipText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
+
+    /* ── Disclaimer ── */
+    brandMark: {
+        fontFamily: fonts.serif,
+        fontSize: 13,
+        letterSpacing: 1.5,
+        color: colors.textMuted,
+        textAlign: 'center',
+        marginTop: spacing.xl,
+        opacity: 0.45,
+        textTransform: 'uppercase',
+    },
+    disclaimer: { fontSize: 10, color: colors.textMuted, textAlign: 'center', marginTop: 6, lineHeight: 14 },
+
+    shareCardOffscreen: { position: 'absolute', width: SHARE_CARD_WIDTH, left: -4000, top: 0, opacity: 1 },
 });

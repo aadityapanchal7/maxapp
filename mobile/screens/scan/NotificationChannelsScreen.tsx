@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { getIosApnsDeviceTokenForBackend } from '../../services/registerIosPushToken';
 
 type NextRoute = 'ModuleSelect' | 'Main';
@@ -255,12 +255,11 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
         gap: spacing.md,
         backgroundColor: colors.card,
-        borderRadius: borderRadius.xl,
-        padding: spacing.lg,
+        borderRadius: borderRadius.lg,
+        padding: spacing.lg + spacing.xs,
         borderWidth: 1,
         borderColor: colors.border,
-        marginBottom: spacing.md,
-        ...shadows.sm,
+        marginBottom: spacing.lg,
     },
     optionCardSelected: {
         borderColor: colors.foreground,
@@ -286,12 +285,14 @@ const styles = StyleSheet.create({
     optionTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground, marginBottom: 4 },
     optionSub: { fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
     primaryBtn: {
-        marginTop: spacing.lg,
+        marginTop: spacing.xl,
         backgroundColor: colors.foreground,
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
+        paddingVertical: 12,
+        borderRadius: borderRadius.md,
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     primaryBtnDisabled: { opacity: 0.55 },
     primaryBtnText: { ...typography.button, color: colors.background, fontSize: 16 },

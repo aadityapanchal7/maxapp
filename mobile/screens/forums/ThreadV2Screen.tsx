@@ -1,5 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    TextInput,
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    RefreshControl,
+} from 'react-native';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,20 +19,33 @@ import { useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
 import { useForumV2PostsQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
-import { colors, spacing, borderRadius, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { CachedImage } from '../../components/CachedImage';
 
 /** Reddit-style: one narrow column per nesting level with a vertical rule on the left. */
-const THREAD_GUTTER_COL_W = 18;
+const THREAD_GUTTER_COL_W = 22;
 const THREAD_LINE_W = 2;
 const MAX_THREAD_DEPTH = 12;
 const THREAD_LINE_COLORS = [
-    '#a1a1aa',
-    '#d4d4d8',
-    '#71717a',
-    '#e4e4e7',
-    '#94a3b8',
-    '#cbd5e1',
+    'rgba(10, 10, 10, 0.07)',
+    'rgba(10, 10, 10, 0.04)',
+    'rgba(156, 156, 148, 0.35)',
+    'rgba(10, 10, 10, 0.09)',
+    'rgba(107, 107, 99, 0.22)',
+    'rgba(10, 10, 10, 0.05)',
 ];
+
+function formatRelativeTime(iso?: string): string {
+    if (!iso) return '';
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return '';
+    const s = Math.floor((Date.now() - t) / 1000);
+    if (s < 45) return 'now';
+    if (s < 3600) return `${Math.floor(s / 60)}m`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h`;
+    if (s < 604800) return `${Math.floor(s / 86400)}d`;
+    return `${Math.floor(s / 604800)}w`;
+}
 
 function ThreadGutter({ depth }: { depth: number }) {
     const d = Math.min(Math.max(depth, 0), MAX_THREAD_DEPTH);
@@ -70,16 +94,30 @@ type ThreadRow =
     | { key: string; kind: 'post'; post: Post; depth: number }
     | { key: string; kind: 'collapsed'; parentId: string; count: number; depth: number };
 
-function sortByTime(a: Post, b: Post): number {
-    const at = new Date(a.created_at || 0).getTime();
-    const bt = new Date(b.created_at || 0).getTime();
-    return at - bt;
+function getPostTimestamp(post: Post): number {
+    const ts = new Date(post.created_at || 0).getTime();
+    return Number.isNaN(ts) ? 0 : ts;
+}
+
+function getPostScore(post: Post): number {
+    if (typeof post.score === 'number') return post.score;
+    return (post.upvotes ?? 0) - (post.downvotes ?? 0);
+}
+
+function sortByRatingDesc(a: Post, b: Post): number {
+    const scoreDiff = getPostScore(b) - getPostScore(a);
+    if (scoreDiff !== 0) return scoreDiff;
+
+    const timeDiff = getPostTimestamp(b) - getPostTimestamp(a);
+    if (timeDiff !== 0) return timeDiff;
+
+    return b.id.localeCompare(a.id);
 }
 
 /** Depth-first: OP, then replies under each parent; all direct replies collapsed behind one row until expanded (including a single reply). */
 function buildThreadRows(posts: Post[], expanded: Record<string, boolean>): ThreadRow[] {
     if (posts.length === 0) return [];
-    const sorted = [...posts].sort(sortByTime);
+    const sorted = [...posts].sort(sortByRatingDesc);
     const childrenOf: Record<string, Post[]> = {};
     for (const p of sorted) {
         const par = p.parent_post_id;
@@ -88,12 +126,11 @@ function buildThreadRows(posts: Post[], expanded: Record<string, boolean>): Thre
         childrenOf[par].push(p);
     }
     for (const k of Object.keys(childrenOf)) {
-        childrenOf[k].sort(sortByTime);
+        childrenOf[k].sort(sortByRatingDesc);
     }
 
     const roots = sorted.filter((p) => !p.parent_post_id);
-    const op = roots[0] ?? sorted[0];
-    const rootList = roots.length > 1 ? roots : [op];
+    const rootList = roots.length > 0 ? roots : [sorted[0]];
 
     const rows: ThreadRow[] = [];
 
@@ -139,6 +176,9 @@ export default function ThreadV2Screen() {
     }, [serverPosts]);
 
     const threadRows = useMemo(() => buildThreadRows(posts, expandedReplies), [posts, expandedReplies]);
+
+    const onRefresh = useCallback(() => void postsQ.refetch(), [postsQ]);
+    const listRefreshing = postsQ.isRefetching && !postsQ.isPending;
 
     const submit = async () => {
         const msg = text.trim();
@@ -222,48 +262,87 @@ export default function ThreadV2Screen() {
         const downActive = item.my_vote === -1;
         /** Top-level posts only (not a reply to another post). Nested replies cannot be replied to. */
         const canReply = !item.parent_post_id;
+        const net = (item.upvotes ?? 0) - (item.downvotes ?? 0);
+        const scoreText = net === 0 && (item.upvotes ?? 0) === 0 && (item.downvotes ?? 0) === 0 ? '—' : String(net);
+        const rel = formatRelativeTime(item.created_at);
+        const avatarUri = item.user_avatar_url ? api.resolveAttachmentUrl(item.user_avatar_url) : null;
 
         return (
-            <View style={styles.postRow}>
+            <View style={[styles.postRow, depth > 0 && styles.postRowReply]}>
                 <ThreadGutter depth={depth} />
                 <View style={[styles.postCard, depth > 0 && styles.postCardReply]}>
                     <View style={styles.postHeader}>
-                        <Text style={styles.postUser} numberOfLines={1}>
-                            @{item.username || 'user'}
-                        </Text>
-                        <View style={styles.votePill}>
-                            <Ionicons name="arrow-up" size={11} color={upActive ? colors.background : colors.textSecondary} />
-                            <Text style={[styles.votePillText, upActive && styles.votePillTextActive]}>
-                                {(item.upvotes ?? 0).toString()}
+                        <View style={styles.postHeaderMain}>
+                            {avatarUri ? (
+                                <CachedImage
+                                    uri={avatarUri}
+                                    style={[styles.avatar, depth > 0 && styles.avatarReply]}
+                                    accessibilityIgnoresInvertColors
+                                />
+                            ) : (
+                                <View style={[styles.avatarFallback, depth > 0 && styles.avatarFallbackReply]} accessibilityElementsHidden>
+                                    <Ionicons name="person" size={13} color={colors.textMuted} />
+                                </View>
+                            )}
+                            <Text style={[styles.postUser, depth > 0 && styles.postUserReply]} numberOfLines={1}>
+                                {item.username || 'user'}
                             </Text>
-                            <Ionicons name="arrow-down" size={11} color={downActive ? colors.background : colors.textSecondary} />
                         </View>
+                        {rel ? <Text style={styles.postTime}>{rel}</Text> : null}
                     </View>
-                    <Text style={styles.postBody}>{item.content}</Text>
+                    <Text style={[styles.postBody, depth > 0 && styles.postBodyReply]}>{item.content}</Text>
                     {mentions.length > 0 ? (
                         <Text style={styles.mentions} numberOfLines={1}>
                             {mentions.map((m) => `@${m}`).join(' ')}
                         </Text>
                     ) : null}
-                    <View style={styles.postActions}>
-                        <TouchableOpacity
-                            onPress={() => vote(item.id, 1)}
-                            style={[styles.voteBtnIcon, upActive && styles.voteBtnIconActive]}
-                            activeOpacity={0.85}
-                        >
-                            <Ionicons name="arrow-up" size={13} color={upActive ? colors.background : colors.textSecondary} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            onPress={() => vote(item.id, -1)}
-                            style={[styles.voteBtnIcon, downActive && styles.voteBtnIconActive]}
-                            activeOpacity={0.85}
-                        >
-                            <Ionicons name="arrow-down" size={13} color={downActive ? colors.background : colors.textSecondary} />
-                        </TouchableOpacity>
+                    <View style={[styles.postActions, depth > 0 && styles.postActionsReply]}>
+                        <View style={styles.voteCluster}>
+                            <TouchableOpacity
+                                onPress={() => vote(item.id, 1)}
+                                style={[styles.voteHit, upActive && styles.voteHitActive]}
+                                activeOpacity={0.85}
+                                accessibilityRole="button"
+                                accessibilityLabel="Upvote"
+                                accessibilityState={{ selected: upActive }}
+                                hitSlop={{ top: 6, bottom: 6, left: 8, right: 4 }}
+                            >
+                                <Ionicons
+                                    name="arrow-up"
+                                    size={15}
+                                    color={upActive ? colors.foreground : colors.textMuted}
+                                />
+                            </TouchableOpacity>
+                            <Text style={[styles.voteScore, net > 0 && styles.voteScorePos, net < 0 && styles.voteScoreNeg]} accessibilityLabel={`Score ${scoreText}`}>
+                                {scoreText}
+                            </Text>
+                            <TouchableOpacity
+                                onPress={() => vote(item.id, -1)}
+                                style={[styles.voteHit, downActive && styles.voteHitActive]}
+                                activeOpacity={0.85}
+                                accessibilityRole="button"
+                                accessibilityLabel="Downvote"
+                                accessibilityState={{ selected: downActive }}
+                                hitSlop={{ top: 6, bottom: 6, left: 4, right: 8 }}
+                            >
+                                <Ionicons
+                                    name="arrow-down"
+                                    size={15}
+                                    color={downActive ? colors.foreground : colors.textMuted}
+                                />
+                            </TouchableOpacity>
+                        </View>
                         {canReply ? (
-                            <TouchableOpacity onPress={() => setReplyParentPostId(item.id)} style={styles.actionBtn} activeOpacity={0.8}>
-                                <Ionicons name="chatbox-ellipses-outline" size={13} color={colors.textSecondary} />
-                                <Text style={styles.actionText}>reply</Text>
+                            <TouchableOpacity
+                                onPress={() => setReplyParentPostId(item.id)}
+                                style={styles.replyBtn}
+                                activeOpacity={0.8}
+                                accessibilityRole="button"
+                                accessibilityLabel="Reply to this post"
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
+                                <Text style={styles.replyBtnText}>Reply</Text>
                             </TouchableOpacity>
                         ) : null}
                     </View>
@@ -287,6 +366,8 @@ export default function ThreadV2Screen() {
                             }))
                         }
                         activeOpacity={0.75}
+                        accessibilityRole="button"
+                        accessibilityLabel={isOpen ? 'Hide replies' : `Show ${item.count} ${item.count === 1 ? 'reply' : 'replies'}`}
                     >
                         <Ionicons name={isOpen ? 'chevron-up' : 'chevron-down'} size={12} color={colors.textMuted} />
                         <Text style={styles.collapsedText}>
@@ -301,10 +382,19 @@ export default function ThreadV2Screen() {
         return renderPostCard(item.post, item.depth);
     };
 
+    const keyboardVerticalOffset = Platform.OS === 'ios' ? insets.top + 8 : 0;
+
     return (
         <View style={styles.container}>
-            <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
-                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn} activeOpacity={0.8}>
+            <View style={styles.screenFill} pointerEvents="none" />
+            <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
+                    style={styles.iconBtn}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Go back"
+                >
                     <Ionicons name="arrow-back" size={18} color={colors.textSecondary} />
                 </TouchableOpacity>
                 <View style={{ flex: 1 }}>
@@ -318,6 +408,9 @@ export default function ThreadV2Screen() {
                     disabled={watchLoading}
                     style={[styles.watchBtn, watching && styles.watchBtnActive]}
                     activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={watching ? 'Stop watching thread' : 'Watch thread for new posts'}
+                    accessibilityState={{ busy: watchLoading, selected: watching }}
                 >
                     <Ionicons name={watching ? 'eye' : 'eye-outline'} size={14} color={watching ? colors.background : colors.textSecondary} />
                 </TouchableOpacity>
@@ -328,29 +421,46 @@ export default function ThreadV2Screen() {
                     <ActivityIndicator size="large" color={colors.foreground} />
                 </View>
             ) : (
-                <FlashList
-                    ref={listRef}
-                    data={threadRows}
-                    renderItem={renderRow}
-                    keyExtractor={(r) => r.key}
-                    getItemType={(r) => r.kind}
-                    drawDistance={250}
-                    contentContainerStyle={styles.list}
-                />
+                <View style={styles.listWrap}>
+                    <FlashList
+                        ref={listRef}
+                        data={threadRows}
+                        renderItem={renderRow}
+                        keyExtractor={(r) => r.key}
+                        getItemType={(r) => r.kind}
+                        drawDistance={250}
+                        contentContainerStyle={styles.list}
+                        keyboardShouldPersistTaps="handled"
+                        refreshControl={
+                            <RefreshControl refreshing={listRefreshing} onRefresh={onRefresh} tintColor={colors.foreground} />
+                        }
+                    />
+                </View>
             )}
 
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                keyboardVerticalOffset={keyboardVerticalOffset}
+                style={styles.keyboardChrome}
+            >
                 {replyParentPostId ? (
                     <View style={styles.quoteBar}>
                         <Text style={styles.quoteBarText} numberOfLines={1}>
                             Replying to comment
                         </Text>
-                        <TouchableOpacity onPress={() => setReplyParentPostId(null)} activeOpacity={0.8}>
-                            <Ionicons name="close" size={16} color={colors.textMuted} />
+                        <TouchableOpacity
+                            onPress={() => setReplyParentPostId(null)}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel="Cancel reply"
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={styles.quoteBarClose}
+                        >
+                            <Ionicons name="close" size={18} color={colors.textMuted} />
                         </TouchableOpacity>
                     </View>
                 ) : null}
-                <View style={styles.composer}>
+                <View style={[styles.composer, { paddingBottom: Math.max(insets.bottom, spacing.sm) }]}>
                     <TextInput
                         style={styles.input}
                         placeholder="Reply to thread…"
@@ -359,14 +469,26 @@ export default function ThreadV2Screen() {
                         onChangeText={setText}
                         multiline
                         editable={!sending}
+                        textAlignVertical="top"
                     />
                     <TouchableOpacity
                         onPress={() => void submit()}
                         disabled={!text.trim() || sending}
                         style={[styles.sendBtn, (!text.trim() || sending) && styles.sendBtnDisabled]}
                         activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel="Send reply"
+                        accessibilityState={{ disabled: !text.trim() || sending }}
                     >
-                        {sending ? <ActivityIndicator size="small" color={colors.background} /> : <Ionicons name="send" size={16} color={colors.background} />}
+                        {sending ? (
+                            <ActivityIndicator size="small" color={colors.background} />
+                        ) : (
+                            <Ionicons
+                                name="send"
+                                size={18}
+                                color={!text.trim() ? colors.textMuted : colors.background}
+                            />
+                        )}
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
@@ -375,93 +497,96 @@ export default function ThreadV2Screen() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background },
+    container: { flex: 1, backgroundColor: colors.background, overflow: 'hidden' },
+    screenFill: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.background },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 10,
-        paddingHorizontal: spacing.md,
-        paddingBottom: spacing.sm,
-        borderBottomWidth: 1,
+        gap: spacing.md,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.border,
-        backgroundColor: colors.card,
+        backgroundColor: colors.background,
+        zIndex: 1,
     },
     iconBtn: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+        width: 40,
+        height: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: colors.surfaceLight,
-        borderWidth: 1,
-        borderColor: colors.border,
     },
-    title: { color: colors.foreground, fontSize: 15, fontWeight: '800' },
-    subtitle: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
+    title: { ...typography.h3, fontSize: 17, letterSpacing: -0.2 },
+    subtitle: { ...typography.caption, marginTop: 4, color: colors.textMuted, fontWeight: '400' },
     watchBtn: {
-        width: 30,
-        height: 30,
-        borderRadius: 15,
+        width: 40,
+        height: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: colors.surfaceLight,
-        borderWidth: 1,
-        borderColor: colors.border,
     },
-    watchBtnActive: { backgroundColor: colors.foreground, borderColor: colors.foreground },
+    watchBtnActive: { backgroundColor: colors.foreground, borderRadius: borderRadius.full },
     loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    list: { paddingHorizontal: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.lg },
+    listWrap: { flex: 1 },
+    keyboardChrome: { backgroundColor: colors.background },
+    list: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xxl },
     postRow: {
         flexDirection: 'row',
         alignItems: 'stretch',
-        marginBottom: spacing.sm,
+        marginBottom: spacing.md,
     },
+    postRowReply: { marginBottom: spacing.sm },
     collapsedBar: {
-        flex: 1,
+        alignSelf: 'flex-start',
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingVertical: spacing.sm,
+        paddingVertical: 6,
         paddingHorizontal: spacing.sm,
-        minHeight: 36,
+        minHeight: 28,
+        marginBottom: 2,
     },
-    collapsedText: { color: colors.textMuted, fontSize: 12, fontWeight: '700' },
+    collapsedText: { color: colors.textSecondary, fontSize: 12, fontWeight: '500', letterSpacing: 0.2 },
     postCard: {
         flex: 1,
         minWidth: 0,
-        backgroundColor: colors.card,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
-        borderRadius: borderRadius.md,
-        paddingHorizontal: spacing.sm,
-        paddingVertical: spacing.sm,
-        ...shadows.sm,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.border,
     },
     postCardReply: {
-        backgroundColor: colors.surface,
-        borderColor: colors.borderLight,
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        borderLeftWidth: StyleSheet.hairlineWidth,
+        borderLeftColor: colors.border,
+        borderRadius: borderRadius.sm,
+        paddingVertical: spacing.md,
+        shadowOpacity: 0,
+        shadowRadius: 0,
+        shadowOffset: { width: 0, height: 0 },
+        elevation: 0,
     },
-    postHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    postUser: { color: colors.foreground, fontSize: 12, fontWeight: '800', flex: 1, paddingRight: 8 },
-    votePill: {
+    postHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: spacing.sm,
+    },
+    postHeaderMain: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: 6,
-        height: 22,
-        borderRadius: 11,
-        backgroundColor: colors.surfaceLight,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
+        gap: 8,
+        flex: 1,
+        minWidth: 0,
     },
-    votePillText: { color: colors.textSecondary, fontSize: 10, fontWeight: '800' },
-    votePillTextActive: { color: colors.background },
-    postBody: { color: colors.foreground, fontSize: 12, lineHeight: 16, marginTop: 6 },
-    mentions: { color: colors.textSecondary, fontSize: 10, marginTop: 6 },
-    postActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-    actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    actionText: { color: colors.textSecondary, fontSize: 11, fontWeight: '700' },
-    voteBtnIcon: {
+    avatar: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: colors.surfaceLight,
+    },
+    avatarReply: { width: 24, height: 24, borderRadius: 12 },
+    avatarFallback: {
         width: 28,
         height: 28,
         borderRadius: 14,
@@ -471,49 +596,106 @@ const styles = StyleSheet.create({
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
     },
-    voteBtnIconActive: { backgroundColor: colors.foreground, borderColor: colors.foreground },
+    avatarFallbackReply: { width: 24, height: 24, borderRadius: 12 },
+    postUser: { color: colors.foreground, fontSize: 14, fontWeight: '600', flex: 1, letterSpacing: -0.1 },
+    postUserReply: { fontSize: 13 },
+    postTime: { color: colors.textMuted, fontSize: 12, fontWeight: '500', flexShrink: 0, letterSpacing: 0.1 },
+    postBody: {
+        ...typography.bodySmall,
+        color: colors.foreground,
+        fontSize: 15,
+        lineHeight: 22,
+        marginTop: spacing.sm,
+        fontWeight: '400',
+    },
+    postBodyReply: { marginTop: 6, lineHeight: 20 },
+    mentions: { color: colors.textSecondary, fontSize: 12, marginTop: spacing.xs },
+    postActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginTop: spacing.md,
+        paddingTop: spacing.sm,
+    },
+    postActionsReply: { marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 0 },
+    voteCluster: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    voteHit: {
+        minWidth: 30,
+        minHeight: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: borderRadius.sm,
+    },
+    voteHitActive: { backgroundColor: colors.accentMuted },
+    voteScore: {
+        minWidth: 26,
+        textAlign: 'center',
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.textMuted,
+        letterSpacing: 0,
+    },
+    voteScorePos: { color: colors.textPrimary },
+    voteScoreNeg: { color: colors.textMuted },
+    replyBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        minHeight: 30,
+        paddingVertical: 4,
+        paddingHorizontal: spacing.sm,
+        borderRadius: borderRadius.sm,
+        backgroundColor: 'transparent',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+    },
+    replyBtnText: { color: colors.textSecondary, fontSize: 12, fontWeight: '500', letterSpacing: 0.15 },
     composer: {
         flexDirection: 'row',
         alignItems: 'flex-end',
-        gap: 8,
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.sm,
-        borderTopWidth: 1,
+        gap: spacing.sm,
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+        borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: colors.border,
-        backgroundColor: colors.card,
+        backgroundColor: colors.background,
     },
     input: {
         flex: 1,
-        minHeight: 36,
-        maxHeight: 100,
-        borderRadius: 12,
+        minHeight: 48,
+        maxHeight: 120,
+        borderRadius: borderRadius.md,
         borderWidth: 1,
         borderColor: colors.border,
-        backgroundColor: colors.surfaceLight,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        fontSize: 13,
+        backgroundColor: colors.background,
+        paddingHorizontal: spacing.md,
+        paddingVertical: spacing.md,
+        fontSize: 15,
+        lineHeight: 22,
         color: colors.foreground,
     },
     sendBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
+        width: 44,
+        height: 44,
+        borderRadius: borderRadius.lg,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: colors.foreground,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.foreground,
     },
-    sendBtnDisabled: { opacity: 0.45 },
+    sendBtnDisabled: { backgroundColor: colors.surface, borderColor: colors.border },
     quoteBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: spacing.md,
-        paddingVertical: 6,
-        borderTopWidth: 1,
+        paddingHorizontal: spacing.lg,
+        paddingVertical: spacing.sm,
+        borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: colors.border,
-        backgroundColor: colors.surfaceLight,
-        gap: 8,
+        backgroundColor: colors.surface,
+        gap: spacing.sm,
     },
-    quoteBarText: { color: colors.textSecondary, fontSize: 11, fontWeight: '700', flex: 1 },
+    quoteBarText: { color: colors.textMuted, fontSize: 11, fontWeight: '500', flex: 1, letterSpacing: 0.2 },
+    quoteBarClose: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
 });

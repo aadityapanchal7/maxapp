@@ -16,11 +16,14 @@ import {
     Alert,
     Animated,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography, shadows } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
+import { screenTopWashGradient, elevatedCardSurface } from '../../theme/screenAesthetic';
 
 const PRIORITY_KEYS = ['face_structure', 'skin', 'hair', 'body', 'height'] as const;
 type PriorityKey = (typeof PRIORITY_KEYS)[number];
@@ -247,6 +250,7 @@ function isHeightImperialOutOfRange(ftStr: string, inStr: string): boolean {
 
 export default function OnboardingScreen() {
     const navigation = useNavigation<any>();
+    const insets = useSafeAreaInsets();
     const { refreshUser, isAuthenticated } = useAuth() as any;
     const fade = useRef(new Animated.Value(1)).current;
 
@@ -1001,8 +1005,10 @@ export default function OnboardingScreen() {
     };
 
     return (
-        <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View style={styles.topBar}>
+        <View style={styles.rootWrap}>
+            <LinearGradient {...screenTopWashGradient} style={StyleSheet.absoluteFill} pointerEvents="none" />
+            <KeyboardAvoidingView style={styles.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <View style={[styles.topBar, { paddingTop: Math.max(insets.top + spacing.sm, 48) }]}>
                 <TouchableOpacity onPress={goBack} disabled={stepIndex === 0} style={styles.backHit}>
                     <Ionicons name="chevron-back" size={26} color={stepIndex === 0 ? colors.border : colors.foreground} />
                 </TouchableOpacity>
@@ -1021,85 +1027,118 @@ export default function OnboardingScreen() {
             <View style={styles.footer}>
                 <TouchableOpacity style={[styles.cta, loading && styles.ctaDisabled]} onPress={goNext} disabled={loading} activeOpacity={0.9}>
                     <Text style={styles.ctaText}>{loading ? 'Saving…' : stepIndex >= totalSteps - 1 ? 'Continue to face scan' : 'Continue'}</Text>
-                    <Ionicons name="arrow-forward" size={20} color={colors.background} />
+                    <Ionicons name="arrow-forward" size={18} color={colors.buttonText} />
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    root: { flex: 1, backgroundColor: colors.background },
+    rootWrap: { flex: 1, backgroundColor: colors.background },
+    root: { flex: 1, backgroundColor: 'transparent' },
     topBar: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: spacing.md,
-        paddingTop: 56,
-        paddingBottom: spacing.sm,
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.md,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: colors.border,
+        backgroundColor: colors.background,
     },
     backHit: { width: 40, height: 40, justifyContent: 'center' },
-    dots: { flexDirection: 'row', gap: 6 },
-    dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.border },
-    dotOn: { backgroundColor: colors.foreground, width: 18 },
-    scroll: { paddingHorizontal: spacing.lg, paddingBottom: 120 },
-    card: {
-        backgroundColor: colors.surface,
-        borderRadius: borderRadius['2xl'],
-        padding: spacing.xl,
-        borderWidth: 1,
+    dots: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    dot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
+        backgroundColor: colors.borderLight,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
-        ...shadows.sm,
     },
-    kicker: { ...typography.label, color: colors.textMuted, marginBottom: spacing.xs, letterSpacing: 1.2 },
+    dotOn: {
+        backgroundColor: colors.foreground,
+        borderColor: colors.foreground,
+        width: 22,
+        height: 5,
+        borderRadius: 2.5,
+    },
+    scroll: { paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 140 },
+    card: {
+        ...elevatedCardSurface,
+        backgroundColor: colors.card,
+        padding: spacing.xl + spacing.sm,
+        marginTop: spacing.sm,
+    },
+    kicker: {
+        ...typography.label,
+        fontFamily: fonts.serif,
+        color: colors.textMuted,
+        marginBottom: spacing.sm,
+        letterSpacing: 2,
+    },
     h1: {
-        fontSize: 22,
-        fontWeight: '700',
+        ...typography.h2,
         color: colors.foreground,
-        letterSpacing: -0.5,
+        marginBottom: spacing.md,
+    },
+    lead: {
+        ...typography.body,
+        color: colors.textSecondary,
+        marginBottom: spacing.xl,
+    },
+    label: {
+        ...typography.label,
+        color: colors.textMuted,
+        marginTop: spacing.xl,
         marginBottom: spacing.sm,
     },
-    lead: { fontSize: 15, color: colors.textSecondary, lineHeight: 22, marginBottom: spacing.lg },
-    label: { ...typography.label, color: colors.textMuted, marginTop: spacing.lg, marginBottom: spacing.xs },
     input: {
-        backgroundColor: colors.card,
-        borderRadius: borderRadius.lg,
-        paddingVertical: 14,
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        paddingVertical: 16,
         paddingHorizontal: spacing.md,
-        fontSize: 17,
+        fontSize: 16,
         color: colors.foreground,
-        borderWidth: 1,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
     },
-    inputError: { borderColor: colors.error },
+    inputError: { borderColor: colors.error, borderWidth: 1 },
     timeSelectTrigger: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
     },
-    timeSelectText: { fontSize: 17, color: colors.foreground, fontWeight: '600' },
+    timeSelectText: { fontSize: 16, color: colors.foreground, fontWeight: '500' },
     timeDropdown: {
-        marginTop: spacing.xs,
-        marginBottom: spacing.xs,
+        marginTop: spacing.sm,
+        marginBottom: spacing.sm,
         maxHeight: 220,
-        borderRadius: borderRadius.lg,
-        borderWidth: 1,
+        borderRadius: borderRadius.md,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
         backgroundColor: colors.card,
         overflow: 'hidden',
     },
     timeDropdownScroll: { maxHeight: 220 },
     timeOption: {
-        paddingVertical: 11,
+        paddingVertical: 12,
         paddingHorizontal: spacing.md,
-        borderBottomWidth: 1,
+        borderBottomWidth: StyleSheet.hairlineWidth,
         borderBottomColor: colors.borderLight,
     },
-    timeOptionOn: { backgroundColor: colors.accentMuted },
-    timeOptionText: { fontSize: 15, color: colors.textSecondary, fontWeight: '600' },
-    timeOptionTextOn: { color: colors.foreground },
-    fieldErrorText: { fontSize: 12, color: colors.error, marginTop: spacing.xs },
-    groupErrorOutline: { borderWidth: 1, borderColor: colors.error, borderRadius: borderRadius.lg, padding: spacing.sm },
+    timeOptionOn: { backgroundColor: colors.surface },
+    timeOptionText: { fontSize: 15, color: colors.textSecondary, fontWeight: '400' },
+    timeOptionTextOn: { color: colors.foreground, fontWeight: '500' },
+    fieldErrorText: { fontSize: 12, color: colors.error, marginTop: spacing.sm },
+    groupErrorOutline: {
+        borderWidth: 1,
+        borderColor: colors.error,
+        borderRadius: borderRadius.md,
+        padding: spacing.md,
+    },
     /** Keeps ft/in inside the card — flex + minWidth 0 avoids TextInput overflow. */
     heightRowImperial: {
         flexDirection: 'row',
@@ -1114,81 +1153,107 @@ const styles = StyleSheet.create({
     },
     rowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
     pill: {
-        paddingHorizontal: 16,
-        paddingVertical: 10,
+        paddingHorizontal: 18,
+        paddingVertical: 11,
         borderRadius: borderRadius.full,
-        backgroundColor: colors.card,
-        borderWidth: 1,
+        backgroundColor: colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
     },
-    pillOn: { backgroundColor: colors.foreground, borderColor: colors.foreground },
-    pillText: { fontSize: 14, fontWeight: '600', color: colors.textSecondary },
-    pillTextOn: { color: colors.background },
-    unitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.md },
-    unitToggle: { flexDirection: 'row', gap: 8 },
-    unitChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: borderRadius.full, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
-    unitChipOn: { backgroundColor: colors.foreground, borderColor: colors.foreground },
-    unitChipText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
-    unitChipTextOn: { color: colors.background },
+    pillOn: {
+        backgroundColor: colors.accentMuted,
+        borderColor: colors.foreground,
+        borderWidth: 1,
+    },
+    pillText: { fontSize: 14, fontWeight: '500', color: colors.textSecondary },
+    pillTextOn: { color: colors.foreground, fontWeight: '600' },
+    unitRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.lg },
+    unitToggle: { flexDirection: 'row', gap: spacing.sm },
+    unitChip: {
+        paddingHorizontal: 16,
+        paddingVertical: 9,
+        borderRadius: borderRadius.full,
+        backgroundColor: colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+    },
+    unitChipOn: {
+        backgroundColor: colors.accentMuted,
+        borderColor: colors.foreground,
+        borderWidth: 1,
+    },
+    unitChipText: { fontSize: 12, fontWeight: '500', color: colors.textMuted },
+    unitChipTextOn: { color: colors.foreground, fontWeight: '600' },
     tag: {
         paddingHorizontal: 14,
-        paddingVertical: 10,
+        paddingVertical: 9,
         borderRadius: borderRadius.full,
-        backgroundColor: colors.card,
-        borderWidth: 1,
+        backgroundColor: colors.surface,
+        borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
     },
-    tagOn: { borderColor: colors.foreground, backgroundColor: colors.accentMuted },
-    tagText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-    tagTextOn: { color: colors.foreground },
+    tagOn: {
+        borderColor: colors.foreground,
+        borderWidth: 1,
+        backgroundColor: colors.accentMuted,
+    },
+    tagText: { fontSize: 13, fontWeight: '500', color: colors.textSecondary },
+    tagTextOn: { color: colors.foreground, fontWeight: '600' },
     rankRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 12,
+        paddingVertical: 14,
         paddingHorizontal: spacing.md,
-        backgroundColor: colors.card,
-        borderRadius: borderRadius.lg,
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
         marginBottom: spacing.sm,
-        borderWidth: 1,
-        borderColor: colors.border,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
     },
-    rankNum: { width: 28, fontSize: 16, fontWeight: '800', color: colors.textMuted },
-    rankLabel: { flex: 1, fontSize: 16, fontWeight: '600', color: colors.foreground },
+    rankNum: { width: 28, fontSize: 15, fontWeight: '500', color: colors.textMuted },
+    rankLabel: { flex: 1, fontSize: 16, fontWeight: '500', color: colors.foreground },
     rankArrows: { flexDirection: 'row' },
-    iconBtn: { padding: 6 },
+    iconBtn: { padding: 8 },
     listRow: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingVertical: 14,
+        paddingVertical: 16,
         paddingHorizontal: spacing.md,
-        borderRadius: borderRadius.lg,
-        backgroundColor: colors.card,
-        marginBottom: spacing.xs,
-        borderWidth: 1,
-        borderColor: colors.border,
+        borderRadius: borderRadius.md,
+        backgroundColor: colors.surface,
+        marginBottom: spacing.sm,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
     },
-    listRowOn: { borderColor: colors.foreground, backgroundColor: colors.accentMuted },
-    listRowText: { fontSize: 15, fontWeight: '500', color: colors.foreground, flex: 1 },
-    listRowTextOn: { fontWeight: '700' },
+    listRowOn: {
+        borderColor: colors.foreground,
+        borderWidth: 1,
+        backgroundColor: colors.card,
+    },
+    listRowText: { fontSize: 15, fontWeight: '400', color: colors.foreground, flex: 1 },
+    listRowTextOn: { fontWeight: '600' },
     banner: {
-        backgroundColor: colors.accentMuted,
-        padding: spacing.md,
-        borderRadius: borderRadius.lg,
+        backgroundColor: colors.surface,
+        padding: spacing.lg,
+        borderRadius: borderRadius.md,
         fontSize: 13,
-        color: colors.foreground,
-        marginBottom: spacing.md,
+        color: colors.textSecondary,
+        marginBottom: spacing.lg,
         overflow: 'hidden',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.borderLight,
     },
     footer: {
         position: 'absolute',
         left: 0,
         right: 0,
         bottom: 0,
-        padding: spacing.lg,
-        paddingBottom: 28,
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.lg,
+        paddingBottom: 32,
         backgroundColor: colors.background,
-        borderTopWidth: 1,
+        borderTopWidth: StyleSheet.hairlineWidth,
         borderTopColor: colors.border,
     },
     cta: {
@@ -1197,10 +1262,12 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         gap: spacing.sm,
         backgroundColor: colors.foreground,
-        paddingVertical: 16,
-        borderRadius: borderRadius.full,
-        ...shadows.md,
+        paddingVertical: 15,
+        paddingHorizontal: spacing.lg,
+        borderRadius: borderRadius.lg,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.foreground,
     },
-    ctaDisabled: { opacity: 0.65 },
-    ctaText: { ...typography.button, color: colors.background, fontSize: 16 },
+    ctaDisabled: { opacity: 0.5 },
+    ctaText: { ...typography.button, color: colors.buttonText, fontSize: 15, fontWeight: '500' },
 });
