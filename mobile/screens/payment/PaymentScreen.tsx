@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useStripeSubscription } from '../../hooks/useStripeSubscription';
+import { useAppleSubscription } from '../../hooks/useAppleSubscription';
 import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
@@ -31,14 +32,20 @@ const PREMIUM_PERKS = [
     'Full course library',
 ];
 
+const IS_IOS = Platform.OS === 'ios';
+
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const { user, refreshUser } = useAuth();
-    const { loading: stripeLoading, subscribeBasic, subscribePremium } = useStripeSubscription();
+
+    const stripe = useStripeSubscription();
+    const apple = useAppleSubscription();
+    const sub = IS_IOS ? apple : stripe;
+
     const [devLoading, setDevLoading] = useState(false);
 
-    const busy = stripeLoading !== null || devLoading;
+    const busy = sub.loading !== null || devLoading;
 
     const handleSubscribe = async (tier: 'basic' | 'premium') => {
         if (user && !user.first_scan_completed) {
@@ -53,7 +60,7 @@ export default function PaymentScreen() {
             return;
         }
 
-        await (tier === 'basic' ? subscribeBasic() : subscribePremium());
+        await (tier === 'basic' ? sub.subscribeBasic() : sub.subscribePremium());
     };
 
     const handleDevSkip = (tier: 'basic' | 'premium' = 'premium') => {
@@ -98,7 +105,9 @@ export default function PaymentScreen() {
                 <Text style={s.subline}>
                     {Platform.OS === 'web'
                         ? 'Checkout is available on iOS and Android.'
-                        : 'Secure payment via Stripe. Cancel anytime.'}
+                        : IS_IOS
+                          ? 'Secure payment via the App Store. Cancel anytime.'
+                          : 'Secure payment via Stripe. Cancel anytime.'}
                 </Text>
 
                 {/* ── Premium (recommended) ── */}
@@ -128,7 +137,7 @@ export default function PaymentScreen() {
                         accessibilityLabel="Continue with Premium plan"
                     >
                         <Text style={s.ctaPrimaryText}>
-                            {stripeLoading === 'premium' ? 'Processing…' : 'Get Chad'}
+                            {sub.loading === 'premium' ? 'Processing…' : 'Get Chad'}
                         </Text>
                     </TouchableOpacity>
                 </View>
@@ -157,14 +166,16 @@ export default function PaymentScreen() {
                         accessibilityLabel="Continue with Basic plan"
                     >
                         <Text style={s.ctaSecondaryText}>
-                            {stripeLoading === 'basic' ? 'Processing…' : 'Get Chadlite'}
+                            {sub.loading === 'basic' ? 'Processing…' : 'Get Chadlite'}
                         </Text>
                     </TouchableOpacity>
                 </View>
 
                 <Text style={s.disclaimer}>
                     Subscriptions renew weekly until cancelled.{'\n'}
-                    Manage billing via Stripe customer portal.
+                    {IS_IOS
+                        ? 'Manage billing in Settings → Subscriptions.'
+                        : 'Manage billing via Stripe customer portal.'}
                 </Text>
 
                 {SHOW_DEV_SKIP_CONTROLS ? (

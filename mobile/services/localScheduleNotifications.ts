@@ -1,19 +1,19 @@
+import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 
 const DEFAULT_CHANNEL_ID = 'max-schedule-reminders';
 
-// Set once at module load so remote pushes arriving while the app is foregrounded
-// actually show a banner. If this runs only on permission-request, the first few
-// pushes after a cold start can be silently dropped by the expo-notifications queue.
-Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldShowBanner: true,
-        shouldShowList: true,
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-    }),
-});
+if (Platform.OS !== 'web') {
+    Notifications.setNotificationHandler({
+        handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldShowBanner: true,
+            shouldShowList: true,
+            shouldPlaySound: true,
+            shouldSetBadge: true,
+        }),
+    });
+}
 
 export async function ensureAppNotificationPermission(): Promise<boolean> {
     const existing = await Notifications.getPermissionsAsync();

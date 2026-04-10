@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, Platform, Linking } from 'react-native';
 import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -282,9 +282,20 @@ export default function ManageSubscriptionScreen() {
                             <View style={styles.infoBanner}>
                                 <Ionicons name="information-circle-outline" size={22} color={colors.textSecondary} />
                                 <Text style={styles.infoBannerText}>
-                                    You have access, but there is no card subscription on file for this account. Plan
-                                    changes and cancel are not available here (common for test / dev activation).
+                                    {Platform.OS === 'ios'
+                                        ? 'Your subscription is managed through the App Store. Change or cancel your plan in Settings → Subscriptions.'
+                                        : 'You have access, but there is no card subscription on file for this account. Plan changes and cancel are not available here.'}
                                 </Text>
+                                {Platform.OS === 'ios' ? (
+                                    <TouchableOpacity
+                                        style={styles.iosManageBtn}
+                                        onPress={() => Linking.openURL('https://apps.apple.com/account/subscriptions')}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text style={styles.iosManageBtnText}>Manage in Settings</Text>
+                                        <Ionicons name="open-outline" size={14} color={colors.foreground} />
+                                    </TouchableOpacity>
+                                ) : null}
                             </View>
                         ) : null}
 
@@ -406,7 +417,9 @@ export default function ManageSubscriptionScreen() {
                                         ) : (
                                             <View style={styles.stripeActionPlaceholder}>
                                                 <Text style={styles.stripeActionPlaceholderText}>
-                                                    Upgrade is available when billing is connected to Stripe.
+                                                    {Platform.OS === 'ios'
+                                                        ? 'Change your plan in iOS Settings → Subscriptions.'
+                                                        : 'Upgrade is available when billing is connected to Stripe.'}
                                                 </Text>
                                             </View>
                                         )
@@ -429,7 +442,9 @@ export default function ManageSubscriptionScreen() {
                                     ) : (
                                         <View style={styles.stripeActionPlaceholder}>
                                             <Text style={styles.stripeActionPlaceholderText}>
-                                                Plan switches are available when billing is connected to Stripe.
+                                                {Platform.OS === 'ios'
+                                                    ? 'Change your plan in iOS Settings → Subscriptions.'
+                                                    : 'Plan switches are available when billing is connected to Stripe.'}
                                             </Text>
                                         </View>
                                     )}
@@ -482,9 +497,11 @@ export default function ManageSubscriptionScreen() {
                         ) : null}
 
                         <Text style={styles.prorationHint}>
-                            {stripeManageEnabled
-                                ? 'Plan changes use your saved card; Stripe applies prorated charges or credits.'
-                                : 'When billing is linked to Stripe, you can change plans and cancel here.'}
+                            {Platform.OS === 'ios'
+                                ? 'Manage your subscription in iOS Settings → Subscriptions.'
+                                : stripeManageEnabled
+                                  ? 'Plan changes use your saved card; Stripe applies prorated charges or credits.'
+                                  : 'When billing is linked to Stripe, you can change plans and cancel here.'}
                         </Text>
 
                         {stripeManageEnabled ? (
@@ -657,6 +674,19 @@ const styles = StyleSheet.create({
         borderColor: colors.border,
     },
     infoBannerText: { flex: 1, fontSize: 13, color: colors.textSecondary, lineHeight: 19 },
+    iosManageBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        alignSelf: 'flex-start',
+        marginTop: spacing.sm,
+        paddingVertical: 8,
+        paddingHorizontal: 14,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.border,
+    },
+    iosManageBtnText: { fontSize: 13, fontWeight: '600', color: colors.foreground },
     warnBanner: {
         flexDirection: 'row',
         alignItems: 'flex-start',
