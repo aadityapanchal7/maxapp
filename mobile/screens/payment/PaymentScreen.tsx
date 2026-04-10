@@ -14,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useStripeSubscription } from '../../hooks/useStripeSubscription';
-import { useAppleSubscription } from '../../hooks/useAppleSubscription';
 import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
@@ -32,183 +31,7 @@ const PREMIUM_PERKS = [
     'Full course library',
 ];
 
-function PaymentScreenIos() {
-    const navigation = useNavigation<any>();
-    const insets = useSafeAreaInsets();
-    const { user, refreshUser } = useAuth();
-    const { loading: iapLoading, subscribeBasic, subscribePremium } = useAppleSubscription();
-    const [devLoading, setDevLoading] = useState(false);
-    const [restoring, setRestoring] = useState(false);
-
-    const busy = iapLoading !== null || devLoading || restoring;
-
-    const handleSubscribe = async (tier: 'basic' | 'premium') => {
-        if (user && !user.first_scan_completed) {
-            Alert.alert(
-                'Face scan first',
-                'Complete your AI face scan to see your preview score, then you can subscribe.',
-                [
-                    { text: 'Start scan', onPress: () => navigation.navigate('FaceScan') },
-                    { text: 'Cancel', style: 'cancel' },
-                ],
-            );
-            return;
-        }
-
-        await (tier === 'basic' ? subscribeBasic() : subscribePremium());
-    };
-
-    const handleRestore = async () => {
-        setRestoring(true);
-        try {
-            const { syncApplePurchasesWithBackend } = await import('../../services/appleIapRestore');
-            const { verified, lastError } = await syncApplePurchasesWithBackend();
-            await refreshUser();
-            if (verified > 0) {
-                Alert.alert('Restored', 'Your App Store subscription is linked to this Max account.');
-            } else {
-                Alert.alert(
-                    'Restore',
-                    lastError || 'No active Max subscription found for this Apple ID.',
-                );
-            }
-        } catch (e: unknown) {
-            Alert.alert('Restore', (e as Error)?.message || 'Could not restore purchases.');
-        } finally {
-            setRestoring(false);
-        }
-    };
-
-    const handleDevSkip = (tier: 'basic' | 'premium' = 'premium') => {
-        const doActivate = async () => {
-            try {
-                setDevLoading(true);
-                await api.testActivateSubscription(tier);
-                await refreshUser();
-            } catch (error: unknown) {
-                const err = error as { response?: { data?: { detail?: string }; status?: number }; message?: string };
-                const msg =
-                    err?.response?.data?.detail ||
-                    err?.message ||
-                    (err?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
-                Alert.alert('Error', String(msg));
-            } finally {
-                setDevLoading(false);
-            }
-        };
-        void doActivate();
-    };
-
-    return (
-        <View style={s.container}>
-            <View style={[s.topBar, { paddingTop: Math.max(insets.top, 12) }]}>
-                <TouchableOpacity
-                    onPress={() => navigation.goBack()}
-                    style={s.backBtn}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Back"
-                >
-                    <Ionicons name="arrow-back" size={20} color={colors.foreground} />
-                </TouchableOpacity>
-            </View>
-
-            <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-                <Text style={s.headline}>Your plan</Text>
-                <Text style={s.subline}>
-                    Subscriptions are billed by Apple. Cancel anytime in Settings → Subscriptions.
-                </Text>
-
-                <View style={s.cardPremium}>
-                    <View style={s.recommendedBadge}>
-                        <Text style={s.recommendedText}>RECOMMENDED</Text>
-                    </View>
-                    <Text style={[s.cardName, { color: colors.background }]}>Chad</Text>
-                    <View style={s.priceRow}>
-                        <Text style={[s.priceValue, { color: colors.background }]}>$5.99</Text>
-                        <Text style={[s.pricePer, { color: 'rgba(245,245,243,0.55)' }]}>/week</Text>
-                    </View>
-                    <View style={s.perksList}>
-                        {PREMIUM_PERKS.map((p, i) => (
-                            <View key={i} style={s.perkRow}>
-                                <Ionicons name="checkmark" size={15} color={colors.background} />
-                                <Text style={[s.perkText, { color: 'rgba(245,245,243,0.85)' }]}>{p}</Text>
-                            </View>
-                        ))}
-                    </View>
-                    <TouchableOpacity
-                        style={[s.ctaPrimary, busy && s.ctaDisabled]}
-                        onPress={() => handleSubscribe('premium')}
-                        disabled={busy}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Continue with Premium plan"
-                    >
-                        <Text style={s.ctaPrimaryText}>
-                            {iapLoading === 'premium' ? 'Processing…' : 'Get Chad'}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-
-                <View style={s.cardBasic}>
-                    <Text style={s.cardName}>Chadlite</Text>
-                    <View style={s.priceRow}>
-                        <Text style={s.priceValue}>$3.99</Text>
-                        <Text style={s.pricePer}>/week</Text>
-                    </View>
-                    <View style={s.perksList}>
-                        {BASIC_PERKS.map((p, i) => (
-                            <View key={i} style={s.perkRow}>
-                                <Ionicons name="checkmark" size={15} color={colors.textMuted} />
-                                <Text style={[s.perkText, { color: colors.textSecondary }]}>{p}</Text>
-                            </View>
-                        ))}
-                    </View>
-                    <TouchableOpacity
-                        style={[s.ctaSecondary, busy && s.ctaDisabled]}
-                        onPress={() => handleSubscribe('basic')}
-                        disabled={busy}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Continue with Basic plan"
-                    >
-                        <Text style={s.ctaSecondaryText}>
-                            {iapLoading === 'basic' ? 'Processing…' : 'Get Chadlite'}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
-
-                <Text style={s.disclaimer}>
-                    Subscriptions renew weekly until cancelled.{'\n'}
-                    To change plans or cancel, use Apple ID Subscriptions in Settings.
-                </Text>
-
-                <TouchableOpacity
-                    style={[s.restoreBtn, busy && s.ctaDisabled]}
-                    onPress={() => void handleRestore()}
-                    disabled={busy}
-                    activeOpacity={0.8}
-                >
-                    <Text style={s.restoreBtnText}>{restoring ? 'Restoring…' : 'Restore purchases'}</Text>
-                </TouchableOpacity>
-
-                {SHOW_DEV_SKIP_CONTROLS ? (
-                    <View style={s.devRow}>
-                        <TouchableOpacity style={s.devBtn} onPress={() => handleDevSkip('basic')} disabled={busy}>
-                            <Text style={s.devBtnText}>{devLoading ? 'Activating…' : 'DEV: Basic'}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={s.devBtn} onPress={() => handleDevSkip('premium')} disabled={busy}>
-                            <Text style={s.devBtnText}>{devLoading ? 'Activating…' : 'DEV: Premium'}</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : null}
-            </ScrollView>
-        </View>
-    );
-}
-
-function PaymentScreenStripe() {
+export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const { user, refreshUser } = useAuth();
@@ -239,12 +62,11 @@ function PaymentScreenStripe() {
                 setDevLoading(true);
                 await api.testActivateSubscription(tier);
                 await refreshUser();
-            } catch (error: unknown) {
-                const err = error as { response?: { data?: { detail?: string }; status?: number }; message?: string };
+            } catch (error: any) {
                 const msg =
-                    err?.response?.data?.detail ||
-                    err?.message ||
-                    (err?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
+                    error?.response?.data?.detail ||
+                    error?.message ||
+                    (error?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
                 Alert.alert('Error', String(msg));
             } finally {
                 setDevLoading(false);
@@ -268,7 +90,10 @@ function PaymentScreenStripe() {
                 </TouchableOpacity>
             </View>
 
-            <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+            <ScrollView
+                contentContainerStyle={s.scroll}
+                showsVerticalScrollIndicator={false}
+            >
                 <Text style={s.headline}>Your plan</Text>
                 <Text style={s.subline}>
                     {Platform.OS === 'web'
@@ -276,6 +101,7 @@ function PaymentScreenStripe() {
                         : 'Secure payment via Stripe. Cancel anytime.'}
                 </Text>
 
+                {/* ── Premium (recommended) ── */}
                 <View style={s.cardPremium}>
                     <View style={s.recommendedBadge}>
                         <Text style={s.recommendedText}>RECOMMENDED</Text>
@@ -307,6 +133,7 @@ function PaymentScreenStripe() {
                     </TouchableOpacity>
                 </View>
 
+                {/* ── Basic ── */}
                 <View style={s.cardBasic}>
                     <Text style={s.cardName}>Chadlite</Text>
                     <View style={s.priceRow}>
@@ -353,13 +180,6 @@ function PaymentScreenStripe() {
             </ScrollView>
         </View>
     );
-}
-
-export default function PaymentScreen() {
-    if (Platform.OS === 'ios') {
-        return <PaymentScreenIos />;
-    }
-    return <PaymentScreenStripe />;
 }
 
 const s = StyleSheet.create({
@@ -496,18 +316,6 @@ const s = StyleSheet.create({
         color: colors.textMuted,
         textAlign: 'center',
         lineHeight: 18,
-    },
-
-    restoreBtn: {
-        marginTop: spacing.lg,
-        paddingVertical: 12,
-        alignItems: 'center',
-    },
-    restoreBtnText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: colors.textSecondary,
-        textDecorationLine: 'underline',
     },
 
     devRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },

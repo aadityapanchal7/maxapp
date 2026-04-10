@@ -543,7 +543,6 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         is_admin=current_user.get("is_admin", False),
         phone_number=current_user.get("phone_number"),
         subscription_tier=current_user.get("subscription_tier"),
-        billing_provider=current_user.get("billing_provider"),
         last_username_change=current_user.get("last_username_change"),
         has_apns_token=current_user.get("has_apns_token", False),
     )

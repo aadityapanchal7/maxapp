@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { borderRadius, colors, spacing, typography } from '../../theme/dark';
+import { borderRadius, colors, shadows, spacing, typography } from '../../theme/dark';
 
 type CalloutTone = 'key' | 'tip' | 'mistake' | 'research';
 
@@ -469,13 +469,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card },
   headerTitle: { ...typography.h3, flex: 1, textAlign: 'center', marginHorizontal: spacing.sm },
   content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: borderRadius.xl,
-    padding: spacing.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
+  card: { backgroundColor: colors.card, borderRadius: borderRadius.xl, padding: spacing.xl, ...shadows.md },
   moduleTitle: { fontSize: 24, lineHeight: 30, fontWeight: '700', color: colors.foreground, marginBottom: spacing.md },
   metaText: { ...typography.bodySmall, color: colors.textMuted, marginBottom: spacing.lg },
   headingText: { fontSize: 18, lineHeight: 24, fontWeight: '700', color: colors.foreground, flex: 1, paddingRight: spacing.sm },

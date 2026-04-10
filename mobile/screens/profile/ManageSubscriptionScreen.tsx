@@ -1,15 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    ScrollView,
-    TouchableOpacity,
-    Alert,
-    ActivityIndicator,
-    Platform,
-    Linking,
-} from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -68,10 +58,6 @@ export default function ManageSubscriptionScreen() {
     const [stripeManageEnabled, setStripeManageEnabled] = useState(false);
     const [noStripeButPaid, setNoStripeButPaid] = useState(false);
     const [billingDegraded, setBillingDegraded] = useState(false);
-    const [billingProvider, setBillingProvider] = useState<'stripe' | 'apple' | null>(() => {
-        const b = (user?.billing_provider || '').toLowerCase();
-        return b === 'apple' || b === 'stripe' ? b : null;
-    });
 
     const loadStatus = useCallback(async () => {
         setLoading(true);
@@ -80,11 +66,6 @@ export default function ManageSubscriptionScreen() {
         setBillingDegraded(false);
         try {
             const s = await api.getSubscriptionStatus();
-            const bp = ((s.billing_provider as string) || '').toLowerCase();
-            const resolvedBilling: 'stripe' | 'apple' | null =
-                bp === 'apple' ? 'apple' : bp === 'stripe' ? 'stripe' : null;
-            setBillingProvider(resolvedBilling);
-
             setCancelAtPeriodEnd(!!s.cancel_at_period_end);
             setPeriodEndIso(s.current_period_end_iso ?? null);
             const degraded = !!s.degraded;
@@ -94,9 +75,7 @@ export default function ManageSubscriptionScreen() {
                 s.has_stripe_subscription === true ||
                 (s.has_stripe_subscription === undefined && !!subId);
             setStripeManageEnabled(hasStripe && !degraded && !!subId);
-            setNoStripeButPaid(
-                !!user?.is_paid && s.has_stripe_subscription === false && resolvedBilling !== 'apple',
-            );
+            setNoStripeButPaid(!!user?.is_paid && s.has_stripe_subscription === false);
         } catch (e: unknown) {
             if (user?.is_paid) {
                 const raw = user?.subscription_end_date;
@@ -117,7 +96,7 @@ export default function ManageSubscriptionScreen() {
         } finally {
             setLoading(false);
         }
-    }, [user?.is_paid, user?.subscription_end_date, user?.billing_provider]);
+    }, [user?.is_paid, user?.subscription_end_date]);
 
     // Load once on mount; subscription status rarely changes between focuses and
     // refetching on every focus was a major source of redundant API calls.
@@ -132,41 +111,6 @@ export default function ManageSubscriptionScreen() {
 
     const tier = (subscriptionTier || user?.subscription_tier || 'basic').toLowerCase() as 'basic' | 'premium';
     const periodLabel = formatPeriodEnd(periodEndIso);
-
-    const isAppleIos =
-        Platform.OS === 'ios' &&
-        (billingProvider === 'apple' ||
-            (billingProvider === null && (user?.billing_provider || '').toLowerCase() === 'apple'));
-
-    const openAppleManageSubscriptions = async () => {
-        if (Platform.OS !== 'ios') return;
-        try {
-            const { showManageSubscriptionsIOS } = await import('react-native-iap');
-            await showManageSubscriptionsIOS();
-        } catch {
-            await Linking.openURL('https://apps.apple.com/account/subscriptions');
-        }
-    };
-
-    const runRestoreApple = async () => {
-        if (Platform.OS !== 'ios') return;
-        setActionBusy('restore-apple');
-        try {
-            const { syncApplePurchasesWithBackend } = await import('../../services/appleIapRestore');
-            const { verified, lastError } = await syncApplePurchasesWithBackend();
-            await refreshUser();
-            await loadStatus();
-            if (verified > 0) {
-                Alert.alert('Restored', 'Your App Store subscription is linked to this Max account.');
-            } else {
-                Alert.alert('Restore', lastError || 'No active Max subscription found for this Apple ID.');
-            }
-        } catch (e: unknown) {
-            Alert.alert('Restore', (e as Error)?.message || 'Could not restore purchases.');
-        } finally {
-            setActionBusy(null);
-        }
-    };
 
     const PLANS = [
         {
@@ -301,11 +245,7 @@ export default function ManageSubscriptionScreen() {
                 </TouchableOpacity>
                 <View style={styles.headerTitles}>
                     <Text style={styles.headerTitle}>Subscription</Text>
-                    <Text style={styles.headerSubtitle}>
-                        {isAppleIos
-                            ? 'Plan changes and cancellation are handled in the App Store.'
-                            : 'Change your plan or cancel anytime.'}
-                    </Text>
+                    <Text style={styles.headerSubtitle}>Change your plan or cancel anytime.</Text>
                 </View>
                 <View style={{ width: 40 }} />
             </View>
@@ -335,11 +275,7 @@ export default function ManageSubscriptionScreen() {
                         <Text style={styles.sectionKicker}>YOUR PLANS</Text>
                         <View style={styles.billingPill}>
                             <Ionicons name="sync-outline" size={14} color={colors.textMuted} />
-                            <Text style={styles.billingPillText}>
-                                {isAppleIos
-                                    ? 'Billed weekly through Apple · renews automatically'
-                                    : 'Billed weekly · renews automatically'}
-                            </Text>
+                            <Text style={styles.billingPillText}>Billed weekly · renews automatically</Text>
                         </View>
 
                         {noStripeButPaid ? (
@@ -467,12 +403,6 @@ export default function ManageSubscriptionScreen() {
                                                     </>
                                                 )}
                                             </TouchableOpacity>
-                                        ) : isAppleIos ? (
-                                            <View style={styles.stripeActionPlaceholder}>
-                                                <Text style={styles.stripeActionPlaceholderText}>
-                                                    Upgrade or downgrade in Settings → Subscriptions (Apple ID).
-                                                </Text>
-                                            </View>
                                         ) : (
                                             <View style={styles.stripeActionPlaceholder}>
                                                 <Text style={styles.stripeActionPlaceholderText}>
@@ -480,36 +410,28 @@ export default function ManageSubscriptionScreen() {
                                                 </Text>
                                             </View>
                                         )
+                                    ) : stripeManageEnabled ? (
+                                        <TouchableOpacity
+                                            style={[styles.cardDowngradeBtn, busyThis && styles.btnDisabled]}
+                                            onPress={confirmDowngrade}
+                                            disabled={actionBusy !== null}
+                                            activeOpacity={0.88}
+                                        >
+                                            {busyThis ? (
+                                                <ActivityIndicator color={colors.foreground} />
+                                            ) : (
+                                                <>
+                                                    <Ionicons name="arrow-down-circle-outline" size={20} color={colors.textSecondary} />
+                                                    <Text style={styles.cardDowngradeBtnText}>Switch to Chadlite</Text>
+                                                </>
+                                            )}
+                                        </TouchableOpacity>
                                     ) : (
-                                        stripeManageEnabled ? (
-                                            <TouchableOpacity
-                                                style={[styles.cardDowngradeBtn, busyThis && styles.btnDisabled]}
-                                                onPress={confirmDowngrade}
-                                                disabled={actionBusy !== null}
-                                                activeOpacity={0.88}
-                                            >
-                                                {busyThis ? (
-                                                    <ActivityIndicator color={colors.foreground} />
-                                                ) : (
-                                                    <>
-                                                        <Ionicons name="arrow-down-circle-outline" size={20} color={colors.textSecondary} />
-                                                        <Text style={styles.cardDowngradeBtnText}>Switch to Chadlite</Text>
-                                                    </>
-                                                )}
-                                            </TouchableOpacity>
-                                        ) : isAppleIos ? (
-                                            <View style={styles.stripeActionPlaceholder}>
-                                                <Text style={styles.stripeActionPlaceholderText}>
-                                                    Switch plans in Settings → Subscriptions (Apple ID).
-                                                </Text>
-                                            </View>
-                                        ) : (
-                                            <View style={styles.stripeActionPlaceholder}>
-                                                <Text style={styles.stripeActionPlaceholderText}>
-                                                    Plan switches are available when billing is connected to Stripe.
-                                                </Text>
-                                            </View>
-                                        )
+                                        <View style={styles.stripeActionPlaceholder}>
+                                            <Text style={styles.stripeActionPlaceholderText}>
+                                                Plan switches are available when billing is connected to Stripe.
+                                            </Text>
+                                        </View>
                                     )}
                                 </View>
                             );
@@ -560,42 +482,10 @@ export default function ManageSubscriptionScreen() {
                         ) : null}
 
                         <Text style={styles.prorationHint}>
-                            {isAppleIos
-                                ? 'Apple bills renewals and handles plan changes when you use Subscriptions in Settings.'
-                                : stripeManageEnabled
-                                  ? 'Plan changes use your saved card; Stripe applies prorated charges or credits.'
-                                  : 'When billing is linked to Stripe, you can change plans and cancel here.'}
+                            {stripeManageEnabled
+                                ? 'Plan changes use your saved card; Stripe applies prorated charges or credits.'
+                                : 'When billing is linked to Stripe, you can change plans and cancel here.'}
                         </Text>
-
-                        {isAppleIos ? (
-                            <View style={styles.appleActions}>
-                                <Text style={styles.sectionKicker}>APP STORE</Text>
-                                <TouchableOpacity
-                                    style={[styles.applePrimaryBtn, actionBusy !== null && styles.btnDisabled]}
-                                    onPress={() => void openAppleManageSubscriptions()}
-                                    disabled={actionBusy !== null}
-                                    activeOpacity={0.88}
-                                >
-                                    <Ionicons name="logo-apple" size={20} color={colors.buttonText} />
-                                    <Text style={styles.applePrimaryBtnText}>Manage subscription</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    style={[styles.appleSecondaryBtn, actionBusy === 'restore-apple' && styles.btnDisabled]}
-                                    onPress={() => void runRestoreApple()}
-                                    disabled={actionBusy !== null}
-                                    activeOpacity={0.88}
-                                >
-                                    {actionBusy === 'restore-apple' ? (
-                                        <ActivityIndicator color={colors.foreground} />
-                                    ) : (
-                                        <Text style={styles.appleSecondaryBtnText}>Restore purchases</Text>
-                                    )}
-                                </TouchableOpacity>
-                                <Text style={styles.appleHint}>
-                                    Use Restore if you subscribed on this Apple ID but the app does not show Premium yet.
-                                </Text>
-                            </View>
-                        ) : null}
 
                         {stripeManageEnabled ? (
                             <View style={styles.dangerBlock}>
@@ -860,41 +750,6 @@ const styles = StyleSheet.create({
         lineHeight: 17,
         marginBottom: spacing.lg,
         paddingHorizontal: spacing.sm,
-    },
-    appleActions: { marginBottom: spacing.xl },
-    applePrimaryBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: spacing.sm,
-        backgroundColor: colors.foreground,
-        paddingVertical: 12,
-        paddingHorizontal: spacing.md,
-        borderRadius: borderRadius.md,
-        marginBottom: spacing.sm,
-        borderWidth: 1,
-        borderColor: colors.foreground,
-    },
-    applePrimaryBtnText: { fontSize: 14, fontWeight: '700', color: colors.buttonText },
-    appleSecondaryBtn: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 12,
-        paddingHorizontal: spacing.md,
-        borderRadius: borderRadius.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        backgroundColor: colors.card,
-        marginBottom: spacing.sm,
-        minHeight: 48,
-    },
-    appleSecondaryBtnText: { fontSize: 14, fontWeight: '600', color: colors.foreground },
-    appleHint: {
-        fontSize: 12,
-        color: colors.textMuted,
-        textAlign: 'center',
-        lineHeight: 17,
-        paddingHorizontal: spacing.xs,
     },
     statusBanner: {
         flexDirection: 'row',

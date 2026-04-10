@@ -82,41 +82,6 @@ class Settings(BaseSettings):
     # Must match the API version expected by @stripe/stripe-react-native for EphemeralKey.
     # Check Stripe RN SDK changelog when upgrading the mobile package.
     stripe_ephemeral_key_api_version: str = Field(default="2024-12-18.acacia")
-
-    # Apple In-App Purchase (App Store Server API + Server Notifications V2)
-    # Create API key in App Store Connect → Users and Access → Keys → In-App Purchase.
-    apple_app_store_connect_issuer_id: str = Field(
-        default="",
-        description="Issuer ID from App Store Connect (Keys page)",
-    )
-    apple_app_store_connect_key_id: str = Field(
-        default="",
-        description="Key ID for the .p8 In-App Purchase key",
-    )
-    apple_app_store_connect_private_key: str = Field(
-        default="",
-        description="Contents of AuthKey_XXX.p8 (use \\n for newlines in .env)",
-    )
-    apple_bundle_id: str = Field(
-        default="com.cannon.mobile",
-        description="Must match the iOS app bundle id",
-    )
-    apple_iap_product_id_basic: str = Field(
-        default="com.cannon.mobile.subscribe.basic.weekly",
-        description="Auto-renewable subscription product id for Basic (weekly)",
-    )
-    apple_iap_product_id_premium: str = Field(
-        default="com.cannon.mobile.subscribe.premium.weekly",
-        description="Auto-renewable subscription product id for Premium (weekly)",
-    )
-    apple_iap_force_sandbox_api: bool = Field(
-        default=False,
-        description="True → always call StoreKit sandbox API (local dev with sandbox purchases)",
-    )
-    apple_asn_shared_secret: str = Field(
-        default="",
-        description="Optional: append ?token=<value> to ASN V2 URL in App Store Connect and set same value here",
-    )
     
     # Sendblue (iMessage / SMS) — https://sendblue.com/
     sendblue_api_key_id: str = Field(default="", description="sb-api-key-id header")

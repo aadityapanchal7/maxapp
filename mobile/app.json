@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cannon.mobile",
-      "buildNumber": "44",
+      "buildNumber": "45",
       "entitlements": {
         "aps-environment": "production"
       },
@@ -83,8 +83,7 @@
           ],
           "enableGooglePay": true
         }
-      ],
-      "react-native-iap"
+      ]
     ],
     "scheme": "cannon",
     "platforms": [
@@ -102,9 +101,7 @@
       "communityGuidelinesUrl": "https://maxmaxmax.today/legal/community-guidelines",
       "cookieNoticeUrl": "https://maxmaxmax.today/legal/cookies",
       "sendblueSmsNumber": "+16468304204",
-      "sendblueDisplayNumber": "+1 (646) 830-4204",
-      "appleIapBasicProductId": "com.cannon.mobile.subscribe.basic.weekly",
-      "appleIapPremiumProductId": "com.cannon.mobile.subscribe.premium.weekly"
+      "sendblueDisplayNumber": "+1 (646) 830-4204"
     }
   }
 }

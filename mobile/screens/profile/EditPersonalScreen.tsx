@@ -250,10 +250,9 @@ export default function EditPersonalScreen() {
     const heavy = screenBand ? heavyScreenFromBand(screenBand) : base.heightmax_screen_hours;
 
     const maxGoals = maxHomeMaxxesForUser(user);
-    const goalsToSave = Array.isArray(base.goals) ? [...base.goals] : selectedGoals || [];
     const onboardingData: Record<string, any> = {
       ...base,
-      goals: goalsToSave.slice(0, maxGoals),
+      goals: (selectedGoals || []).slice(0, maxGoals),
       completed: true,
       timezone: tz,
       unit_system: unitSystem,
@@ -389,79 +388,78 @@ export default function EditPersonalScreen() {
             <Text style={styles.lead}>Update what you shared at signup — one place, no quiz replay.</Text>
           ) : null}
 
-          {onlyGoals ? (
-            <>
-              <Text style={styles.sectionTitle}>Your Maxxes</Text>
-              <Text style={styles.goalsLimitHint}>
-                Up to {maxHomeMaxxesForUser(user)} on your home screen
-                {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'
-                  ? ' (Premium)'
-                  : user?.is_paid
-                    ? ' (Basic)'
-                    : ' (free)'}
-              </Text>
-              <View
-                style={[
-                  styles.goalsListBleed,
-                  isWide ? { marginHorizontal: -spacing.xxl } : { marginHorizontal: -spacing.xl },
-                ]}
-              >
-                {GOALS.map((goal) => {
-                  const selected = selectedGoals.includes(goal.id);
-                  const maxG = maxHomeMaxxesForUser(user);
-                  const apiMax = maxesById.get(goal.id);
-                  const merged = { id: goal.id, label: goal.label, ...apiMax };
-                  const brand = resolveMaxxBrand(goal.id, apiMax?.color);
-                  const label = getMaxxDisplayLabel(merged);
-                  const desc = getMaxxDisplayDescription(merged) ?? apiMax?.description;
+          {!onlyGoals ? <Text style={styles.sectionTitle}>Your Maxxes</Text> : null}
+          <Text style={styles.goalsLimitHint}>
+            Up to {maxHomeMaxxesForUser(user)} on your home screen
+            {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'
+              ? ' (Premium)'
+              : user?.is_paid
+                ? ' (Basic)'
+                : ' (free)'}
+          </Text>
+          <View
+            style={[
+              styles.goalsListBleed,
+              isWide ? { marginHorizontal: -spacing.xxl } : { marginHorizontal: -spacing.xl },
+            ]}
+          >
+            {GOALS.map((goal) => {
+              const selected = selectedGoals.includes(goal.id);
+              const maxG = maxHomeMaxxesForUser(user);
+              const apiMax = maxesById.get(goal.id);
+              const merged = { id: goal.id, label: goal.label, ...apiMax };
+              const brand = resolveMaxxBrand(goal.id, apiMax?.color);
+              const label = getMaxxDisplayLabel(merged);
+              const desc = getMaxxDisplayDescription(merged) ?? apiMax?.description;
 
-                  return (
-                    <MaxxProgramRow
-                      key={goal.id}
-                      tintHex={brand}
-                      iconName={(apiMax?.icon || goal.icon) as string}
-                      title={label}
-                      description={desc}
-                      accent="none"
-                      selected={selected}
-                      selectedVariant="uniform"
-                      brandColor={brand}
-                      style={{ marginBottom: spacing.lg }}
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: selected }}
-                      onPress={() =>
-                        setSelectedGoals((prev) => {
-                          if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
-                          if (prev.length >= maxG) {
-                            Alert.alert(
-                              'Limit reached',
-                              `Your plan allows up to ${maxG} Maxxes on Home. Remove one to add another.`,
-                            );
-                            return prev;
-                          }
-                          return [...prev, goal.id];
-                        })
+              return (
+                <MaxxProgramRow
+                  key={goal.id}
+                  tintHex={brand}
+                  iconName={(apiMax?.icon || goal.icon) as string}
+                  title={label}
+                  description={desc}
+                  accent={onlyGoals ? 'none' : 'stripe'}
+                  selected={selected}
+                  selectedVariant={onlyGoals ? 'uniform' : 'brand'}
+                  brandColor={brand}
+                  style={{ marginBottom: onlyGoals ? spacing.lg : spacing.sm }}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: selected }}
+                  onPress={() =>
+                    setSelectedGoals((prev) => {
+                      if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
+                      if (prev.length >= maxG) {
+                        Alert.alert(
+                          'Limit reached',
+                          `Your plan allows up to ${maxG} Maxxes on Home. Remove one to add another.`,
+                        );
+                        return prev;
                       }
-                      trailing={
-                        <View
-                          style={[
-                            styles.goalRowCheck,
-                            selected && styles.goalRowCheckSelectedUniform,
-                          ]}
-                        >
-                          <Ionicons
-                            name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-                            size={22}
-                            color={selected ? colors.foreground : colors.textMuted}
-                          />
-                        </View>
-                      }
-                    />
-                  );
-                })}
-              </View>
-            </>
-          ) : null}
+                      return [...prev, goal.id];
+                    })
+                  }
+                  trailing={
+                    <View
+                      style={[
+                        styles.goalRowCheck,
+                        selected &&
+                          (onlyGoals
+                            ? styles.goalRowCheckSelectedUniform
+                            : { borderColor: brand, backgroundColor: brand }),
+                      ]}
+                    >
+                      <Ionicons
+                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={22}
+                        color={selected ? colors.foreground : colors.textMuted}
+                      />
+                    </View>
+                  }
+                />
+              );
+            })}
+          </View>
 
           {!onlyGoals && (
             <>
