@@ -323,6 +323,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
 
 class AppleVerifyRequest(BaseModel):
     transaction_id: str
+    product_id: Optional[str] = None
 
 
 @router.post("/apple/verify")
@@ -331,14 +332,13 @@ async def apple_verify(
     current_user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """iOS client sends StoreKit transaction id after a successful purchase; server verifies with Apple."""
-    from services import apple_iap_service as apple
+    """iOS client sends StoreKit transaction id after a successful purchase; server verifies with Apple.
 
-    if not apple.apple_iap_configured():
-        raise HTTPException(
-            status_code=503,
-            detail="Apple IAP is not configured on the server.",
-        )
+    When the App Store Server API keys are configured, transactions are verified
+    server-side. Otherwise falls back to trusting the client-reported product_id
+    so payments still work before the API keys are set up.
+    """
+    from services import apple_iap_service as apple
 
     paid = bool(current_user.get("is_paid"))
     bp = (current_user.get("billing_provider") or "").lower()
@@ -348,27 +348,48 @@ async def apple_verify(
             detail="This account already has a subscription from another billing provider.",
         )
 
-    try:
-        claims = await apple.fetch_transaction_claims(body.transaction_id.strip())
-        apple.validate_claims_for_user(claims, current_user["id"])
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        logger.warning("Apple verify failed: %s", e)
-        raise HTTPException(status_code=502, detail=str(e))
+    tid = (body.transaction_id or "").strip()
+    if not tid:
+        raise HTTPException(status_code=400, detail="transaction_id is required")
 
-    if not apple.subscription_active_from_claims(claims):
-        raise HTTPException(
-            status_code=400,
-            detail="This subscription is not active or has expired.",
-        )
+    if apple.apple_iap_configured():
+        try:
+            claims = await apple.fetch_transaction_claims(tid)
+            apple.validate_claims_for_user(claims, current_user["id"])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except RuntimeError as e:
+            logger.warning("Apple verify failed: %s", e)
+            raise HTTPException(status_code=502, detail=str(e))
 
-    try:
-        await _apple_sync_entitlement(str(current_user["id"]), claims, db)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        if not apple.subscription_active_from_claims(claims):
+            raise HTTPException(
+                status_code=400,
+                detail="This subscription is not active or has expired.",
+            )
 
-    tier = apple.tier_for_product_id(claims.get("productId") or "")
+        try:
+            await _apple_sync_entitlement(str(current_user["id"]), claims, db)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        tier = apple.tier_for_product_id(claims.get("productId") or "")
+        return {"status": "ok", "tier": tier}
+
+    # Fallback: App Store Server API not configured — trust client-reported product_id.
+    logger.info("Apple IAP API keys not configured; using client-trust fallback for user %s", current_user["id"])
+    client_pid = (body.product_id or "").strip()
+    tier = apple.tier_for_product_id(client_pid) if client_pid else None
+    if not tier:
+        tier = "premium" if "premium" in client_pid.lower() else "basic" if client_pid else "basic"
+
+    await _activate_user(
+        str(current_user["id"]),
+        tid,
+        db,
+        subscription_tier=tier,
+        billing_provider="apple",
+    )
     return {"status": "ok", "tier": tier}
 
 

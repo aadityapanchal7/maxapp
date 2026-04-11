@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import {
     View,
     Text,
@@ -44,14 +44,10 @@ export default function PaymentScreen() {
     const sub = IS_IOS ? apple : stripe;
 
     const [devLoading, setDevLoading] = useState(false);
-    const wasPaidRef = useRef(!!user?.is_paid);
 
-    useEffect(() => {
-        if (user?.is_paid && !wasPaidRef.current) {
-            wasPaidRef.current = true;
-            navigation.navigate('ModuleSelect');
-        }
-    }, [user?.is_paid, navigation]);
+    // Post-payment navigation is handled automatically by RootNavigator:
+    // when refreshUser() sets is_paid=true, the navigator swaps from the
+    // unpaid stack to the paid stack with the correct initialRoute.
 
     const busy = sub.loading !== null || devLoading;
 

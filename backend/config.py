@@ -104,6 +104,16 @@ class Settings(BaseSettings):
         default=False,
         description="True → api.sandbox.push.apple.com (Xcode debug builds only); False → production (TestFlight / App Store)",
     )
+
+    # Apple In-App Purchase — App Store Server API v1 (transaction verification)
+    apple_app_store_connect_issuer_id: str = Field(default="", description="Issuer ID from App Store Connect → Keys → In-App Purchase")
+    apple_app_store_connect_key_id: str = Field(default="", description="Key ID for the In-App Purchase API key")
+    apple_app_store_connect_private_key: str = Field(default="", description=".p8 PEM or base64-of-PEM for IAP key")
+    apple_bundle_id: str = Field(default="com.cannon.mobile", description="App bundle ID for IAP verification")
+    apple_iap_product_id_basic: str = Field(default="com.cannon.mobile.subscribe.basic.weekly")
+    apple_iap_product_id_premium: str = Field(default="com.cannon.mobile.subscribe.premium.weekly")
+    apple_iap_force_sandbox_api: bool = Field(default=False, description="Try sandbox API first when verifying transactions")
+    apple_asn_shared_secret: str = Field(default="", description="Shared secret for App Store Server Notifications V2")
     
     # AWS S3
     aws_access_key_id: str = Field(default="")
