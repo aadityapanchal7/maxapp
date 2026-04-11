@@ -182,15 +182,17 @@ class Settings(BaseSettings):
 
     @property
     def supabase_db_url(self) -> str:
-        """Supabase Postgres connection string"""
-        base = (
+        """Supabase Postgres connection string.
+
+        Do NOT append ?pgbouncer=true — asyncpg doesn't understand it and
+        crashes with 'unexpected keyword argument'. PgBouncer-specific
+        settings (statement_cache_size=0) are handled in connect_args instead.
+        """
+        host = self.supabase_db_host.split("?")[0].split("/")[0]
+        return (
             f"postgresql+asyncpg://{self.supabase_db_user}:{self.supabase_db_password}"
-            f"@{self.supabase_db_host}:{self.supabase_db_port}/{self.supabase_db_name}"
+            f"@{host}:{self.supabase_db_port}/{self.supabase_db_name}"
         )
-        # Transaction pooler (6543): required by Supabase for correct PgBouncer / pooler behavior.
-        if self.supabase_db_port == 6543:
-            return f"{base}?pgbouncer=true"
-        return base
 
     @property
     def aws_rds_db_url(self) -> str:

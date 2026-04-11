@@ -3,10 +3,23 @@ SQLAlchemy Database Connection Manager
 Async PostgreSQL via Supabase (user-specific data)
 """
 
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import text
 from typing import AsyncGenerator
 from config import settings
+
+
+def _clean_asyncpg_url(raw_url: str) -> str:
+    """Strip query params that asyncpg doesn't understand (e.g. ?pgbouncer=true)."""
+    parsed = urlparse(raw_url)
+    if not parsed.query:
+        return raw_url
+    known = {"ssl", "sslmode", "sslcert", "sslkey", "sslrootcert", "sslpassword"}
+    qs = parse_qs(parsed.query)
+    filtered = {k: v for k, v in qs.items() if k.lower() in known}
+    clean = parsed._replace(query=urlencode(filtered, doseq=True) if filtered else "")
+    return urlunparse(clean)
 
 
 def _supabase_connect_args() -> dict:
@@ -28,7 +41,7 @@ def _supabase_connect_args() -> dict:
 
 
 engine = create_async_engine(
-    settings.supabase_db_url,
+    _clean_asyncpg_url(settings.supabase_db_url),
     echo=settings.debug,
     pool_size=settings.supabase_db_pool_size,
     max_overflow=settings.supabase_db_max_overflow,
