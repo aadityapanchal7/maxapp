@@ -191,7 +191,7 @@ export default function PaymentScreen() {
                     onPress={() => {
                         Alert.alert(
                             'Sign out?',
-                            'You'll be taken back to the sign-in screen.',
+                            "You'll be taken back to the sign-in screen.",
                             [
                                 { text: 'Cancel', style: 'cancel' },
                                 { text: 'Sign out', style: 'destructive', onPress: () => void logout() },
