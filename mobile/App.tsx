@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { AppState, View, Platform, type AppStateStatus, type ViewStyle } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { CommonActions, NavigationContainer, useNavigationContainerRef } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -22,6 +23,8 @@ import {
 // Side-effect import: registers expo-notifications handler at cold-start so
 // remote pushes arriving while the app is foregrounded show a banner.
 import './services/localScheduleNotifications';
+
+void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function AppNavigator() {
     const { isAuthenticated, refreshUser, user } = useAuth();
@@ -146,8 +149,19 @@ export default function App() {
         'PlayfairDisplay-Italic': require('./assets/fonts/PlayfairDisplay-Italic-Variable.ttf'),
     });
 
+    useEffect(() => {
+        if (fontsLoaded) {
+            void SplashScreen.hideAsync().catch(() => undefined);
+        }
+    }, [fontsLoaded]);
+
+    // Native: keep the OS splash visible until fonts load (matches MaxLoadingView look via assets/splash.png).
+    // Web: no native splash — show the same React loading UI.
     if (!fontsLoaded) {
-        return <MaxLoadingView />;
+        if (Platform.OS === 'web') {
+            return <MaxLoadingView />;
+        }
+        return null;
     }
 
     const webContainerStyle: ViewStyle =

@@ -7,8 +7,9 @@ const SKU_SET = new Set<string>([APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU]);
 
 function iosTransactionId(p: Purchase): string | null {
     if (p.platform !== 'ios') return null;
-    const tid = (p as { transactionId?: string }).transactionId;
-    return tid && String(tid).trim() ? String(tid).trim() : null;
+    const raw = (p as { transactionId?: string; id?: string }).transactionId ?? (p as { id?: string }).id;
+    const tid = raw != null && String(raw).trim() ? String(raw).trim() : '';
+    return tid || null;
 }
 
 /**

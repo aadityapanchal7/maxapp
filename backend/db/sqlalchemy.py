@@ -13,14 +13,16 @@ def _supabase_connect_args() -> dict:
     """
     Supabase Session pooler (5432) allows very few client slots → MaxClientsInSessionMode.
     Prefer Transaction pooler (6543) in Supabase Dashboard → Connect → Transaction mode.
-    asyncpg must disable statement cache when using PgBouncer transaction mode.
+    asyncpg must disable statement cache through Supabase pooler hosts (PgBouncer).
     """
     args: dict = {
         "timeout": 10,
         "ssl": "require",
         "server_settings": {"application_name": "maxapp_backend"},
     }
-    if getattr(settings, "supabase_db_port", 5432) == 6543:
+    port = getattr(settings, "supabase_db_port", 5432)
+    host = (getattr(settings, "supabase_db_host", "") or "").lower()
+    if port == 6543 or "pooler.supabase" in host:
         args["statement_cache_size"] = 0
     return args
 

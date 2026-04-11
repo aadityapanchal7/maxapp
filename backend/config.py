@@ -25,11 +25,11 @@ class Settings(BaseSettings):
     supabase_db_user: str = Field(default="postgres")
     supabase_db_password: str = Field(default="")
     supabase_db_name: str = Field(default="postgres")
-    # Keep small on Session pooler (5432). If you see MaxClientsInSessionMode:
-    # - Switch SUPABASE_DB_PORT to 6543 (Transaction pooler in Supabase Dashboard), and/or
-    # - Lower pool on Render. Locally we need >1 so the scheduler doesn't block API requests.
-    supabase_db_pool_size: int = Field(default=3)
-    supabase_db_max_overflow: int = Field(default=2)
+    # Session pooler (5432) enforces a tiny client cap → MaxClientsInSessionMode if pool+overflow
+    # exceeds it. Defaults are safe for 5432; for Transaction pooler (6543) raise via env, e.g.
+    # SUPABASE_DB_POOL_SIZE=5 and SUPABASE_DB_MAX_OVERFLOW=5.
+    supabase_db_pool_size: int = Field(default=1)
+    supabase_db_max_overflow: int = Field(default=0)
 
     # AWS RDS (shared data)
     aws_rds_host: str = Field(default="localhost")
@@ -183,10 +183,14 @@ class Settings(BaseSettings):
     @property
     def supabase_db_url(self) -> str:
         """Supabase Postgres connection string"""
-        return (
+        base = (
             f"postgresql+asyncpg://{self.supabase_db_user}:{self.supabase_db_password}"
             f"@{self.supabase_db_host}:{self.supabase_db_port}/{self.supabase_db_name}"
         )
+        # Transaction pooler (6543): required by Supabase for correct PgBouncer / pooler behavior.
+        if self.supabase_db_port == 6543:
+            return f"{base}?pgbouncer=true"
+        return base
 
     @property
     def aws_rds_db_url(self) -> str:

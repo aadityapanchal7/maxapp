@@ -661,6 +661,14 @@ class ApiService {
         return response.data;
     }
 
+    /** iOS StoreKit: verify transaction with backend (`POST /api/payments/apple/verify`). */
+    async verifyAppleIapTransaction(transactionId: string): Promise<{ status: string; tier?: string }> {
+        const response = await this.client.post('payments/apple/verify', {
+            transaction_id: transactionId,
+        });
+        return response.data;
+    }
+
     async cancelSubscription(immediate = false): Promise<{ canceled: boolean }> {
         const response = await this.client.post('payments/cancel', { immediate });
         return response.data;

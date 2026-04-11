@@ -16,11 +16,12 @@ export function useAppleSubscription() {
         async (purchase: Purchase) => {
             if (Platform.OS !== 'ios') return;
             try {
-                const tid = (purchase as { transactionId?: string }).transactionId;
+                const p = purchase as { transactionId?: string; id?: string };
+                const tid = String(p.transactionId ?? p.id ?? '').trim();
                 if (!tid) {
                     throw new Error('Missing transaction id from StoreKit.');
                 }
-                await api.verifyAppleIapTransaction(String(tid));
+                await api.verifyAppleIapTransaction(tid);
                 await finishTransaction({ purchase });
                 await refreshUser();
             } catch (e: unknown) {
