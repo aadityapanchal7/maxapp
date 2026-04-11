@@ -37,7 +37,7 @@ const IS_IOS = Platform.OS === 'ios';
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
-    const { user, refreshUser } = useAuth();
+    const { user, refreshUser, logout } = useAuth();
 
     const stripe = useStripeSubscription();
     const apple = useAppleSubscription();
@@ -185,6 +185,23 @@ export default function PaymentScreen() {
                         ? 'Manage billing in Settings → Subscriptions.'
                         : 'Manage billing via Stripe customer portal.'}
                 </Text>
+
+                <TouchableOpacity
+                    style={s.signOutBtn}
+                    onPress={() => {
+                        Alert.alert(
+                            'Sign out?',
+                            'You'll be taken back to the sign-in screen.',
+                            [
+                                { text: 'Cancel', style: 'cancel' },
+                                { text: 'Sign out', style: 'destructive', onPress: () => void logout() },
+                            ],
+                        );
+                    }}
+                    activeOpacity={0.7}
+                >
+                    <Text style={s.signOutText}>Sign out & start over</Text>
+                </TouchableOpacity>
 
                 {SHOW_DEV_SKIP_CONTROLS ? (
                     <View style={s.devRow}>
@@ -335,6 +352,19 @@ const s = StyleSheet.create({
         color: colors.textMuted,
         textAlign: 'center',
         lineHeight: 18,
+    },
+
+    signOutBtn: {
+        alignSelf: 'center',
+        marginTop: spacing.xl,
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+    },
+    signOutText: {
+        fontSize: 13,
+        fontWeight: '500',
+        color: colors.textMuted,
+        textDecorationLine: 'underline',
     },
 
     devRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
