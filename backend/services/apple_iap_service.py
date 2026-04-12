@@ -32,15 +32,20 @@ def _normalize_p8(raw: str) -> str:
         return ""
     if "\\n" in s:
         s = s.replace("\\n", "\n")
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
     if not s.startswith("-----"):
         try:
             s = base64.b64decode(s).decode("utf-8").strip()
         except Exception:
             pass
-    if "-----BEGIN" in s and "\n" not in s:
-        s = s.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
-        s = s.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----\n")
-    return s
+    if "-----BEGIN" not in s:
+        return s
+    header = "-----BEGIN PRIVATE KEY-----"
+    footer = "-----END PRIVATE KEY-----"
+    body = s.replace(header, "").replace(footer, "")
+    body = body.replace("\n", "").replace(" ", "").strip()
+    lines = [body[i:i+64] for i in range(0, len(body), 64)]
+    return header + "\n" + "\n".join(lines) + "\n" + footer + "\n"
 
 
 def _load_iap_private_key(pem_text: str):
