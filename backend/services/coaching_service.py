@@ -7,6 +7,7 @@ updates, tone detection, and proactive outbound messages.
 import asyncio
 import json
 import logging
+import threading
 import time
 from datetime import datetime, timedelta
 from typing import Any, Optional, Tuple
@@ -45,11 +46,13 @@ COACHING_CONFIG = {
 _CONTEXT_CACHE: dict[str, tuple[float, str]] = {}
 _CONTEXT_CACHE_TTL_SEC = 30.0
 _CONTEXT_CACHE_MAX = 10_000  # prevents unbounded growth at 100K MAU
+_CONTEXT_CACHE_LOCK = threading.Lock()
 
 
 def invalidate_context_cache(user_id: str) -> None:
     """Drop the cached prompt context for a user (call after mutations)."""
-    _CONTEXT_CACHE.pop(str(user_id), None)
+    with _CONTEXT_CACHE_LOCK:
+        _CONTEXT_CACHE.pop(str(user_id), None)
 
 
 def _authoritative_local_time_block(onboarding: Optional[dict]) -> str:
@@ -327,21 +330,23 @@ class CoachingService:
         """
         cache_key = str(user_id)
         now_m = time.monotonic()
-        hit = _CONTEXT_CACHE.get(cache_key)
+        with _CONTEXT_CACHE_LOCK:
+            hit = _CONTEXT_CACHE.get(cache_key)
         if hit and (now_m - hit[0]) < _CONTEXT_CACHE_TTL_SEC:
             ob = await self._fetch_onboarding_for_time(user_id, db)
             return hit[1] + "\n\n" + _authoritative_local_time_block(ob)
 
         core, onboarding = await self._build_full_context_uncached(user_id, db, rds_db)
 
-        # Best-effort LRU: if cache is full, evict the oldest entry.
-        if len(_CONTEXT_CACHE) >= _CONTEXT_CACHE_MAX:
-            try:
-                oldest_key = min(_CONTEXT_CACHE.items(), key=lambda kv: kv[1][0])[0]
-                _CONTEXT_CACHE.pop(oldest_key, None)
-            except ValueError:
-                pass
-        _CONTEXT_CACHE[cache_key] = (now_m, core)
+        with _CONTEXT_CACHE_LOCK:
+            # Best-effort LRU: if cache is full, evict the oldest entry.
+            if len(_CONTEXT_CACHE) >= _CONTEXT_CACHE_MAX:
+                try:
+                    oldest_key = min(_CONTEXT_CACHE.items(), key=lambda kv: kv[1][0])[0]
+                    _CONTEXT_CACHE.pop(oldest_key, None)
+                except ValueError:
+                    pass
+            _CONTEXT_CACHE[cache_key] = (now_m, core)
         return core + "\n\n" + _authoritative_local_time_block(onboarding)
 
     async def _fetch_onboarding_for_time(self, user_id: str, db: AsyncSession) -> dict[str, Any]:

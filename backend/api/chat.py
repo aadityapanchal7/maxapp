@@ -22,6 +22,7 @@ from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 from services.coaching_service import coaching_service
 from services.lc_agent import make_chat_tools, run_chat_agent
+from services.lc_maxx_intent import infer_maxx_chat_intent
 from services.lc_memory import history_dicts_to_lc_messages
 from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
@@ -30,6 +31,9 @@ from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
 
 logger = logging.getLogger(__name__)
+
+# LangChain agent history + background memory/tone use the same window.
+CHAT_HISTORY_WINDOW = 15
 
 # Schedule setup: wake/sleep come from signup / profile only — never re-ask in chat.
 _WAKE_SLEEP_NEVER_ASK = (
@@ -1573,27 +1577,22 @@ async def process_chat_message(
         await db.commit()
         return _finalize_assistant_message(response_text), []
 
-    # --- Init context / maxx schedule onboarding ---
+    # --- Maxx module routing (structured LLM; init_context is hint inside classifier) ---
     message = message_text
-    maxx_id = _coerce_chat_maxx_id(init_context)
-    if not maxx_id and message:
-        msg_lower = message.lower()
-        if "skinmax" in msg_lower or "skin max" in msg_lower:
-            maxx_id = "skinmax"
-        elif (
-            "heightmax" in msg_lower
-            or bool(re.search(r"\bheight\s+maxx?\b", msg_lower))
-            or bool(re.search(r"\bonboard\b.*\bheight\b|\bheight\b.*\bonboard\b", msg_lower))
-        ):
-            maxx_id = "heightmax"
-        elif "hairmax" in msg_lower or "hair max" in msg_lower:
-            maxx_id = "hairmax"
-        elif "fitmax" in msg_lower or "fit max" in msg_lower:
-            maxx_id = "fitmax"
-        elif "bonemax" in msg_lower or "bone max" in msg_lower or "bone maxx" in msg_lower:
-            maxx_id = "bonemax"
-    if maxx_id:
-        maxx_id = _coerce_chat_maxx_id(maxx_id) or maxx_id
+    if not (message_text or "").strip():
+        maxx_id = _coerce_chat_maxx_id(init_context)
+    else:
+        active_hint = None
+        if active_schedule:
+            active_hint = str(active_schedule.get("maxx_id") or "").strip() or None
+        inferred = await infer_maxx_chat_intent(
+            message_text=message_text,
+            init_context=init_context,
+            channel=channel,
+            active_maxx_hint=active_hint,
+            heightmax_app_kickoff=_is_heightmax_app_kickoff_message(message_text),
+        )
+        maxx_id = _coerce_chat_maxx_id(inferred) if inferred else None
 
     if maxx_id and maxx_id != "fitmax" and user:
         prof = dict(user.profile or {})
@@ -2045,7 +2044,7 @@ async def process_chat_message(
             and not existing_maxx
             and user
             and init_context
-            and _coerce_chat_maxx_id(init_context) == "heightmax"
+            and maxx_id == "heightmax"
             and _heightmax_demographics_complete(onboarding)
             and _is_heightmax_app_kickoff_message(message_text)
         ):
@@ -2374,7 +2373,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         active_schedule=active_schedule,
         channel=channel,
     )
-    lc_history = history_dicts_to_lc_messages(history[-10:])
+    lc_history = history_dicts_to_lc_messages(history[-CHAT_HISTORY_WINDOW:])
     try:
         response_text, modify_schedule_ran = await run_chat_agent(
             message=message,
@@ -2444,10 +2443,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     # when this endpoint returns.
     total_msgs = len(history) + 2
     if _persist_chat_history(channel) and total_msgs % 10 == 0:
-        _spawn_background_task(_bg_update_memory(user_id, history[-20:]))
+        _spawn_background_task(_bg_update_memory(user_id, history[-CHAT_HISTORY_WINDOW:]))
 
     if _persist_chat_history(channel) and total_msgs % 20 == 0:
-        _spawn_background_task(_bg_detect_tone(user_id, history[-30:]))
+        _spawn_background_task(_bg_detect_tone(user_id, history[-CHAT_HISTORY_WINDOW:]))
 
     choices_out: list[str] = []
     if maxx_id and not existing_maxx:

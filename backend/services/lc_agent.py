@@ -19,7 +19,6 @@ LangChain providers (lc_providers.py).
 from __future__ import annotations
 
 import asyncio
-import imghdr
 import logging
 import os
 import re
@@ -32,7 +31,6 @@ if TYPE_CHECKING:
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import BaseMessage
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 
@@ -47,19 +45,21 @@ logger = logging.getLogger(__name__)
 
 
 def _detect_image_mime(image_data: bytes) -> str:
-    """Infer data: URL MIME type from image bytes (defaults to image/jpeg)."""
+    """Infer data: URL MIME type from image magic bytes (defaults to image/jpeg)."""
     if not image_data:
         return "image/jpeg"
-    kind = imghdr.what(None, h=image_data[:64])
-    mime_map = {
-        "jpeg": "image/jpeg",
-        "jpg": "image/jpeg",
-        "png": "image/png",
-        "gif": "image/gif",
-        "webp": "image/webp",
-        "bmp": "image/bmp",
-    }
-    return mime_map.get((kind or "").lower(), "image/jpeg")
+    h = image_data[:16]
+    if len(h) >= 3 and h[0:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if len(h) >= 8 and h[0:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if len(h) >= 6 and h[0:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if len(h) >= 12 and h[0:4] == b"RIFF" and h[8:12] == b"WEBP":
+        return "image/webp"
+    if len(h) >= 2 and h[0:2] == b"BM":
+        return "image/bmp"
+    return "image/jpeg"
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +134,29 @@ def _normalize_hair_yes_no(val) -> Optional[str]:
         return "yes"
     if s in ("no", "n", "false", "0"):
         return "no"
+    return None
+
+
+_BONEMAX_WF_ALLOWED = frozenset({"0", "1-2", "3-4", "5+"})
+
+
+def _normalize_bonemax_workout_frequency(raw: Optional[str]) -> Optional[str]:
+    """Map user/LLM strings to canonical bonemax workout_frequency or None if invalid."""
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    s = s.replace("–", "-").replace("—", "-")
+    s = re.sub(r"\s+", "", s)
+    if s in _BONEMAX_WF_ALLOWED:
+        return s
+    if s in ("5plus", "5ormore", "6+", "7+", "daily", "everyday"):
+        return "5+"
+    if s in ("3to4", "3_4"):
+        return "3-4"
+    if s in ("1to2", "1_2"):
+        return "1-2"
+    if s in ("0", "none", "sedentary", "inactive"):
+        return "0"
     return None
 
 
@@ -297,6 +320,7 @@ def make_chat_tools(
                 db=db,
                 feedback=feedback,
             )
+            coaching_service.invalidate_context_cache(user_id)
             return result.get("changes_summary", "schedule updated")
         except Exception as e:
             logger.exception("modify_schedule tool failed: %s", e)
@@ -412,13 +436,21 @@ def make_chat_tools(
             # BoneMax: validate bone fields
             wf = tmj_raw = gum_raw = scr_raw = None
             if req_maxx == "bonemax":
-                wf = (workout_frequency or onboarding.get("bonemax_workout_frequency") or "").strip()
+                wf_raw = (workout_frequency or onboarding.get("bonemax_workout_frequency") or "").strip()
                 tmj_raw = tmj_history if tmj_history is not None else onboarding.get("bonemax_tmj_history")
                 gum_raw = mastic_gum_regular if mastic_gum_regular is not None else onboarding.get("bonemax_mastic_gum_regular")
                 scr_raw = heavy_screen_time if heavy_screen_time is not None else onboarding.get("bonemax_heavy_screen_time")
                 missing = []
-                if not wf:
+                if not wf_raw:
                     missing.append("workout_frequency (0, 1-2, 3-4, or 5+)")
+                else:
+                    wf_norm = _normalize_bonemax_workout_frequency(wf_raw)
+                    if wf_norm is None:
+                        return (
+                            "bonemax workout_frequency must be one of: 0, 1-2, 3-4, 5+ "
+                            f"(got: {wf_raw[:40]!r})"
+                        )
+                    wf = wf_norm
                 if not _yes_no_answered(tmj_raw):
                     missing.append("tmj_history (yes/no)")
                 if not _yes_no_answered(gum_raw):
@@ -447,6 +479,31 @@ def make_chat_tools(
 
             await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
 
+            yesno_overrides: dict = {}
+            if req_maxx == "hairmax":
+                _ds_src = daily_styling if daily_styling is not None else onboarding.get("daily_styling")
+                _ds_n = _normalize_hair_yes_no(_ds_src)
+                if _ds_n is not None:
+                    yesno_overrides["override_daily_styling"] = _ds_n
+                _th_src = thinning if thinning is not None else hair_thinning
+                if _th_src is None:
+                    _th_src = onboarding.get("hair_thinning")
+                    if _th_src is None:
+                        _th_src = onboarding.get("thinning")
+                _th_n = _normalize_hair_yes_no(_th_src)
+                if _th_n is not None:
+                    yesno_overrides["override_thinning"] = _th_n
+            elif req_maxx == "bonemax":
+                _tmj_n = _normalize_hair_yes_no(tmj_raw)
+                if _tmj_n is not None:
+                    yesno_overrides["override_tmj_history"] = _tmj_n
+                _gum_n = _normalize_hair_yes_no(gum_raw)
+                if _gum_n is not None:
+                    yesno_overrides["override_mastic_gum_regular"] = _gum_n
+                _scr_n = _normalize_hair_yes_no(scr_raw)
+                if _scr_n is not None:
+                    yesno_overrides["override_heavy_screen_time"] = _scr_n
+
             schedule = await schedule_service.generate_maxx_schedule(
                 user_id=user_id,
                 maxx_id=req_maxx,
@@ -455,24 +512,16 @@ def make_chat_tools(
                 wake_time=final_wake,
                 sleep_time=final_sleep,
                 skin_concern=resolved_concern,
-                outside_today=False if req_maxx in ("fitmax", "hairmax") else bool(outside_today),
+                outside_today=False
+                if req_maxx in ("fitmax", "hairmax", "heightmax", "bonemax")
+                else bool(outside_today),
                 override_age=_age,
                 override_sex=_sex,
                 override_height=str(height).strip() if height and str(height).strip() else None,
                 override_hair_type=(hair_type or onboarding.get("hair_type") or "").strip() or None,
                 override_scalp_state=(scalp_state or onboarding.get("scalp_state") or "").strip() or None,
-                override_daily_styling=_normalize_hair_yes_no(
-                    daily_styling if daily_styling is not None else onboarding.get("daily_styling")
-                ),
-                override_thinning=_normalize_hair_yes_no(
-                    thinning or hair_thinning
-                    or onboarding.get("hair_thinning")
-                    or onboarding.get("thinning")
-                ),
                 override_workout_frequency=wf,
-                override_tmj_history=_normalize_hair_yes_no(tmj_raw),
-                override_mastic_gum_regular=_normalize_hair_yes_no(gum_raw),
-                override_heavy_screen_time=_normalize_hair_yes_no(scr_raw),
+                **yesno_overrides,
             )
             schedule_state["active"] = {
                 "id": schedule.get("id"),
@@ -480,6 +529,7 @@ def make_chat_tools(
                 "course_title": schedule.get("course_title"),
                 "days": schedule.get("days") or [],
             }
+            coaching_service.invalidate_context_cache(user_id)
             return _summarise_schedule(schedule)
 
         except ScheduleLimitError as e:
@@ -504,10 +554,19 @@ def make_chat_tools(
         if channel == "sms":
             return "stopping modules can only be done in the app"
         try:
-            result = await schedule_service.deactivate_schedule_by_maxx(
-                user_id, maxx_id.strip().lower(), db
-            )
+            mid = maxx_id.strip().lower()
+            result = await schedule_service.deactivate_schedule_by_maxx(user_id, mid, db)
             if result:
+                coaching_service.invalidate_context_cache(user_id)
+                cur = schedule_state.get("active")
+                if cur and str(cur.get("maxx_id") or "").lower() == mid:
+                    try:
+                        schedule_state["active"] = await schedule_service.get_current_schedule(
+                            user_id, db=db
+                        )
+                    except Exception as refresh_err:
+                        logger.warning("stop_schedule: refresh current schedule failed: %s", refresh_err)
+                        schedule_state["active"] = None
                 return f"{maxx_id} schedule stopped"
             return f"no active {maxx_id} schedule found"
         except Exception as e:
@@ -729,21 +788,19 @@ def make_chat_tools(
                     in_section = True
                 if in_section:
                     stripped = line.strip()
-                    if stripped and any(
-                        kw in line.lower()
-                        for kw in (
-                            "cerave", "paula", "nizoral", "minoxidil", "finasteride",
-                            "retinol", "retinoid", "niacinamide", "vitamin", "spf",
-                            "sunscreen", "serum", "moisturizer", "cleanser", "shampoo",
-                            "conditioner", "dermastamp", "dermaroller", "falim",
-                            "mastic", "protein", "creatine", "zinc", "magnesium",
-                            "omega", "collagen", "biotin", "caffeine",
-                        )
-                    ):
+                    if not stripped or stripped.startswith("---"):
+                        continue
+                    if stripped.startswith("#") and len(stripped) < 80:
+                        continue
+                    is_bullet = bool(
+                        re.match(r"^[-*•]\s+", stripped) or re.match(r"^\d+[\).]\s+", stripped)
+                    )
+                    if stripped and (is_bullet or ":" in stripped or len(stripped) > 40):
                         prod_lines.append(stripped)
-                    if len(prod_lines) >= 8:
+                    if len(prod_lines) >= 12:
                         break
-            result = "; ".join(prod_lines[:5])[:300] if prod_lines else content[:300]
+            joined = "\n".join(prod_lines[:12])
+            result = (joined[:400] if joined else content[:400])
             return f"[{mod}/{con} products]\n{result}"
         except Exception as e:
             logger.exception("recommend_product tool failed: %s", e)
