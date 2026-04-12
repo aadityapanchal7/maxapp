@@ -202,10 +202,10 @@ export default function PaymentScreen() {
                 {SHOW_DEV_SKIP_CONTROLS ? (
                     <View style={s.devRow}>
                         <TouchableOpacity style={s.devBtn} onPress={() => handleDevSkip('basic')} disabled={busy}>
-                            <Text style={s.devBtnText}>{devLoading ? 'Activating…' : 'DEV: Basic'}</Text>
+                            <Text style={s.devBtnText}>{devLoading ? 'Activating…' : 'DEV: Skip → Chadlite'}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity style={s.devBtn} onPress={() => handleDevSkip('premium')} disabled={busy}>
-                            <Text style={s.devBtnText}>{devLoading ? 'Activating…' : 'DEV: Premium'}</Text>
+                            <Text style={s.devBtnText}>{devLoading ? 'Activating…' : 'DEV: Skip → Chad'}</Text>
                         </TouchableOpacity>
                     </View>
                 ) : null}
