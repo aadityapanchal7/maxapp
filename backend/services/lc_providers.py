@@ -291,6 +291,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
             api_key=key,
             max_tokens=max_tokens,
             temperature=0.2,
+            timeout=settings.llm_timeout_seconds,
             model_kwargs={"response_format": {"type": "json_object"}},
         )
     if provider == "mistral":
@@ -303,6 +304,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
             mistral_api_key=key,
             max_tokens=max_tokens,
             temperature=0.2,
+            timeout=settings.llm_timeout_seconds,
             max_retries=0,
             model_kwargs={"response_format": {"type": "json_object"}},
         )
@@ -315,6 +317,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
         google_api_key=key,
         max_output_tokens=max_tokens,
         temperature=0.2,
+        timeout=settings.llm_timeout_seconds,
         generation_config={"response_mime_type": "application/json"},
     )
 

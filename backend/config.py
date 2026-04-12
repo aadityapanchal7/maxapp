@@ -62,7 +62,10 @@ class Settings(BaseSettings):
     # Per-provider HTTP timeout in seconds (applies to each individual API call).
     # With fallback: worst-case for one LLM pass = llm_timeout_seconds * 2.
     llm_timeout_seconds: int = Field(default=25)
-    
+    # Max output tokens for schedule adaptation LLM only (full JSON days). Higher reduces
+    # truncation on dense schedules; cap is the model’s own max (e.g. OpenAI completion limit).
+    schedule_adapt_max_output_tokens: int = Field(default=16384)
+
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
     

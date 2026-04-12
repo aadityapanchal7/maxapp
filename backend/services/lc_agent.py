@@ -35,6 +35,7 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 
 from config import settings
+from services import fitmax_plan as fplan
 from services.lc_memory import history_dicts_to_lc_messages
 from services.lc_providers import get_chat_llm_with_tools_and_fallback
 from services.prompt_constants import MAX_CHAT_SYSTEM_PROMPT
@@ -368,6 +369,13 @@ def make_chat_tools(
         tmj_history: Optional[str] = None,
         mastic_gum_regular: Optional[str] = None,
         heavy_screen_time: Optional[str] = None,
+        body_weight_kg: Optional[float] = None,
+        training_days_per_week: Optional[int] = None,
+        training_experience: Optional[str] = None,
+        fitmax_equipment: Optional[str] = None,
+        session_minutes: Optional[int] = None,
+        daily_activity_level: Optional[str] = None,
+        dietary_restrictions: Optional[str] = None,
     ) -> str:
         """
         Generate a personalised maxx schedule after required onboarding fields are collected.
@@ -401,6 +409,8 @@ def make_chat_tools(
                         )
                     )
                 )
+            elif req_maxx == "fitmax":
+                resolved_concern = str(skin_concern or "").strip() or None
             else:
                 resolved_concern = skin_concern or onboarding.get("skin_type")
 
@@ -479,6 +489,41 @@ def make_chat_tools(
                 if missing:
                     return f"missing required fields for bonemax: {', '.join(missing)}"
 
+            # FitMax: merge tool + onboarding + profile, validate, persist, set schedule skin_concern label
+            if req_maxx == "fitmax":
+                if not user:
+                    return "cannot generate fitmax schedule without a user context"
+                from sqlalchemy.orm.attributes import flag_modified as _flag_modified_fm
+                prof0 = dict((user.profile or {}).get("fitmax_profile") or {})
+                merged_fm = fplan.seed_fitmax_profile_from_onboarding(dict(prof0), dict(onboarding or {}))
+                fplan.merge_fitmax_tool_into_profile(
+                    merged_fm,
+                    age=_age,
+                    sex=_sex,
+                    gender=gender,
+                    height_str=height,
+                    skin_concern=skin_concern,
+                    body_weight_kg=body_weight_kg,
+                    training_days_per_week=training_days_per_week,
+                    training_experience=training_experience,
+                    fitmax_equipment=fitmax_equipment,
+                    session_minutes=session_minutes,
+                    daily_activity_level=daily_activity_level,
+                    dietary_restrictions=dietary_restrictions,
+                )
+                miss_fm = fplan.fitmax_validate_required(merged_fm)
+                if miss_fm:
+                    return f"missing required fields for fitmax: {', '.join(miss_fm)}"
+                fplan.persist_fitmax_to_user_onboarding(user, merged_fm)
+                prof_m = dict((user.profile or {}).get("fitmax_profile") or {})
+                prof_m.update(merged_fm)
+                user.profile = {**(user.profile or {}), "fitmax_profile": prof_m}
+                _flag_modified_fm(user, "profile")
+                _flag_modified_fm(user, "onboarding")
+                await db.flush()
+                plan_prev = fplan.fitmax_build_plan(merged_fm)
+                resolved_concern = (str(skin_concern or "").strip() or plan_prev["goal_label"])
+
             # For HeightMax: persist age/sex/height to onboarding so future API calls see them
             if req_maxx == "heightmax" and user:
                 from sqlalchemy.orm.attributes import flag_modified as _flag_modified
@@ -542,6 +587,14 @@ def make_chat_tools(
                 override_workout_frequency=wf,
                 **yesno_overrides,
             )
+            if req_maxx == "fitmax" and user:
+                from sqlalchemy.orm.attributes import flag_modified as _flag_plan
+                await db.refresh(user)
+                prof_fp = dict((user.profile or {}).get("fitmax_profile") or {})
+                prof_fp["fitmax_plan"] = fplan.fitmax_build_plan(prof_fp)
+                user.profile = {**(user.profile or {}), "fitmax_profile": prof_fp}
+                _flag_plan(user, "profile")
+                await db.flush()
             schedule_state["active"] = {
                 "id": schedule.get("id"),
                 "maxx_id": schedule.get("maxx_id"),

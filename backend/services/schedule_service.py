@@ -10,7 +10,7 @@ import logging
 import re
 import uuid
 from datetime import date, datetime, timedelta
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 from uuid import UUID
 
@@ -40,6 +40,13 @@ from services.schedule_streak import sync_master_schedule_streak
 from models.rds_models import Course
 
 logger = logging.getLogger(__name__)
+
+# Appended on adaptation LLM retry after truncation / invalid JSON (smaller window or same window).
+_SCHEDULE_ADAPT_COMPACT_RETRY_SUFFIX = (
+    "\n\nCOMPACT MODE (retry): Each task `description` max **180 characters**. "
+    "Change only tasks affected by USER FEEDBACK. One short nutrition line per day max; "
+    "do not duplicate meal lists across tasks."
+)
 
 MAX_ACTIVE_SCHEDULES_BASIC = 2
 MAX_ACTIVE_SCHEDULES_PREMIUM = 3
@@ -136,6 +143,8 @@ Modify the remaining days of the schedule based on the feedback and completion d
 - If the user runs multiple active modules, avoid adding duplicate generic morning/midday wake-style tasks at the same clock time as before; stagger or merge intent into concrete tasks.
 - Keep the same JSON structure as the input.
 - Preserve task_id for existing tasks so notifications work. For new tasks, generate a uuid string.
+- **Brevity (required):** Each task `description` must be **at most 220 characters**. Prefer **minimal edits**: only change tasks/days affected by the feedback (e.g. food or macros → adjust nutrition/meal tasks; do not rewrite unrelated tasks).
+- For meal or macro detail: **one** nutrition-focused task per day or a **short** line in an existing meal task—do **not** paste the same long food list into every task.
 
 Return ONLY valid JSON with this structure (no markdown fences):
 {{
@@ -2685,6 +2694,16 @@ class ScheduleService:
         lines.append("• reminders reset")
         return "\n".join(lines)
 
+    @staticmethod
+    def _adapt_llm_recoverable(exc: Exception) -> bool:
+        """True if a second LLM attempt (smaller window / compact suffix) may help."""
+        if isinstance(exc, json.JSONDecodeError):
+            return True
+        if type(exc).__name__ == "LengthFinishReasonError":
+            return True
+        msg = str(exc).lower()
+        return "length limit" in msg or "length_finish_reason" in msg
+
     async def adapt_schedule(self, user_id: str, schedule_id: str, db: AsyncSession, feedback: str) -> dict:
         schedule = await self._load_schedule(schedule_id, user_id, db)
         if not schedule:
@@ -2706,21 +2725,51 @@ class ScheduleService:
         adapt_tmpl = await asyncio.to_thread(
             resolve_prompt, PromptKey.SCHEDULE_ADAPTATION, SCHEDULE_ADAPTATION_PROMPT
         )
-        prompt = adapt_tmpl.format(
-            current_schedule_json=json.dumps({"days": schedule.days}, indent=2),
-            completed_count=completed,
-            total_count=total,
-            most_skipped=", ".join(set(skipped_types)) if skipped_types else "none",
-            completion_rate=completion_rate,
-            user_feedback=feedback,
-        )
+        max_out = max(1024, int(settings.schedule_adapt_max_output_tokens or 16384))
 
-        try:
-            raw = await asyncio.to_thread(sync_llm_json_response, prompt)
-            adapted = json.loads(raw)
-        except Exception as e:
-            logger.error(f"Schedule adaptation failed: {e}")
-            raise ValueError(f"Failed to adapt schedule: {e}")
+        adapted: Optional[Dict[str, Any]] = None
+        for attempt in range(2):
+            prompt = adapt_tmpl.format(
+                current_schedule_json=json.dumps({"days": window_days}, separators=(",", ":")),
+                completed_count=completed,
+                total_count=total,
+                most_skipped=", ".join(set(skipped_types)) if skipped_types else "none",
+                completion_rate=completion_rate,
+                user_feedback=feedback,
+            )
+            if attempt > 0:
+                prompt = prompt + _SCHEDULE_ADAPT_COMPACT_RETRY_SUFFIX
+            try:
+                raw = await asyncio.to_thread(
+                    lambda p=prompt, t=max_out: sync_llm_json_response(p, max_tokens=t)
+                )
+                adapted = json.loads(raw)
+                if attempt > 0:
+                    logger.warning(
+                        "schedule adaptation retry succeeded user=%s schedule=%s window_days=%s max_out=%s",
+                        user_id,
+                        schedule_id,
+                        len(window_days),
+                        max_out,
+                    )
+                break
+            except Exception as e:
+                if attempt == 0 and self._adapt_llm_recoverable(e):
+                    logger.warning(
+                        "schedule adaptation will retry user=%s schedule=%s err=%s window_days=%s",
+                        user_id,
+                        schedule_id,
+                        e,
+                        len(window_days),
+                    )
+                    if len(window_days) > 7:
+                        window_days = future_days[:7]
+                        tail_days = future_days[7:]
+                    continue
+                logger.error("Schedule adaptation failed: %s", e)
+                raise ValueError(f"Failed to adapt schedule: {e}") from e
+
+        assert adapted is not None
 
         adapted_days = adapted.get("days", schedule.days)
         changes_summary = (adapted.get("changes_summary") or "").strip()

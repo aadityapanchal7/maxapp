@@ -47,6 +47,22 @@ class GenerateMaxxScheduleInput(BaseModel):
     tmj_history: Optional[str] = Field(default=None)
     mastic_gum_regular: Optional[str] = Field(default=None)
     heavy_screen_time: Optional[str] = Field(default=None)
+    body_weight_kg: Optional[float] = Field(
+        default=None, description="FitMax: body weight in kg"
+    )
+    training_days_per_week: Optional[int] = Field(
+        default=None, description="FitMax: training days per week (typically 3-6)"
+    )
+    training_experience: Optional[str] = Field(
+        default=None, description="FitMax: beginner, intermediate, or advanced"
+    )
+    fitmax_equipment: Optional[str] = Field(default=None, description="FitMax: equipment available")
+    session_minutes: Optional[int] = Field(default=None, description="FitMax: typical session length in minutes")
+    daily_activity_level: Optional[str] = Field(
+        default=None,
+        description="FitMax: sedentary, lightly active, moderately active, or very active",
+    )
+    dietary_restrictions: Optional[str] = Field(default=None, description="FitMax: dietary restrictions text")
 
 
 class StopScheduleInput(BaseModel):
