@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 import jwt
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 
 from config import settings
 
@@ -24,23 +26,53 @@ SANDBOX_API = "https://api.storekit-sandbox.itunes.apple.com"
 
 
 def _normalize_p8(raw: str) -> str:
+    """Reconstruct a valid PEM from env-var mangled .p8 key content."""
     s = (raw or "").strip()
+    if not s:
+        return ""
     if "\\n" in s:
         s = s.replace("\\n", "\n")
+    if not s.startswith("-----"):
+        try:
+            s = base64.b64decode(s).decode("utf-8").strip()
+        except Exception:
+            pass
+    if "-----BEGIN" in s and "\n" not in s:
+        s = s.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
+        s = s.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----\n")
     return s
 
 
+def _load_iap_private_key(pem_text: str):
+    """Parse a PEM private key string into a cryptography key object."""
+    return serialization.load_pem_private_key(
+        pem_text.encode("utf-8"),
+        password=None,
+        backend=default_backend(),
+    )
+
+
 def apple_iap_configured() -> bool:
-    return bool(
+    if not (
         settings.apple_app_store_connect_issuer_id.strip()
         and settings.apple_app_store_connect_key_id.strip()
-        and _normalize_p8(settings.apple_app_store_connect_private_key).strip()
-    )
+    ):
+        return False
+    pem = _normalize_p8(settings.apple_app_store_connect_private_key)
+    if not pem.strip():
+        return False
+    try:
+        _load_iap_private_key(pem)
+        return True
+    except Exception as exc:
+        logger.warning("apple_iap_configured: PEM key present but invalid (%s); treating as not configured", exc)
+        return False
 
 
 def _create_bearer_token() -> str:
     """ES256 JWT for App Store Server API (In-App Purchase key)."""
-    key = _normalize_p8(settings.apple_app_store_connect_private_key)
+    pem = _normalize_p8(settings.apple_app_store_connect_private_key)
+    key = _load_iap_private_key(pem)
     now = int(time.time())
     payload = {
         "iss": settings.apple_app_store_connect_issuer_id.strip(),

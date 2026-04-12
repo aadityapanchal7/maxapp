@@ -28,15 +28,16 @@ def _load_private_key(pem_or_b64: str):
     raw = (pem_or_b64 or "").strip()
     if not raw:
         raise ValueError("empty APNs key")
+    if "\\n" in raw:
+        raw = raw.replace("\\n", "\n")
     if not raw.startswith("-----"):
-        raw = base64.b64decode(raw).decode("utf-8")
-    # Env-var UIs often strip newlines — reconstruct valid PEM if needed.
+        try:
+            raw = base64.b64decode(raw).decode("utf-8").strip()
+        except Exception:
+            raise ValueError("APNs key is not valid PEM or base64")
     if "-----BEGIN" in raw and "\n" not in raw:
         raw = raw.replace("-----BEGIN PRIVATE KEY-----", "-----BEGIN PRIVATE KEY-----\n")
         raw = raw.replace("-----END PRIVATE KEY-----", "\n-----END PRIVATE KEY-----\n")
-    # Also handle literal \n escape sequences from some env-var providers.
-    if "\\n" in raw:
-        raw = raw.replace("\\n", "\n")
     return serialization.load_pem_private_key(
         raw.encode("utf-8"),
         password=None,

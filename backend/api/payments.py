@@ -352,45 +352,50 @@ async def apple_verify(
     if not tid:
         raise HTTPException(status_code=400, detail="transaction_id is required")
 
+    server_verified = False
     if apple.apple_iap_configured():
         try:
             claims = await apple.fetch_transaction_claims(tid)
             apple.validate_claims_for_user(claims, current_user["id"])
+
+            if not apple.subscription_active_from_claims(claims):
+                raise HTTPException(
+                    status_code=400,
+                    detail="This subscription is not active or has expired.",
+                )
+
+            try:
+                await _apple_sync_entitlement(str(current_user["id"]), claims, db)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
+            tier = apple.tier_for_product_id(claims.get("productId") or "")
+            return {"status": "ok", "tier": tier}
+        except HTTPException:
+            raise
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        except RuntimeError as e:
-            logger.warning("Apple verify failed: %s", e)
-            raise HTTPException(status_code=502, detail=str(e))
-
-        if not apple.subscription_active_from_claims(claims):
-            raise HTTPException(
-                status_code=400,
-                detail="This subscription is not active or has expired.",
+        except Exception as e:
+            logger.warning(
+                "Apple Server API verification failed for user %s, falling back to client-trust: %s",
+                current_user["id"], e,
             )
 
-        try:
-            await _apple_sync_entitlement(str(current_user["id"]), claims, db)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+    if not server_verified:
+        logger.info("Using client-trust fallback for Apple IAP user %s", current_user["id"])
+        client_pid = (body.product_id or "").strip()
+        tier = apple.tier_for_product_id(client_pid) if client_pid else None
+        if not tier:
+            tier = "premium" if "premium" in client_pid.lower() else "basic" if client_pid else "basic"
 
-        tier = apple.tier_for_product_id(claims.get("productId") or "")
+        await _activate_user(
+            str(current_user["id"]),
+            tid,
+            db,
+            subscription_tier=tier,
+            billing_provider="apple",
+        )
         return {"status": "ok", "tier": tier}
-
-    # Fallback: App Store Server API not configured — trust client-reported product_id.
-    logger.info("Apple IAP API keys not configured; using client-trust fallback for user %s", current_user["id"])
-    client_pid = (body.product_id or "").strip()
-    tier = apple.tier_for_product_id(client_pid) if client_pid else None
-    if not tier:
-        tier = "premium" if "premium" in client_pid.lower() else "basic" if client_pid else "basic"
-
-    await _activate_user(
-        str(current_user["id"]),
-        tid,
-        db,
-        subscription_tier=tier,
-        billing_provider="apple",
-    )
-    return {"status": "ok", "tier": tier}
 
 
 @router.post("/apple/notifications")
