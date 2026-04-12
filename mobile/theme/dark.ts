@@ -1,47 +1,47 @@
 /**
- * Luxury minimalist design system
- * Off-white / near-black / serif headlines
+ * Sleek modern SaaS design system
+ * Clean, shadowed, typographic
  */
 
 export const colors = {
-    background: '#F5F5F3',
-    surface: '#EEEEE9',
-    surfaceLight: '#E8E8E3',
-    card: '#FAFAF8',
+    background: '#f8f8fa',
+    surface: '#f0f0f3',
+    surfaceLight: '#eaeaed',
+    card: '#ffffff',
 
-    foreground: '#0A0A0A',
-    primary: '#0A0A0A',
-    primaryLight: '#1A1A1A',
+    foreground: '#111113',
+    primary: '#111113',
+    primaryLight: '#2a2a2e',
     primaryDark: '#000000',
 
-    accent: '#0A0A0A',
-    accentLight: '#1A1A1A',
-    accentMuted: 'rgba(10, 10, 10, 0.04)',
+    accent: '#111113',
+    accentLight: '#2a2a2e',
+    accentMuted: 'rgba(17, 17, 19, 0.05)',
 
-    textPrimary: '#0A0A0A',
-    textSecondary: '#6B6B63',
-    textMuted: '#9C9C94',
+    textPrimary: '#111113',
+    textSecondary: '#71717a',
+    textMuted: '#a1a1aa',
 
-    success: '#3D6B4F',
-    warning: '#A68A3E',
-    error: '#8B3A3A',
-    info: '#3A5F8B',
+    success: '#22c55e',
+    warning: '#f59e0b',
+    error: '#ef4444',
+    info: '#3b82f6',
 
-    premium: '#8B7355',
-    premiumLight: '#8B735510',
-    premiumBorder: '#8B735530',
+    premium: '#D4A017',
+    premiumLight: '#D4A01718',
+    premiumBorder: '#D4A01740',
 
-    border: '#E0DED8',
-    borderLight: '#EEEEE9',
-    divider: '#E0DED8',
+    border: '#e4e4e7',
+    borderLight: '#f0f0f3',
+    divider: '#e4e4e7',
 
-    gradientStart: '#F5F5F3',
-    gradientEnd: '#EEEEE9',
+    gradientStart: '#f8f8fa',
+    gradientEnd: '#f0f0f3',
 
-    buttonText: '#FAFAF8',
+    buttonText: '#fafafa',
 
-    overlay: 'rgba(0, 0, 0, 0.35)',
-    blur: 'rgba(250, 250, 248, 0.85)',
+    overlay: 'rgba(0, 0, 0, 0.45)',
+    blur: 'rgba(255, 255, 255, 0.82)',
 };
 
 export const spacing = {
@@ -55,117 +55,110 @@ export const spacing = {
 };
 
 export const borderRadius = {
-    sm: 6,
-    md: 10,
-    lg: 14,
-    xl: 18,
-    '2xl': 22,
+    sm: 10,
+    md: 14,
+    lg: 18,
+    xl: 22,
+    '2xl': 28,
     full: 9999,
-};
-
-export const fonts = {
-    serif: 'PlayfairDisplay',
-    sans: 'Matter-Regular',
-    sansMedium: 'Matter-Medium',
-    sansSemiBold: 'Matter-SemiBold',
-    sansBold: 'Matter-Bold',
 };
 
 export const typography = {
     h1: {
-        fontFamily: fonts.serif,
-        fontSize: 34,
-        fontWeight: '400' as const,
+        fontSize: 32,
+        fontWeight: '700' as const,
         color: colors.textPrimary,
-        letterSpacing: -0.5,
-        lineHeight: 42,
+        letterSpacing: -0.8,
     },
     h2: {
-        fontFamily: fonts.serif,
-        fontSize: 24,
-        fontWeight: '400' as const,
+        fontSize: 22,
+        fontWeight: '600' as const,
         color: colors.textPrimary,
-        letterSpacing: -0.3,
-        lineHeight: 32,
+        letterSpacing: -0.4,
     },
     h3: {
-        fontFamily: fonts.serif,
-        fontSize: 18,
-        fontWeight: '400' as const,
+        fontSize: 17,
+        fontWeight: '600' as const,
         color: colors.textPrimary,
-        letterSpacing: -0.15,
-        lineHeight: 26,
+        letterSpacing: -0.2,
     },
     body: {
         fontSize: 15,
         fontWeight: '400' as const,
         color: colors.textPrimary,
-        lineHeight: 24,
+        lineHeight: 22,
     },
     bodySmall: {
         fontSize: 13,
         fontWeight: '400' as const,
         color: colors.textSecondary,
-        lineHeight: 20,
+        lineHeight: 18,
     },
     caption: {
         fontSize: 11,
         fontWeight: '500' as const,
         color: colors.textMuted,
-        lineHeight: 16,
     },
     label: {
-        fontSize: 10,
-        fontWeight: '500' as const,
+        fontSize: 11,
+        fontWeight: '600' as const,
         color: colors.textMuted,
-        letterSpacing: 1.2,
+        letterSpacing: 0.8,
         textTransform: 'uppercase' as const,
     },
     button: {
-        fontSize: 14,
-        fontWeight: '500' as const,
+        fontSize: 15,
+        fontWeight: '600' as const,
         color: colors.buttonText,
-        letterSpacing: 0.3,
+        letterSpacing: -0.1,
     },
     hero: {
-        fontFamily: fonts.serif,
         fontSize: 48,
         fontWeight: '400' as const,
         color: colors.textPrimary,
-        letterSpacing: -1,
-        lineHeight: 56,
+        letterSpacing: -2,
     },
 };
 
 export const shadows = {
     sm: {
-        shadowColor: '#0A0A0A',
+        shadowColor: '#18181b',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.03,
-        shadowRadius: 3,
-        elevation: 1,
-    },
-    md: {
-        shadowColor: '#0A0A0A',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
+        shadowOpacity: 0.06,
+        shadowRadius: 4,
         elevation: 2,
     },
-    lg: {
-        shadowColor: '#0A0A0A',
+    md: {
+        shadowColor: '#18181b',
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.06,
+        shadowOpacity: 0.08,
         shadowRadius: 16,
         elevation: 4,
     },
-    xl: {
-        shadowColor: '#0A0A0A',
+    lg: {
+        shadowColor: '#18181b',
         shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.08,
-        shadowRadius: 24,
-        elevation: 6,
+        shadowOpacity: 0.12,
+        shadowRadius: 32,
+        elevation: 8,
     },
+    xl: {
+        shadowColor: '#18181b',
+        shadowOffset: { width: 0, height: 12 },
+        shadowOpacity: 0.16,
+        shadowRadius: 48,
+        elevation: 12,
+    },
+};
+
+export const fonts = {
+    serif: 'PlayfairDisplay',
+    serifItalic: 'PlayfairDisplay-Italic',
+    sans: 'Matter-Regular',
+    sansMedium: 'Matter-Medium',
+    sansSemiBold: 'Matter-SemiBold',
+    sansBold: 'Matter-Bold',
+    sansLight: 'Matter-Light',
 };
 
 export default {
