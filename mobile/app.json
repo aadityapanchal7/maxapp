@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cannon.mobile",
-      "buildNumber": "3",
+      "buildNumber": "5",
       "entitlements": {
         "aps-environment": "production"
       },
@@ -83,7 +83,8 @@
           ],
           "enableGooglePay": true
         }
-      ]
+      ],
+      "react-native-iap"
     ],
     "scheme": "cannon",
     "platforms": [
