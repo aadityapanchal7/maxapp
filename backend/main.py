@@ -29,6 +29,8 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
     await init_db()
+    from services.prompt_loader import refresh_prompt_cache
+    await refresh_prompt_cache()
     await init_rds_db()
     # Start background scheduler for notifications
     from services.scheduler_job import start_scheduler, stop_scheduler

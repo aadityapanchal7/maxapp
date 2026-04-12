@@ -88,6 +88,7 @@ async def init_db():
         # cannot roll back critical columns (e.g. last_username_change).
         await _run_app_users_column_migrations()
         await _run_column_migrations()
+        await _run_rag_migrations()
     except Exception as e:
         print(f"[WARNING] Could not initialize Supabase database: {e}")
         print("[INFO] Ensure Supabase is accessible from deployment environment.")
@@ -155,6 +156,33 @@ async def _run_column_migrations():
         print("[OK] Column migrations applied")
     except Exception as e:
         print(f"[INFO] Column migration note: {e}")
+
+
+async def _run_rag_migrations():
+    """Enable pgvector extension and create rag_documents table (safe to run repeatedly)."""
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS rag_documents (
+                    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    maxx_id     VARCHAR(50)  NOT NULL,
+                    doc_title   VARCHAR(255) NOT NULL,
+                    chunk_index INTEGER      NOT NULL DEFAULT 0,
+                    content     TEXT         NOT NULL,
+                    embedding   VECTOR(1536) NOT NULL,
+                    metadata    JSONB        NOT NULL DEFAULT '{}',
+                    created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+                )
+            """))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_rag_docs_maxx_id "
+                "ON rag_documents (maxx_id)"
+            ))
+        print("[OK] RAG migrations applied (pgvector + rag_documents)")
+    except Exception as e:
+        print(f"[WARNING] RAG migrations: {e}")
 
 
 async def close_db():

@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from services.lc_providers import get_primary_llm
+from services.prompt_loader import PromptKey, resolve_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ async def infer_maxx_chat_intent(
         structured = llm.with_structured_output(MaxxChatIntent)
         out: MaxxChatIntent = await structured.ainvoke(
             [
-                SystemMessage(content=_SYSTEM_PROMPT),
+                SystemMessage(content=resolve_prompt(PromptKey.MAXX_INTENT_SYSTEM, _SYSTEM_PROMPT)),
                 HumanMessage(content=human),
             ]
         )

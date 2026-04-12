@@ -29,6 +29,7 @@ from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -1623,7 +1624,9 @@ async def process_chat_message(
             await db.commit()
             profile = prof
 
-    if maxx_id == "fitmax" and user and not fitmax_schedule_active:
+    scripted_mx = settings.chat_scripted_fitmax_hairmax_onboarding
+
+    if scripted_mx and maxx_id == "fitmax" and user and not fitmax_schedule_active:
         prof = dict(profile or {})
         if not prof.get("fitmax_chat_setup"):
             prof["fitmax_chat_setup"] = True
@@ -1634,7 +1637,7 @@ async def process_chat_message(
             await db.commit()
             profile = dict((user.profile or {}) or {})
 
-    if maxx_id == "hairmax" and user and not hairmax_schedule_active:
+    if scripted_mx and maxx_id == "hairmax" and user and not hairmax_schedule_active:
         prof = dict(profile or {})
         if not prof.get("hairmax_chat_setup"):
             prof["hairmax_chat_setup"] = True
@@ -1645,10 +1648,13 @@ async def process_chat_message(
             await db.commit()
             profile = dict((user.profile or {}) or {})
 
-    fitmax_pending = bool(user and str(profile.get("chat_pending_module") or "").lower() == "fitmax")
-    fitmax_chat_setup = bool(profile.get("fitmax_chat_setup"))
+    fitmax_pending = bool(
+        scripted_mx and user and str(profile.get("chat_pending_module") or "").lower() == "fitmax"
+    )
+    fitmax_chat_setup = bool(scripted_mx and profile.get("fitmax_chat_setup"))
     run_fitmax_onboarding = bool(
-        user
+        scripted_mx
+        and user
         and not fitmax_schedule_active
         and (
             maxx_id == "fitmax"
@@ -1661,9 +1667,10 @@ async def process_chat_message(
         )
     )
 
-    hairmax_chat_setup = bool(profile.get("hairmax_chat_setup"))
+    hairmax_chat_setup = bool(scripted_mx and profile.get("hairmax_chat_setup"))
     run_hairmax_onboarding = bool(
-        user
+        scripted_mx
+        and user
         and not hairmax_schedule_active
         and (
             maxx_id == "hairmax"
@@ -2383,6 +2390,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             delivery_channel=channel,
             tools=tools,
             db=db,
+            maxx_id=maxx_id,
         )
     except Exception as llm_err:
         logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)

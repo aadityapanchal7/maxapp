@@ -805,6 +805,14 @@ def start_scheduler(app):
             id="weekly_resets",
             **job_defaults,
         )
+        from services.prompt_loader import refresh_prompt_cache
+        scheduler.add_job(
+            refresh_prompt_cache,
+            "interval",
+            minutes=60,
+            id="prompt_cache_refresh",
+            **job_defaults,
+        )
         scheduler.start()
         logger.info(
             "APScheduler started — schedule SMS every %sm, bedtime %sm, coaching %sm, weekly %sm%s",

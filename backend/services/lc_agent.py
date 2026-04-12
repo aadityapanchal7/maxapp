@@ -233,6 +233,9 @@ async def _persist_user_wake_sleep(user, db, wake_time, sleep_time) -> None:
 async def build_agent_system_prompt(
     user_context: Optional[dict],
     delivery_channel: str,
+    maxx_id: Optional[str] = None,
+    user_message: Optional[str] = None,
+    db=None,
 ) -> str:
     """Build the full system prompt for the agent (same logic as _lc_chat in llm_router)."""
     chat_prompt = await asyncio.to_thread(
@@ -265,6 +268,22 @@ async def build_agent_system_prompt(
 
     if context_str:
         chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
+
+    # Auto-inject RAG knowledge chunks when a maxx_id is known and docs have been ingested
+    if maxx_id and user_message and db is not None:
+        try:
+            from services.rag_service import retrieve_chunks
+            chunks = await retrieve_chunks(db, maxx_id=maxx_id, query=user_message, k=3)
+            if chunks:
+                rag_lines = []
+                for c in chunks:
+                    rag_lines.append(f"[{c['doc_title']}]\n{c['content']}")
+                rag_block = "\n\n---\n\n".join(rag_lines)
+                chat_prompt += f"\n\n## Relevant Knowledge ({maxx_id})\n{rag_block}"
+                logger.debug("[RAG] injected %d chunks for maxx=%s", len(chunks), maxx_id)
+        except Exception as rag_err:
+            # Never let RAG errors block the chat response
+            logger.warning("[RAG] auto-inject failed (maxx=%s): %s", maxx_id, rag_err)
 
     sms_extra = sms_chat_appendix(delivery_channel)
     if sms_extra:
@@ -727,7 +746,22 @@ def make_chat_tools(
         """
         try:
             mod = str(module).lower().strip()
-            tp = str(topic or "").lower().strip()
+            query = str(topic or module).strip()
+
+            # --- RAG retrieval (primary path) ---
+            try:
+                from services.rag_service import retrieve_chunks
+                chunks = await retrieve_chunks(db, maxx_id=mod, query=query, k=4)
+                if chunks:
+                    parts = [
+                        f"[{c['doc_title']} — section {c['chunk_index'] + 1}]\n{c['content']}"
+                        for c in chunks
+                    ]
+                    return "\n\n---\n\n".join(parts)
+            except Exception as rag_err:
+                logger.warning("get_module_info RAG failed (maxx=%s): %s", mod, rag_err)
+
+            # --- Fallback: read local .md reference file ---
             ref_path = os.path.normpath(
                 os.path.join(
                     os.path.dirname(__file__),
@@ -738,7 +772,8 @@ def make_chat_tools(
                 return f"no reference found for {mod}"
             with open(ref_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            if tp:
+            tp = query.lower()
+            if tp and tp != mod:
                 lines = content.split("\n")
                 result_lines: list[str] = []
                 in_section = False
@@ -831,6 +866,7 @@ async def run_chat_agent(
     delivery_channel: str,
     tools: list,
     db: Optional["AsyncSession"] = None,
+    maxx_id: Optional[str] = None,
 ) -> tuple[str, bool]:
     """
     Run the tool-calling AgentExecutor and return (response_text, schedule_mutated).
@@ -841,7 +877,10 @@ async def run_chat_agent(
     The agent handles the full reasoning → tool call → observe → respond loop.
     max_iterations=4 allows: tool call → observe → (optional second tool) → final answer.
     """
-    system_prompt = await build_agent_system_prompt(user_context, delivery_channel)
+    system_prompt = await build_agent_system_prompt(
+        user_context, delivery_channel,
+        maxx_id=maxx_id, user_message=message, db=db,
+    )
 
     # Image: inject as multimodal content part in the human message
     if image_data:

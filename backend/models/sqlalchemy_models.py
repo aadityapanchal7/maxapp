@@ -16,6 +16,12 @@ from sqlalchemy import (
     JSON,
     Float,
 )
+try:
+    from pgvector.sqlalchemy import Vector as PgVector
+    _PGVECTOR_AVAILABLE = True
+except ImportError:
+    PgVector = None
+    _PGVECTOR_AVAILABLE = False
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, date
@@ -309,6 +315,22 @@ class UserSchedule(Base):
     )
 
 
+class RagDocument(Base):
+    """Chunked knowledge documents for RAG retrieval, namespaced by maxx_id."""
+    __tablename__ = "rag_documents"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    maxx_id     = Column(String(50),  nullable=False, index=True)   # "fitmax", "skinmax", …
+    doc_title   = Column(String(255), nullable=False)
+    chunk_index = Column(Integer,     nullable=False, default=0)
+    content     = Column(Text,        nullable=False)
+    # pgvector column — defined only when the package is installed
+    embedding   = Column(PgVector(1536), nullable=False) if _PGVECTOR_AVAILABLE else Column(Text, nullable=True)
+    metadata_   = Column("metadata", JSON, default=dict)
+    created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at  = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class ChannelMessageReport(Base):
     """User reports on channel (forum) messages — App Review UGC moderation trail."""
 
@@ -325,3 +347,17 @@ class ChannelMessageReport(Base):
     __table_args__ = (
         UniqueConstraint("channel_message_id", "reporter_user_id", name="uq_channel_message_report_reporter"),
     )
+
+
+class SystemPrompt(Base):
+    """LLM system prompt bodies managed in DB; key matches PromptKey constants."""
+
+    __tablename__ = "system_prompts"
+
+    key         = Column(String, primary_key=True)
+    content     = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
+    is_active   = Column(Boolean, default=True, nullable=False)
+    created_at  = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at  = Column(DateTime(timezone=True), default=datetime.utcnow,
+                         onupdate=datetime.utcnow, nullable=False)

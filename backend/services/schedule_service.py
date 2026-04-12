@@ -871,7 +871,15 @@ class ScheduleService:
             raw = await asyncio.to_thread(sync_llm_json_response, prompt)
             schedule_data = json.loads(raw)
         except Exception as e:
-            logger.error(f"Gemini maxx schedule generation failed: {e}")
+            logger.error(
+                "Maxx schedule LLM generation failed for maxx_id=%s: %s",
+                maxx_id,
+                repr(e),
+            )
+            logger.warning(
+                "Building maxx_id=%s schedule from deterministic engine fallback (not LLM JSON).",
+                maxx_id,
+            )
             schedule_data = self._generate_maxx_fallback(
                 maxx_id,
                 num_days,

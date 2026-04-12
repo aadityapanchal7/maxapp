@@ -101,6 +101,10 @@ class Settings(BaseSettings):
     # fires immediately; coaching  weekly send at most once per user until you restart the API process.
     sms_scheduler_test_fast_mode: bool = Field(default=False)
 
+    # When true (default), FitMax and HairMax use fixed question scripts in chat.py before schedule creation.
+    # When false, those modules use the LangChain agent only (LLM-written replies + tools), like Skinmax/Heightmax.
+    chat_scripted_fitmax_hairmax_onboarding: bool = Field(default=True)
+
     # Apple Push Notification service (direct HTTP/2) — .p8 key PEM or base64-of-PEM
     apns_auth_key_p8: str = Field(default="", description="APNs Auth Key PEM or base64-encoded PEM")
     apns_key_id: str = Field(default="", description="10-char Key ID from Apple Developer")
@@ -126,27 +130,6 @@ class Settings(BaseSettings):
     aws_secret_access_key: str = Field(default="")
     aws_s3_bucket: str = Field(default="cannon-app-uploads")
     aws_s3_region: str = Field(default="us-east-1")
-    # Remote LLM prompts (optional). If empty, bundled Python strings are used.
-    # Upload objects to: s3://{prompts_s3_bucket}/{prompts_s3_prefix}/{key}.md (or .txt)
-    prompts_s3_bucket: str = Field(
-        default="",
-        description="S3 bucket for chat/coaching prompt bodies; IAM needs s3:GetObject",
-    )
-    prompts_s3_prefix: Optional[str] = Field(
-        default=None,
-        description=(
-            "S3 key prefix, no leading/trailing slash (e.g. prompts/prod). "
-            "If unset/null, defaults to prompts/prod. Set env PROMPTS_S3_PREFIX= (empty) for bucket root."
-        ),
-    )
-    prompts_s3_region: Optional[str] = Field(
-        default=None,
-        description=(
-            "Region for PROMPTS_S3_BUCKET (e.g. us-east-1). "
-            "If unset, falls back to AWS_S3_REGION."
-        ),
-    )
-    
     # Application
     app_name: str = Field(default="Max")
     app_env: str = Field(default="development")

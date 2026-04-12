@@ -3,6 +3,17 @@ from groq import Groq
 import json
 from typing import Dict, Any
 
+_GROQ_SYSTEM_PROMPT = "You are a helpful assistant that outputs JSON."
+
+
+def _get_groq_system_prompt() -> str:
+    try:
+        from services.prompt_loader import PromptKey, resolve_prompt
+        return resolve_prompt(PromptKey.GROQ_FACE_ANALYZER, _GROQ_SYSTEM_PROMPT)
+    except ImportError:
+        return _GROQ_SYSTEM_PROMPT
+
+
 class LLMAnalyzer:
     def __init__(self):
         # Expects GROQ_API_KEY in environment variables
@@ -44,7 +55,7 @@ class LLMAnalyzer:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful assistant that outputs JSON."
+                        "content": _get_groq_system_prompt()
                     },
                     {
                         "role": "user",
