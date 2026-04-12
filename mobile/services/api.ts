@@ -787,11 +787,10 @@ class ApiService {
             attachment_type: attachmentType,
         };
         if (initContext) body.init_context = initContext;
-        // LLM can take ~20s per provider and failover tries a second provider,
-        // so worst case is ~45s. 50s cap avoids premature timeout while the
-        // server is still working. Retry interceptor stays disabled.
+        // LangChain agent may chain multiple tool calls + LLM fallback,
+        // so allow up to 120s before timing out.
         const response = await this.client.post('chat/message', body, {
-            timeout: 50_000,
+            timeout: 120_000,
             // @ts-expect-error custom flag consumed by response interceptor
             _skipNetRetry: true,
         });
