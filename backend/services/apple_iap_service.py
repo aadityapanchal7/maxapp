@@ -38,10 +38,13 @@ def _normalize_p8(raw: str) -> str:
             s = base64.b64decode(s).decode("utf-8").strip()
         except Exception:
             pass
-    if "-----BEGIN" not in s:
-        return s
     header = "-----BEGIN PRIVATE KEY-----"
     footer = "-----END PRIVATE KEY-----"
+    if "-----BEGIN" not in s:
+        # Raw base64 key material without PEM framing — wrap it.
+        body = s.replace("\n", "").replace(" ", "").strip()
+        lines = [body[i:i+64] for i in range(0, len(body), 64)]
+        return header + "\n" + "\n".join(lines) + "\n" + footer + "\n"
     body = s.replace(header, "").replace(footer, "")
     body = body.replace("\n", "").replace(" ", "").strip()
     lines = [body[i:i+64] for i in range(0, len(body), 64)]
