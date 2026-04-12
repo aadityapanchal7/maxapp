@@ -1,58 +1,39 @@
 """
-Blocking LLM calls for use inside asyncio.to_thread (JSON schedule gen, coaching text).
+Synchronous LLM calls for use inside asyncio.to_thread.
+
+All calls go through LangChain providers (lc_providers.py).
+No direct google.generativeai / openai / mistralai SDK imports here.
 """
 
-from config import settings
-from services.llm_provider import use_openai
+from langchain_core.output_parsers import StrOutputParser
 
 
-def sync_llm_json_response(prompt: str) -> str:
-    """Return raw JSON string from the configured provider."""
-    if use_openai():
-        from openai import OpenAI
+def sync_llm_json_response(prompt: str, max_tokens: int = 8192) -> str:
+    """
+    Return raw JSON string from the configured provider.
+    Runs synchronously — call via asyncio.to_thread() from async code.
 
-        key = (settings.openai_api_key or "").strip()
-        if not key:
-            return "{}"
-        client = OpenAI(api_key=key)
-        model = (settings.openai_model or "gpt-4o-mini").strip()
-        r = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
-        )
-        return r.choices[0].message.content or "{}"
+    JSON mode is enabled per-provider:
+      OpenAI / Mistral — response_format=json_object
+      Gemini           — response_mime_type=application/json
 
-    import google.generativeai as genai
+    max_tokens defaults to 8192. Callers that return very large JSON (e.g. schedule
+    adaptation) should pass a higher max_tokens (see settings.schedule_adapt_max_output_tokens).
+    """
+    from services.lc_providers import get_sync_json_llm
 
-    genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel(settings.gemini_model)
-    response = model.generate_content(
-        prompt,
-        generation_config=genai.GenerationConfig(response_mime_type="application/json"),
-    )
-    return response.text
+    llm = get_sync_json_llm(max_tokens=max_tokens)
+    result = (llm | StrOutputParser()).invoke(prompt)
+    return result or "{}"
 
 
 def sync_llm_plain_text(prompt: str) -> str:
-    """Return plain text from the configured provider."""
-    if use_openai():
-        from openai import OpenAI
+    """
+    Return plain text from the configured provider.
+    Runs synchronously — call via asyncio.to_thread() from async code.
+    """
+    from services.lc_providers import get_sync_plain_llm
 
-        key = (settings.openai_api_key or "").strip()
-        if not key:
-            return ""
-        client = OpenAI(api_key=key)
-        model = (settings.openai_model or "gpt-4o-mini").strip()
-        r = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        return (r.choices[0].message.content or "").strip()
-
-    import google.generativeai as genai
-
-    genai.configure(api_key=settings.gemini_api_key)
-    model = genai.GenerativeModel(settings.gemini_model)
-    resp = model.generate_content(prompt)
-    return (resp.text or "").strip()
+    llm = get_sync_plain_llm(max_tokens=512)
+    result = (llm | StrOutputParser()).invoke(prompt)
+    return (result or "").strip()

@@ -8,7 +8,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
@@ -22,14 +22,23 @@ from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 from services.coaching_service import coaching_service
 from services.lc_agent import make_chat_tools, run_chat_agent
+from services.lc_maxx_intent import infer_maxx_chat_intent
 from services.lc_memory import history_dicts_to_lc_messages
 from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
+from services.fitmax_plan import (
+    fitmax_build_plan as _fitmax_build_plan,
+    seed_fitmax_profile_from_onboarding as _fitmax_seed_profile_from_onboarding,
+)
+from config import settings
 
 logger = logging.getLogger(__name__)
+
+# LangChain agent history + background memory/tone use the same window.
+CHAT_HISTORY_WINDOW = 15
 
 # Schedule setup: wake/sleep come from signup / profile only — never re-ask in chat.
 _WAKE_SLEEP_NEVER_ASK = (
@@ -41,6 +50,10 @@ _WAKE_SLEEP_NEVER_ASK = (
 
 def _friendly_llm_error_message(llm_err: BaseException) -> str:
     """After primary+fallback LLM both fail, map quota/rate errors to clearer copy."""
+    if isinstance(llm_err, TimeoutError):
+        return str(llm_err) or (
+            "The assistant took too long — please try again. Your message was saved."
+        )
     blob = f"{type(llm_err).__name__} {llm_err}".lower()
     if any(
         x in blob
@@ -641,72 +654,6 @@ def _extract_fitmax_updates(message: str, current: dict) -> dict:
     return {k: v for k, v in updates.items() if v is not None and (not current.get(k) or current.get(k) != v)}
 
 
-def _fitmax_activity_multiplier(level: str) -> float:
-    return {
-        "sedentary": 1.2,
-        "lightly_active": 1.375,
-        "moderately_active": 1.55,
-        "very_active": 1.725,
-    }.get(level or "moderately_active", 1.55)
-
-
-def _fitmax_build_plan(profile: dict) -> dict:
-    weight_kg = float(profile.get("weight_kg") or 75)
-    height_cm = float(profile.get("height_cm") or 175)
-    age = int(profile.get("age") or 25)
-    sex = profile.get("biological_sex", "male")
-    goal = profile.get("goal", "recomp")
-    activity = profile.get("daily_activity_level", "moderately_active")
-    days = int(profile.get("days_per_week") or 4)
-
-    if sex == "female":
-        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) - 161
-    else:
-        bmr = (10 * weight_kg) + (6.25 * height_cm) - (5 * age) + 5
-
-    tdee = int(round(bmr * _fitmax_activity_multiplier(activity)))
-    delta = 0
-    goal_label = "Recomp · Maintenance calories"
-    if goal == "fat_loss":
-        delta = -500
-        goal_label = "Fat Loss · 500 cal deficit"
-    elif goal == "muscle_gain":
-        delta = 300
-        goal_label = "Muscle Gain · Lean surplus"
-    elif goal == "maintenance":
-        delta = 0
-        goal_label = "Maintenance · Bodyweight stable"
-    elif goal == "performance":
-        delta = 200
-        goal_label = "Performance · Small surplus"
-
-    calories = max(1400, tdee + delta)
-    protein = int(round(weight_kg * 2.2 * (1.0 if goal in ("fat_loss", "muscle_gain") else 0.9)))
-    fat = int(round((calories * 0.27) / 9))
-    carbs = int(round((calories - (protein * 4 + fat * 9)) / 4))
-
-    if days >= 5:
-        split = "Push/Pull/Legs"
-    elif days == 4:
-        split = "Upper/Lower"
-    elif days == 3:
-        split = "Full Body 3x"
-    else:
-        split = "Full Body 2x"
-
-    return {
-        "bmr": int(round(bmr)),
-        "tdee": tdee,
-        "calories": int(round(calories)),
-        "protein_g": protein,
-        "carbs_g": carbs,
-        "fat_g": fat,
-        "goal_label": goal_label,
-        "split": split,
-        "days_per_week": days,
-    }
-
-
 def _fitmax_parse_quantity(text: str) -> tuple[float, str]:
     s = (text or "").strip().lower()
     qty = 1.0
@@ -1029,92 +976,32 @@ def _hairmax_onboarding_known_block(ob: dict) -> str:
     )
 
 
-def _fitmax_seed_profile_from_onboarding(profile: dict, ob: dict) -> dict:
-    """Pre-fill FitMax chat profile from global / FitMax questionnaire answers."""
-    out = dict(profile or {})
-    ob = ob or {}
+def _fitmax_known_from_onboarding(onboarding: dict, profile: dict) -> str:
+    """Lines for FitMax [SYSTEM] so the agent skips fields already on user/onboarding."""
+    lines: list[str] = []
+    ob = onboarding or {}
+    fp = dict(profile.get("fitmax_profile") or {}) if profile else {}
 
-    def take(dst: str, val, only_if_empty: bool = True) -> None:
-        if val is None or val == "" or val == []:
+    def add(label: str, v: Any) -> None:
+        if v is None or v == "" or v == []:
             return
-        if only_if_empty and out.get(dst) not in (None, "", []):
-            return
-        out[dst] = val
+        lines.append(f"- {label}: {v}")
 
-    fpg = str(ob.get("fitmax_primary_goal") or "").lower()
-    if fpg:
-        if any(k in fpg for k in ("fat", "cut", "lose weight", "shred")):
-            take("goal", "fat_loss")
-        elif any(k in fpg for k in ("muscle", "bulk", "gain", "hypertrophy", "mass")):
-            take("goal", "muscle_gain")
-        elif "recomp" in fpg:
-            take("goal", "recomp")
-        elif any(k in fpg for k in ("maintain", "maintenance")):
-            take("goal", "maintenance")
-        elif any(k in fpg for k in ("performance", "strength", "athletic")):
-            take("goal", "performance")
+    add("goal (internal)", fp.get("goal") or ob.get("fitmax_primary_goal"))
+    add("weight_kg", fp.get("weight_kg") or ob.get("weight"))
+    add("height_cm", fp.get("height_cm") or ob.get("height"))
+    add("age", fp.get("age") or ob.get("age"))
+    add("biological_sex", fp.get("biological_sex") or ob.get("gender") or ob.get("sex"))
+    add("days_per_week", fp.get("days_per_week") or ob.get("fitmax_workout_days_per_week"))
+    add("experience_level", fp.get("experience_level") or ob.get("fitmax_training_experience"))
+    add("equipment", fp.get("equipment") or ob.get("fitmax_equipment"))
+    add("session_minutes", fp.get("session_minutes") or ob.get("fitmax_session_minutes"))
+    add("daily_activity_level", fp.get("daily_activity_level"))
+    add("dietary_restrictions", fp.get("dietary_restrictions") or ob.get("fitmax_diet_approach"))
 
-    exp = ob.get("fitmax_training_experience") or ob.get("experience_level")
-    if exp:
-        e = str(exp).lower()
-        if "beginner" in e:
-            take("experience_level", "beginner")
-        elif "intermediate" in e:
-            take("experience_level", "intermediate")
-        elif "advanced" in e:
-            take("experience_level", "advanced")
-
-    h = ob.get("height")
-    if h is not None and str(h).strip():
-        try:
-            take("height_cm", float(h))
-        except (TypeError, ValueError):
-            pass
-    w = ob.get("weight")
-    if w is not None and str(w).strip():
-        try:
-            take("weight_kg", float(w))
-        except (TypeError, ValueError):
-            pass
-    age_v = _safe_int_age(ob.get("age"))
-    if age_v is not None:
-        take("age", age_v)
-
-    g = str(ob.get("gender") or ob.get("sex") or "").lower()
-    if g:
-        if any(x in g for x in ("female", "woman", "girl")):
-            take("biological_sex", "female")
-        elif any(x in g for x in ("male", "man", "boy")):
-            take("biological_sex", "male")
-
-    feq = ob.get("fitmax_equipment")
-    if feq:
-        take("equipment", ", ".join(feq) if isinstance(feq, list) else str(feq))
-    elif ob.get("equipment"):
-        eq = ob.get("equipment")
-        take("equipment", ", ".join(eq) if isinstance(eq, list) else str(eq))
-
-    d = ob.get("fitmax_workout_days_per_week")
-    if d is not None:
-        try:
-            n = int(float(str(d).strip()))
-            if 1 <= n <= 7:
-                take("days_per_week", n)
-        except (TypeError, ValueError):
-            pass
-
-    al = str(ob.get("activity_level") or "").lower()
-    if al:
-        if any(k in al for k in ("sedentary", "desk")):
-            take("daily_activity_level", "sedentary")
-        elif any(k in al for k in ("light", "lightly")):
-            take("daily_activity_level", "lightly_active")
-        elif any(k in al for k in ("moderate", "medium")):
-            take("daily_activity_level", "moderately_active")
-        elif any(k in al for k in ("very", "high", "athlete", "extreme")):
-            take("daily_activity_level", "very_active")
-
-    return out
+    if not lines:
+        return "ALREADY KNOWN: nothing pre-filled — collect all required fields via conversation.\n"
+    return "ALREADY KNOWN (do NOT re-ask unless user corrects):\n" + "\n".join(lines) + "\n"
 
 
 def _merge_onboarding_with_schedule_prefs(user: Optional[User]) -> dict:
@@ -1569,27 +1456,22 @@ async def process_chat_message(
         await db.commit()
         return _finalize_assistant_message(response_text), []
 
-    # --- Init context / maxx schedule onboarding ---
+    # --- Maxx module routing (structured LLM; init_context is hint inside classifier) ---
     message = message_text
-    maxx_id = _coerce_chat_maxx_id(init_context)
-    if not maxx_id and message:
-        msg_lower = message.lower()
-        if "skinmax" in msg_lower or "skin max" in msg_lower:
-            maxx_id = "skinmax"
-        elif (
-            "heightmax" in msg_lower
-            or bool(re.search(r"\bheight\s+maxx?\b", msg_lower))
-            or bool(re.search(r"\bonboard\b.*\bheight\b|\bheight\b.*\bonboard\b", msg_lower))
-        ):
-            maxx_id = "heightmax"
-        elif "hairmax" in msg_lower or "hair max" in msg_lower:
-            maxx_id = "hairmax"
-        elif "fitmax" in msg_lower or "fit max" in msg_lower:
-            maxx_id = "fitmax"
-        elif "bonemax" in msg_lower or "bone max" in msg_lower or "bone maxx" in msg_lower:
-            maxx_id = "bonemax"
-    if maxx_id:
-        maxx_id = _coerce_chat_maxx_id(maxx_id) or maxx_id
+    if not (message_text or "").strip():
+        maxx_id = _coerce_chat_maxx_id(init_context)
+    else:
+        active_hint = None
+        if active_schedule:
+            active_hint = str(active_schedule.get("maxx_id") or "").strip() or None
+        inferred = await infer_maxx_chat_intent(
+            message_text=message_text,
+            init_context=init_context,
+            channel=channel,
+            active_maxx_hint=active_hint,
+            heightmax_app_kickoff=_is_heightmax_app_kickoff_message(message_text),
+        )
+        maxx_id = _coerce_chat_maxx_id(inferred) if inferred else None
 
     if maxx_id and maxx_id != "fitmax" and user:
         prof = dict(user.profile or {})
@@ -1620,7 +1502,9 @@ async def process_chat_message(
             await db.commit()
             profile = prof
 
-    if maxx_id == "fitmax" and user and not fitmax_schedule_active:
+    scripted_mx = settings.chat_scripted_fitmax_hairmax_onboarding
+
+    if scripted_mx and maxx_id == "fitmax" and user and not fitmax_schedule_active:
         prof = dict(profile or {})
         if not prof.get("fitmax_chat_setup"):
             prof["fitmax_chat_setup"] = True
@@ -1631,7 +1515,7 @@ async def process_chat_message(
             await db.commit()
             profile = dict((user.profile or {}) or {})
 
-    if maxx_id == "hairmax" and user and not hairmax_schedule_active:
+    if scripted_mx and maxx_id == "hairmax" and user and not hairmax_schedule_active:
         prof = dict(profile or {})
         if not prof.get("hairmax_chat_setup"):
             prof["hairmax_chat_setup"] = True
@@ -1642,10 +1526,13 @@ async def process_chat_message(
             await db.commit()
             profile = dict((user.profile or {}) or {})
 
-    fitmax_pending = bool(user and str(profile.get("chat_pending_module") or "").lower() == "fitmax")
-    fitmax_chat_setup = bool(profile.get("fitmax_chat_setup"))
+    fitmax_pending = bool(
+        scripted_mx and user and str(profile.get("chat_pending_module") or "").lower() == "fitmax"
+    )
+    fitmax_chat_setup = bool(scripted_mx and profile.get("fitmax_chat_setup"))
     run_fitmax_onboarding = bool(
-        user
+        scripted_mx
+        and user
         and not fitmax_schedule_active
         and (
             maxx_id == "fitmax"
@@ -1658,9 +1545,10 @@ async def process_chat_message(
         )
     )
 
-    hairmax_chat_setup = bool(profile.get("hairmax_chat_setup"))
+    hairmax_chat_setup = bool(scripted_mx and profile.get("hairmax_chat_setup"))
     run_hairmax_onboarding = bool(
-        user
+        scripted_mx
+        and user
         and not hairmax_schedule_active
         and (
             maxx_id == "hairmax"
@@ -2041,7 +1929,7 @@ async def process_chat_message(
             and not existing_maxx
             and user
             and init_context
-            and _coerce_chat_maxx_id(init_context) == "heightmax"
+            and maxx_id == "heightmax"
             and _heightmax_demographics_complete(onboarding)
             and _is_heightmax_app_kickoff_message(message_text)
         ):
@@ -2301,19 +2189,43 @@ Call generate_maxx_schedule once when you have skin_concern + outside_today (wak
         elif maxx_id == "fitmax":
             _wt = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
             _st = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
-            message = f"""[SYSTEM: FitMax — training & nutrition schedule. The user is starting or continuing FitMax.
+            _fitmax_known = _fitmax_known_from_onboarding(onboarding, profile)
+            message = f"""[SYSTEM: you are running the FITMAX schedule setup (training & nutrition).
+
+{_fitmax_known}
 
 CRITICAL — FORBIDDEN FOR FITMAX (not Skinmax)
 - NEVER ask "outside today", "going outside", UV, sunscreen, or SPF. FitMax always uses outside_today=false in generate_maxx_schedule.
 - NEVER ask wake_time or sleep_time to complete setup — use user_context.onboarding or pass wake_time="{_wt}" and sleep_time="{_st}" in the tool. Only acknowledge if the user volunteers a correction.
 
-ANTI-REDUNDANCY
-- Do NOT repeat the same question if the user already answered in this thread.
-- Do NOT use the Skinmax flow (skin concern + outside today). FitMax is not a skin module.
+WHAT TO COLLECT (only if missing from ALREADY KNOWN above)
+- goal: fat loss, muscle gain, recomp, maintenance, or performance (map to skin_concern in tool, e.g. "muscle gain" or "muscle_gain")
+- weight in kg (pass body_weight_kg in the tool, or user says lbs — convert)
+- height (pass height as string, e.g. 5'9 or 175cm — same as heightmax)
+- age (pass age integer)
+- biological sex male/female (pass sex or gender)
+- training days per week 3–6 (pass training_days_per_week integer)
 
-WHAT TO DO
-- If you have enough context, call generate_maxx_schedule ONCE with maxx_id="fitmax", outside_today=false, skin_concern=a short goal/phase label from the conversation, wake_time="{_wt}", sleep_time="{_st}".
-- Otherwise ONE short follow-up at a time — never wake, sleep, or outside.
+OPTIONAL (nice to have; not required to call the tool)
+- training experience: beginner / intermediate / advanced (pass training_experience)
+- equipment (pass fitmax_equipment)
+- session length minutes (pass session_minutes)
+- daily activity outside gym (pass daily_activity_level: sedentary, lightly active, moderately active, very active)
+- dietary restrictions (pass dietary_restrictions)
+
+HOW TO CALL generate_maxx_schedule (once all required fields are known)
+- maxx_id = "fitmax"
+- outside_today = false
+- wake_time = "{_wt}", sleep_time = "{_st}"
+- skin_concern = short goal phrase from the user (used with other args for routing)
+- age, sex or gender, height, body_weight_kg, training_days_per_week — pass explicitly from the conversation
+- optional: training_experience, fitmax_equipment, session_minutes, daily_activity_level, dietary_restrictions
+
+If the tool returns "missing required fields for fitmax: ...", ask ONLY for the listed items, one at a time.
+
+ANTI-REDUNDANCY
+- Do not repeat questions for fields already listed under ALREADY KNOWN.
+- Do not use the Skinmax flow (skin concern + outside today).
 
 STYLE: short, casual, same as other maxxes.]\n\n{message}"""
         else:
@@ -2370,7 +2282,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         active_schedule=active_schedule,
         channel=channel,
     )
-    lc_history = history_dicts_to_lc_messages(history[-10:])
+    lc_history = history_dicts_to_lc_messages(history[-CHAT_HISTORY_WINDOW:])
     try:
         response_text, modify_schedule_ran = await run_chat_agent(
             message=message,
@@ -2379,6 +2291,8 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             image_data=image_data,
             delivery_channel=channel,
             tools=tools,
+            db=db,
+            maxx_id=maxx_id,
         )
     except Exception as llm_err:
         logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)
@@ -2439,10 +2353,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     # when this endpoint returns.
     total_msgs = len(history) + 2
     if _persist_chat_history(channel) and total_msgs % 10 == 0:
-        _spawn_background_task(_bg_update_memory(user_id, history[-20:]))
+        _spawn_background_task(_bg_update_memory(user_id, history[-CHAT_HISTORY_WINDOW:]))
 
     if _persist_chat_history(channel) and total_msgs % 20 == 0:
-        _spawn_background_task(_bg_detect_tone(user_id, history[-30:]))
+        _spawn_background_task(_bg_detect_tone(user_id, history[-CHAT_HISTORY_WINDOW:]))
 
     choices_out: list[str] = []
     if maxx_id and not existing_maxx:

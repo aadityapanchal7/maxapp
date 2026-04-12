@@ -23,16 +23,19 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import BaseMessage
-from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import tool
 
 from config import settings
+from services import fitmax_plan as fplan
 from services.lc_memory import history_dicts_to_lc_messages
 from services.lc_providers import get_chat_llm_with_tools_and_fallback
 from services.prompt_constants import MAX_CHAT_SYSTEM_PROMPT
@@ -40,6 +43,24 @@ from services.prompt_loader import PromptKey, resolve_prompt
 from services.sms_reply_style import sms_chat_appendix
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_image_mime(image_data: bytes) -> str:
+    """Infer data: URL MIME type from image magic bytes (defaults to image/jpeg)."""
+    if not image_data:
+        return "image/jpeg"
+    h = image_data[:16]
+    if len(h) >= 3 and h[0:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if len(h) >= 8 and h[0:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if len(h) >= 6 and h[0:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if len(h) >= 12 and h[0:4] == b"RIFF" and h[8:12] == b"WEBP":
+        return "image/webp"
+    if len(h) >= 2 and h[0:2] == b"BM":
+        return "image/bmp"
+    return "image/jpeg"
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +138,29 @@ def _normalize_hair_yes_no(val) -> Optional[str]:
     return None
 
 
+_BONEMAX_WF_ALLOWED = frozenset({"0", "1-2", "3-4", "5+"})
+
+
+def _normalize_bonemax_workout_frequency(raw: Optional[str]) -> Optional[str]:
+    """Map user/LLM strings to canonical bonemax workout_frequency or None if invalid."""
+    if raw is None:
+        return None
+    s = str(raw).strip().lower()
+    s = s.replace("–", "-").replace("—", "-")
+    s = re.sub(r"\s+", "", s)
+    if s in _BONEMAX_WF_ALLOWED:
+        return s
+    if s in ("5plus", "5ormore", "6+", "7+", "daily", "everyday"):
+        return "5+"
+    if s in ("3to4", "3_4"):
+        return "3-4"
+    if s in ("1to2", "1_2"):
+        return "1-2"
+    if s in ("0", "none", "sedentary", "inactive"):
+        return "0"
+    return None
+
+
 def _infer_skin_concern_id_from_onboarding(ob: dict) -> Optional[str]:
     if not ob:
         return None
@@ -190,6 +234,9 @@ async def _persist_user_wake_sleep(user, db, wake_time, sleep_time) -> None:
 async def build_agent_system_prompt(
     user_context: Optional[dict],
     delivery_channel: str,
+    maxx_id: Optional[str] = None,
+    user_message: Optional[str] = None,
+    db=None,
 ) -> str:
     """Build the full system prompt for the agent (same logic as _lc_chat in llm_router)."""
     chat_prompt = await asyncio.to_thread(
@@ -223,6 +270,22 @@ async def build_agent_system_prompt(
     if context_str:
         chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
 
+    # Auto-inject RAG knowledge chunks when a maxx_id is known and docs have been ingested
+    if maxx_id and user_message and db is not None:
+        try:
+            from services.rag_service import retrieve_chunks
+            chunks = await retrieve_chunks(db, maxx_id=maxx_id, query=user_message, k=3)
+            if chunks:
+                rag_lines = []
+                for c in chunks:
+                    rag_lines.append(f"[{c['doc_title']}]\n{c['content']}")
+                rag_block = "\n\n---\n\n".join(rag_lines)
+                chat_prompt += f"\n\n## Relevant Knowledge ({maxx_id})\n{rag_block}"
+                logger.debug("[RAG] injected %d chunks for maxx=%s", len(chunks), maxx_id)
+        except Exception as rag_err:
+            # Never let RAG errors block the chat response
+            logger.warning("[RAG] auto-inject failed (maxx=%s): %s", maxx_id, rag_err)
+
     sms_extra = sms_chat_appendix(delivery_channel)
     if sms_extra:
         chat_prompt += "\n\n" + sms_extra
@@ -254,6 +317,10 @@ def make_chat_tools(
     from services.coaching_service import coaching_service
     from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 
+    # Mutable: updated when generate_maxx_schedule creates a schedule so later
+    # tools in the same agent turn see the new active schedule (not stale closure).
+    schedule_state: dict = {"active": active_schedule}
+
     # ------------------------------------------------------------------ #
     #  modify_schedule                                                     #
     # ------------------------------------------------------------------ #
@@ -263,15 +330,17 @@ def make_chat_tools(
         Modify the user's active schedule from natural language feedback.
         Only call when the user explicitly requests calendar or task changes.
         """
-        if not active_schedule:
+        cur = schedule_state.get("active")
+        if not cur:
             return "no active schedule to modify"
         try:
             result = await schedule_service.adapt_schedule(
                 user_id=user_id,
-                schedule_id=active_schedule["id"],
+                schedule_id=cur["id"],
                 db=db,
                 feedback=feedback,
             )
+            coaching_service.invalidate_context_cache(user_id)
             return result.get("changes_summary", "schedule updated")
         except Exception as e:
             logger.exception("modify_schedule tool failed: %s", e)
@@ -300,6 +369,13 @@ def make_chat_tools(
         tmj_history: Optional[str] = None,
         mastic_gum_regular: Optional[str] = None,
         heavy_screen_time: Optional[str] = None,
+        body_weight_kg: Optional[float] = None,
+        training_days_per_week: Optional[int] = None,
+        training_experience: Optional[str] = None,
+        fitmax_equipment: Optional[str] = None,
+        session_minutes: Optional[int] = None,
+        daily_activity_level: Optional[str] = None,
+        dietary_restrictions: Optional[str] = None,
     ) -> str:
         """
         Generate a personalised maxx schedule after required onboarding fields are collected.
@@ -333,6 +409,8 @@ def make_chat_tools(
                         )
                     )
                 )
+            elif req_maxx == "fitmax":
+                resolved_concern = str(skin_concern or "").strip() or None
             else:
                 resolved_concern = skin_concern or onboarding.get("skin_type")
 
@@ -387,13 +465,21 @@ def make_chat_tools(
             # BoneMax: validate bone fields
             wf = tmj_raw = gum_raw = scr_raw = None
             if req_maxx == "bonemax":
-                wf = (workout_frequency or onboarding.get("bonemax_workout_frequency") or "").strip()
+                wf_raw = (workout_frequency or onboarding.get("bonemax_workout_frequency") or "").strip()
                 tmj_raw = tmj_history if tmj_history is not None else onboarding.get("bonemax_tmj_history")
                 gum_raw = mastic_gum_regular if mastic_gum_regular is not None else onboarding.get("bonemax_mastic_gum_regular")
                 scr_raw = heavy_screen_time if heavy_screen_time is not None else onboarding.get("bonemax_heavy_screen_time")
                 missing = []
-                if not wf:
+                if not wf_raw:
                     missing.append("workout_frequency (0, 1-2, 3-4, or 5+)")
+                else:
+                    wf_norm = _normalize_bonemax_workout_frequency(wf_raw)
+                    if wf_norm is None:
+                        return (
+                            "bonemax workout_frequency must be one of: 0, 1-2, 3-4, 5+ "
+                            f"(got: {wf_raw[:40]!r})"
+                        )
+                    wf = wf_norm
                 if not _yes_no_answered(tmj_raw):
                     missing.append("tmj_history (yes/no)")
                 if not _yes_no_answered(gum_raw):
@@ -402,6 +488,41 @@ def make_chat_tools(
                     missing.append("heavy_screen_time (yes/no)")
                 if missing:
                     return f"missing required fields for bonemax: {', '.join(missing)}"
+
+            # FitMax: merge tool + onboarding + profile, validate, persist, set schedule skin_concern label
+            if req_maxx == "fitmax":
+                if not user:
+                    return "cannot generate fitmax schedule without a user context"
+                from sqlalchemy.orm.attributes import flag_modified as _flag_modified_fm
+                prof0 = dict((user.profile or {}).get("fitmax_profile") or {})
+                merged_fm = fplan.seed_fitmax_profile_from_onboarding(dict(prof0), dict(onboarding or {}))
+                fplan.merge_fitmax_tool_into_profile(
+                    merged_fm,
+                    age=_age,
+                    sex=_sex,
+                    gender=gender,
+                    height_str=height,
+                    skin_concern=skin_concern,
+                    body_weight_kg=body_weight_kg,
+                    training_days_per_week=training_days_per_week,
+                    training_experience=training_experience,
+                    fitmax_equipment=fitmax_equipment,
+                    session_minutes=session_minutes,
+                    daily_activity_level=daily_activity_level,
+                    dietary_restrictions=dietary_restrictions,
+                )
+                miss_fm = fplan.fitmax_validate_required(merged_fm)
+                if miss_fm:
+                    return f"missing required fields for fitmax: {', '.join(miss_fm)}"
+                fplan.persist_fitmax_to_user_onboarding(user, merged_fm)
+                prof_m = dict((user.profile or {}).get("fitmax_profile") or {})
+                prof_m.update(merged_fm)
+                user.profile = {**(user.profile or {}), "fitmax_profile": prof_m}
+                _flag_modified_fm(user, "profile")
+                _flag_modified_fm(user, "onboarding")
+                await db.flush()
+                plan_prev = fplan.fitmax_build_plan(merged_fm)
+                resolved_concern = (str(skin_concern or "").strip() or plan_prev["goal_label"])
 
             # For HeightMax: persist age/sex/height to onboarding so future API calls see them
             if req_maxx == "heightmax" and user:
@@ -420,6 +541,33 @@ def make_chat_tools(
                 _flag_modified(user, "onboarding")
                 await db.flush()
 
+            await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
+
+            yesno_overrides: dict = {}
+            if req_maxx == "hairmax":
+                _ds_src = daily_styling if daily_styling is not None else onboarding.get("daily_styling")
+                _ds_n = _normalize_hair_yes_no(_ds_src)
+                if _ds_n is not None:
+                    yesno_overrides["override_daily_styling"] = _ds_n
+                _th_src = thinning if thinning is not None else hair_thinning
+                if _th_src is None:
+                    _th_src = onboarding.get("hair_thinning")
+                    if _th_src is None:
+                        _th_src = onboarding.get("thinning")
+                _th_n = _normalize_hair_yes_no(_th_src)
+                if _th_n is not None:
+                    yesno_overrides["override_thinning"] = _th_n
+            elif req_maxx == "bonemax":
+                _tmj_n = _normalize_hair_yes_no(tmj_raw)
+                if _tmj_n is not None:
+                    yesno_overrides["override_tmj_history"] = _tmj_n
+                _gum_n = _normalize_hair_yes_no(gum_raw)
+                if _gum_n is not None:
+                    yesno_overrides["override_mastic_gum_regular"] = _gum_n
+                _scr_n = _normalize_hair_yes_no(scr_raw)
+                if _scr_n is not None:
+                    yesno_overrides["override_heavy_screen_time"] = _scr_n
+
             schedule = await schedule_service.generate_maxx_schedule(
                 user_id=user_id,
                 maxx_id=req_maxx,
@@ -428,26 +576,32 @@ def make_chat_tools(
                 wake_time=final_wake,
                 sleep_time=final_sleep,
                 skin_concern=resolved_concern,
-                outside_today=False if req_maxx in ("fitmax", "hairmax") else bool(outside_today),
+                outside_today=False
+                if req_maxx in ("fitmax", "hairmax", "heightmax", "bonemax")
+                else bool(outside_today),
                 override_age=_age,
                 override_sex=_sex,
                 override_height=str(height).strip() if height and str(height).strip() else None,
                 override_hair_type=(hair_type or onboarding.get("hair_type") or "").strip() or None,
                 override_scalp_state=(scalp_state or onboarding.get("scalp_state") or "").strip() or None,
-                override_daily_styling=_normalize_hair_yes_no(
-                    daily_styling if daily_styling is not None else onboarding.get("daily_styling")
-                ),
-                override_thinning=_normalize_hair_yes_no(
-                    thinning or hair_thinning
-                    or onboarding.get("hair_thinning")
-                    or onboarding.get("thinning")
-                ),
                 override_workout_frequency=wf,
-                override_tmj_history=_normalize_hair_yes_no(tmj_raw),
-                override_mastic_gum_regular=_normalize_hair_yes_no(gum_raw),
-                override_heavy_screen_time=_normalize_hair_yes_no(scr_raw),
+                **yesno_overrides,
             )
-            await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
+            if req_maxx == "fitmax" and user:
+                from sqlalchemy.orm.attributes import flag_modified as _flag_plan
+                await db.refresh(user)
+                prof_fp = dict((user.profile or {}).get("fitmax_profile") or {})
+                prof_fp["fitmax_plan"] = fplan.fitmax_build_plan(prof_fp)
+                user.profile = {**(user.profile or {}), "fitmax_profile": prof_fp}
+                _flag_plan(user, "profile")
+                await db.flush()
+            schedule_state["active"] = {
+                "id": schedule.get("id"),
+                "maxx_id": schedule.get("maxx_id"),
+                "course_title": schedule.get("course_title"),
+                "days": schedule.get("days") or [],
+            }
+            coaching_service.invalidate_context_cache(user_id)
             return _summarise_schedule(schedule)
 
         except ScheduleLimitError as e:
@@ -472,10 +626,19 @@ def make_chat_tools(
         if channel == "sms":
             return "stopping modules can only be done in the app"
         try:
-            result = await schedule_service.deactivate_schedule_by_maxx(
-                user_id, maxx_id.strip().lower(), db
-            )
+            mid = maxx_id.strip().lower()
+            result = await schedule_service.deactivate_schedule_by_maxx(user_id, mid, db)
             if result:
+                coaching_service.invalidate_context_cache(user_id)
+                cur = schedule_state.get("active")
+                if cur and str(cur.get("maxx_id") or "").lower() == mid:
+                    try:
+                        schedule_state["active"] = await schedule_service.get_current_schedule(
+                            user_id, db=db
+                        )
+                    except Exception as refresh_err:
+                        logger.warning("stop_schedule: refresh current schedule failed: %s", refresh_err)
+                        schedule_state["active"] = None
                 return f"{maxx_id} schedule stopped"
             return f"no active {maxx_id} schedule found"
         except Exception as e:
@@ -496,10 +659,11 @@ def make_chat_tools(
                 wk = value if "wake" in lk else None
                 sk = value if "sleep" in lk else None
                 await _persist_user_wake_sleep(user, db, wk, sk)
-            if active_schedule and key:
+            cur = schedule_state.get("active")
+            if cur and key:
                 await schedule_service.update_schedule_context(
                     user_id=user_id,
-                    schedule_id=active_schedule["id"],
+                    schedule_id=cur["id"],
                     db=db,
                     context_updates={key: value},
                 )
@@ -529,12 +693,12 @@ def make_chat_tools(
         try:
             check_in_data: dict = {}
             parts: list[str] = []
-            if workout_done:
-                check_in_data["workout_done"] = True
-                parts.append("workout=done")
-            if missed:
-                check_in_data["missed"] = True
-                parts.append("missed=true")
+            if workout_done is not None:
+                check_in_data["workout_done"] = workout_done
+                parts.append(f"workout={'done' if workout_done else 'skipped'}")
+            if missed is not None:
+                check_in_data["missed"] = missed
+                parts.append(f"missed={missed}")
             if sleep_hours is not None:
                 check_in_data["sleep_hours"] = sleep_hours
                 parts.append(f"sleep={sleep_hours}h")
@@ -579,7 +743,7 @@ def make_chat_tools(
                 user.profile = prof
                 _flag_modified(user, "profile")
                 user.updated_at = datetime.utcnow()
-                await db.commit()
+                await db.flush()
                 coaching_service.invalidate_context_cache(user_id)
             return f"coaching mode set to {mode_clean}"
         except Exception as e:
@@ -635,7 +799,22 @@ def make_chat_tools(
         """
         try:
             mod = str(module).lower().strip()
-            tp = str(topic or "").lower().strip()
+            query = str(topic or module).strip()
+
+            # --- RAG retrieval (primary path) ---
+            try:
+                from services.rag_service import retrieve_chunks
+                chunks = await retrieve_chunks(db, maxx_id=mod, query=query, k=4)
+                if chunks:
+                    parts = [
+                        f"[{c['doc_title']} — section {c['chunk_index'] + 1}]\n{c['content']}"
+                        for c in chunks
+                    ]
+                    return "\n\n---\n\n".join(parts)
+            except Exception as rag_err:
+                logger.warning("get_module_info RAG failed (maxx=%s): %s", mod, rag_err)
+
+            # --- Fallback: read local .md reference file ---
             ref_path = os.path.normpath(
                 os.path.join(
                     os.path.dirname(__file__),
@@ -646,7 +825,8 @@ def make_chat_tools(
                 return f"no reference found for {mod}"
             with open(ref_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            if tp:
+            tp = query.lower()
+            if tp and tp != mod:
                 lines = content.split("\n")
                 result_lines: list[str] = []
                 in_section = False
@@ -696,21 +876,19 @@ def make_chat_tools(
                     in_section = True
                 if in_section:
                     stripped = line.strip()
-                    if stripped and any(
-                        kw in line.lower()
-                        for kw in (
-                            "cerave", "paula", "nizoral", "minoxidil", "finasteride",
-                            "retinol", "retinoid", "niacinamide", "vitamin", "spf",
-                            "sunscreen", "serum", "moisturizer", "cleanser", "shampoo",
-                            "conditioner", "dermastamp", "dermaroller", "falim",
-                            "mastic", "protein", "creatine", "zinc", "magnesium",
-                            "omega", "collagen", "biotin", "caffeine",
-                        )
-                    ):
+                    if not stripped or stripped.startswith("---"):
+                        continue
+                    if stripped.startswith("#") and len(stripped) < 80:
+                        continue
+                    is_bullet = bool(
+                        re.match(r"^[-*•]\s+", stripped) or re.match(r"^\d+[\).]\s+", stripped)
+                    )
+                    if stripped and (is_bullet or ":" in stripped or len(stripped) > 40):
                         prod_lines.append(stripped)
-                    if len(prod_lines) >= 8:
+                    if len(prod_lines) >= 12:
                         break
-            result = "; ".join(prod_lines[:5])[:300] if prod_lines else content[:300]
+            joined = "\n".join(prod_lines[:12])
+            result = (joined[:400] if joined else content[:400])
             return f"[{mod}/{con} products]\n{result}"
         except Exception as e:
             logger.exception("recommend_product tool failed: %s", e)
@@ -740,6 +918,8 @@ async def run_chat_agent(
     image_data: Optional[bytes],
     delivery_channel: str,
     tools: list,
+    db: Optional["AsyncSession"] = None,
+    maxx_id: Optional[str] = None,
 ) -> tuple[str, bool]:
     """
     Run the tool-calling AgentExecutor and return (response_text, schedule_mutated).
@@ -750,15 +930,20 @@ async def run_chat_agent(
     The agent handles the full reasoning → tool call → observe → respond loop.
     max_iterations=4 allows: tool call → observe → (optional second tool) → final answer.
     """
-    system_prompt = await build_agent_system_prompt(user_context, delivery_channel)
+    system_prompt = await build_agent_system_prompt(
+        user_context, delivery_channel,
+        maxx_id=maxx_id, user_message=message, db=db,
+    )
 
     # Image: inject as multimodal content part in the human message
     if image_data:
         import base64
+
+        mime = _detect_image_mime(image_data)
         b64 = base64.b64encode(image_data).decode()
         input_content: str | list = [
             {"type": "text", "text": message or ""},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
         ]
     else:
         input_content = message or ""
@@ -786,14 +971,25 @@ async def run_chat_agent(
 
     logger.info("[AGENT] user channel=%s msg=%.80s", delivery_channel, message or "")
 
-    result = await asyncio.wait_for(
-        executor.ainvoke({
-            "input": input_content,
-            "chat_history": lc_history,
-            "system_prompt": system_prompt,
-        }),
-        timeout=call_timeout,
-    )
+    try:
+        result = await asyncio.wait_for(
+            executor.ainvoke({
+                "input": input_content,
+                "chat_history": lc_history,
+                "system_prompt": system_prompt,
+            }),
+            timeout=call_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.error("[AGENT] timeout after %.1fs", call_timeout)
+        if db is not None:
+            try:
+                await db.rollback()
+            except Exception as rb_err:
+                logger.warning("[AGENT] rollback after timeout failed: %s", rb_err)
+        raise TimeoutError(
+            "The assistant took too long — please try again. Your message was saved."
+        ) from None
 
     response_text = (result.get("output") or "").strip()
 

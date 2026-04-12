@@ -1,124 +1,36 @@
 """
-Load LLM / coaching prompts from S3 with in-repo string fallbacks.
+Load LLM / coaching prompts from the Supabase `system_prompts` table.
 
-S3 layout (either extension works; .md tried first):
-  s3://{PROMPTS_S3_BUCKET}/{PROMPTS_S3_PREFIX}/{key}.md
-  s3://{PROMPTS_S3_BUCKET}/{PROMPTS_S3_PREFIX}/{key}.txt
+Prompts are loaded into an in-process cache at startup and refreshed every hour
+by the APScheduler job in scheduler_job.py.  If the DB is unavailable the cache
+retains its last-known-good state; on a cold start with no DB the hardcoded
+fallback strings are returned by resolve_prompt().
 
-If PROMPTS_S3_BUCKET is empty, fallbacks are always used (no S3 calls).
-
-Keys (must match uploaded object names without extension):
+Keys (match the `key` column in system_prompts and the PromptKey constants below):
   face_analysis_system, umax_triple_system, triple_full_system, max_chat_system,
   bonemax_new_schedule_system, schedule_generation, schedule_adaptation, maxx_schedule,
   coaching_memory_compress, coaching_tone_detect, coaching_fitmax_check_in,
   coaching_check_in_general, coaching_bedtime,
-  Per maxx (notification engine — coaching snippet, full reference md, json directives):
   skinmax_*, bonemax_*, heightmax_*, hairmax_*, fitmax_* with suffixes
-  _coaching_reference, _notification_engine_reference, _json_directives,
-  langgraph_validate_images, langgraph_analyze_face_metrics, langgraph_improvements
+    _coaching_reference, _notification_engine_reference, _json_directives,
+  langgraph_validate_images, langgraph_analyze_face_metrics, langgraph_improvements,
+  maxx_intent_system, groq_face_analyzer
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
-import boto3
-from botocore.exceptions import ClientError
-
-from config import settings
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
 _CACHE: dict[str, str] = {}
 
 
-def _s3_client():
-    region = (
-        (getattr(settings, "prompts_s3_region", None) or "").strip()
-        or (settings.aws_s3_region or "").strip()
-        or "us-east-1"
-    )
-    kwargs: dict = {"region_name": region}
-    if settings.aws_access_key_id and settings.aws_secret_access_key:
-        kwargs["aws_access_key_id"] = settings.aws_access_key_id
-        kwargs["aws_secret_access_key"] = settings.aws_secret_access_key
-    return boto3.client("s3", **kwargs)
-
-
-def resolve_prompt(key: str, fallback: str) -> str:
-    """
-    Return prompt text from S3 if configured and object exists; otherwise fallback.
-    Successful S3 bodies are cached for the process lifetime.
-    Missing bucket, missing object, or errors: return fallback (not cached when bucket is set,
-    so uploading a new object takes effect without restart once the failed key is retried —
-    note: successful fallbacks when bucket is unset are cached).
-    """
-    if key in _CACHE:
-        return _CACHE[key]
-
-    bucket = (settings.prompts_s3_bucket or "").strip()
-    if not bucket:
-        logger.info("Prompt %s using fallback (PROMPTS_S3_BUCKET is empty)", key)
-        _CACHE[key] = fallback
-        return fallback
-
-    raw_prefix = settings.prompts_s3_prefix
-    if raw_prefix is None:
-        prefix = "prompts/prod"
-    else:
-        prefix = (raw_prefix or "").strip().strip("/")
-    client = _s3_client()
-
-    attempted: list[str] = []
-    reasons: list[str] = []
-
-    for ext in (".md", ".txt"):
-        object_key = f"{prefix}/{key}{ext}" if prefix else f"{key}{ext}"
-        attempted.append(object_key)
-        try:
-            resp = client.get_object(Bucket=bucket, Key=object_key)
-            raw = resp["Body"].read().decode("utf-8")
-            text = raw.lstrip("\ufeff").strip()
-            if text:
-                logger.info("Loaded prompt %s from s3://%s/%s", key, bucket, object_key)
-                _CACHE[key] = text
-                return text
-            reasons.append(f"{object_key}:empty")
-        except ClientError as e:
-            code = (e.response.get("Error") or {}).get("Code", "")
-            if code in ("404", "NoSuchKey", "NotFound"):
-                reasons.append(f"{object_key}:{code or 'missing'}")
-            else:
-                reasons.append(f"{object_key}:{code or 'client_error'}")
-            if code not in ("404", "NoSuchKey", "NotFound"):
-                logger.warning(
-                    "S3 prompt load failed key=%s object=%s error=%s — using fallback",
-                    key,
-                    object_key,
-                    code or str(e),
-                )
-        except Exception as e:
-            reasons.append(f"{object_key}:{type(e).__name__}")
-            logger.warning("S3 prompt load error key=%s object=%s: %s — using fallback", key, object_key, e)
-
-    logger.warning(
-        "Prompt %s using fallback after S3 miss bucket=%s prefix=%s attempted=%s reasons=%s",
-        key,
-        bucket,
-        prefix,
-        attempted,
-        reasons or ["none"],
-    )
-    return fallback
-
-
-def clear_prompt_cache() -> None:
-    """Test / reload hooks."""
-    _CACHE.clear()
-
-
-# Stable key constants for callers and AWS uploads
+# ---------------------------------------------------------------------------
+# Stable key constants used by callers and the seed script
+# ---------------------------------------------------------------------------
 class PromptKey:
     FACE_ANALYSIS_SYSTEM = "face_analysis_system"
     UMAX_TRIPLE_SYSTEM = "umax_triple_system"
@@ -133,7 +45,7 @@ class PromptKey:
     COACHING_FITMAX_CHECK_IN = "coaching_fitmax_check_in"
     COACHING_CHECK_IN_GENERAL = "coaching_check_in_general"
     COACHING_BEDTIME = "coaching_bedtime"
-    # Maxx notification engines (schedule + coaching context)
+    # Maxx notification engines
     SKINMAX_COACHING_REFERENCE = "skinmax_coaching_reference"
     SKINMAX_NOTIFICATION_ENGINE_REFERENCE = "skinmax_notification_engine_reference"
     SKINMAX_JSON_DIRECTIVES = "skinmax_json_directives"
@@ -153,3 +65,58 @@ class PromptKey:
     LANGGRAPH_VALIDATE_IMAGES = "langgraph_validate_images"
     LANGGRAPH_ANALYZE_FACE_METRICS = "langgraph_analyze_face_metrics"
     LANGGRAPH_IMPROVEMENTS = "langgraph_improvements"
+    # Previously hardcoded-only prompts — now DB-managed
+    MAXX_INTENT_SYSTEM = "maxx_intent_system"
+    GROQ_FACE_ANALYZER = "groq_face_analyzer"
+
+
+# ---------------------------------------------------------------------------
+# Cache management
+# ---------------------------------------------------------------------------
+
+async def refresh_prompt_cache() -> None:
+    """Load all is_active=True prompts from system_prompts into _CACHE.
+
+    Called at app startup (main.py lifespan) and every hour by the scheduler.
+    On DB failure: logs the error and retains the stale cache so the app
+    continues serving the last-known-good prompts without a crash.
+    """
+    from db.sqlalchemy import AsyncSessionLocal
+    from models.sqlalchemy_models import SystemPrompt
+
+    try:
+        async with AsyncSessionLocal() as session:
+            rows = (
+                await session.execute(
+                    select(SystemPrompt).where(SystemPrompt.is_active == True)  # noqa: E712
+                )
+            ).scalars().all()
+        new_cache = {row.key: row.content for row in rows}
+        # Atomic swap — no await between clear and update so no coroutine can
+        # observe a partially-populated cache.
+        _CACHE.clear()
+        _CACHE.update(new_cache)
+        logger.info("Prompt cache refreshed: %d prompts loaded", len(new_cache))
+    except Exception as exc:
+        logger.error(
+            "Failed to refresh prompt cache from DB: %s — retaining stale cache", exc
+        )
+
+
+def resolve_prompt(key: str, fallback: str) -> str:
+    """Return the cached prompt for *key*, or *fallback* if the key is absent.
+
+    Pure dict lookup — O(1), no I/O, safe to call from sync or async code.
+    The fallback is the hardcoded constant defined in each service module;
+    it is used only when the DB has not been seeded or is temporarily unavailable.
+    """
+    result = _CACHE.get(key)
+    if result is not None:
+        return result
+    logger.debug("Prompt key %r not in cache, using hardcoded fallback", key)
+    return fallback
+
+
+def clear_prompt_cache() -> None:
+    """Clear the in-process cache.  Used by tests and manual reload hooks."""
+    _CACHE.clear()

@@ -41,6 +41,67 @@ from services.llm_provider import llm_provider
 logger = logging.getLogger(__name__)
 
 
+def _llm_fallback_exception_types() -> tuple[type[BaseException], ...]:
+    """
+    Exceptions that should trigger trying the next LLM provider.
+
+    Intentionally excludes broad ``Exception`` so programming errors surface
+    instead of being masked by fallback. Network / quota / transient API
+    failures from common HTTP + vendor SDKs are included.
+    """
+    types_list: list[type[BaseException]] = []
+    try:
+        import httpx
+
+        types_list.extend(
+            (
+                httpx.HTTPStatusError,
+                httpx.ConnectError,
+                httpx.ReadTimeout,
+                httpx.WriteTimeout,
+                httpx.ConnectTimeout,
+                httpx.RemoteProtocolError,
+                httpx.PoolTimeout,
+            )
+        )
+    except Exception:
+        pass
+    try:
+        from openai import APIConnectionError, APITimeoutError, RateLimitError
+
+        types_list.extend((APIConnectionError, APITimeoutError, RateLimitError))
+    except Exception:
+        pass
+    try:
+        from openai import InternalServerError as OpenAIInternalServerError
+
+        types_list.append(OpenAIInternalServerError)
+    except Exception:
+        pass
+    try:
+        from google.api_core import exceptions as google_api_exceptions
+
+        for _name in (
+            "ResourceExhausted",
+            "DeadlineExceeded",
+            "ServiceUnavailable",
+            "TooManyRequests",
+            "Aborted",
+            "InternalServerError",
+        ):
+            _exc = getattr(google_api_exceptions, _name, None)
+            if _exc is not None:
+                types_list.append(_exc)
+    except Exception:
+        pass
+    if not types_list:
+        return (Exception,)
+    return tuple(types_list)
+
+
+_LLM_FALLBACK_EXCEPTIONS = _llm_fallback_exception_types()
+
+
 # ---------------------------------------------------------------------------
 # Per-provider builders
 # ---------------------------------------------------------------------------
@@ -169,7 +230,7 @@ def get_chat_llm_with_fallback(max_tokens: int = 768) -> BaseChatModel:
 
     logger.debug("[lc_providers] fallback chain: %s → %s", primary_name,
                  " → ".join(_FALLBACK_ORDER[primary_name][:len(fallbacks)]))
-    return primary.with_fallbacks(fallbacks, exceptions_to_handle=(Exception,))
+    return primary.with_fallbacks(fallbacks, exceptions_to_handle=_LLM_FALLBACK_EXCEPTIONS)
 
 
 def get_chat_llm_with_tools_and_fallback(
@@ -206,7 +267,7 @@ def get_chat_llm_with_tools_and_fallback(
     logger.debug("[lc_providers] tool fallback chain: %s → %s", primary_name,
                  " → ".join(_FALLBACK_ORDER[primary_name][:len(fallbacks_with_tools)]))
     return primary_with_tools.with_fallbacks(
-        fallbacks_with_tools, exceptions_to_handle=(Exception,)
+        fallbacks_with_tools, exceptions_to_handle=_LLM_FALLBACK_EXCEPTIONS
     )
 
 
@@ -230,6 +291,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
             api_key=key,
             max_tokens=max_tokens,
             temperature=0.2,
+            timeout=settings.llm_timeout_seconds,
             model_kwargs={"response_format": {"type": "json_object"}},
         )
     if provider == "mistral":
@@ -242,6 +304,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
             mistral_api_key=key,
             max_tokens=max_tokens,
             temperature=0.2,
+            timeout=settings.llm_timeout_seconds,
             max_retries=0,
             model_kwargs={"response_format": {"type": "json_object"}},
         )
@@ -254,6 +317,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
         google_api_key=key,
         max_output_tokens=max_tokens,
         temperature=0.2,
+        timeout=settings.llm_timeout_seconds,
         generation_config={"response_mime_type": "application/json"},
     )
 
