@@ -41,6 +41,10 @@ _WAKE_SLEEP_NEVER_ASK = (
 
 def _friendly_llm_error_message(llm_err: BaseException) -> str:
     """After primary+fallback LLM both fail, map quota/rate errors to clearer copy."""
+    if isinstance(llm_err, TimeoutError):
+        return str(llm_err) or (
+            "The assistant took too long — please try again. Your message was saved."
+        )
     blob = f"{type(llm_err).__name__} {llm_err}".lower()
     if any(
         x in blob
@@ -2379,6 +2383,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             image_data=image_data,
             delivery_channel=channel,
             tools=tools,
+            db=db,
         )
     except Exception as llm_err:
         logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)

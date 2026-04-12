@@ -194,11 +194,13 @@ class CoachingService:
         """
         state = await self.get_or_create_state(user_id, db)
 
-        if data.get("workout_done"):
+        if data.get("workout_done") is True:
             state.last_workout = datetime.utcnow()
             state.streak_days = (state.streak_days or 0) + 1
             state.missed_days = 0
-        if data.get("missed"):
+        elif data.get("workout_done") is False:
+            state.streak_days = 0
+        if data.get("missed") is True:
             state.missed_days = (state.missed_days or 0) + 1
             state.streak_days = 0
         if data.get("sleep_hours"):

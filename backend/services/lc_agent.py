@@ -19,12 +19,16 @@ LangChain providers (lc_providers.py).
 from __future__ import annotations
 
 import asyncio
+import imghdr
 import logging
 import os
 import re
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 from zoneinfo import ZoneInfo
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.messages import BaseMessage
@@ -40,6 +44,22 @@ from services.prompt_loader import PromptKey, resolve_prompt
 from services.sms_reply_style import sms_chat_appendix
 
 logger = logging.getLogger(__name__)
+
+
+def _detect_image_mime(image_data: bytes) -> str:
+    """Infer data: URL MIME type from image bytes (defaults to image/jpeg)."""
+    if not image_data:
+        return "image/jpeg"
+    kind = imghdr.what(None, h=image_data[:64])
+    mime_map = {
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "png": "image/png",
+        "gif": "image/gif",
+        "webp": "image/webp",
+        "bmp": "image/bmp",
+    }
+    return mime_map.get((kind or "").lower(), "image/jpeg")
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +274,10 @@ def make_chat_tools(
     from services.coaching_service import coaching_service
     from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 
+    # Mutable: updated when generate_maxx_schedule creates a schedule so later
+    # tools in the same agent turn see the new active schedule (not stale closure).
+    schedule_state: dict = {"active": active_schedule}
+
     # ------------------------------------------------------------------ #
     #  modify_schedule                                                     #
     # ------------------------------------------------------------------ #
@@ -263,12 +287,13 @@ def make_chat_tools(
         Modify the user's active schedule from natural language feedback.
         Only call when the user explicitly requests calendar or task changes.
         """
-        if not active_schedule:
+        cur = schedule_state.get("active")
+        if not cur:
             return "no active schedule to modify"
         try:
             result = await schedule_service.adapt_schedule(
                 user_id=user_id,
-                schedule_id=active_schedule["id"],
+                schedule_id=cur["id"],
                 db=db,
                 feedback=feedback,
             )
@@ -420,6 +445,8 @@ def make_chat_tools(
                 _flag_modified(user, "onboarding")
                 await db.flush()
 
+            await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
+
             schedule = await schedule_service.generate_maxx_schedule(
                 user_id=user_id,
                 maxx_id=req_maxx,
@@ -447,7 +474,12 @@ def make_chat_tools(
                 override_mastic_gum_regular=_normalize_hair_yes_no(gum_raw),
                 override_heavy_screen_time=_normalize_hair_yes_no(scr_raw),
             )
-            await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
+            schedule_state["active"] = {
+                "id": schedule.get("id"),
+                "maxx_id": schedule.get("maxx_id"),
+                "course_title": schedule.get("course_title"),
+                "days": schedule.get("days") or [],
+            }
             return _summarise_schedule(schedule)
 
         except ScheduleLimitError as e:
@@ -496,10 +528,11 @@ def make_chat_tools(
                 wk = value if "wake" in lk else None
                 sk = value if "sleep" in lk else None
                 await _persist_user_wake_sleep(user, db, wk, sk)
-            if active_schedule and key:
+            cur = schedule_state.get("active")
+            if cur and key:
                 await schedule_service.update_schedule_context(
                     user_id=user_id,
-                    schedule_id=active_schedule["id"],
+                    schedule_id=cur["id"],
                     db=db,
                     context_updates={key: value},
                 )
@@ -529,12 +562,12 @@ def make_chat_tools(
         try:
             check_in_data: dict = {}
             parts: list[str] = []
-            if workout_done:
-                check_in_data["workout_done"] = True
-                parts.append("workout=done")
-            if missed:
-                check_in_data["missed"] = True
-                parts.append("missed=true")
+            if workout_done is not None:
+                check_in_data["workout_done"] = workout_done
+                parts.append(f"workout={'done' if workout_done else 'skipped'}")
+            if missed is not None:
+                check_in_data["missed"] = missed
+                parts.append(f"missed={missed}")
             if sleep_hours is not None:
                 check_in_data["sleep_hours"] = sleep_hours
                 parts.append(f"sleep={sleep_hours}h")
@@ -579,7 +612,7 @@ def make_chat_tools(
                 user.profile = prof
                 _flag_modified(user, "profile")
                 user.updated_at = datetime.utcnow()
-                await db.commit()
+                await db.flush()
                 coaching_service.invalidate_context_cache(user_id)
             return f"coaching mode set to {mode_clean}"
         except Exception as e:
@@ -740,6 +773,7 @@ async def run_chat_agent(
     image_data: Optional[bytes],
     delivery_channel: str,
     tools: list,
+    db: Optional["AsyncSession"] = None,
 ) -> tuple[str, bool]:
     """
     Run the tool-calling AgentExecutor and return (response_text, schedule_mutated).
@@ -755,10 +789,12 @@ async def run_chat_agent(
     # Image: inject as multimodal content part in the human message
     if image_data:
         import base64
+
+        mime = _detect_image_mime(image_data)
         b64 = base64.b64encode(image_data).decode()
         input_content: str | list = [
             {"type": "text", "text": message or ""},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
         ]
     else:
         input_content = message or ""
@@ -786,14 +822,25 @@ async def run_chat_agent(
 
     logger.info("[AGENT] user channel=%s msg=%.80s", delivery_channel, message or "")
 
-    result = await asyncio.wait_for(
-        executor.ainvoke({
-            "input": input_content,
-            "chat_history": lc_history,
-            "system_prompt": system_prompt,
-        }),
-        timeout=call_timeout,
-    )
+    try:
+        result = await asyncio.wait_for(
+            executor.ainvoke({
+                "input": input_content,
+                "chat_history": lc_history,
+                "system_prompt": system_prompt,
+            }),
+            timeout=call_timeout,
+        )
+    except asyncio.TimeoutError:
+        logger.error("[AGENT] timeout after %.1fs", call_timeout)
+        if db is not None:
+            try:
+                await db.rollback()
+            except Exception as rb_err:
+                logger.warning("[AGENT] rollback after timeout failed: %s", rb_err)
+        raise TimeoutError(
+            "The assistant took too long — please try again. Your message was saved."
+        ) from None
 
     response_text = (result.get("output") or "").strip()
 

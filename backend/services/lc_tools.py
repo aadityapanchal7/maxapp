@@ -1,12 +1,15 @@
 """
-LangChain StructuredTool definitions — single source of truth for all 9 Max chat tools.
+LangChain StructuredTool definitions — SCHEMA / REFERENCE ONLY for the 9 Max chat tools.
 
-These tool definitions replace the duplicate JSON schemas previously maintained
-separately in openai_service.py (_max_chat_tools_openai) and gemini_service.py.
+WARNING: Do NOT import ``CHAT_TOOLS`` expecting runnable tools. The stub ``_stub``
+implementations return empty strings and are not wired to the chat pipeline.
 
-IMPORTANT: The tool *functions* here are schema-only stubs. Actual execution
-logic lives in lc_agent.py's make_chat_tools(), which creates real async
-closures with access to the DB session and user state.
+The REAL tool implementations (async, DB-bound) live in
+``services.lc_agent.make_chat_tools()`` and are passed to ``run_chat_agent()``.
+
+These ``StructuredTool`` entries replace duplicate JSON schemas that were
+previously maintained in openai_service.py and gemini_service.py. They may be
+used for documentation, schema export, or future LLM binding — not execution.
 """
 
 from __future__ import annotations
