@@ -5,7 +5,16 @@
       "Bash(python:*)",
       "Bash(pip --version)",
       "Bash(grep -iE '\\\\.env|env$')",
-      "Bash(ls rag_content/*/)"
+      "Bash(ls rag_content/*/)",
+      "Bash(ls C:/Users/nisha/Desktop/maxapp/backend/.env*)",
+      "Bash(ls C:/Users/nisha/Desktop/maxapp/backend/*.toml)",
+      "Bash(netstat -ano)",
+      "Bash(ls -la C:/Users/nisha/Desktop/maxapp/backend/.env*)",
+      "Bash(ls C:/Users/nisha/Desktop/maxapp/.env*)",
+      "Bash(venv/Scripts/python.exe scripts/check_chat_history_cols.py)",
+      "Bash(where python:*)",
+      "Bash(where py:*)",
+      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python scripts/check_chat_history_cols.py\")"
     ]
   }
 }

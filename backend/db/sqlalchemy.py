@@ -99,6 +99,7 @@ async def init_db():
         # app_users alters in their own transaction so a lock failure on other tables
         # cannot roll back critical columns (e.g. last_username_change).
         await _run_app_users_column_migrations()
+        await _run_chat_history_column_migrations()
         await _run_column_migrations()
     except Exception as e:
         print(f"[WARNING] Could not initialize Supabase database: {e}")
@@ -144,12 +145,26 @@ async def _run_app_users_column_migrations():
         print(f"[WARNING] app_users column migrations: {e}")
 
 
-async def _run_column_migrations():
-    """Add missing columns to existing tables (safe to run repeatedly)."""
-    migrations = [
+async def _run_chat_history_column_migrations():
+    """Add chat_history columns in a dedicated transaction so they commit even if other migrations fail."""
+    statements = [
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS channel VARCHAR DEFAULT 'app'",
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS retrieved_chunk_ids TEXT[]",
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS partner_rule_ids BIGINT[]",
+    ]
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '30s'"))
+            for sql in statements:
+                await conn.execute(text(sql))
+        print("[OK] chat_history column migrations applied")
+    except Exception as e:
+        print(f"[WARNING] chat_history column migrations: {e}")
+
+
+async def _run_column_migrations():
+    """Add missing columns to existing tables (safe to run repeatedly)."""
+    migrations = [
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'app'",
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS face_rating DOUBLE PRECISION",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",
