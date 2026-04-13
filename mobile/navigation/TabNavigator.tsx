@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Platform, View, Text, TouchableOpacity, Modal } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,9 +9,6 @@ import { useNavigation } from '@react-navigation/native';
 import { queryClient } from '../lib/queryClient';
 import { prefetchMainTabData } from '../lib/prefetchMainTabData';
 import { useAuth } from '../context/AuthContext';
-import { SpotlightTourProvider, AttachStep, useSpotlightTour } from 'react-native-spotlight-tour';
-import { TOUR_STEPS, TOUR_STEP } from '../features/mainTour/mainTourSteps';
-import api from '../services/api';
 
 import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
@@ -151,57 +148,9 @@ const modal = StyleSheet.create({
     },
 });
 
-function TourTrigger() {
-    const { user, isPaid } = useAuth();
-    const { start } = useSpotlightTour();
-    const fired = useRef(false);
-
-    useEffect(() => {
-        if (fired.current) return;
-        if (!isPaid) return;
-        const ob = user?.onboarding as Record<string, unknown> | undefined;
-        if (ob?.post_subscription_onboarding) return;
-        if (ob?.main_app_tour_completed) return;
-
-        fired.current = true;
-        const id = setTimeout(() => start(), 600);
-        return () => clearTimeout(id);
-    }, [isPaid, user?.onboarding, start]);
-
-    return null;
-}
-
-function TabBarButton({
-    tourIndex,
-    children,
-    style,
-    onPress,
-    onLongPress,
-    testID,
-    accessibilityLabel,
-    accessibilityRole,
-    accessibilityState,
-}: { tourIndex: number; children: React.ReactNode } & Record<string, any>) {
-    return (
-        <AttachStep index={tourIndex} fill>
-            <View
-                style={style}
-                testID={testID}
-                accessibilityLabel={accessibilityLabel}
-                accessibilityRole={accessibilityRole}
-                accessibilityState={accessibilityState}
-            >
-                <TouchableOpacity onPress={onPress} onLongPress={onLongPress} style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-                    {children}
-                </TouchableOpacity>
-            </View>
-        </AttachStep>
-    );
-}
-
 export default function TabNavigator() {
     const insets = useSafeAreaInsets();
-    const { isPaid, isPremium, refreshUser } = useAuth();
+    const { isPaid, isPremium } = useAuth();
     const [showGate, setShowGate] = useState(false);
     const navigation = useNavigation<any>();
 
@@ -209,114 +158,84 @@ export default function TabNavigator() {
         prefetchMainTabData(queryClient);
     }, []);
 
-    const handleTourStop = useCallback(async () => {
-        try {
-            await api.completeMainAppTour();
-            await refreshUser();
-        } catch { /* non-fatal */ }
-    }, [refreshUser]);
-
     return (
         <>
-            <SpotlightTourProvider
-                steps={TOUR_STEPS}
-                overlayColor="black"
-                overlayOpacity={0.65}
-                nativeDriver={false}
-                onBackdropPress="continue"
-                onStop={handleTourStop}
+            <Tab.Navigator
+                screenOptions={{
+                    headerShown: false,
+                    tabBarStyle: [
+                        styles.tabBar,
+                        {
+                            height: 52 + insets.bottom,
+                            paddingBottom: insets.bottom,
+                        },
+                    ],
+                    tabBarActiveTintColor: '#000000',
+                    tabBarInactiveTintColor: colors.textMuted,
+                    tabBarLabelStyle: styles.tabLabel,
+                }}
             >
-                <Tab.Navigator
-                    screenOptions={{
-                        headerShown: false,
-                        tabBarStyle: [
-                            styles.tabBar,
-                            {
-                                height: 52 + insets.bottom,
-                                paddingBottom: insets.bottom,
-                            },
-                        ],
-                        tabBarActiveTintColor: '#000000',
-                        tabBarInactiveTintColor: colors.textMuted,
-                        tabBarLabelStyle: styles.tabLabel,
+                <Tab.Screen
+                    name="Home"
+                    component={HomeScreen}
+                    options={{
+                        tabBarIcon: ({ color }) => (
+                            <Ionicons name="home-outline" size={22} color={color} />
+                        ),
                     }}
-                >
-                    <Tab.Screen
-                        name="Home"
-                        component={HomeScreen}
-                        options={{
-                            tabBarIcon: ({ color }) => (
-                                <Ionicons name="home-outline" size={22} color={color} />
-                            ),
-                        }}
-                    />
-                    <Tab.Screen
-                        name="MasterScheduleTab"
-                        component={MasterScheduleScreen}
-                        options={{
-                            title: 'Schedule',
-                            tabBarLabel: 'Schedule',
-                            tabBarIcon: ({ color }) => (
-                                <Ionicons name="calendar-outline" size={22} color={color} />
-                            ),
-                            tabBarButton: (props) => (
-                                <TabBarButton tourIndex={TOUR_STEP.SCHEDULE_TAB} {...props} />
-                            ),
-                        }}
-                    />
-                    <Tab.Screen
-                        name="ScanTab"
-                        component={ScanPlaceholder}
-                        listeners={({ navigation: nav }) => ({
-                            tabPress: (e) => {
-                                e.preventDefault();
-                                if (!isPaid) {
-                                    nav.navigate('Payment');
-                                } else if (!isPremium) {
-                                    setShowGate(true);
-                                } else {
-                                    nav.navigate('FaceScan');
-                                }
-                            },
-                        })}
-                        options={{
-                            title: 'Scan',
-                            tabBarIcon: ({ color }) => (
-                                <Ionicons name="scan-outline" size={22} color={color} />
-                            ),
-                            tabBarButton: (props) => (
-                                <TabBarButton tourIndex={TOUR_STEP.SCAN_TAB} {...props} />
-                            ),
-                        }}
-                    />
-                    <Tab.Screen
-                        name="Chat"
-                        component={MaxChatScreen}
-                        options={{
-                            tabBarIcon: ({ color }) => (
-                                <Ionicons name="chatbubble-outline" size={22} color={color} />
-                            ),
-                            tabBarButton: (props) => (
-                                <TabBarButton tourIndex={TOUR_STEP.CHAT_TAB} {...props} />
-                            ),
-                        }}
-                    />
-                    <Tab.Screen
-                        name="Forums"
-                        component={ForumsStack}
-                        options={{
-                            tabBarIcon: ({ color }) => (
-                                <Ionicons name="people-outline" size={22} color={color} />
-                            ),
-                            tabBarButton: (props) => (
-                                <TabBarButton tourIndex={TOUR_STEP.FORUMS_TAB} {...props} />
-                            ),
-                        }}
-                    />
-                </Tab.Navigator>
-
-                <TourTrigger />
-            </SpotlightTourProvider>
+                />
+                <Tab.Screen
+                    name="MasterScheduleTab"
+                    component={MasterScheduleScreen}
+                    options={{
+                        title: 'Schedule',
+                        tabBarLabel: 'Schedule',
+                        tabBarIcon: ({ color }) => (
+                            <Ionicons name="calendar-outline" size={22} color={color} />
+                        ),
+                    }}
+                />
+                <Tab.Screen
+                    name="ScanTab"
+                    component={ScanPlaceholder}
+                    listeners={({ navigation: nav }) => ({
+                        tabPress: (e) => {
+                            e.preventDefault();
+                            if (!isPaid) {
+                                nav.navigate('Payment');
+                            } else if (!isPremium) {
+                                setShowGate(true);
+                            } else {
+                                nav.navigate('FaceScan');
+                            }
+                        },
+                    })}
+                    options={{
+                        title: 'Scan',
+                        tabBarIcon: ({ color }) => (
+                            <Ionicons name="scan-outline" size={22} color={color} />
+                        ),
+                    }}
+                />
+                <Tab.Screen
+                    name="Chat"
+                    component={MaxChatScreen}
+                    options={{
+                        tabBarIcon: ({ color }) => (
+                            <Ionicons name="chatbubble-outline" size={22} color={color} />
+                        ),
+                    }}
+                />
+                <Tab.Screen
+                    name="Forums"
+                    component={ForumsStack}
+                    options={{
+                        tabBarIcon: ({ color }) => (
+                            <Ionicons name="people-outline" size={22} color={color} />
+                        ),
+                    }}
+                />
+            </Tab.Navigator>
 
             <PremiumGateModal
                 visible={showGate}
