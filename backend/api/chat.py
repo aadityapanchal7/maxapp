@@ -29,6 +29,7 @@ from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
+<<<<<<< Updated upstream
 from services.fitmax_plan import (
     fitmax_build_plan as _fitmax_build_plan,
     seed_fitmax_profile_from_onboarding as _fitmax_seed_profile_from_onboarding,
@@ -37,6 +38,15 @@ from services.rag_service import retrieve_chunks as rag_retrieve_chunks
 from services.persona_prompts import tone_preamble
 from services.partner_rules_service import get_matching_rule_suffix
 from config import settings
+=======
+from services.rag_service import (
+    retrieve as rag_retrieve,
+    is_knowledge_question,
+    format_context_block,
+)
+from services.persona_prompts import tone_preamble
+from services.partner_rules_service import get_matching_rule_suffix
+>>>>>>> Stashed changes
 
 logger = logging.getLogger(__name__)
 
@@ -2272,10 +2282,48 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     if attachment_url and attachment_type == "image":
         image_data = await storage_service.get_image(attachment_url)
 
+<<<<<<< Updated upstream
     # --- RAG retrieval (only when there's an active maxx context and a knowledge question) ---
     # retrieve_chunks returns [] on any failure, so chat degrades gracefully.
     retrieved_chunks: list[dict] = []
     partner_rule_ids: list[int] = []
+=======
+    # --- RAG retrieval (knowledge questions only) ---
+    # Pulls relevant chunks from kb_chunks and injects them into coaching_context
+    # (which becomes the `## USER CONTEXT:` section of the system prompt). Skipped
+    # on check-in style turns ("yes", "done", numeric) to save latency + tokens.
+    retrieved_chunks = []
+    if is_knowledge_question(message_text):
+        try:
+            module_filter = (active_schedule or {}).get("maxx_id") if active_schedule else None
+            retrieved_chunks = await rag_retrieve(
+                db, message_text, module=module_filter
+            )
+        except Exception as rag_err:
+            logger.warning("RAG retrieval skipped: %s", rag_err)
+            retrieved_chunks = []
+
+    # --- Assemble tone preamble + RAG context + partner suffix into coaching_context ---
+    existing_ctx = user_context.get("coaching_context") or ""
+    extras: list[str] = []
+    tone_prefix = tone_preamble(getattr(user, "coaching_tone", None) if user else None)
+    if tone_prefix:
+        extras.append(tone_prefix)
+    if retrieved_chunks:
+        extras.append(format_context_block(retrieved_chunks))
+    partner_suffix, partner_rule_ids = await get_matching_rule_suffix(
+        db, message_text, [c.content for c in retrieved_chunks]
+    )
+    if partner_suffix:
+        extras.append(partner_suffix)
+    if extras:
+        user_context["coaching_context"] = (existing_ctx + "\n\n" + "\n\n".join(extras)).strip()
+
+    # --- LLM call ---
+    # llm_chat already retries across providers (primary + fallback). If we still
+    # fail here, return a friendly apology as the assistant response rather than
+    # 500-ing the client — the mobile UI surfaces this as a normal assistant bubble.
+>>>>>>> Stashed changes
     try:
         _maxx = (active_schedule or {}).get("maxx_id") if active_schedule else maxx_id
         if _maxx:
@@ -2379,6 +2427,27 @@ Ask ONE question at a time. Your very first response must ask the concern questi
 
     # --- Safety net: if user clearly requested a schedule change but agent missed it ---
 
+        elif tool["name"] == "schedule_push_notification":
+            try:
+                from services.push_scheduling_service import enqueue_push
+
+                args = tool["args"]
+                delay = int(args.get("delay_minutes", 0) or 0)
+                msg = str(args.get("message", "")).strip()
+                if delay < 1 or delay > 1440 or not msg:
+                    logger.info("schedule_push_notification rejected: bad args %s", args)
+                else:
+                    await enqueue_push(
+                        db=db,
+                        user_id=user_id,
+                        delay_minutes=delay,
+                        message=msg,
+                        buttons=args.get("buttons") or None,
+                        category_id=args.get("category_id") or "coach_nudge",
+                    )
+            except Exception as e:
+                logger.exception("schedule_push_notification failed: %s", e)
+
     # --- If user asked to change schedule times but the model didn't call modify_schedule, adapt anyway ---
     if (
         active_schedule
@@ -2418,6 +2487,8 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             content=response_text,
             channel=channel,
             created_at=datetime.utcnow(),
+            retrieved_chunk_ids=[c.id for c in retrieved_chunks] if retrieved_chunks else None,
+            partner_rule_ids=partner_rule_ids or None,
         )
         db.add(user_message)
         db.add(assistant_message)

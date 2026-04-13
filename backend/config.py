@@ -61,6 +61,7 @@ class Settings(BaseSettings):
         default="",
         description="Vision-capable model for scans/chat images; defaults to openai_model if empty",
     )
+<<<<<<< Updated upstream
     # Mistral (when llm_provider=mistral)
     mistral_api_key: str = Field(default="")
     mistral_model: str = Field(default="mistral-large-latest")
@@ -75,10 +76,18 @@ class Settings(BaseSettings):
     embedding_model: str = Field(
         default="text-embedding-3-small",
         description="OpenAI embedding model for RAG. 1536-dim.",
+=======
+
+    # RAG / embeddings
+    embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="OpenAI embedding model for RAG. 1536-dim; matches kb_chunks.embedding column.",
+>>>>>>> Stashed changes
     )
     embedding_dim: int = Field(default=1536)
     rag_top_k: int = Field(default=4, description="How many chunks to retrieve per query")
     rag_score_threshold: float = Field(
+<<<<<<< Updated upstream
         default=0.35,
         description="Min cosine similarity to inject a chunk. Below this, retrieval is ignored (guardrail).",
     )
@@ -93,6 +102,12 @@ class Settings(BaseSettings):
     )
 
 
+=======
+        default=0.25,
+        description="Min cosine similarity to inject a chunk. Below this, retrieval is ignored (guardrail).",
+    )
+    
+>>>>>>> Stashed changes
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
     
@@ -220,12 +235,19 @@ class Settings(BaseSettings):
     def supabase_db_url(self) -> str:
         """Supabase Postgres connection string.
 
+<<<<<<< Updated upstream
         Do NOT append ?pgbouncer=true — asyncpg doesn't understand that query arg
         and crashes with 'unexpected keyword argument'. PgBouncer-specific
         settings (statement_cache_size=0) are handled in connect_args instead
         (see db/sqlalchemy.py::_supabase_connect_args).
         """
         host = self.supabase_db_host.split("?")[0].split("/")[0]
+=======
+        Transaction pooler (6543) needs statement_cache_size=0 — set in
+        connect_args (see db/sqlalchemy.py), not as a URL param, since asyncpg
+        doesn't recognize a `pgbouncer` query arg.
+        """
+>>>>>>> Stashed changes
         return (
             f"postgresql+asyncpg://{self.supabase_db_user}:{self.supabase_db_password}"
             f"@{host}:{self.supabase_db_port}/{self.supabase_db_name}"

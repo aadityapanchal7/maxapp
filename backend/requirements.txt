@@ -30,6 +30,7 @@ google-generativeai>=0.3.2
 # OpenAI (when LLM_PROVIDER=openai)
 openai>=1.40.0
 
+<<<<<<< Updated upstream
 # Mistral (when LLM_PROVIDER=mistral)
 mistralai>=1.0.0
 
@@ -49,6 +50,12 @@ tiktoken>=0.7.0
 # LangGraph — state-machine orchestration for chat (optional path; gated by CHAT_USE_LANGGRAPH)
 langgraph>=0.2.0,<0.3.0
 
+=======
+# Vector / RAG
+pgvector>=0.2.5
+tiktoken>=0.7.0
+
+>>>>>>> Stashed changes
 # Cloud Storage
 boto3>=1.34.25
 
