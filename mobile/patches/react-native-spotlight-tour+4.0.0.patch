@@ -1,0 +1,42 @@
+diff --git a/node_modules/react-native-spotlight-tour/dist/lib/components/tour-overlay/shapes/RectShape.component.js b/node_modules/react-native-spotlight-tour/dist/lib/components/tour-overlay/shapes/RectShape.component.js
+index cabce16..5d47d34 100644
+--- a/node_modules/react-native-spotlight-tour/dist/lib/components/tour-overlay/shapes/RectShape.component.js
++++ b/node_modules/react-native-spotlight-tour/dist/lib/components/tour-overlay/shapes/RectShape.component.js
+@@ -40,6 +40,6 @@ export const RectShape = memo(props => {
+         });
+         return () => setReference(undefined);
+     }, [x, y, width, height, setReference, motion, useNativeDriver]);
+-    return (_jsx(AnimatedRect, { x: origin.x, y: origin.y, width: size.x, height: size.y, opacity: opacity, fill: "black", rx: 4, ry: 4 }));
++    return (_jsx(AnimatedRect, { x: origin.x, y: origin.y, width: size.x, height: size.y, opacity: opacity, fill: "black", rx: 16, ry: 16 }));
+ }, isEqual);
+ //# sourceMappingURL=RectShape.component.js.map
+\ No newline at end of file
+diff --git a/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/TourOverlay.component.tsx b/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/TourOverlay.component.tsx
+index 127c1d6..bfedd47 100644
+--- a/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/TourOverlay.component.tsx
++++ b/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/TourOverlay.component.tsx
+@@ -195,8 +195,7 @@ export const TourOverlay = forwardRef<TourOverlayRef, TourOverlayProps>((props,
+           width={vw(100)}
+           viewBox={`0 0 ${vw(100)} ${vh(100)}`}
+           onPress={handleBackdropPress}
+-          shouldRasterizeIOS={true}
+-          renderToHardwareTextureAndroid={true}
++          {...(Platform.OS !== "web" ? { shouldRasterizeIOS: true, renderToHardwareTextureAndroid: true } : {})}
+         >
+           <Defs>
+             <Mask id="mask" x={0} y={0} height="100%" width="100%">
+diff --git a/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/shapes/RectShape.component.tsx b/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/shapes/RectShape.component.tsx
+index ce1a344..2b169fd 100644
+--- a/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/shapes/RectShape.component.tsx
++++ b/node_modules/react-native-spotlight-tour/src/lib/components/tour-overlay/shapes/RectShape.component.tsx
+@@ -60,8 +60,8 @@ export const RectShape = memo<ShapeProps>(props => {
+       height={size.y}
+       opacity={opacity}
+       fill="black"
+-      rx={4}
+-      ry={4}
++      rx={16}
++      ry={16}
+     />
+   );
+ }, isEqual);

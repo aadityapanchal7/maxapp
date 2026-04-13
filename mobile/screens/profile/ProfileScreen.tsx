@@ -313,6 +313,23 @@ export default function ProfileScreen() {
                 renderSkeleton()
             ) : (
                 <Animated.ScrollView showsVerticalScrollIndicator={false} style={{ opacity: fadeAnim }} contentContainerStyle={styles.scrollContent}>
+                    {isPaid && !userHasSignupPhone(user) ? (
+                        <TouchableOpacity
+                            style={styles.smsAlertBanner}
+                            onPress={() => navigation.navigate('SmsSetup')}
+                            activeOpacity={0.85}
+                        >
+                            <View style={styles.smsAlertIconWrap}>
+                                <Ionicons name="alert-circle" size={18} color={colors.warning} />
+                            </View>
+                            <View style={styles.smsAlertTextCol}>
+                                <Text style={styles.smsAlertTitle}>Phone number missing</Text>
+                                <Text style={styles.smsAlertSub}>Add one to enable SMS coaching</Text>
+                            </View>
+                            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+                        </TouchableOpacity>
+                    ) : null}
+
                     <View style={styles.identitySection}>
                         <TouchableOpacity
                             onPress={handleEditPress}
@@ -390,28 +407,7 @@ export default function ProfileScreen() {
                         </View>
                     </View>
 
-                    {isPaid && !userHasSignupPhone(user) ? (
-                        <>
-                            <View style={styles.smsSetupBanner}>
-                                <View style={styles.smsSetupTextCol}>
-                                    <Text style={styles.smsSetupTitle}>SMS not set up</Text>
-                                    <Text style={styles.smsSetupSub}>
-                                        Add a phone number to get SMS reminders and text Max from Messages.
-                                    </Text>
-                                </View>
-                                <TouchableOpacity
-                                    style={styles.smsSetupBtn}
-                                    onPress={() => navigation.navigate('SmsSetup')}
-                                    activeOpacity={0.85}
-                                >
-                                    <Text style={styles.smsSetupBtnText}>Set up SMS</Text>
-                                </TouchableOpacity>
-                            </View>
-                            <View style={styles.gridDivider} />
-                        </>
-                    ) : (
-                        <View style={styles.gridDivider} />
-                    )}
+                    <View style={styles.gridDivider} />
 
                     {progressPhotos.length === 0 ? (
                         <TouchableOpacity
@@ -714,44 +710,42 @@ const styles = StyleSheet.create({
         opacity: 0.45,
     },
 
-    smsSetupBanner: {
+    smsAlertBanner: {
         marginHorizontal: spacing.lg,
         marginTop: spacing.sm,
-        padding: spacing.md,
-        borderRadius: borderRadius.lg,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
-        backgroundColor: colors.card,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.md,
+        borderRadius: borderRadius.md,
+        borderWidth: 1,
+        borderColor: colors.warning + '44',
+        backgroundColor: colors.warning + '0D',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: spacing.md,
+        gap: 10,
     },
-    smsSetupTextCol: {
+    smsAlertIconWrap: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: colors.warning + '1A',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    smsAlertTextCol: {
         flex: 1,
         minWidth: 0,
     },
-    smsSetupTitle: {
-        fontSize: 15,
+    smsAlertTitle: {
+        fontSize: 13,
         fontWeight: '600',
         color: colors.foreground,
-        marginBottom: 4,
+        letterSpacing: -0.1,
     },
-    smsSetupSub: {
-        fontSize: 13,
+    smsAlertSub: {
+        fontSize: 11,
         fontWeight: '400',
         color: colors.textSecondary,
-        lineHeight: 18,
-    },
-    smsSetupBtn: {
-        paddingVertical: 10,
-        paddingHorizontal: 14,
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.foreground,
-    },
-    smsSetupBtnText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: colors.card,
+        marginTop: 1,
     },
 
     // ── Grid divider ─────────────────────────────────────────────────────

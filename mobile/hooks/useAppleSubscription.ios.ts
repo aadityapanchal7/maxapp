@@ -11,8 +11,10 @@ export function useAppleSubscription() {
     const { user, refreshUser } = useAuth();
     const [loading, setLoading] = useState<Tier | null>(null);
     const pendingSkuRef = useRef<string | null>(null);
+    const processedTids = useRef<Set<string>>(new Set());
+    const recoveringRef = useRef(false);
 
-    const { connected, fetchProducts, requestPurchase, finishTransaction } =
+    const { connected, fetchProducts, requestPurchase, finishTransaction, getAvailablePurchases } =
         useIAP({
             onPurchaseSuccess: async (purchase: Purchase) => {
                 if (Platform.OS !== 'ios') return;
@@ -22,6 +24,14 @@ export function useAppleSubscription() {
                     if (!tid) {
                         throw new Error('Missing transaction id from StoreKit.');
                     }
+
+                    if (processedTids.current.has(tid)) {
+                        try { await finishTransaction({ purchase }); } catch {}
+                        setLoading(null);
+                        pendingSkuRef.current = null;
+                        return;
+                    }
+                    processedTids.current.add(tid);
 
                     const productId = p.productId || pendingSkuRef.current || undefined;
 
@@ -68,6 +78,32 @@ export function useAppleSubscription() {
             type: 'subs',
         });
     }, [connected, fetchProducts]);
+
+    useEffect(() => {
+        if (Platform.OS !== 'ios' || !connected || recoveringRef.current) return;
+        recoveringRef.current = true;
+        const recoverPending = async () => {
+            try {
+                const purchases = await getAvailablePurchases();
+                for (const purchase of purchases) {
+                    const p = purchase as { transactionId?: string; id?: string; productId?: string };
+                    const tid = String(p.transactionId ?? p.id ?? '').trim();
+                    if (!tid || processedTids.current.has(tid)) continue;
+                    processedTids.current.add(tid);
+                    try {
+                        await api.verifyAppleIapTransaction(tid, p.productId || undefined);
+                        await finishTransaction({ purchase });
+                        await refreshUser();
+                    } catch {
+                        try { await finishTransaction({ purchase }); } catch {}
+                    }
+                }
+            } catch (e) {
+                if (__DEV__) console.warn('[AppleIAP] recoverPending:', e);
+            }
+        };
+        void recoverPending();
+    }, [connected, getAvailablePurchases, finishTransaction, refreshUser]);
 
     const subscribeTier = useCallback(
         async (tier: Tier): Promise<boolean> => {

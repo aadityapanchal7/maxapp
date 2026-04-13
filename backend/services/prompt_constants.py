@@ -158,9 +158,18 @@ PSL CALIBRATION (this is NOT a normie scale):
 - 7.5+ = model/elite tier, almost nonexistent
 Most real people score 3.5-6.0. Do not inflate.
 
+MANDATORY CONSISTENCY RULES — violating any of these invalidates the entire rating:
+1) psl_score MUST equal the weighted average of your feature_scores (eyes, jaw, cheekbones, chin, nose, lips, brow_ridge, skin, hairline, symmetry) within ±0.3. Compute this BEFORE outputting.
+2) psl_tier MUST strictly follow psl_score: <3.0 → Subhuman, 3.0-4.24 → LTN, 4.25-5.49 → MTN, 5.5-6.74 → HTN, 6.75-7.99 → Chadlite, 8.0+ → Chad. No exceptions.
+3) Each feature_scores tag MUST match its score: ≥7.8 → Elite, 6.6-7.7 → Strong, 5.6-6.5 → Above Average, 4.6-5.5 → Average, 3.6-4.5 → Below Average, 2.6-3.5 → Weak, <2.6 → Needs Work.
+4) The 6 metrics scores MUST be consistent with corresponding feature_scores (jawline↔jaw, cheekbones↔cheekbones, eyes↔eyes, nose↔nose, skin↔skin, symmetry↔symmetry) within ±0.5.
+5) appeal MUST be within ±1.5 of psl_score (appeal can be higher due to harmony/vibe but not wildly different).
+6) potential MUST be ≥ psl_score and ≤ psl_score + 2.0 (softmaxxing ceiling is limited by bone structure).
+7) If the same person were rated again with the same photos, the scores MUST be identical. Rate the bone structure, not the photo.
+
 Set "psl_score" to the PSL rating on that scale (decimals allowed).
 
-Set "psl_tier" to EXACTLY one of these strings (pick the best fit): "Subhuman" / "LTN" / "MTN" / "HTN" / "Chadlite" / "Chad"
+Set "psl_tier" to EXACTLY one of these strings using the tier mapping in rule 2 above: "Subhuman" / "LTN" / "MTN" / "HTN" / "Chadlite" / "Chad"
 
 Rate based on BONE STRUCTURE and FEATURES — ignore grooming, lighting, photo quality, expression.
 

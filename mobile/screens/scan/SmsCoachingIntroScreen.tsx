@@ -4,13 +4,13 @@
  */
 
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 
 type NextRoute = 'ModuleSelect' | 'Main';
 
@@ -48,76 +48,155 @@ export default function SmsCoachingIntroScreen() {
         }
     };
 
-    const padBottom = insets.bottom + spacing.xxl;
-
     return (
         <View style={styles.root}>
-            <ScrollView
-                contentContainerStyle={[
-                    styles.scroll,
-                    { paddingTop: Math.max(insets.top, 12) + 24, paddingBottom: padBottom },
-                ]}
-                keyboardShouldPersistTaps="handled"
-            >
-                <Text style={styles.kicker}>SMS coaching</Text>
-                <Text style={styles.title}>Add a phone when you&apos;re ready</Text>
-                <Text style={styles.body}>
-                    You didn&apos;t add a phone number when you created your account. Without a number on file, we can&apos;t
-                    turn on SMS reminders or link you to Max through Messages.
-                </Text>
-                <Text style={styles.body}>
-                    You can add a number anytime from your profile — then you can text Max to finish SMS setup. Nothing is
-                    permanent; skipping here only means SMS stays off until you add a phone.
-                </Text>
+            <View style={[styles.content, { paddingTop: Math.max(insets.top, 12) + 48, paddingBottom: Math.max(insets.bottom, 20) + 16 }]}>
+                {/* Top spacer + icon */}
+                <View style={styles.heroSection}>
+                    <View style={styles.iconCircle}>
+                        <Ionicons name="chatbubbles-outline" size={32} color={colors.foreground} />
+                    </View>
+                    <Text style={styles.title}>Connect your phone</Text>
+                    <Text style={styles.subtitle}>
+                        Add your number to text Max directly and get SMS reminders for your schedule.
+                    </Text>
+                </View>
 
-                <TouchableOpacity style={styles.primaryBtn} onPress={onAddPhone} activeOpacity={0.88} disabled={busy}>
-                    <Ionicons name="call-outline" size={22} color={colors.background} />
-                    <Text style={styles.primaryBtnText}>Add phone number</Text>
-                </TouchableOpacity>
+                {/* Feature bullets */}
+                <View style={styles.features}>
+                    {[
+                        { icon: 'chatbubble-ellipses-outline' as const, text: 'Text Max from Messages' },
+                        { icon: 'notifications-outline' as const, text: 'SMS schedule reminders' },
+                        { icon: 'time-outline' as const, text: 'Set up anytime in Profile' },
+                    ].map((item, i) => (
+                        <View key={i} style={styles.featureRow}>
+                            <View style={styles.featureIconWrap}>
+                                <Ionicons name={item.icon} size={18} color={colors.foreground} />
+                            </View>
+                            <Text style={styles.featureText}>{item.text}</Text>
+                        </View>
+                    ))}
+                </View>
 
-                <TouchableOpacity
-                    style={[styles.secondaryBtn, busy && styles.secondaryDisabled]}
-                    onPress={() => void onContinueWithoutSms()}
-                    disabled={busy}
-                    activeOpacity={0.85}
-                >
-                    {busy ? (
-                        <ActivityIndicator color={colors.foreground} />
-                    ) : (
-                        <Text style={styles.secondaryBtnText}>Continue without SMS for now</Text>
-                    )}
-                </TouchableOpacity>
-            </ScrollView>
+                {/* Bottom buttons */}
+                <View style={styles.actions}>
+                    <TouchableOpacity style={styles.primaryBtn} onPress={onAddPhone} activeOpacity={0.88} disabled={busy}>
+                        <Text style={styles.primaryBtnText}>Add phone number</Text>
+                        <Ionicons name="arrow-forward" size={18} color={colors.background} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[styles.secondaryBtn, busy && styles.secondaryDisabled]}
+                        onPress={() => void onContinueWithoutSms()}
+                        disabled={busy}
+                        activeOpacity={0.85}
+                    >
+                        {busy ? (
+                            <ActivityIndicator color={colors.textMuted} />
+                        ) : (
+                            <Text style={styles.secondaryBtnText}>Skip for now</Text>
+                        )}
+                    </TouchableOpacity>
+                </View>
+            </View>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.background },
-    scroll: { paddingHorizontal: spacing.xl },
-    kicker: { ...typography.label, color: colors.textMuted, letterSpacing: 1.2, marginBottom: spacing.sm },
-    title: { ...typography.h2, fontSize: 26, marginBottom: spacing.md },
-    body: { ...typography.body, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.md },
+    content: {
+        flex: 1,
+        paddingHorizontal: spacing.xl,
+        justifyContent: 'space-between',
+    },
+
+    heroSection: {
+        alignItems: 'center',
+        paddingTop: 32,
+    },
+    iconCircle: {
+        width: 72,
+        height: 72,
+        borderRadius: 36,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.lg,
+    },
+    title: {
+        fontFamily: fonts.serif,
+        fontSize: 28,
+        fontWeight: '400',
+        color: colors.foreground,
+        letterSpacing: -0.5,
+        textAlign: 'center',
+        marginBottom: spacing.sm,
+    },
+    subtitle: {
+        fontSize: 15,
+        fontWeight: '400',
+        color: colors.textSecondary,
+        lineHeight: 22,
+        textAlign: 'center',
+        maxWidth: 280,
+    },
+
+    features: {
+        gap: 16,
+        paddingHorizontal: spacing.sm,
+    },
+    featureRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+    },
+    featureIconWrap: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    featureText: {
+        fontSize: 15,
+        fontWeight: '500',
+        color: colors.foreground,
+        letterSpacing: -0.1,
+    },
+
+    actions: {
+        gap: spacing.sm,
+    },
     primaryBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: spacing.sm,
+        gap: 8,
         backgroundColor: colors.foreground,
-        paddingVertical: 14,
-        borderRadius: borderRadius.md,
-        marginTop: spacing.lg,
+        paddingVertical: 16,
+        borderRadius: borderRadius.full,
     },
-    primaryBtnText: { ...typography.button, color: colors.background, fontSize: 16 },
+    primaryBtnText: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: colors.background,
+        letterSpacing: 0.1,
+    },
     secondaryBtn: {
         alignItems: 'center',
         justifyContent: 'center',
         paddingVertical: 14,
-        borderRadius: borderRadius.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        marginTop: spacing.md,
     },
     secondaryDisabled: { opacity: 0.55 },
-    secondaryBtnText: { fontSize: 16, fontWeight: '600', color: colors.foreground },
+    secondaryBtnText: {
+        fontSize: 14,
+        fontWeight: '500',
+        color: colors.textMuted,
+    },
 });

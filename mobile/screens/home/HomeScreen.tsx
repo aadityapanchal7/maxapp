@@ -19,6 +19,8 @@ import { queryKeys } from '../../lib/queryClient';
 import { CachedImage } from '../../components/CachedImage';
 import { StreakFireBadge } from '../../components/StreakFireBadge';
 import { getMaxxDisplayLabel } from '../../utils/maxxDisplay';
+import { AttachStep } from 'react-native-spotlight-tour';
+import { TOUR_STEP } from '../../features/mainTour/mainTourSteps';
 
 /* ─── Progress Ring ─── */
 
@@ -310,66 +312,70 @@ export default function HomeScreen() {
 
                     {/* ── PROGRAMS (horizontal scroll, top of screen) ── */}
                     {activeMaxxes.length > 0 && (
-                        <View style={s.programsBar}>
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                contentContainerStyle={s.programsScroll}
-                            >
-                                {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string }) => {
-                                    if (!maxx.id) return null;
-                                    const tint = normalizeMaxxTintHex(maxx.color);
-                                    return (
-                                        <TouchableOpacity
-                                            key={maxx.id}
-                                            style={s.programPill}
-                                            onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
-                                            activeOpacity={0.72}
-                                        >
-                                            <View style={[s.programDot, { backgroundColor: tint }]} />
-                                            <Text style={s.programName} numberOfLines={1}>
-                                                {getMaxxDisplayLabel(maxx)}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                                <TouchableOpacity
-                                    style={s.addPill}
-                                    onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
-                                    activeOpacity={0.65}
-                                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        <AttachStep index={TOUR_STEP.PROGRAMS}>
+                            <View style={s.programsBar}>
+                                <ScrollView
+                                    horizontal
+                                    showsHorizontalScrollIndicator={false}
+                                    contentContainerStyle={s.programsScroll}
                                 >
-                                    <Ionicons name="add" size={16} color={colors.textMuted} />
-                                </TouchableOpacity>
-                            </ScrollView>
-                        </View>
+                                    {activeMaxxes.map((maxx: { id?: string; color?: string; icon?: string }) => {
+                                        if (!maxx.id) return null;
+                                        const tint = normalizeMaxxTintHex(maxx.color);
+                                        return (
+                                            <TouchableOpacity
+                                                key={maxx.id}
+                                                style={s.programPill}
+                                                onPress={() => navigation.navigate('MaxxDetail', { maxxId: maxx.id })}
+                                                activeOpacity={0.72}
+                                            >
+                                                <View style={[s.programDot, { backgroundColor: tint }]} />
+                                                <Text style={s.programName} numberOfLines={1}>
+                                                    {getMaxxDisplayLabel(maxx)}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                    <TouchableOpacity
+                                        style={s.addPill}
+                                        onPress={() => navigation.navigate('EditPersonal', { onlyGoals: true })}
+                                        activeOpacity={0.65}
+                                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                        <Ionicons name="add" size={16} color={colors.textMuted} />
+                                    </TouchableOpacity>
+                                </ScrollView>
+                            </View>
+                        </AttachStep>
                     )}
 
                     {/* ── PROGRESS HERO ── */}
-                    <TouchableOpacity
-                        style={s.progressHero}
-                        onPress={() => navigation.navigate('MasterScheduleTab')}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${completedCount} of ${totalCount} tasks completed. Open schedule.`}
-                    >
-                        {schedulesLoading ? (
-                            <ActivityIndicator size="large" color={colors.textMuted} style={{ height: RING_SIZE }} />
-                        ) : (
-                            <ProgressRing done={completedCount} total={totalCount} />
-                        )}
-                        <View style={s.progressMeta}>
-                            <Text style={s.dateLabel}>{todayDisplayLabel}</Text>
-                            {scheduleStreak.current > 0 && (
-                                <View style={s.streakRow}>
-                                    <View style={s.streakDot} />
-                                    <Text style={s.streakText}>
-                                        {scheduleStreak.current} day{scheduleStreak.current === 1 ? '' : 's'} streak
-                                    </Text>
-                                </View>
+                    <AttachStep index={TOUR_STEP.PROGRESS} fill>
+                        <TouchableOpacity
+                            style={s.progressHero}
+                            onPress={() => navigation.navigate('MasterScheduleTab')}
+                            activeOpacity={0.8}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${completedCount} of ${totalCount} tasks completed. Open schedule.`}
+                        >
+                            {schedulesLoading ? (
+                                <ActivityIndicator size="large" color={colors.textMuted} style={{ height: RING_SIZE }} />
+                            ) : (
+                                <ProgressRing done={completedCount} total={totalCount} />
                             )}
-                        </View>
-                    </TouchableOpacity>
+                            <View style={s.progressMeta}>
+                                <Text style={s.dateLabel}>{todayDisplayLabel}</Text>
+                                {scheduleStreak.current > 0 && (
+                                    <View style={s.streakRow}>
+                                        <View style={s.streakDot} />
+                                        <Text style={s.streakText}>
+                                            {scheduleStreak.current} day{scheduleStreak.current === 1 ? '' : 's'} streak
+                                        </Text>
+                                    </View>
+                                )}
+                            </View>
+                        </TouchableOpacity>
+                    </AttachStep>
 
                     {/* ── TASKS ── */}
                     <View style={s.section}>

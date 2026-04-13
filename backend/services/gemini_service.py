@@ -949,6 +949,7 @@ class GeminiService:
             generation_config = genai.GenerationConfig(
                 response_mime_type="application/json",
                 response_schema=UmaxTripleScanResult,
+                temperature=0.2,
             )
 
             def _sync() -> str:
@@ -1014,6 +1015,7 @@ class GeminiService:
             generation_config = genai.GenerationConfig(
                 response_mime_type="application/json",
                 response_schema=TripleFullScanResult,
+                temperature=0.2,
             )
 
             def _sync() -> str:
