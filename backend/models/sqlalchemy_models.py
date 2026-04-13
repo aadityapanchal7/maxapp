@@ -50,7 +50,7 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     subscription_tier = Column(String, default=None)  # null (free), 'basic', 'premium'
     subscription_status = Column(String)
-    subscription_id = Column(String, unique=True)
+    subscription_id = Column(String)
     subscription_end_date = Column(DateTime(timezone=True))
     stripe_customer_id = Column(String, unique=True)
     # stripe | apple — controls cancel/change-tier/manage UI; null treated as stripe if stripe_customer_id set
@@ -258,10 +258,6 @@ class ChatHistory(Base):
     content = Column(Text, nullable=False)
     # "app" = in-app chat UI; "sms" = Twilio SMS thread (not shown in app history)
     channel = Column(String, default="app")
-    # RAG audit trail — rag_documents row IDs (UUIDs as strings) that informed this assistant reply.
-    retrieved_chunk_ids = Column(ARRAY(String), nullable=True)
-    # Partner rule attribution — which partner_rules fired on this reply
-    partner_rule_ids = Column(ARRAY(BIGINT), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
