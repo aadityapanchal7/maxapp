@@ -85,28 +85,16 @@ async def init_db():
     try:
         await _terminate_stale_connections()
 
-<<<<<<< Updated upstream
         from models.sqlalchemy_models import Base
         # RAG is file-based now (backend/rag_content/), so rag_documents is not needed.
         # Skip it from create_all to avoid the VECTOR type check that fails through Supabase's pooler.
         tables_to_create = [t for t in Base.metadata.sorted_tables if t.name != "rag_documents"]
-=======
-        from models.sqlalchemy_models import Base, KbChunk
-        # Skip kb_chunks in automated create_all — the VECTOR type metadata check
-        # fails through asyncpg on some Supabase instances. The table is expected
-        # to be created manually in Supabase SQL Editor (see docs/rag_setup.md).
-        tables_to_create = [t for t in Base.metadata.sorted_tables if t.name != "kb_chunks"]
->>>>>>> Stashed changes
         async with engine.begin() as conn:
             await conn.execute(text("SET search_path TO public, extensions"))
             await conn.run_sync(
                 lambda sync_conn: Base.metadata.create_all(sync_conn, tables=tables_to_create)
             )
-<<<<<<< Updated upstream
         print("[OK] Supabase tables created/verified")
-=======
-        print("[OK] Supabase tables created/verified (kb_chunks assumed pre-created)")
->>>>>>> Stashed changes
 
         # app_users alters in their own transaction so a lock failure on other tables
         # cannot roll back critical columns (e.g. last_username_change).
@@ -146,11 +134,8 @@ async def _run_app_users_column_migrations():
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS apns_device_token TEXT",
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS apns_token_updated_at TIMESTAMPTZ",
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS coaching_tone VARCHAR DEFAULT 'default'",
-<<<<<<< Updated upstream
         # subscription_id was unique but Apple reuses originalTransactionId across renewals
         "ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_subscription_id_key",
-=======
->>>>>>> Stashed changes
     ]
     try:
         async with engine.begin() as conn:
@@ -166,9 +151,6 @@ async def _run_chat_history_column_migrations():
     """Add chat_history columns in a dedicated transaction so they commit even if other migrations fail."""
     statements = [
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS channel VARCHAR DEFAULT 'app'",
-<<<<<<< HEAD
-        "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS retrieved_chunk_ids TEXT[]",
-        "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS partner_rule_ids BIGINT[]",
     ]
     try:
         async with engine.begin() as conn:
@@ -183,14 +165,6 @@ async def _run_chat_history_column_migrations():
 async def _run_column_migrations():
     """Add missing columns to existing tables (safe to run repeatedly)."""
     migrations = [
-<<<<<<< Updated upstream
-=======
->>>>>>> 5fb047ce845091c41e0292b2b023a58205ec6946
-=======
-        "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS channel VARCHAR DEFAULT 'app'",
-        "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS retrieved_chunk_ids BIGINT[]",
-        "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS partner_rule_ids BIGINT[]",
->>>>>>> Stashed changes
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'app'",
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS face_rating DOUBLE PRECISION",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",
@@ -212,7 +186,6 @@ async def _run_column_migrations():
     except Exception as e:
         print(f"[INFO] Column migration note: {e}")
 
-<<<<<<< Updated upstream
     # RAG is now file-based (backend/rag_content/<maxx_id>/*.md). No DB indexes needed.
 
 
@@ -241,23 +214,6 @@ async def _run_rag_migrations():
         print("[OK] RAG migrations applied (pgvector + rag_documents)")
     except Exception as e:
         print(f"[WARNING] RAG migrations: {e}")
-=======
-    # pgvector indexes — skipped silently if the `vector` extension isn't enabled.
-    # Enable it once in Supabase SQL editor: `create extension if not exists vector;`
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text("SET lock_timeout = '5s'"))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding "
-                "ON kb_chunks USING hnsw (embedding vector_cosine_ops)"
-            ))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS idx_kb_chunks_module ON kb_chunks (module)"
-            ))
-        print("[OK] pgvector indexes verified")
-    except Exception as e:
-        print(f"[INFO] pgvector index setup skipped (enable `vector` extension in Supabase): {e}")
->>>>>>> Stashed changes
 
 
 async def close_db():

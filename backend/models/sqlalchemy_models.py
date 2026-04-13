@@ -16,17 +16,13 @@ from sqlalchemy import (
     JSON,
     Float,
 )
-<<<<<<< Updated upstream
 try:
     from pgvector.sqlalchemy import Vector as PgVector
     _PGVECTOR_AVAILABLE = True
 except ImportError:
     PgVector = None
     _PGVECTOR_AVAILABLE = False
-from sqlalchemy.dialects.postgresql import UUID, ARRAY, BIGINT
-=======
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, BIGINT, JSONB
->>>>>>> Stashed changes
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, date
 import uuid
@@ -64,7 +60,7 @@ class User(Base):
     subscription_id = Column(String)
     subscription_end_date = Column(DateTime(timezone=True))
     stripe_customer_id = Column(String, unique=True)
-    # stripe | apple — controls cancel/change-tier/manage UI; null treated as stripe if stripe_customer_id set
+    # stripe | apple -- controls cancel/change-tier/manage UI; null treated as stripe if stripe_customer_id set
     billing_provider = Column(String)
 
     phone_number = Column(String)
@@ -79,9 +75,9 @@ class User(Base):
     schedule_preferences = Column(JSON, default=dict)
     last_progress_prompt_date = Column(String)
 
-    # AI memory — persistent context the LLM can reference across conversations
+    # AI memory -- persistent context the LLM can reference across conversations
     ai_context = Column(Text, default="")
-    # Rolling summaries — last 3 conversation summaries for drift detection
+    # Rolling summaries -- last 3 conversation summaries for drift detection
     ai_summaries = Column(JSON, default=list)
     # Persona / tone selected by the user: "default" | "hardcore" | "gentle" | "influencer"
     coaching_tone = Column(String, default="default")
@@ -94,7 +90,7 @@ class User(Base):
 
 
 class PasswordResetOTP(Base):
-    """SMS OTP for password reset — short-lived, single-use."""
+    """SMS OTP for password reset -- short-lived, single-use."""
 
     __tablename__ = "password_reset_otps"
 
@@ -111,7 +107,7 @@ class PasswordResetOTP(Base):
 
 
 class UserCoachingState(Base):
-    """Structured coaching state per user — queryable fields for rules engine"""
+    """Structured coaching state per user -- queryable fields for rules engine"""
     __tablename__ = "user_coaching_state"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -269,10 +265,6 @@ class ChatHistory(Base):
     content = Column(Text, nullable=False)
     # "app" = in-app chat UI; "sms" = Twilio SMS thread (not shown in app history)
     channel = Column(String, default="app")
-    # RAG audit trail — which kb_chunks informed the reply on this row (assistant rows only)
-    retrieved_chunk_ids = Column(ARRAY(BIGINT), nullable=True)
-    # Partner rule attribution — which partner_rules fired on this reply
-    partner_rule_ids = Column(ARRAY(BIGINT), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -282,29 +274,6 @@ class ChatHistory(Base):
     )
 
 
-<<<<<<< Updated upstream
-=======
-class KbChunk(Base):
-    """RAG knowledge-base chunk. One row = one embeddable unit of course content.
-
-    pgvector extension must be enabled in Supabase before this table can be created.
-    See DEPLOY notes for the one-time `create extension if not exists vector;` step.
-    """
-    __tablename__ = "kb_chunks"
-
-    id = Column(BIGINT, primary_key=True, autoincrement=True)
-    module = Column(String, nullable=False, index=True)
-    persona = Column(String, nullable=True)
-    content = Column(Text, nullable=False)
-    # Hash of normalized content — idempotent re-ingestion: same hash = skip.
-    content_hash = Column(String, unique=True, nullable=False)
-    # 1536-dim matches text-embedding-3-small. Change with embedding_model in config.py.
-    embedding = Column(Vector(1536) if _PGVECTOR_AVAILABLE else Text, nullable=False)
-    meta = Column("metadata", JSONB, default=dict)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
-
-
->>>>>>> Stashed changes
 class ScheduledNotification(Base):
     """Queue for LLM-triggered push notifications.
     The existing APNs worker polls status='pending' rows with scheduled_for <= now.
@@ -315,7 +284,7 @@ class ScheduledNotification(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
     scheduled_for = Column(DateTime(timezone=True), nullable=False)
     message = Column(Text, nullable=False)
-    # Optional action buttons surfaced in the push — APNs `category` must be registered on device.
+    # Optional action buttons surfaced in the push -- APNs `category` must be registered on device.
     buttons = Column(ARRAY(String), nullable=True)
     category_id = Column(String, nullable=True)
     status = Column(String, default="pending")  # pending | sent | failed | cancelled
@@ -406,7 +375,7 @@ class RagDocument(Base):
     doc_title   = Column(String(255), nullable=False)
     chunk_index = Column(Integer,     nullable=False, default=0)
     content     = Column(Text,        nullable=False)
-    # pgvector column — defined only when the package is installed
+    # pgvector column -- defined only when the package is installed
     embedding   = Column(PgVector(1536), nullable=False) if _PGVECTOR_AVAILABLE else Column(Text, nullable=True)
     metadata_   = Column("metadata", JSON, default=dict)
     created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
@@ -414,7 +383,7 @@ class RagDocument(Base):
 
 
 class ChannelMessageReport(Base):
-    """User reports on channel (forum) messages — App Review UGC moderation trail."""
+    """User reports on channel (forum) messages -- App Review UGC moderation trail."""
 
     __tablename__ = "channel_message_reports"
 

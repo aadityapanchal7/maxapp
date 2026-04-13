@@ -29,7 +29,6 @@ from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
-<<<<<<< Updated upstream
 from services.fitmax_plan import (
     fitmax_build_plan as _fitmax_build_plan,
     seed_fitmax_profile_from_onboarding as _fitmax_seed_profile_from_onboarding,
@@ -38,24 +37,15 @@ from services.rag_service import retrieve_chunks as rag_retrieve_chunks
 from services.persona_prompts import tone_preamble
 from services.partner_rules_service import get_matching_rule_suffix
 from config import settings
-=======
-from services.rag_service import (
-    retrieve as rag_retrieve,
-    is_knowledge_question,
-    format_context_block,
-)
-from services.persona_prompts import tone_preamble
-from services.partner_rules_service import get_matching_rule_suffix
->>>>>>> Stashed changes
 
 logger = logging.getLogger(__name__)
 
 # LangChain agent history + background memory/tone use the same window.
 CHAT_HISTORY_WINDOW = 15
 
-# Schedule setup: wake/sleep come from signup / profile only — never re-ask in chat.
+# Schedule setup: wake/sleep come from signup / profile only -- never re-ask in chat.
 _WAKE_SLEEP_NEVER_ASK = (
-    "WAKE_TIME & SLEEP_TIME — NEVER ask the user in this flow. Read wake_time and sleep_time from "
+    "WAKE_TIME & SLEEP_TIME -- NEVER ask the user in this flow. Read wake_time and sleep_time from "
     "user_context.onboarding / GLOBAL ONBOARDING (includes schedule_preferences merge). "
     "If either field is missing, pass wake_time=07:00 and sleep_time=23:00 in generate_maxx_schedule without asking."
 )
@@ -65,7 +55,7 @@ def _friendly_llm_error_message(llm_err: BaseException) -> str:
     """After primary+fallback LLM both fail, map quota/rate errors to clearer copy."""
     if isinstance(llm_err, TimeoutError):
         return str(llm_err) or (
-            "The assistant took too long — please try again. Your message was saved."
+            "The assistant took too long -- please try again. Your message was saved."
         )
     blob = f"{type(llm_err).__name__} {llm_err}".lower()
     if any(
@@ -86,7 +76,7 @@ def _friendly_llm_error_message(llm_err: BaseException) -> str:
             "for Gemini and/or OpenAI. Your message was saved."
         )
     return (
-        "I'm having trouble reaching my brain right now — please try again "
+        "I'm having trouble reaching my brain right now -- please try again "
         "in a moment. Your message was saved."
     )
 
@@ -248,14 +238,14 @@ def _fitmax_missing_fields(profile: dict) -> list[str]:
 
 FITMAX_QUESTION_MAP: dict[str, tuple[str, list[str]]] = {
     "goal": (
-        "what's your main goal right now — fat loss, muscle gain, recomp, maintenance, or performance?",
+        "what's your main goal right now -- fat loss, muscle gain, recomp, maintenance, or performance?",
         ["fat loss", "muscle gain", "recomp", "maintenance", "performance"],
     ),
     "experience_level": (
         "what's your training experience level: beginner, intermediate, or advanced?",
         ["beginner", "intermediate", "advanced"],
     ),
-    "height_cm": ("quick stats check — what's your height (cm or ft/in)?", []),
+    "height_cm": ("quick stats check -- what's your height (cm or ft/in)?", []),
     "weight_kg": ("what's your current body weight?", []),
     "age": ("how old are you?", []),
     "biological_sex": (
@@ -381,7 +371,7 @@ def _hairmax_missing_fields(profile: dict) -> list[str]:
 
 HAIRMAX_QUESTION_MAP: dict[str, tuple[str, list[str]]] = {
     "hair_type": (
-        "what's your hair type — straight, wavy, curly, or coily?",
+        "what's your hair type -- straight, wavy, curly, or coily?",
         ["straight", "wavy", "curly", "coily"],
     ),
     "scalp_state": (
@@ -868,25 +858,25 @@ def _heightmax_global_profile_hint(onboarding: dict) -> str:
     opt: list[str] = []
     sh = onboarding.get("heightmax_screen_hours") or onboarding.get("screen_hours_daily")
     if sh:
-        opt.append(f"screen/phone load already saved: {sh} — do NOT ask again")
+        opt.append(f"screen/phone load already saved: {sh} -- do NOT ask again")
     hwt = onboarding.get("heightmax_workout_time") or onboarding.get("preferred_workout_time")
     if hwt:
-        opt.append(f"preferred workout time already saved: {hwt} — do NOT ask again")
+        opt.append(f"preferred workout time already saved: {hwt} -- do NOT ask again")
     gp = onboarding.get("growth_plate_status") or onboarding.get("heightmax_growth_plate_status")
     if gp:
-        opt.append(f"growth_plate status already saved: {gp} — do NOT ask again")
+        opt.append(f"growth_plate status already saved: {gp} -- do NOT ask again")
     hg = onboarding.get("heightmax_goal") or onboarding.get("height_goal")
     if hg:
-        opt.append(f"height goal already saved: {hg} — do NOT ask again")
+        opt.append(f"height goal already saved: {hg} -- do NOT ask again")
     sq = onboarding.get("heightmax_sleep_quality") or onboarding.get("sleep_quality")
     if sq:
-        opt.append(f"sleep quality already saved: {sq} — do NOT ask again")
+        opt.append(f"sleep quality already saved: {sq} -- do NOT ask again")
     if not bits and not opt:
         return ""
     lines = [
-        "KNOWN FROM GLOBAL ONBOARDING (user_context.onboarding — signup / profile; "
+        "KNOWN FROM GLOBAL ONBOARDING (user_context.onboarding -- signup / profile; "
         "treat as source of truth; DO NOT re-ask age, gender, height, wake, or sleep unless user asks to change): "
-        + (", ".join(bits) if bits else "(no core demographics in JSON — ask only what's missing)")
+        + (", ".join(bits) if bits else "(no core demographics in JSON -- ask only what's missing)")
     ]
     if opt:
         lines.append("ALSO ALREADY ON PROFILE (do NOT re-ask):")
@@ -933,7 +923,7 @@ def _bonemax_onboarding_known_block(ob: dict) -> str:
     lines: list[str] = []
     wf = str(ob.get("bonemax_workout_frequency") or "").strip()
     if wf:
-        lines.append(f"- workout frequency already in onboarding: {wf} — pass to generate_maxx_schedule; do NOT ask again.")
+        lines.append(f"- workout frequency already in onboarding: {wf} -- pass to generate_maxx_schedule; do NOT ask again.")
     for label, key in (
         ("TMJ / jaw history", "bonemax_tmj_history"),
         ("mastic gum regularly", "bonemax_mastic_gum_regular"),
@@ -943,7 +933,7 @@ def _bonemax_onboarding_known_block(ob: dict) -> str:
         if v is None or str(v).strip() == "":
             continue
         if _yes_no_answered(v):
-            lines.append(f"- {label} already in onboarding: {v} — use in tool; do NOT ask again.")
+            lines.append(f"- {label} already in onboarding: {v} -- use in tool; do NOT ask again.")
     if not lines:
         return ""
     return (
@@ -969,16 +959,16 @@ def _hairmax_onboarding_known_block(ob: dict) -> str:
             continue
         if key in ("thinning", "hair_thinning") and not _yes_no_answered(v):
             continue
-        lines.append(f"- {label}: {v} — use in generate_maxx_schedule; do NOT ask again.")
+        lines.append(f"- {label}: {v} -- use in generate_maxx_schedule; do NOT ask again.")
     hcl = str(ob.get("hair_current_loss") or "").strip().lower()
     if hcl and not ob.get("thinning") and not ob.get("hair_thinning"):
         if any(w in hcl for w in ("yes", "yeah", "yep", "reced", "thin", "losing", "balding", "some")):
             lines.append(
-                "- hair questionnaire (hair_current_loss) suggests thinning — treat thinning=yes in tool unless user corrects; do NOT ask again unless unclear."
+                "- hair questionnaire (hair_current_loss) suggests thinning -- treat thinning=yes in tool unless user corrects; do NOT ask again unless unclear."
             )
         elif any(w in hcl for w in ("no", "nope", "not ", "none", "minimal")):
             lines.append(
-                "- hair questionnaire suggests no major loss — treat thinning=no in tool unless user corrects."
+                "- hair questionnaire suggests no major loss -- treat thinning=no in tool unless user corrects."
             )
     if not lines:
         return ""
@@ -1013,7 +1003,7 @@ def _fitmax_known_from_onboarding(onboarding: dict, profile: dict) -> str:
     add("dietary_restrictions", fp.get("dietary_restrictions") or ob.get("fitmax_diet_approach"))
 
     if not lines:
-        return "ALREADY KNOWN: nothing pre-filled — collect all required fields via conversation.\n"
+        return "ALREADY KNOWN: nothing pre-filled -- collect all required fields via conversation.\n"
     return "ALREADY KNOWN (do NOT re-ask unless user corrects):\n" + "\n".join(lines) + "\n"
 
 
@@ -1086,7 +1076,7 @@ def _safe_int_age(val) -> Optional[int]:
 
 
 def _heightmax_demographics_complete(ob: dict) -> bool:
-    """Age + gender + height present (typical app onboarding) — no chat questions needed."""
+    """Age + gender + height present (typical app onboarding) -- no chat questions needed."""
     if not ob:
         return False
     if _safe_int_age(ob.get("age")) is None:
@@ -1137,13 +1127,13 @@ async def _persist_heightmax_onboarding_from_chat(
 
 def _looks_like_informational_question(text: str) -> bool:
     """
-    True for education / definition / why-how questions — not schedule change commands.
+    True for education / definition / why-how questions -- not schedule change commands.
     Used to skip schedule tools when the model mis-fires.
     """
     if not text or len(text.strip()) < 6:
         return False
     t = text.lower().strip()
-    # Schedule-change phrases that can co-occur with questions — exclude
+    # Schedule-change phrases that can co-occur with questions -- exclude
     if any(
         x in t
         for x in (
@@ -1376,7 +1366,7 @@ async def process_chat_message(
 
     # SMS is not persisted; use in-app thread as read-only context for the model.
     history_channel_for_load = "app" if channel == "sms" else channel
-    # AsyncSession is NOT concurrency-safe — two awaits on the same session
+    # AsyncSession is NOT concurrency-safe -- two awaits on the same session
     # raise InvalidRequestError. So we serialize DB calls on `db`, but batch
     # them into one query where we can: user + history are one round-trip
     # via gather only if they run on SEPARATE sessions. Keeping sequential
@@ -1401,7 +1391,7 @@ async def process_chat_message(
     user = await db.get(User, user_uuid)
     onboarding = _merge_onboarding_with_schedule_prefs(user)
     # Batch all stale-flag cleanups into a single commit. Previously this block
-    # could issue up to 5 separate commits before the LLM call even started —
+    # could issue up to 5 separate commits before the LLM call even started --
     # each one a ~5-20ms round-trip. Now: mutate in memory, commit once at end.
     profile: dict = dict((user.profile or {}) or {}) if user else {}
     profile_dirty = False
@@ -1644,7 +1634,7 @@ async def process_chat_message(
             # Onboarding incomplete -> ask exactly one next question in chat
             if not fitmax_schedule and missing:
                 if not any(fitmax_profile.values()):
-                    response_text = "hey, welcome to fitmax. before we build your plan, i need to know a bit about you — this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, maintain, or performance?"
+                    response_text = "hey, welcome to fitmax. before we build your plan, i need to know a bit about you -- this takes about 3 minutes and everything we create depends on it. what's your main goal right now? losing fat, building muscle, recomp, maintain, or performance?"
                     choices_for_step = ["fat loss", "muscle gain", "recomp", "maintenance", "performance"]
                 else:
                     response_text = _fitmax_next_question(fitmax_profile)
@@ -1993,7 +1983,7 @@ async def process_chat_message(
                 )
             except Exception as gen_err:
                 logger.exception("HeightMax fast-path schedule generation failed: %s", gen_err)
-                response_text = "had trouble building your heightmax schedule — try again in a sec."
+                response_text = "had trouble building your heightmax schedule -- try again in a sec."
             if _persist_chat_history(channel):
                 user_message = ChatHistory(
                     user_id=user_uuid,
@@ -2034,21 +2024,21 @@ async def process_chat_message(
 
 {_hp}the user just opened heightmax to start a new schedule. follow the same tone and style you use for other maxx modules: short, casual, direct, and focused on getting their schedule locked in.
 
-CRITICAL — FORBIDDEN FOR HEIGHTMAX
-- NEVER ask "outside today" or "you gonna be outside today" or "will you be outside" — that is ONLY for Skinmax. HeightMax does NOT use outside_today. If you ask this, you have failed.
+CRITICAL -- FORBIDDEN FOR HEIGHTMAX
+- NEVER ask "outside today" or "you gonna be outside today" or "will you be outside" -- that is ONLY for Skinmax. HeightMax does NOT use outside_today. If you ask this, you have failed.
 
 MAIN RULES FOR HEIGHTMAX
 - do NOT ask "what is your main concern?" or any generic concern questions.
 - height is already the focus. don't ask what area they want to work on.
 - GLOBAL ONBOARDING: age, gender, height, wake, and sleep are usually already in user_context.onboarding from app signup. NEVER ask for any field that appears in KNOWN FROM GLOBAL ONBOARDING or ALSO ALREADY ON PROFILE above.
 - {_WAKE_SLEEP_NEVER_ASK}
-- your job is to grab any missing demographic info (only if not in onboarding), then call generate_maxx_schedule once. the backend builds their full HeightMax schedule in one shot (all standard tracks on). do NOT tell them to tap any in-app button, toggle, or "choose height schedule parts" — users on SMS/text have no such UI and it causes confusion. after the tool runs, tell them the schedule is locked in and to open the Schedule tab in the app for pings.
+- your job is to grab any missing demographic info (only if not in onboarding), then call generate_maxx_schedule once. the backend builds their full HeightMax schedule in one shot (all standard tracks on). do NOT tell them to tap any in-app button, toggle, or "choose height schedule parts" -- users on SMS/text have no such UI and it causes confusion. after the tool runs, tell them the schedule is locked in and to open the Schedule tab in the app for pings.
 
 WHAT YOU'RE ALLOWED TO ASK FOR (ONLY IF MISSING FROM user_context.onboarding / not in KNOWN above)
-- age — ONLY if not already known
-- sex / gender — ONLY if not already known (field may be "gender")
-- current height — ONLY if not already known
-- (never wake/sleep — see rule above; never re-ask optional heightmax fields already on profile)
+- age -- ONLY if not already known
+- sex / gender -- ONLY if not already known (field may be "gender")
+- current height -- ONLY if not already known
+- (never wake/sleep -- see rule above; never re-ask optional heightmax fields already on profile)
 
 HOW TO RUN THE FLOW
 1) {_h_first_turn_rule}
@@ -2070,7 +2060,7 @@ HOW TO RUN THE FLOW
    - sex = their sex/gender (if known)
    - height = their current height in any format, e.g. "5'10" or "178cm" (if known)
 
-   the backend then creates the full schedule — same as other maxx modules.
+   the backend then creates the full schedule -- same as other maxx modules.
 
 4) after generate_maxx_schedule returns, your reply should be short: confirm heightmax is locked in and they should open the schedule tab for reminders. optional one line on what HeightMax focuses on (sleep, posture/decompression, sprints, nutrition habits) if they seem unsure. never mention toggles, "below", or buttons. never use * or ** (no markdown).
 
@@ -2084,9 +2074,9 @@ STYLE
 
 {_hair_known}the user just opened hairmax to start a new schedule. follow the same tone and style as other maxx modules: short, casual, direct, focused on getting their schedule locked in.
 
-CRITICAL — EVERY TURN IN THIS THREAD (until generate_maxx_schedule succeeds):
+CRITICAL -- EVERY TURN IN THIS THREAD (until generate_maxx_schedule succeeds):
 - you are ONLY in hairmax. NEVER ask skin concern, SPF, UV, "skinmax", or "focus area for skin".
-- NEVER ask "outside today", "going outside", sun, or sunscreen — those are SKINMAX-only. asking them here is a failure.
+- NEVER ask "outside today", "going outside", sun, or sunscreen -- those are SKINMAX-only. asking them here is a failure.
 
 DO NOT:
 - do not ask "what is your main concern?" or any generic concern questions.
@@ -2102,7 +2092,7 @@ what you're allowed to ask for (only if missing in user_context or onboarding):
   - daily styling/product use: "do you use hair products or styling most days?" (yes/no)
 - thinning:
   - "do you notice hair thinning or a receding hairline?" (yes/no)
-- (never ask wake_time or sleep_time — pass from onboarding or 07:00 / 23:00 in the tool)
+- (never ask wake_time or sleep_time -- pass from onboarding or 07:00 / 23:00 in the tool)
 
 guiding rules (for how you talk; backend does final schedule):
 - shampoo/conditioner:
@@ -2130,10 +2120,10 @@ guiding rules (for how you talk; backend does final schedule):
 
 flow for a new hairmax schedule:
 1) greet briefly and say you're setting up their hairmax schedule.
-2) check the ALREADY KNOWN block above plus user_context/onboarding. only ask what's missing. STRICT ORDER — do not skip ahead:
+2) check the ALREADY KNOWN block above plus user_context/onboarding. only ask what's missing. STRICT ORDER -- do not skip ahead:
    - ask in order: hair type → scalp → daily styling → thinning (skip any line already listed as known).
    ask one question at a time. you MUST have all four hair lines (type, scalp, daily styling, thinning) before calling the tool unless they were pre-filled.
-3) call generate_maxx_schedule exactly once once hair fields are complete. pass wake_time and sleep_time from onboarding only, or 07:00 and 23:00 if missing — never ask the user for them. the backend will reject the call if hair fields are missing — pass them explicitly:
+3) call generate_maxx_schedule exactly once once hair fields are complete. pass wake_time and sleep_time from onboarding only, or 07:00 and 23:00 if missing -- never ask the user for them. the backend will reject the call if hair fields are missing -- pass them explicitly:
    - maxx_id = "hairmax"
    - hair_type = e.g. "curly"
    - scalp_state = e.g. "oily/greasy"
@@ -2155,7 +2145,7 @@ style:
 
 your first response in this hairmax start flow should:
 - briefly acknowledge they're starting hairmax, and
-- immediately ask the first missing hair-related question (hair type / scalp / products / thinning). if all hair basics are known, call generate_maxx_schedule (wake/sleep from onboarding or defaults) — never ask wake/sleep.]\n\n{message}"""
+- immediately ask the first missing hair-related question (hair type / scalp / products / thinning). if all hair basics are known, call generate_maxx_schedule (wake/sleep from onboarding or defaults) -- never ask wake/sleep.]\n\n{message}"""
         elif maxx_id == "skinmax":
             inferred_sc = _infer_skin_concern_id_from_onboarding(onboarding)
             wt_ok = _normalize_clock_hhmm(onboarding.get("wake_time"))
@@ -2163,7 +2153,7 @@ your first response in this hairmax start flow should:
             known_lines: list[str] = [_WAKE_SLEEP_NEVER_ASK]
             if inferred_sc:
                 known_lines.append(
-                    f'SKIN CONCERN already inferred from app onboarding — use skin_concern="{inferred_sc}" in generate_maxx_schedule. '
+                    f'SKIN CONCERN already inferred from app onboarding -- use skin_concern="{inferred_sc}" in generate_maxx_schedule. '
                     "Do NOT ask the user to pick acne vs pigmentation etc. unless they explicitly want to change focus."
                 )
             if wt_ok:
@@ -2174,20 +2164,20 @@ your first response in this hairmax start flow should:
             if sl:
                 known_lines.append(f"skincare_routine_level={sl} (use as context; do not re-ask).")
             known_block = "\n".join(known_lines)
-            message = f"""[SYSTEM: Skinmax schedule setup — user started the module schedule from the app.
+            message = f"""[SYSTEM: Skinmax schedule setup -- user started the module schedule from the app.
 
 {known_block}
 
 RULES:
 - GLOBAL ONBOARDING + USER CONTEXT are source of truth.
-- Before generate_maxx_schedule you need: skin_concern, wake_time, sleep_time (from onboarding or 07:00/23:00 defaults — NEVER ask), and outside_today (boolean).
+- Before generate_maxx_schedule you need: skin_concern, wake_time, sleep_time (from onboarding or 07:00/23:00 defaults -- NEVER ask), and outside_today (boolean).
 - ONE question per message. Order: (1) skin concern ONLY if not pre-filled above, (2) then ONLY "planning to be outside much today?" for outside_today.
 - If skin concern is already pre-filled above, greet briefly and your FIRST question must be ONLY about outside today.
 - For wake/sleep in the tool: use values from onboarding if present; otherwise 07:00 and 23:00.
 
 ANTI-REDUNDANCY (CRITICAL):
 - NEVER ask the skin concern / focus question again if it appears anywhere in THIS chat thread (user already said e.g. "acne") OR if pre-filled above OR inferable from onboarding.
-- If the user already answered concern + outside today in this thread, call generate_maxx_schedule immediately — do NOT rephrase the same questions.
+- If the user already answered concern + outside today in this thread, call generate_maxx_schedule immediately -- do NOT rephrase the same questions.
 - Do NOT repeat "what's your main skin concern" in different wording after they already answered once.
 
 Call generate_maxx_schedule once when you have skin_concern + outside_today (wake/sleep never from user chat). maxx_id=\"skinmax\".]\n\n{message}"""
@@ -2207,14 +2197,14 @@ Call generate_maxx_schedule once when you have skin_concern + outside_today (wak
 
 {_fitmax_known}
 
-CRITICAL — FORBIDDEN FOR FITMAX (not Skinmax)
+CRITICAL -- FORBIDDEN FOR FITMAX (not Skinmax)
 - NEVER ask "outside today", "going outside", UV, sunscreen, or SPF. FitMax always uses outside_today=false in generate_maxx_schedule.
-- NEVER ask wake_time or sleep_time to complete setup — use user_context.onboarding or pass wake_time="{_wt}" and sleep_time="{_st}" in the tool. Only acknowledge if the user volunteers a correction.
+- NEVER ask wake_time or sleep_time to complete setup -- use user_context.onboarding or pass wake_time="{_wt}" and sleep_time="{_st}" in the tool. Only acknowledge if the user volunteers a correction.
 
 WHAT TO COLLECT (only if missing from ALREADY KNOWN above)
 - goal: fat loss, muscle gain, recomp, maintenance, or performance (map to skin_concern in tool, e.g. "muscle gain" or "muscle_gain")
-- weight in kg (pass body_weight_kg in the tool, or user says lbs — convert)
-- height (pass height as string, e.g. 5'9 or 175cm — same as heightmax)
+- weight in kg (pass body_weight_kg in the tool, or user says lbs -- convert)
+- height (pass height as string, e.g. 5'9 or 175cm -- same as heightmax)
 - age (pass age integer)
 - biological sex male/female (pass sex or gender)
 - training days per week 3–6 (pass training_days_per_week integer)
@@ -2231,7 +2221,7 @@ HOW TO CALL generate_maxx_schedule (once all required fields are known)
 - outside_today = false
 - wake_time = "{_wt}", sleep_time = "{_st}"
 - skin_concern = short goal phrase from the user (used with other args for routing)
-- age, sex or gender, height, body_weight_kg, training_days_per_week — pass explicitly from the conversation
+- age, sex or gender, height, body_weight_kg, training_days_per_week -- pass explicitly from the conversation
 - optional: training_experience, fitmax_equipment, session_minutes, daily_activity_level, dietary_restrictions
 
 If the tool returns "missing required fields for fitmax: ...", ask ONLY for the listed items, one at a time.
@@ -2263,11 +2253,11 @@ STYLE: short, casual, same as other maxxes.]\n\n{message}"""
             if concern_question and concerns:
                 concerns_str = ", ".join(c.get("label", c.get("id", "")) for c in concerns)
                 concern_ids = ", ".join(c.get("id", "") for c in concerns if c.get("id"))
-                message = f"""[SYSTEM: User wants to start their {maxx_id} schedule. CRITICAL — follow this EXACT order:
+                message = f"""[SYSTEM: User wants to start their {maxx_id} schedule. CRITICAL -- follow this EXACT order:
 {_WAKE_SLEEP_NEVER_ASK}
 1. Greet briefly and explain what the schedule does.
 2. Your FIRST question MUST be: "{concern_question}" Options: {concerns_str}. Wait for their answer.
-3. After they pick a concern, ask: "Are you planning to be outside much today?" — wait for answer (needed for UV / SPF logic where applicable).
+3. After they pick a concern, ask: "Are you planning to be outside much today?" -- wait for answer (needed for UV / SPF logic where applicable).
 4. Call generate_maxx_schedule with maxx_id="{maxx_id}", skin_concern=their chosen concern ({concern_ids}), wake_time and sleep_time from user_context.onboarding (or 07:00 and 23:00 if missing), and outside_today.
 Ask ONE question at a time. Your very first response must ask the concern question.]\n\n{message}"""
             else:
@@ -2282,48 +2272,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     if attachment_url and attachment_type == "image":
         image_data = await storage_service.get_image(attachment_url)
 
-<<<<<<< Updated upstream
     # --- RAG retrieval (only when there's an active maxx context and a knowledge question) ---
     # retrieve_chunks returns [] on any failure, so chat degrades gracefully.
     retrieved_chunks: list[dict] = []
     partner_rule_ids: list[int] = []
-=======
-    # --- RAG retrieval (knowledge questions only) ---
-    # Pulls relevant chunks from kb_chunks and injects them into coaching_context
-    # (which becomes the `## USER CONTEXT:` section of the system prompt). Skipped
-    # on check-in style turns ("yes", "done", numeric) to save latency + tokens.
-    retrieved_chunks = []
-    if is_knowledge_question(message_text):
-        try:
-            module_filter = (active_schedule or {}).get("maxx_id") if active_schedule else None
-            retrieved_chunks = await rag_retrieve(
-                db, message_text, module=module_filter
-            )
-        except Exception as rag_err:
-            logger.warning("RAG retrieval skipped: %s", rag_err)
-            retrieved_chunks = []
-
-    # --- Assemble tone preamble + RAG context + partner suffix into coaching_context ---
-    existing_ctx = user_context.get("coaching_context") or ""
-    extras: list[str] = []
-    tone_prefix = tone_preamble(getattr(user, "coaching_tone", None) if user else None)
-    if tone_prefix:
-        extras.append(tone_prefix)
-    if retrieved_chunks:
-        extras.append(format_context_block(retrieved_chunks))
-    partner_suffix, partner_rule_ids = await get_matching_rule_suffix(
-        db, message_text, [c.content for c in retrieved_chunks]
-    )
-    if partner_suffix:
-        extras.append(partner_suffix)
-    if extras:
-        user_context["coaching_context"] = (existing_ctx + "\n\n" + "\n\n".join(extras)).strip()
-
-    # --- LLM call ---
-    # llm_chat already retries across providers (primary + fallback). If we still
-    # fail here, return a friendly apology as the assistant response rather than
-    # 500-ing the client — the mobile UI surfaces this as a normal assistant bubble.
->>>>>>> Stashed changes
     try:
         _maxx = (active_schedule or {}).get("maxx_id") if active_schedule else maxx_id
         if _maxx:
@@ -2339,7 +2291,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
 
     # --- Inject tone preamble + RAG context + partner suffix into coaching_context ---
     # user_context.coaching_context is later rendered as `## USER CONTEXT:` by the
-    # chat system prompt builder, so appending here is sufficient — no agent tool
+    # chat system prompt builder, so appending here is sufficient -- no agent tool
     # wiring needed.
     existing_ctx = user_context.get("coaching_context") or ""
     extras: list[str] = []
@@ -2348,7 +2300,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         extras.append(tone_prefix)
     if retrieved_chunks:
         lines = [
-            "[COURSE CONTEXT — answer using this when the user asks about the course. "
+            "[COURSE CONTEXT -- answer using this when the user asks about the course. "
             "If the answer isn't here, say so rather than guessing.]"
         ]
         for i, c in enumerate(retrieved_chunks, 1):
@@ -2424,29 +2376,6 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         except Exception as llm_err:
             logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)
             return _finalize_assistant_message(_friendly_llm_error_message(llm_err)), []
-
-    # --- Safety net: if user clearly requested a schedule change but agent missed it ---
-
-        elif tool["name"] == "schedule_push_notification":
-            try:
-                from services.push_scheduling_service import enqueue_push
-
-                args = tool["args"]
-                delay = int(args.get("delay_minutes", 0) or 0)
-                msg = str(args.get("message", "")).strip()
-                if delay < 1 or delay > 1440 or not msg:
-                    logger.info("schedule_push_notification rejected: bad args %s", args)
-                else:
-                    await enqueue_push(
-                        db=db,
-                        user_id=user_id,
-                        delay_minutes=delay,
-                        message=msg,
-                        buttons=args.get("buttons") or None,
-                        category_id=args.get("category_id") or "coach_nudge",
-                    )
-            except Exception as e:
-                logger.exception("schedule_push_notification failed: %s", e)
 
     # --- If user asked to change schedule times but the model didn't call modify_schedule, adapt anyway ---
     if (
@@ -2608,7 +2537,7 @@ def _summarise_schedule(schedule: dict) -> str:
     title = (schedule.get("course_title") or schedule.get("maxx_id") or "schedule").strip()
     lines = [f"your {title} schedule is locked in.", "", "day 1:"]
     for t in tasks[:5]:
-        lines.append(f"  {t.get('time', '??:??')} — {t.get('title', 'Task')}")
+        lines.append(f"  {t.get('time', '??:??')} -- {t.get('title', 'Task')}")
     if len(tasks) > 5:
         lines.append(f"  +{len(tasks) - 5} more")
     lines.append(f"\n{len(days)} days planned. check Schedule tab.")

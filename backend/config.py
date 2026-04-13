@@ -61,7 +61,6 @@ class Settings(BaseSettings):
         default="",
         description="Vision-capable model for scans/chat images; defaults to openai_model if empty",
     )
-<<<<<<< Updated upstream
     # Mistral (when llm_provider=mistral)
     mistral_api_key: str = Field(default="")
     mistral_model: str = Field(default="mistral-large-latest")
@@ -72,28 +71,20 @@ class Settings(BaseSettings):
     # truncation on dense schedules; cap is the model's own max (e.g. OpenAI completion limit).
     schedule_adapt_max_output_tokens: int = Field(default=16384)
 
-    # RAG / embeddings — matches rag_documents.embedding (VECTOR(1536))
+    # RAG / embeddings -- matches rag_documents.embedding (VECTOR(1536))
     embedding_model: str = Field(
         default="text-embedding-3-small",
         description="OpenAI embedding model for RAG. 1536-dim.",
-=======
-
-    # RAG / embeddings
-    embedding_model: str = Field(
-        default="text-embedding-3-small",
-        description="OpenAI embedding model for RAG. 1536-dim; matches kb_chunks.embedding column.",
->>>>>>> Stashed changes
     )
     embedding_dim: int = Field(default=1536)
     rag_top_k: int = Field(default=4, description="How many chunks to retrieve per query")
     rag_score_threshold: float = Field(
-<<<<<<< Updated upstream
         default=0.35,
         description="Min cosine similarity to inject a chunk. Below this, retrieval is ignored (guardrail).",
     )
 
-    # LangGraph chat orchestration — when true, chat uses services/lc_graph.py
-    # (intent classifier → guardrail → parallel RAG → trim → agent → finalize).
+    # LangGraph chat orchestration -- when true, chat uses services/lc_graph.py
+    # (intent classifier -> guardrail -> parallel RAG -> trim -> agent -> finalize).
     # When false, chat.py calls run_chat_agent directly (legacy path).
     chat_use_langgraph: bool = Field(default=False)
     chat_max_context_tokens: int = Field(
@@ -102,16 +93,10 @@ class Settings(BaseSettings):
     )
 
 
-=======
-        default=0.25,
-        description="Min cosine similarity to inject a chunk. Below this, retrieval is ignored (guardrail).",
-    )
-    
->>>>>>> Stashed changes
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
     
-    # Stripe — secret key stays server-side; publishable key is only for reference / admin.
+    # Stripe -- secret key stays server-side; publishable key is only for reference / admin.
     stripe_secret_key: str = Field(default="")
     stripe_publishable_key: str = Field(default="")
     stripe_webhook_secret: str = Field(default="")
@@ -121,7 +106,7 @@ class Settings(BaseSettings):
     stripe_premium_price_id: str = Field(default="")
     subscription_price_monthly: float = Field(default=9.99)
     subscription_currency: str = Field(default="usd")
-    # Weekly subscription prices — create as *recurring / weekly* in Stripe Dashboard
+    # Weekly subscription prices -- create as *recurring / weekly* in Stripe Dashboard
     stripe_price_id_weekly_basic: str = Field(
         default="",
         description="Stripe Price ID for Chadlite weekly subscription (e.g. price_xxx)",
@@ -134,7 +119,7 @@ class Settings(BaseSettings):
     # Check Stripe RN SDK changelog when upgrading the mobile package.
     stripe_ephemeral_key_api_version: str = Field(default="2024-12-18.acacia")
     
-    # Sendblue (iMessage / SMS) — https://sendblue.com/
+    # Sendblue (iMessage / SMS) -- https://sendblue.com/
     sendblue_api_key_id: str = Field(default="", description="sb-api-key-id header")
     sendblue_api_secret_key: str = Field(default="", description="sb-api-secret-key header")
     sendblue_from_number: str = Field(default="", description="Your Sendblue line E.164, e.g. 16468304204")
@@ -142,7 +127,7 @@ class Settings(BaseSettings):
         default="",
         description="Optional: must match Sendblue webhook secret header for /api/sendblue/receive",
     )
-    # DEV ONLY: set SMS_SCHEDULER_TEST_FAST_MODE=true — 1-min scheduler ticks, bypass clock windows so SMS
+    # DEV ONLY: set SMS_SCHEDULER_TEST_FAST_MODE=true -- 1-min scheduler ticks, bypass clock windows so SMS
     # fires immediately; coaching  weekly send at most once per user until you restart the API process.
     sms_scheduler_test_fast_mode: bool = Field(default=False)
 
@@ -157,7 +142,7 @@ class Settings(BaseSettings):
         description="ISO-8601 UTC datetime; accounts created before this skip the spotlight tour.",
     )
 
-    # Apple Push Notification service (direct HTTP/2) — .p8 key PEM or base64-of-PEM
+    # Apple Push Notification service (direct HTTP/2) -- .p8 key PEM or base64-of-PEM
     apns_auth_key_p8: str = Field(default="", description="APNs Auth Key PEM or base64-encoded PEM")
     apns_key_id: str = Field(default="", description="10-char Key ID from Apple Developer")
     apns_team_id: str = Field(default="", description="Apple Team ID (iss claim)")
@@ -167,7 +152,7 @@ class Settings(BaseSettings):
         description="True → api.sandbox.push.apple.com (Xcode debug builds only); False → production (TestFlight / App Store)",
     )
 
-    # Apple In-App Purchase — App Store Server API v1 (transaction verification)
+    # Apple In-App Purchase -- App Store Server API v1 (transaction verification)
     apple_app_store_connect_issuer_id: str = Field(default="", description="Issuer ID from App Store Connect → Keys → In-App Purchase")
     apple_app_store_connect_key_id: str = Field(default="", description="Key ID for the In-App Purchase API key")
     apple_app_store_connect_private_key: str = Field(default="", description=".p8 PEM or base64-of-PEM for IAP key")
@@ -188,7 +173,7 @@ class Settings(BaseSettings):
     debug: bool = Field(default=True)
     api_version: str = Field(default="v1")
     
-    # CORS — comma-separated; Expo web uses :8081 (also matched by localhost regex in main.py when not production)
+    # CORS -- comma-separated; Expo web uses :8081 (also matched by localhost regex in main.py when not production)
     cors_origins: str = Field(
         default=(
             "http://localhost:3000,http://localhost:8081,http://127.0.0.1:8081,"
@@ -235,19 +220,12 @@ class Settings(BaseSettings):
     def supabase_db_url(self) -> str:
         """Supabase Postgres connection string.
 
-<<<<<<< Updated upstream
-        Do NOT append ?pgbouncer=true — asyncpg doesn't understand that query arg
+        Do NOT append ?pgbouncer=true -- asyncpg doesn't understand that query arg
         and crashes with 'unexpected keyword argument'. PgBouncer-specific
         settings (statement_cache_size=0) are handled in connect_args instead
         (see db/sqlalchemy.py::_supabase_connect_args).
         """
         host = self.supabase_db_host.split("?")[0].split("/")[0]
-=======
-        Transaction pooler (6543) needs statement_cache_size=0 — set in
-        connect_args (see db/sqlalchemy.py), not as a URL param, since asyncpg
-        doesn't recognize a `pgbouncer` query arg.
-        """
->>>>>>> Stashed changes
         return (
             f"postgresql+asyncpg://{self.supabase_db_user}:{self.supabase_db_password}"
             f"@{host}:{self.supabase_db_port}/{self.supabase_db_name}"
@@ -280,7 +258,7 @@ _DEFAULT_JWT_SECRET = "change-this-secret-key"
 def get_settings() -> Settings:
     """Cached settings instance"""
     s = Settings()
-    # Refuse to boot in production with the default JWT secret — that would let
+    # Refuse to boot in production with the default JWT secret -- that would let
     # anyone mint valid tokens for any user. Dev/test is allowed to keep the
     # default so local contributors aren't blocked.
     if s.app_env.strip().lower() == "production" and s.jwt_secret_key == _DEFAULT_JWT_SECRET:
