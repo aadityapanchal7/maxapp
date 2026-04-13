@@ -134,6 +134,8 @@ async def _run_app_users_column_migrations():
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS apns_device_token TEXT",
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS apns_token_updated_at TIMESTAMPTZ",
         "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS coaching_tone VARCHAR DEFAULT 'default'",
+        # subscription_id was unique but Apple reuses originalTransactionId across renewals
+        "ALTER TABLE app_users DROP CONSTRAINT IF EXISTS app_users_subscription_id_key",
     ]
     try:
         async with engine.begin() as conn:
@@ -149,6 +151,7 @@ async def _run_chat_history_column_migrations():
     """Add chat_history columns in a dedicated transaction so they commit even if other migrations fail."""
     statements = [
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS channel VARCHAR DEFAULT 'app'",
+<<<<<<< HEAD
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS retrieved_chunk_ids TEXT[]",
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS partner_rule_ids BIGINT[]",
     ]
@@ -165,6 +168,8 @@ async def _run_chat_history_column_migrations():
 async def _run_column_migrations():
     """Add missing columns to existing tables (safe to run repeatedly)."""
     migrations = [
+=======
+>>>>>>> 5fb047ce845091c41e0292b2b023a58205ec6946
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'app'",
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS face_rating DOUBLE PRECISION",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",

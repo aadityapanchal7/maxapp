@@ -2418,12 +2418,6 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             content=response_text,
             channel=channel,
             created_at=datetime.utcnow(),
-            # File-based RAG returns dicts (doc_title + chunk_index); synthesize a stable id
-            retrieved_chunk_ids=[
-                f"{c.get('_maxx','?')}/{c.get('doc_title','?')}#{c.get('chunk_index',0)}"
-                for c in retrieved_chunks
-            ] if retrieved_chunks else None,
-            partner_rule_ids=partner_rule_ids or None,
         )
         db.add(user_message)
         db.add(assistant_message)
