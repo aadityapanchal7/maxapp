@@ -352,6 +352,11 @@ async def apple_verify(
     if not tid:
         raise HTTPException(status_code=400, detail="transaction_id is required")
 
+    logger.info(
+        "Apple IAP verify: user=%s tid=%s product_id=%s configured=%s",
+        current_user["id"], tid, body.product_id, apple.apple_iap_configured(),
+    )
+
     server_verified = False
     if apple.apple_iap_configured():
         try:

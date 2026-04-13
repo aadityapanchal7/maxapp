@@ -41,7 +41,8 @@ export default function PaymentScreen() {
 
     const stripe = useStripeSubscription();
     const apple = useAppleSubscription();
-    const sub = IS_IOS ? apple : stripe;
+    const useAppleSim = !IS_IOS && __DEV__ && Platform.OS === 'web';
+    const sub = IS_IOS || useAppleSim ? apple : stripe;
 
     const [devLoading, setDevLoading] = useState(false);
 
@@ -50,6 +51,9 @@ export default function PaymentScreen() {
     // unpaid stack to the paid stack with the correct initialRoute.
 
     const busy = sub.loading !== null || devLoading;
+
+    // iOS store error — show if products failed to load
+    const iosStoreError = IS_IOS && 'storeError' in apple ? (apple as any).storeError as string | null : null;
 
     const handleSubscribe = async (tier: 'basic' | 'premium') => {
         if (user && !user.first_scan_completed) {
@@ -108,7 +112,9 @@ export default function PaymentScreen() {
                 <Text style={s.headline}>Your plan</Text>
                 <Text style={s.subline}>
                     {Platform.OS === 'web'
-                        ? 'Checkout is available on iOS and Android.'
+                        ? (__DEV__
+                            ? 'DEV MODE — tapping subscribe simulates Apple IAP verify (check console).'
+                            : 'Checkout is available on iOS and Android.')
                         : IS_IOS
                           ? 'Secure payment via the App Store. Cancel anytime.'
                           : 'Secure payment via Stripe. Cancel anytime.'}
@@ -174,6 +180,15 @@ export default function PaymentScreen() {
                         </Text>
                     </TouchableOpacity>
                 </View>
+
+                {iosStoreError ? (
+                    <View style={s.storeErrorBanner}>
+                        <Ionicons name="warning" size={16} color="#FF6B35" />
+                        <Text style={s.storeErrorText}>
+                            {iosStoreError}
+                        </Text>
+                    </View>
+                ) : null}
 
                 <Text style={s.disclaimer}>
                     Subscriptions renew weekly until cancelled.{'\n'}
@@ -343,6 +358,21 @@ const s = StyleSheet.create({
     },
     ctaDisabled: { opacity: 0.45 },
 
+    storeErrorBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(255,107,53,0.1)',
+        borderRadius: borderRadius.md,
+        padding: spacing.md,
+        marginBottom: spacing.md,
+    },
+    storeErrorText: {
+        fontSize: 13,
+        color: '#FF6B35',
+        flex: 1,
+        lineHeight: 18,
+    },
     disclaimer: {
         fontSize: 12,
         color: colors.textMuted,
