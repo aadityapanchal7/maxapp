@@ -13,7 +13,7 @@ from sqlalchemy import select, func
 from db import get_db, get_rds_db
 from middleware.auth_middleware import get_current_admin_user
 from models.user import UserResponse, OnboardingData, UserProfile
-from models.sqlalchemy_models import User, ChatHistory, ChannelMessageReport
+from models.sqlalchemy_models import User, ChatHistory, ChannelMessageReport, PartnerRule
 from models.rds_models import (
     Forum,
     ChannelMessage,
@@ -314,3 +314,100 @@ async def list_channel_reports(
         )
 
     return {"total": total, "reports": reports, "skip": skip, "limit": limit}
+
+
+# --- Partner rules (chatbot prompt injection) ---
+
+class PartnerRuleBody(BaseModel):
+    name: str
+    trigger_keywords: List[str]
+    prompt_suffix: str
+    active: bool = True
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+
+def _rule_to_dict(r: PartnerRule) -> dict:
+    return {
+        "id": int(r.id),
+        "name": r.name,
+        "trigger_keywords": list(r.trigger_keywords or []),
+        "prompt_suffix": r.prompt_suffix,
+        "active": bool(r.active),
+        "start_date": r.start_date,
+        "end_date": r.end_date,
+        "created_at": r.created_at,
+    }
+
+
+@router.get("/partner-rules")
+async def list_partner_rules(
+    _admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(select(PartnerRule).order_by(PartnerRule.created_at.desc()))).scalars().all()
+    return [_rule_to_dict(r) for r in rows]
+
+
+@router.post("/partner-rules")
+async def create_partner_rule(
+    body: PartnerRuleBody,
+    _admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from services.partner_rules_service import invalidate_cache
+
+    rule = PartnerRule(
+        name=body.name.strip(),
+        trigger_keywords=[k.strip() for k in body.trigger_keywords if k.strip()],
+        prompt_suffix=body.prompt_suffix,
+        active=body.active,
+        start_date=body.start_date,
+        end_date=body.end_date,
+    )
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
+    invalidate_cache()
+    return _rule_to_dict(rule)
+
+
+@router.patch("/partner-rules/{rule_id}")
+async def update_partner_rule(
+    rule_id: int,
+    body: PartnerRuleBody,
+    _admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from services.partner_rules_service import invalidate_cache
+
+    rule = await db.get(PartnerRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    rule.name = body.name.strip()
+    rule.trigger_keywords = [k.strip() for k in body.trigger_keywords if k.strip()]
+    rule.prompt_suffix = body.prompt_suffix
+    rule.active = body.active
+    rule.start_date = body.start_date
+    rule.end_date = body.end_date
+    await db.commit()
+    await db.refresh(rule)
+    invalidate_cache()
+    return _rule_to_dict(rule)
+
+
+@router.delete("/partner-rules/{rule_id}")
+async def delete_partner_rule(
+    rule_id: int,
+    _admin: User = Depends(get_current_admin_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from services.partner_rules_service import invalidate_cache
+
+    rule = await db.get(PartnerRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    await db.delete(rule)
+    await db.commit()
+    invalidate_cache()
+    return {"message": "deleted"}

@@ -305,6 +305,7 @@ MAX_CHAT_SYSTEM_PROMPT = """You are Max — the AI lookmaxxing coach. You talk l
 - `stop_schedule` — when user wants to stop/cancel/deactivate a module. Ask them which module. This can ONLY be done in the app, NOT via SMS.
 - `update_schedule_context` — store patterns/habits
 - `log_check_in` — log workout done, sleep, calories, mood, injuries after user reports them
+- `schedule_push_notification` — when the user asks to be reminded / nudged / checked-on in N minutes. Pass delay_minutes, a short message, and up to 2 action buttons. Do NOT use for regular routine reminders (those are scheduler-driven).
 
 ## ACTIVE MODULE LIMIT
 Users can have a maximum of 2 active modules at once. If they try to start a 3rd, tell them they need to stop one first.
@@ -420,7 +421,7 @@ def log_check_in(workout_done: bool = False, missed: bool = False, sleep_hours: 
     """
     Log a user's check-in data after they report it in chat.
     Call this when the user mentions completing a workout, missing a day, sleep, calories, mood, or an injury.
-    
+
     Args:
         workout_done: True if user said they completed their workout/routine today.
         missed: True if user said they missed their routine/workout today.
@@ -431,6 +432,26 @@ def log_check_in(workout_done: bool = False, missed: bool = False, sleep_hours: 
         injury_note: Description of the injury, e.g. "TMJ pain from chewing".
     """
     return {"status": "success", "message": "Check-in logged"}
+
+
+def schedule_push_notification(
+    delay_minutes: int,
+    message: str,
+    buttons: list = None,
+    category_id: str = "coach_nudge",
+):
+    """
+    Schedule a push notification to the user. Use when the user asks you to remind them,
+    set a timer, nudge them later, or check back. Do not use for regular schedule reminders
+    (the scheduler handles those).
+
+    Args:
+        delay_minutes: Minutes from now to fire the push. Between 1 and 1440 (24h).
+        message: Push body text. Short, imperative, lowercase.
+        buttons: Optional list of action button labels (max 2), e.g. ["yes, done", "snooze 5m"].
+        category_id: APNs category id for button rendering. Default 'coach_nudge'.
+    """
+    return {"status": "success", "message": f"Push scheduled in {delay_minutes}m"}
 
 
 _UMAX_EXPECTED: List[Tuple[str, str]] = [
@@ -837,7 +858,7 @@ class GeminiService:
         genai.configure(api_key=settings.gemini_api_key)
         self.model = genai.GenerativeModel(
             settings.gemini_model,
-            tools=[modify_schedule, generate_maxx_schedule, stop_schedule, update_schedule_context, log_check_in]
+            tools=[modify_schedule, generate_maxx_schedule, stop_schedule, update_schedule_context, log_check_in, schedule_push_notification]
         )
         self.vision_model = genai.GenerativeModel(settings.gemini_model)
     

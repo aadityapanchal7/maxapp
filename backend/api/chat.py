@@ -29,11 +29,21 @@ from services.storage_service import storage_service
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
+<<<<<<< Updated upstream
 from services.fitmax_plan import (
     fitmax_build_plan as _fitmax_build_plan,
     seed_fitmax_profile_from_onboarding as _fitmax_seed_profile_from_onboarding,
 )
 from config import settings
+=======
+from services.rag_service import (
+    retrieve as rag_retrieve,
+    is_knowledge_question,
+    format_context_block,
+)
+from services.persona_prompts import tone_preamble
+from services.partner_rules_service import get_matching_rule_suffix
+>>>>>>> Stashed changes
 
 logger = logging.getLogger(__name__)
 
@@ -2268,6 +2278,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     image_data = None
     if attachment_url and attachment_type == "image":
         image_data = await storage_service.get_image(attachment_url)
+<<<<<<< Updated upstream
     
     # --- Agent call ---
     # The LangChain tool-calling agent handles tool detection, execution, and
@@ -2283,6 +2294,44 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         channel=channel,
     )
     lc_history = history_dicts_to_lc_messages(history[-CHAT_HISTORY_WINDOW:])
+=======
+
+    # --- RAG retrieval (knowledge questions only) ---
+    # Pulls relevant chunks from kb_chunks and injects them into coaching_context
+    # (which becomes the `## USER CONTEXT:` section of the system prompt). Skipped
+    # on check-in style turns ("yes", "done", numeric) to save latency + tokens.
+    retrieved_chunks = []
+    if is_knowledge_question(message_text):
+        try:
+            module_filter = (active_schedule or {}).get("maxx_id") if active_schedule else None
+            retrieved_chunks = await rag_retrieve(
+                db, message_text, module=module_filter
+            )
+        except Exception as rag_err:
+            logger.warning("RAG retrieval skipped: %s", rag_err)
+            retrieved_chunks = []
+
+    # --- Assemble tone preamble + RAG context + partner suffix into coaching_context ---
+    existing_ctx = user_context.get("coaching_context") or ""
+    extras: list[str] = []
+    tone_prefix = tone_preamble(getattr(user, "coaching_tone", None) if user else None)
+    if tone_prefix:
+        extras.append(tone_prefix)
+    if retrieved_chunks:
+        extras.append(format_context_block(retrieved_chunks))
+    partner_suffix, partner_rule_ids = await get_matching_rule_suffix(
+        db, message_text, [c.content for c in retrieved_chunks]
+    )
+    if partner_suffix:
+        extras.append(partner_suffix)
+    if extras:
+        user_context["coaching_context"] = (existing_ctx + "\n\n" + "\n\n".join(extras)).strip()
+
+    # --- LLM call ---
+    # llm_chat already retries across providers (primary + fallback). If we still
+    # fail here, return a friendly apology as the assistant response rather than
+    # 500-ing the client — the mobile UI surfaces this as a normal assistant bubble.
+>>>>>>> Stashed changes
     try:
         response_text, modify_schedule_ran = await run_chat_agent(
             message=message,
@@ -2298,7 +2347,314 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)
         return _finalize_assistant_message(_friendly_llm_error_message(llm_err)), []
 
+<<<<<<< Updated upstream
     # --- Safety net: if user clearly requested a schedule change but agent missed it ---
+=======
+        elif tool["name"] == "generate_maxx_schedule":
+            try:
+                args = tool["args"]
+                req_maxx = str(args.get("maxx_id", "skinmax"))
+                wf = None
+                tmj_raw = None
+                gum_raw = None
+                scr_raw = None
+                if req_maxx == "skinmax":
+                    sc_arg = args.get("skin_concern")
+                    sc_str = str(sc_arg).strip().lower() if sc_arg is not None and str(sc_arg).strip() else ""
+                    if sc_str in SKINMAX_PROTOCOLS:
+                        skin_concern = sc_str
+                    else:
+                        skin_concern = _infer_skin_concern_id_from_onboarding(onboarding) or resolve_skin_concern(
+                            str(onboarding.get("skin_type") or "").strip() or None, None
+                        )
+                else:
+                    skin_concern = args.get("skin_concern") or onboarding.get("skin_type")
+                # For HeightMax, allow AI to pass age/sex/height from conversation
+                age_raw = args.get("age")
+                age = _safe_int_age(age_raw)
+                sex = args.get("sex") or args.get("gender")
+                height = args.get("height")
+                # HeightMax REQUIRES age, sex, height — reject if missing
+                if req_maxx == "heightmax":
+                    has_age = age is not None or _safe_int_age(onboarding.get("age")) is not None
+                    ob_gender = str(onboarding.get("gender") or onboarding.get("sex") or "").strip()
+                    has_sex = bool((sex and str(sex).strip()) or ob_gender)
+                    ob_h = onboarding.get("height")
+                    has_height = bool(
+                        (height is not None and str(height).strip())
+                        or (ob_h is not None and str(ob_h).strip())
+                    )
+                    if not has_age or not has_sex or not has_height:
+                        if not has_age:
+                            response_text = "hold up — i need your age, sex, and height before i can build your schedule. how old are you?"
+                        elif not has_sex:
+                            response_text = "got it. what's your sex or gender?"
+                        else:
+                            response_text = "almost there. what's your current height? any format works."
+                        continue
+                # HairMax REQUIRES hair type, scalp, daily styling, thinning — reject if missing
+                if req_maxx == "hairmax":
+                    hair_type = args.get("hair_type") or onboarding.get("hair_type")
+                    scalp_state = args.get("scalp_state") or onboarding.get("scalp_state")
+                    daily_styling = args.get("daily_styling")
+                    if daily_styling is None:
+                        daily_styling = onboarding.get("daily_styling")
+                    thinning = args.get("thinning") or args.get("hair_thinning")
+                    if thinning is None:
+                        thinning = onboarding.get("hair_thinning") or onboarding.get("thinning")
+                    if not _yes_no_answered(thinning):
+                        hcl = str(onboarding.get("hair_current_loss") or "").lower()
+                        if any(
+                            w in hcl
+                            for w in ("yes", "yeah", "yep", "reced", "thin", "losing", "balding", "some")
+                        ):
+                            thinning = "yes"
+                        elif any(
+                            w in hcl for w in ("no", "nope", "none", "not really", "minimal", "little")
+                        ):
+                            thinning = "no"
+                    has_ht = bool(str(hair_type or "").strip())
+                    has_ss = bool(str(scalp_state or "").strip())
+                    has_ds = _yes_no_answered(daily_styling)
+                    has_th = _yes_no_answered(thinning)
+                    if not has_ht or not has_ss or not has_ds or not has_th:
+                        if not has_ht:
+                            response_text = "need a bit more first — is your hair straight, wavy, curly, or coily?"
+                        elif not has_ss:
+                            response_text = "how's your scalp: normal, dry/flaky, oily/greasy, or itchy?"
+                        elif not has_ds:
+                            response_text = "do you use hair products or styling most days? yes or no."
+                        else:
+                            response_text = "you notice thinning or a receding hairline? yes or no."
+                        continue
+                if req_maxx == "bonemax":
+                    wf = (args.get("workout_frequency") or onboarding.get("bonemax_workout_frequency") or "").strip()
+                    tmj_raw = args.get("tmj_history")
+                    if tmj_raw is None:
+                        tmj_raw = onboarding.get("bonemax_tmj_history")
+                    gum_raw = args.get("mastic_gum_regular")
+                    if gum_raw is None:
+                        gum_raw = onboarding.get("bonemax_mastic_gum_regular")
+                    scr_raw = args.get("heavy_screen_time")
+                    if scr_raw is None:
+                        scr_raw = onboarding.get("bonemax_heavy_screen_time")
+                    has_wf = bool(wf)
+                    has_tmj = _yes_no_answered(tmj_raw)
+                    has_gum = _yes_no_answered(gum_raw)
+                    has_scr = _yes_no_answered(scr_raw)
+                    if not has_wf or not has_tmj or not has_gum or not has_scr:
+                        if not has_wf:
+                            response_text = (
+                                "quick one — how many days per week do you usually work out? "
+                                "say 0, 1-2, 3-4, or 5+."
+                            )
+                        elif not has_tmj:
+                            response_text = "ever had tmj, jaw pain, or clicking? yes or no."
+                        elif not has_gum:
+                            response_text = "you already chewing mastic or hard gum regularly? yes or no."
+                        else:
+                            response_text = "you on a computer or phone many hours most days? yes or no."
+                        continue
+                # Prefer tool args, then global onboarding (any prior maxx / app), then defaults
+                aw = args.get("wake_time")
+                asl = args.get("sleep_time")
+                final_wake = _normalize_clock_hhmm(str(aw).strip()) if aw is not None and str(aw).strip() else None
+                final_sleep = _normalize_clock_hhmm(str(asl).strip()) if asl is not None and str(asl).strip() else None
+                if not final_wake:
+                    final_wake = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
+                if not final_sleep:
+                    final_sleep = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
+
+                if req_maxx == "heightmax":
+                    ra = _safe_int_age(age) or _safe_int_age(onboarding.get("age"))
+                    rs = (str(sex).strip() if sex else "") or (str(onboarding.get("gender") or "").strip())
+                    rh = (str(height).strip() if height is not None and str(height).strip() else "") or (
+                        str(onboarding.get("height") or "").strip()
+                    )
+                    try:
+                        await _persist_heightmax_onboarding_from_chat(
+                            user,
+                            db,
+                            resolved_age=ra,
+                            resolved_sex=rs,
+                            resolved_height=rh,
+                            final_wake=str(final_wake),
+                            final_sleep=str(final_sleep),
+                        )
+                    except Exception as persist_err:
+                        logger.warning("heightmax onboarding persist failed: %s", persist_err)
+                    onboarding = _merge_onboarding_with_schedule_prefs(user)
+                    try:
+                        schedule = await schedule_service.generate_maxx_schedule(
+                            user_id=user_id,
+                            maxx_id="heightmax",
+                            db=db,
+                            rds_db=rds_db if rds_db else None,
+                            wake_time=str(final_wake),
+                            sleep_time=str(final_sleep),
+                            skin_concern=None,
+                            outside_today=False,
+                            override_age=ra,
+                            override_sex=rs if rs else None,
+                            override_height=rh if rh else None,
+                            height_components=None,
+                        )
+                        await _persist_user_wake_sleep(user, db, str(final_wake), str(final_sleep))
+                        onboarding = _merge_onboarding_with_schedule_prefs(user)
+                        schedule_summary = _summarise_schedule(schedule)
+                        # Avoid mixing LLM “text claims” with the real tool-produced summary.
+                        response_text = schedule_summary
+                        continue
+                    except ScheduleLimitError as e:
+                        names = ", ".join(e.active_labels)
+                        response_text = (
+                            f"you already have 2 active modules ({names}). "
+                            "you gotta stop one before starting a new one — "
+                            "tell me which module to stop in the app, or open the app to stop a module there."
+                        )
+                    except Exception as gen_err:
+                        logger.exception("HeightMax schedule generation failed: %s", gen_err)
+                        response_text = (
+                            (response_text.strip() + "\n\n") if response_text.strip() else ""
+                        ) + "had trouble building your heightmax schedule — try again in a sec or set it up in the app."
+                    continue
+
+                schedule = await schedule_service.generate_maxx_schedule(
+                    user_id=user_id,
+                    maxx_id=req_maxx,
+                    db=db,
+                    rds_db=rds_db if rds_db else None,
+                    wake_time=str(final_wake),
+                    sleep_time=str(final_sleep),
+                    skin_concern=skin_concern,
+                    outside_today=False
+                    if req_maxx == "fitmax"
+                    else bool(args.get("outside_today", False)),
+                    override_age=age,
+                    override_sex=sex,
+                    override_height=str(height) if height is not None else None,
+                    override_hair_type=(args.get("hair_type") or onboarding.get("hair_type") or "").strip() or None,
+                    override_scalp_state=(args.get("scalp_state") or onboarding.get("scalp_state") or "").strip() or None,
+                    override_daily_styling=_normalize_hair_yes_no(
+                        args.get("daily_styling") if args.get("daily_styling") is not None else onboarding.get("daily_styling")
+                    ),
+                    override_thinning=_normalize_hair_yes_no(
+                        args.get("thinning") or args.get("hair_thinning") or onboarding.get("hair_thinning") or onboarding.get("thinning")
+                    ),
+                    override_workout_frequency=wf,
+                    override_tmj_history=_normalize_hair_yes_no(tmj_raw),
+                    override_mastic_gum_regular=_normalize_hair_yes_no(gum_raw),
+                    override_heavy_screen_time=_normalize_hair_yes_no(scr_raw),
+                )
+                await _persist_user_wake_sleep(user, db, str(final_wake), str(final_sleep))
+                onboarding = _merge_onboarding_with_schedule_prefs(user)
+                schedule_summary = _summarise_schedule(schedule)
+                # Avoid mixing LLM “text claims” with the real tool-produced summary.
+                response_text = schedule_summary
+            except ScheduleLimitError as e:
+                names = ", ".join(e.active_labels)
+                response_text = (
+                    f"you already have 2 active modules ({names}). "
+                    "you gotta stop one before starting a new one — "
+                    "tell me which module to stop, or hit the stop button on the module page in the app."
+                )
+            except Exception as e:
+                print(f"Maxx schedule generation failed: {e}")
+                response_text += "\n\nhad trouble generating your schedule. try again in a sec."
+
+        elif tool["name"] == "stop_schedule":
+            if channel == "sms":
+                response_text = (
+                    "stopping or changing modules can only be done in the app. "
+                    "open the app and go to the module you want to stop, or ask me there."
+                )
+            else:
+                try:
+                    args = tool["args"]
+                    target_maxx = str(args.get("maxx_id", "")).strip().lower()
+                    if not target_maxx:
+                        response_text = "which module do you want to stop? (e.g. skinmax, hairmax, fitmax, bonemax, heightmax)"
+                    else:
+                        result = await schedule_service.deactivate_schedule_by_maxx(user_id, target_maxx, db)
+                        if result:
+                            response_text = f"done — {target_maxx} has been stopped. you can restart it anytime from the module page."
+                        else:
+                            response_text = f"you don't have an active {target_maxx} schedule right now."
+                except Exception as e:
+                    logger.exception("stop_schedule failed: %s", e)
+                    response_text = "couldn't stop that module. try again or use the stop button on the module page."
+
+        elif tool["name"] == "update_schedule_context":
+            try:
+                args = tool["args"]
+                key, value = str(args.get("key", "")), str(args.get("value", ""))
+                lk = key.lower().replace("-", "_")
+                if lk in ("wake_time", "sleep_time", "preferred_wake_time", "preferred_sleep_time"):
+                    wk = None
+                    sk = None
+                    if lk in ("wake_time", "preferred_wake_time"):
+                        wk = value
+                    else:
+                        sk = value
+                    await _persist_user_wake_sleep(user, db, wk, sk)
+                    onboarding = _merge_onboarding_with_schedule_prefs(user)
+                if active_schedule and key:
+                    await schedule_service.update_schedule_context(
+                        user_id=user_id,
+                        schedule_id=active_schedule["id"],
+                        db=db,
+                        context_updates={key: value},
+                    )
+            except Exception as e:
+                print(f"Context update failed: {e}")
+
+        elif tool["name"] == "log_check_in":
+            try:
+                args = tool["args"]
+                check_in_data = {}
+                if args.get("workout_done"):
+                    check_in_data["workout_done"] = True
+                if args.get("missed"):
+                    check_in_data["missed"] = True
+                if args.get("sleep_hours"):
+                    check_in_data["sleep_hours"] = args["sleep_hours"]
+                if args.get("calories"):
+                    check_in_data["calories"] = args["calories"]
+                if args.get("mood"):
+                    check_in_data["mood"] = args["mood"]
+                if args.get("injury_area"):
+                    check_in_data["injury"] = {
+                        "area": args["injury_area"],
+                        "note": args.get("injury_note", ""),
+                    }
+                if check_in_data:
+                    await coaching_service.process_check_in(user_id, db, check_in_data)
+            except Exception as e:
+                print(f"Check-in logging failed: {e}")
+
+        elif tool["name"] == "schedule_push_notification":
+            try:
+                from services.push_scheduling_service import enqueue_push
+
+                args = tool["args"]
+                delay = int(args.get("delay_minutes", 0) or 0)
+                msg = str(args.get("message", "")).strip()
+                if delay < 1 or delay > 1440 or not msg:
+                    logger.info("schedule_push_notification rejected: bad args %s", args)
+                else:
+                    await enqueue_push(
+                        db=db,
+                        user_id=user_id,
+                        delay_minutes=delay,
+                        message=msg,
+                        buttons=args.get("buttons") or None,
+                        category_id=args.get("category_id") or "coach_nudge",
+                    )
+            except Exception as e:
+                logger.exception("schedule_push_notification failed: %s", e)
+
+    # --- If user asked to change schedule times but the model didn't call modify_schedule, adapt anyway ---
+>>>>>>> Stashed changes
     if (
         active_schedule
         and not modify_schedule_ran
@@ -2337,6 +2693,8 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             content=response_text,
             channel=channel,
             created_at=datetime.utcnow(),
+            retrieved_chunk_ids=[c.id for c in retrieved_chunks] if retrieved_chunks else None,
+            partner_rule_ids=partner_rule_ids or None,
         )
         db.add(user_message)
         db.add(assistant_message)

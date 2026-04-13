@@ -632,6 +632,11 @@ class ApiService {
         return response.data;
     }
 
+    async patchCoachingTone(tone: 'default' | 'hardcore' | 'gentle' | 'influencer') {
+        const response = await this.client.patch('users/coaching-tone', { tone });
+        return response.data as { message: string; tone: string };
+    }
+
     async getScanHistory() {
         const response = await this.client.get('scans/history');
         return response.data;

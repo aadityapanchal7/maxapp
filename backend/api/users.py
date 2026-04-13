@@ -227,6 +227,34 @@ async def patch_notification_channels(
     return {"message": "ok"}
 
 
+class CoachingToneBody(BaseModel):
+    tone: str = Field(..., description="default | hardcore | gentle | influencer")
+
+
+@router.patch("/coaching-tone")
+async def patch_coaching_tone(
+    body: CoachingToneBody,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the user's preferred coaching tone. Takes effect on the next chat turn."""
+    allowed = {"default", "hardcore", "gentle", "influencer"}
+    tone = (body.tone or "").strip().lower()
+    if tone not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"tone must be one of {sorted(allowed)}",
+        )
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.coaching_tone = tone
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok", "tone": tone}
+
+
 @router.post("/post-subscription-onboarding/dismiss")
 async def dismiss_post_subscription_onboarding(
     current_user: dict = Depends(get_current_user),

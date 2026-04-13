@@ -124,6 +124,40 @@ def _max_chat_tools_openai() -> list[dict]:
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "schedule_push_notification",
+                "description": (
+                    "Schedule a push notification to the user. Use when the user asks you to "
+                    "remind them, set a timer, nudge them later, or check back. Do not use for "
+                    "regular schedule reminders (the scheduler handles those)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "delay_minutes": {
+                            "type": "integer",
+                            "description": "Minutes from now to fire the push. Between 1 and 1440 (24h).",
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "Push body text. Short, imperative, lowercase.",
+                        },
+                        "buttons": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional action buttons, max 2. e.g. ['yes, done','snooze 5m'].",
+                        },
+                        "category_id": {
+                            "type": "string",
+                            "description": "APNs category id for button rendering. Default 'coach_nudge'.",
+                        },
+                    },
+                    "required": ["delay_minutes", "message"],
+                },
+            },
+        },
     ]
 
 

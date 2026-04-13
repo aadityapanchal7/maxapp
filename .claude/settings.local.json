@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(head -30 \"C:/Users/nisha/Desktop/maxapp/rds_templates\"/*.sql)",
+      "Bash(python:*)",
+      "Bash(pip --version)",
+      "Bash(grep -iE '\\\\.env|env$')"
+    ]
+  }
+}

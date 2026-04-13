@@ -1,0 +1,7 @@
+{"question": "how do i debloat my face", "expected_module": "skinmax", "expected_keywords": ["sodium", "potassium", "water"]}
+{"question": "why is minoxidil used for hair loss", "expected_module": "hairmax", "expected_keywords": ["hair", "growth"]}
+{"question": "what is mewing", "expected_module": "bonemax", "expected_keywords": ["tongue", "palate", "jaw"]}
+{"question": "how do i get a sharper jawline", "expected_module": "bonemax", "expected_keywords": ["jaw", "body fat"]}
+{"question": "what causes acne", "expected_module": "skinmax", "expected_keywords": ["pore", "oil"]}
+{"question": "how do i grow taller after puberty", "expected_module": "heightmax", "expected_keywords": ["posture", "spine"]}
+{"question": "best exercises for lean physique", "expected_module": "fitmax", "expected_keywords": ["deficit", "protein"]}
