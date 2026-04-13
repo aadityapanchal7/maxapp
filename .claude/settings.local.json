@@ -14,7 +14,15 @@
       "Bash(venv/Scripts/python.exe scripts/check_chat_history_cols.py)",
       "Bash(where python:*)",
       "Bash(where py:*)",
-      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python scripts/check_chat_history_cols.py\")"
+      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python scripts/check_chat_history_cols.py\")",
+      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python -c 'import ast; ast.parse\\(open\\(\\\\\"db/sqlalchemy.py\\\\\"\\).read\\(\\)\\); print\\(\\\\\"AST OK\\\\\"\\)' && python -c 'from db import sqlalchemy; print\\(\\\\\"import OK\\\\\", [n for n in dir\\(sqlalchemy\\) if n.startswith\\(\\\\\"_run\\\\\"\\) or n==\\\\\"init_db\\\\\"]\\)'\")",
+      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python -c 'from db import sqlalchemy; from config import settings; print\\(\\\\\"import OK; provider=\\\\\", settings.llm_provider if hasattr\\(settings, \\\\\"llm_provider\\\\\"\\) else \\\\\"?\\\\\"\\)'\")",
+      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python -c 'from api import chat; from models import sqlalchemy_models; from db import sqlalchemy as dbsa; from config import settings; print\\(\\\\\"all imports OK\\\\\"\\)'\")",
+      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python -c 'from api import chat; from models import sqlalchemy_models; from db import sqlalchemy as dbsa; from config import settings; import main; print\\(\\\\\"ALL IMPORTS OK; app=\\\\\", main.app\\)'\")",
+      "Bash(wsl -e bash -c \"cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python -c 'import main; print\\(\\\\\"APP IMPORT OK; app=\\\\\", main.app.title\\)'\")",
+      "Bash(wsl -e bash -c 'cd /mnt/c/Users/nisha/Desktop/maxapp/backend && source .venv/bin/activate && python -c '\\\\'':*)",
+      "Bash(wsl:*)",
+      "Bash(taskkill //PID 22568 //F)"
     ]
   }
 }

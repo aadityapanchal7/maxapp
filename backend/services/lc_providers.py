@@ -41,6 +41,31 @@ from services.llm_provider import llm_provider
 logger = logging.getLogger(__name__)
 
 
+def _disable_gemini_internal_retries() -> None:
+    """
+    langchain-google-genai's `_create_retry_decorator` hardcodes max_retries=2
+    with 1-60s exponential backoff (chat_models.py:140-155). On 429 / quota
+    errors that adds 5-15s of dead time per call BEFORE our llm_router can
+    fail over to OpenAI. Replace the decorator with a no-op so failures
+    surface immediately and fallback fires fast.
+    """
+    try:
+        from langchain_google_genai import chat_models as _gm
+
+        def _noop_retry_decorator():
+            def _identity(fn):
+                return fn
+            return _identity
+
+        _gm._create_retry_decorator = _noop_retry_decorator
+        logger.info("[lc_providers] disabled langchain-google-genai internal retry loop")
+    except Exception as e:  # pragma: no cover — patch is best-effort
+        logger.warning("[lc_providers] could not patch gemini retry: %s", e)
+
+
+_disable_gemini_internal_retries()
+
+
 def _llm_fallback_exception_types() -> tuple[type[BaseException], ...]:
     """
     Exceptions that should trigger trying the next LLM provider.
@@ -120,6 +145,10 @@ def _build_gemini_llm(max_tokens: int) -> BaseChatModel:
         max_output_tokens=max_tokens,
         temperature=0.7,
         timeout=settings.llm_timeout_seconds,
+        # Disable LangChain's internal retry loop. llm_router does provider-level
+        # failover (gemini → openai), so per-call retries just add 30-90s of dead
+        # time on quota / 429 errors before the fallback fires.
+        max_retries=0,
     )
 
 
@@ -137,6 +166,7 @@ def _build_openai_llm(max_tokens: int) -> BaseChatModel:
         max_tokens=max_tokens,
         temperature=0.7,
         timeout=settings.llm_timeout_seconds,
+        max_retries=0,
     )
 
 
@@ -292,6 +322,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
             max_tokens=max_tokens,
             temperature=0.2,
             timeout=settings.llm_timeout_seconds,
+            max_retries=0,
             model_kwargs={"response_format": {"type": "json_object"}},
         )
     if provider == "mistral":
@@ -318,6 +349,7 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
         max_output_tokens=max_tokens,
         temperature=0.2,
         timeout=settings.llm_timeout_seconds,
+        max_retries=0,
         generation_config={"response_mime_type": "application/json"},
     )
 

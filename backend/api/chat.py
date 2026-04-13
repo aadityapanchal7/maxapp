@@ -2377,6 +2377,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)
             return _finalize_assistant_message(_friendly_llm_error_message(llm_err)), []
 
+    # --- Safety net: if user clearly requested a schedule change but agent missed it ---
     # --- If user asked to change schedule times but the model didn't call modify_schedule, adapt anyway ---
     if (
         active_schedule
@@ -2416,7 +2417,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             content=response_text,
             channel=channel,
             created_at=datetime.utcnow(),
-            retrieved_chunk_ids=[c.id for c in retrieved_chunks] if retrieved_chunks else None,
+            retrieved_chunk_ids=[
+                c["id"] for c in retrieved_chunks
+                if isinstance(c, dict) and isinstance(c.get("id"), int)
+            ] or None,
             partner_rule_ids=partner_rule_ids or None,
         )
         db.add(user_message)

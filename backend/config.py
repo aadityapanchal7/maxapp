@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     # truncation on dense schedules; cap is the model's own max (e.g. OpenAI completion limit).
     schedule_adapt_max_output_tokens: int = Field(default=16384)
 
-    # RAG / embeddings -- matches rag_documents.embedding (VECTOR(1536))
+    # RAG / embeddings -- matches kb_chunks.embedding / rag_documents.embedding (VECTOR(1536))
     embedding_model: str = Field(
         default="text-embedding-3-small",
         description="OpenAI embedding model for RAG. 1536-dim.",
@@ -91,7 +91,6 @@ class Settings(BaseSettings):
         default=8000,
         description="Hard ceiling for history + retrieved chunks tokens in the agent prompt.",
     )
-
 
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
