@@ -61,7 +61,6 @@ class Settings(BaseSettings):
         default="",
         description="Vision-capable model for scans/chat images; defaults to openai_model if empty",
     )
-<<<<<<< Updated upstream
     # Mistral (when llm_provider=mistral)
     mistral_api_key: str = Field(default="")
     mistral_model: str = Field(default="mistral-large-latest")
@@ -69,24 +68,31 @@ class Settings(BaseSettings):
     # With fallback: worst-case for one LLM pass = llm_timeout_seconds * 2.
     llm_timeout_seconds: int = Field(default=25)
     # Max output tokens for schedule adaptation LLM only (full JSON days). Higher reduces
-    # truncation on dense schedules; cap is the model’s own max (e.g. OpenAI completion limit).
+    # truncation on dense schedules; cap is the model's own max (e.g. OpenAI completion limit).
     schedule_adapt_max_output_tokens: int = Field(default=16384)
 
-=======
-
-    # RAG / embeddings
+    # RAG / embeddings — matches rag_documents.embedding (VECTOR(1536))
     embedding_model: str = Field(
         default="text-embedding-3-small",
-        description="OpenAI embedding model for RAG. 1536-dim; matches kb_chunks.embedding column.",
+        description="OpenAI embedding model for RAG. 1536-dim.",
     )
     embedding_dim: int = Field(default=1536)
     rag_top_k: int = Field(default=4, description="How many chunks to retrieve per query")
     rag_score_threshold: float = Field(
-        default=0.25,
+        default=0.35,
         description="Min cosine similarity to inject a chunk. Below this, retrieval is ignored (guardrail).",
     )
-    
->>>>>>> Stashed changes
+
+    # LangGraph chat orchestration — when true, chat uses services/lc_graph.py
+    # (intent classifier → guardrail → parallel RAG → trim → agent → finalize).
+    # When false, chat.py calls run_chat_agent directly (legacy path).
+    chat_use_langgraph: bool = Field(default=False)
+    chat_max_context_tokens: int = Field(
+        default=8000,
+        description="Hard ceiling for history + retrieved chunks tokens in the agent prompt.",
+    )
+
+
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
     
@@ -214,18 +220,12 @@ class Settings(BaseSettings):
     def supabase_db_url(self) -> str:
         """Supabase Postgres connection string.
 
-<<<<<<< Updated upstream
-        Do NOT append ?pgbouncer=true — asyncpg doesn't understand it and
-        crashes with 'unexpected keyword argument'. PgBouncer-specific
-        settings (statement_cache_size=0) are handled in connect_args instead.
+        Do NOT append ?pgbouncer=true — asyncpg doesn't understand that query arg
+        and crashes with 'unexpected keyword argument'. PgBouncer-specific
+        settings (statement_cache_size=0) are handled in connect_args instead
+        (see db/sqlalchemy.py::_supabase_connect_args).
         """
         host = self.supabase_db_host.split("?")[0].split("/")[0]
-=======
-        Transaction pooler (6543) needs statement_cache_size=0 — set in
-        connect_args (see db/sqlalchemy.py), not as a URL param, since asyncpg
-        doesn't recognize a `pgbouncer` query arg.
-        """
->>>>>>> Stashed changes
         return (
             f"postgresql+asyncpg://{self.supabase_db_user}:{self.supabase_db_password}"
             f"@{host}:{self.supabase_db_port}/{self.supabase_db_name}"
