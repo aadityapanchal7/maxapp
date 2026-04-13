@@ -125,6 +125,10 @@ class OnboardingData(BaseModel):
         default=None,
         description="Denormalized scan headline fields after first triple scan completes.",
     )
+    main_app_tour_completed: Optional[bool] = Field(
+        default=None,
+        description="True after user finishes (or dismisses) the post-pay spotlight tour of the main tabs.",
+    )
 
     @field_validator("height", "weight", "waist_cm", mode="before")
     @classmethod

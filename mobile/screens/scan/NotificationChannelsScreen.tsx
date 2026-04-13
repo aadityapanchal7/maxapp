@@ -13,13 +13,14 @@ import {
     Alert,
     Platform,
 } from 'react-native';
-import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { colors, spacing, borderRadius, typography } from '../../theme/dark';
 import { getIosApnsDeviceTokenForBackend } from '../../services/registerIosPushToken';
+import { userHasSignupPhone } from '../../utils/userPhone';
 
 type NextRoute = 'ModuleSelect' | 'Main';
 
@@ -61,16 +62,18 @@ export default function NotificationChannelsScreen() {
     const editMode = params.editMode === true;
 
     const isIos = Platform.OS === 'ios';
-    /** Server push is iOS-only; Android shows SMS + local in-app copy for "both". */
-    const allowAppleOnly = isIos;
+    const hasPhone = userHasSignupPhone(user);
+    const smsBlocked = !hasPhone;
+    const sendblueDone = (user?.onboarding as Record<string, unknown> | undefined)?.sendblue_connect_completed === true;
 
     const initialChoice = useMemo((): ChannelChoice => {
+        if (smsBlocked) return 'apple_only';
         const sms = user?.onboarding?.sendblue_sms_opt_in !== false;
         const app = user?.onboarding?.app_notifications_opt_in !== false;
         const c = choiceFromPrefs(sms, app);
-        if (!allowAppleOnly && c === 'apple_only') return 'both';
+        if (!isIos && c === 'apple_only') return 'both';
         return c;
-    }, [user?.id, user?.onboarding, allowAppleOnly]);
+    }, [user?.id, user?.onboarding, isIos, smsBlocked]);
 
     const [choice, setChoice] = useState<ChannelChoice>(initialChoice);
 
@@ -87,7 +90,7 @@ export default function NotificationChannelsScreen() {
 
         setBusy(true);
         try {
-            if (editMode) {
+            if (editMode || sendblueDone) {
                 await api.patchNotificationChannels({
                     sms_opt_in: sms,
                     app_notifications_opt_in: app,
@@ -134,12 +137,7 @@ export default function NotificationChannelsScreen() {
             } else if (next === 'Main') {
                 navigation.navigate('Main');
             } else {
-                navigation.dispatch(
-                    CommonActions.reset({
-                        index: 1,
-                        routes: [{ name: 'Main' }, { name: 'ModuleSelect' }],
-                    }),
-                );
+                navigation.navigate('ModuleSelect');
             }
         } catch (e) {
             console.error(e);
@@ -147,7 +145,7 @@ export default function NotificationChannelsScreen() {
         } finally {
             setBusy(false);
         }
-    }, [choice, editMode, isIos, navigation, next, refreshUser]);
+    }, [choice, editMode, sendblueDone, isIos, navigation, next, refreshUser]);
 
     const scrollBottomPad = insets.bottom + spacing.xxl + 8;
 
@@ -155,26 +153,30 @@ export default function NotificationChannelsScreen() {
         id,
         title,
         subtitle,
+        disabled,
     }: {
         id: ChannelChoice;
         title: string;
         subtitle: string;
+        disabled?: boolean;
     }) => {
         const selected = choice === id;
         return (
             <TouchableOpacity
-                style={[styles.optionCard, selected && styles.optionCardSelected]}
-                onPress={() => setChoice(id)}
-                activeOpacity={0.88}
+                style={[styles.optionCard, selected && styles.optionCardSelected, disabled && styles.optionCardDisabled]}
+                onPress={() => { if (!disabled) setChoice(id); }}
+                activeOpacity={disabled ? 1 : 0.88}
                 accessibilityRole="radio"
-                accessibilityState={{ selected }}
+                accessibilityState={{ selected, disabled }}
             >
-                <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
+                <View style={[styles.radioOuter, selected && styles.radioOuterSelected, disabled && styles.radioOuterDisabled]}>
                     {selected ? <View style={styles.radioInner} /> : null}
                 </View>
                 <View style={{ flex: 1 }}>
-                    <Text style={styles.optionTitle}>{title}</Text>
-                    <Text style={styles.optionSub}>{subtitle}</Text>
+                    <Text style={[styles.optionTitle, disabled && styles.optionTextDisabled]}>{title}</Text>
+                    <Text style={[styles.optionSub, disabled && styles.optionTextDisabled]}>
+                        {disabled ? 'Add a phone number to enable this option' : subtitle}
+                    </Text>
                 </View>
             </TouchableOpacity>
         );
@@ -201,7 +203,7 @@ export default function NotificationChannelsScreen() {
                     Choose how Max reaches you. Changeable anytime in Profile.
                 </Text>
 
-                {allowAppleOnly ? (
+                {isIos ? (
                     <OptionRow
                         id="apple_only"
                         title="iPhone notifications only"
@@ -213,6 +215,7 @@ export default function NotificationChannelsScreen() {
                     id="sms_only"
                     title="SMS only"
                     subtitle="Texts to the number on your account. No push from our servers."
+                    disabled={smsBlocked}
                 />
 
                 <OptionRow
@@ -223,6 +226,7 @@ export default function NotificationChannelsScreen() {
                             ? 'iPhone alerts and SMS when we send reminders.'
                             : 'SMS plus in-app reminders on this device.'
                     }
+                    disabled={smsBlocked}
                 />
 
                 <TouchableOpacity
@@ -282,6 +286,9 @@ const styles = StyleSheet.create({
         borderRadius: 6,
         backgroundColor: colors.foreground,
     },
+    optionCardDisabled: { opacity: 0.4 },
+    radioOuterDisabled: { borderColor: colors.textMuted },
+    optionTextDisabled: { color: colors.textMuted },
     optionTitle: { fontSize: 16, fontWeight: '700', color: colors.foreground, marginBottom: 4 },
     optionSub: { fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
     primaryBtn: {

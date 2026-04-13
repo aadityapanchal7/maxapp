@@ -527,6 +527,16 @@ async def refresh_token(request: TokenRefreshRequest, db: AsyncSession = Depends
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get current user information"""
+    ob_raw = dict(current_user.get("onboarding") or {})
+    if not ob_raw.get("main_app_tour_completed"):
+        cutoff = settings.main_app_tour_cutoff_at
+        created = current_user.get("created_at")
+        if cutoff and created:
+            c = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+            co = cutoff if cutoff.tzinfo else cutoff.replace(tzinfo=timezone.utc)
+            if c < co:
+                ob_raw["main_app_tour_completed"] = True
+
     return UserResponse(
         id=current_user["id"],
         email=current_user["email"],
@@ -537,7 +547,7 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         is_paid=current_user.get("is_paid", False),
         subscription_status=current_user.get("subscription_status"),
         subscription_end_date=current_user.get("subscription_end_date"),
-        onboarding=OnboardingData(**current_user.get("onboarding", {})),
+        onboarding=OnboardingData(**ob_raw),
         profile=UserProfile(**current_user.get("profile", {})),
         first_scan_completed=current_user.get("first_scan_completed", False),
         is_admin=current_user.get("is_admin", False),

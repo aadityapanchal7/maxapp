@@ -19,6 +19,12 @@ function targetForStep(step: number): number {
     return 94;
 }
 
+function creepCeiling(step: number): number {
+    if (step <= 0) return 38;
+    if (step === 1) return 80;
+    return 100;
+}
+
 export default function AnalyzingScreen({ currentStep = 0 }: Props) {
     const insets = useSafeAreaInsets();
     const [trackWidth, setTrackWidth] = useState(0);
@@ -44,28 +50,39 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
         return () => progressAnim.removeListener(id);
     }, [progressAnim]);
 
-    // Animate progress toward target when step changes
+    // Animate progress toward target when step changes, then slowly creep beyond
     useEffect(() => {
         const target = targetForStep(currentStep);
+        const ceiling = creepCeiling(currentStep);
         activeAnim.current?.stop();
+
+        const startTail = (from: number) => {
+            if (from >= ceiling) return;
+            const remaining = ceiling - from;
+            const tailDur = currentStep >= 2
+                ? Math.max(8000, remaining * 600)
+                : Math.max(20000, remaining * 1400);
+            const tail = Animated.timing(progressAnim, {
+                toValue: ceiling,
+                duration: tailDur,
+                easing: Easing.out(Easing.quad),
+                useNativeDriver: false,
+            });
+            activeAnim.current = tail;
+            tail.start();
+        };
 
         progressAnim.stopAnimation((raw) => {
             const from = Math.max(typeof raw === 'number' ? raw : 0, highWater.current);
             if (from >= target) {
-                if (currentStep >= 2 && from < 100) {
-                    const tail = Animated.timing(progressAnim, {
-                        toValue: 100, duration: 12000, useNativeDriver: false,
-                    });
-                    activeAnim.current = tail;
-                    tail.start();
-                }
+                startTail(from);
                 return;
             }
 
             const dist = target - from;
             const dur = currentStep >= 2
-                ? Math.max(3000, dist * 120)
-                : Math.max(6000, dist * 180);
+                ? Math.max(4000, dist * 150)
+                : Math.max(10000, dist * 260);
 
             const ramp = Animated.timing(progressAnim, {
                 toValue: target, duration: dur, useNativeDriver: false,
@@ -73,13 +90,7 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
             activeAnim.current = ramp;
             ramp.start(({ finished }) => {
                 if (!finished) return;
-                if (currentStep >= 2) {
-                    const tail = Animated.timing(progressAnim, {
-                        toValue: 100, duration: 12000, useNativeDriver: false,
-                    });
-                    activeAnim.current = tail;
-                    tail.start();
-                }
+                startTail(target);
             });
         });
 

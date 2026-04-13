@@ -8,7 +8,6 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    ScrollView,
     TextInput,
     Modal,
     FlatList,
@@ -103,56 +102,55 @@ export default function SmsSetupScreen() {
                     <View style={{ width: 40 }} />
                 </View>
 
-                <ScrollView
-                    contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xl }]}
-                    keyboardShouldPersistTaps="handled"
-                >
-                    <Text style={styles.lead}>
-                        {prefillFromAccount
-                            ? 'Use the number you will text Max from on the next screen. Open Messages from that device or line.'
-                            : 'We&apos;ll use this for SMS coaching and to verify it&apos;s you when you text Max.'}
-                    </Text>
+                <View style={styles.centerWrap}>
+                    <View style={styles.formCard}>
+                        <Text style={styles.lead}>
+                            {prefillFromAccount
+                                ? 'Use the number you will text Max from on the next screen. Open Messages from that device or line.'
+                                : "We'll use this for SMS coaching and to verify it's you when you text Max."}
+                        </Text>
 
-                    <Text style={styles.label}>PHONE NUMBER</Text>
-                    <View style={[styles.phoneRow, error && styles.phoneRowErr]}>
+                        <Text style={styles.label}>PHONE NUMBER</Text>
+                        <View style={[styles.phoneRow, error && styles.phoneRowErr]}>
+                            <TouchableOpacity
+                                style={styles.countryCodeButton}
+                                onPress={() => setCountryModalVisible(true)}
+                                activeOpacity={0.7}
+                            >
+                                <Text style={styles.countryCodeFlag}>{phoneCountry.flag}</Text>
+                                <Text style={styles.countryCodeText} numberOfLines={1}>
+                                    {phoneCountry.dialCode}
+                                </Text>
+                                <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                            </TouchableOpacity>
+                            <TextInput
+                                style={styles.phoneNationalInput}
+                                placeholder="National number"
+                                placeholderTextColor={colors.textMuted}
+                                value={phoneNational}
+                                onChangeText={(t) => {
+                                    setPhoneNational(t);
+                                    setError(null);
+                                }}
+                                keyboardType="phone-pad"
+                            />
+                        </View>
+                        {error ? <Text style={styles.errText}>{error}</Text> : null}
+
                         <TouchableOpacity
-                            style={styles.countryCodeButton}
-                            onPress={() => setCountryModalVisible(true)}
-                            activeOpacity={0.7}
+                            style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+                            onPress={() => void onSave()}
+                            disabled={saving}
+                            activeOpacity={0.88}
                         >
-                            <Text style={styles.countryCodeFlag}>{phoneCountry.flag}</Text>
-                            <Text style={styles.countryCodeText} numberOfLines={1}>
-                                {phoneCountry.dialCode}
-                            </Text>
-                            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+                            {saving ? (
+                                <ActivityIndicator color={colors.background} />
+                            ) : (
+                                <Text style={styles.saveBtnText}>Save</Text>
+                            )}
                         </TouchableOpacity>
-                        <TextInput
-                            style={styles.phoneNationalInput}
-                            placeholder="National number"
-                            placeholderTextColor={colors.textMuted}
-                            value={phoneNational}
-                            onChangeText={(t) => {
-                                setPhoneNational(t);
-                                setError(null);
-                            }}
-                            keyboardType="phone-pad"
-                        />
                     </View>
-                    {error ? <Text style={styles.errText}>{error}</Text> : null}
-
-                    <TouchableOpacity
-                        style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-                        onPress={() => void onSave()}
-                        disabled={saving}
-                        activeOpacity={0.88}
-                    >
-                        {saving ? (
-                            <ActivityIndicator color={colors.background} />
-                        ) : (
-                            <Text style={styles.saveBtnText}>Save</Text>
-                        )}
-                    </TouchableOpacity>
-                </ScrollView>
+                </View>
             </KeyboardAvoidingView>
 
             <Modal visible={countryModalVisible} animationType="slide" transparent onRequestClose={() => setCountryModalVisible(false)}>
@@ -211,7 +209,12 @@ const styles = StyleSheet.create({
     },
     backHit: { padding: 8 },
     headerTitle: { ...typography.h3, color: colors.foreground },
-    scroll: { padding: spacing.xl },
+    centerWrap: {
+        flex: 1,
+        justifyContent: 'center',
+        paddingHorizontal: spacing.xl,
+    },
+    formCard: {},
     lead: { fontSize: 15, color: colors.textSecondary, lineHeight: 22, marginBottom: spacing.xl },
     label: { ...typography.label, marginBottom: spacing.sm },
     phoneRow: {

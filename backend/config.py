@@ -6,6 +6,7 @@ Loads environment variables with validation using Pydantic Settings
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from typing import List, Optional
+from datetime import datetime
 from functools import lru_cache
 
 
@@ -107,6 +108,13 @@ class Settings(BaseSettings):
     # When true (default), FitMax and HairMax use fixed question scripts in chat.py before schedule creation.
     # When false, those modules use the LangChain agent only (LLM-written replies + tools), like Skinmax/Heightmax.
     chat_scripted_fitmax_hairmax_onboarding: bool = Field(default=True)
+
+    # UTC cutoff: accounts created before this see the main-app tour as already completed.
+    # Set to the ISO-8601 deploy moment so existing subscribers are not surprised by a tour.
+    main_app_tour_cutoff_at: Optional[datetime] = Field(
+        default=None,
+        description="ISO-8601 UTC datetime; accounts created before this skip the spotlight tour.",
+    )
 
     # Apple Push Notification service (direct HTTP/2) — .p8 key PEM or base64-of-PEM
     apns_auth_key_p8: str = Field(default="", description="APNs Auth Key PEM or base64-encoded PEM")

@@ -45,6 +45,8 @@ interface User {
         unit_system?: string;
         timezone?: string;
         post_subscription_onboarding?: boolean;
+        /** True after user finishes (or dismisses) the post-pay spotlight tour */
+        main_app_tour_completed?: boolean;
         /** False after payment until user completes in-app Sendblue SMS step */
         sendblue_connect_completed?: boolean;
         /** True after user texts the Sendblue line; enables automated SMS from the server */

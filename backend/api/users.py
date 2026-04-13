@@ -87,6 +87,13 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
     """
     Get current user's profile
     """
+    ob_raw = dict(current_user.get("onboarding") or {})
+    if not ob_raw.get("main_app_tour_completed"):
+        cutoff = settings.main_app_tour_cutoff_at
+        created = current_user.get("created_at")
+        if cutoff and created and _as_utc_aware(created) < _as_utc_aware(cutoff):
+            ob_raw["main_app_tour_completed"] = True
+
     return UserResponse(
         id=current_user["id"],
         email=current_user["email"],
@@ -99,7 +106,7 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         subscription_tier=current_user.get("subscription_tier"),
         subscription_status=current_user.get("subscription_status"),
         subscription_end_date=current_user.get("subscription_end_date"),
-        onboarding=OnboardingData(**current_user.get("onboarding", {})),
+        onboarding=OnboardingData(**ob_raw),
         profile=UserProfile(**current_user.get("profile", {})),
         first_scan_completed=current_user.get("first_scan_completed", False),
         is_admin=current_user.get("is_admin", False),
@@ -232,6 +239,26 @@ async def dismiss_post_subscription_onboarding(
         raise HTTPException(status_code=404, detail="User not found")
     ob = dict(user.onboarding or {})
     ob["post_subscription_onboarding"] = False
+    user.onboarding = ob
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok"}
+
+
+@router.post("/main-app-tour/complete")
+async def complete_main_app_tour(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark the post-pay spotlight tour as completed. Idempotent."""
+    if not current_user.get("is_paid"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Subscription required")
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ob = dict(user.onboarding or {})
+    ob["main_app_tour_completed"] = True
     user.onboarding = ob
     user.updated_at = datetime.utcnow()
     await db.commit()
