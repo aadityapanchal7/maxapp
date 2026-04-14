@@ -259,6 +259,8 @@ class ChatHistory(Base):
     content = Column(Text, nullable=False)
     # "app" = in-app chat UI; "sms" = Twilio SMS thread (not shown in app history)
     channel = Column(String, default="app")
+    retrieved_chunk_ids = Column(ARRAY(BIGINT), nullable=True)
+    partner_rule_ids = Column(ARRAY(BIGINT), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
