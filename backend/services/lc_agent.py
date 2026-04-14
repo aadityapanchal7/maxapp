@@ -573,6 +573,7 @@ def make_chat_tools(
                 maxx_id=req_maxx,
                 db=db,
                 rds_db=rds_db,
+                subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
                 wake_time=final_wake,
                 sleep_time=final_sleep,
                 skin_concern=resolved_concern,
@@ -607,7 +608,7 @@ def make_chat_tools(
         except ScheduleLimitError as e:
             names = ", ".join(e.active_labels)
             return (
-                f"schedule limit reached: you already have 2 active modules ({names}). "
+                f"schedule limit reached: you already have {len(e.active_labels)} active modules ({names}). "
                 "stop one first."
             )
         except Exception as e:

@@ -9,6 +9,9 @@ Usage:
 
     # Force a maxx context even without an active schedule
     python scripts/test_chat_e2e.py --email you@example.com --maxx skinmax "how do i debloat"
+
+    # Explicit start-schedule kickoff (matches the app button flow)
+    python scripts/test_chat_e2e.py --email you@example.com --maxx hairmax --intent start_schedule "I want to start my HairMax schedule."
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ async def main():
     parser.add_argument("message", help="Message the user sends")
     parser.add_argument("--email", required=True, help="Email of an existing app_users row")
     parser.add_argument("--maxx", default=None, help="Override init_context to force a maxx (e.g. skinmax)")
+    parser.add_argument("--intent", default=None, help="Optional explicit chat_intent, e.g. start_schedule")
     parser.add_argument("--channel", default="app", choices=["app", "sms"])
     args = parser.parse_args()
 
@@ -51,6 +55,7 @@ async def main():
             db=db,
             rds_db=None,
             init_context=args.maxx,
+            chat_intent=args.intent,
             channel=args.channel,
         )
         print(f"<<< {text}")

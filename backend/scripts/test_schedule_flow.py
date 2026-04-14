@@ -61,6 +61,7 @@ async def main():
                 db=db,
                 rds_db=None,
                 init_context=args.maxx if i == 1 else None,
+                chat_intent="start_schedule" if i == 1 else None,
                 channel="app",
             )
             print(f"<<< {text}")

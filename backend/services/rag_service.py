@@ -1,60 +1,38 @@
-"""File-based RAG — no embeddings, no pgvector, no DB magic.
+"""Fast file-based RAG over the current markdown knowledge base.
 
-Architecture
-============
-Course content lives as markdown files under `backend/rag_content/<maxx_id>/*.md`:
+Sources, in priority order:
+1. repo-root ``rag_docs/<maxx_id>``            -- preferred, current canonical docs
+2. ``backend/rag_content/<maxx_id>``           -- legacy fallback content
 
-    backend/rag_content/
-      ├── skinmax/
-      │   ├── debloat.md
-      │   ├── acne.md
-      │   └── sunscreen.md
-      ├── hairmax/
-      │   └── minoxidil.md
-      ├── bonemax/
-      │   └── mewing.md
-      ├── heightmax/
-      └── fitmax/
-
-Each file is split on `\\n\\n` into chunks. A BM25 index is built per maxx_id at
-import time and cached in memory. On each chat turn, `retrieve_chunks()` scores
-the query against the relevant maxx_id's chunks and returns the top-k.
-
-Why BM25 and not embeddings
----------------------------
-- Zero setup: no API key needed for retrieval, no pgvector, no embed cost per turn
-- Deterministic: same query always returns the same chunks
-- Fast: scoring against a few hundred chunks is <10ms
-- Good enough: for keyword-heavy questions ("how do i debloat", "what is mewing")
-  BM25 matches or beats embeddings on precision
-
-The public API matches what api/chat.py expects, so swapping back to embeddings
-later is a drop-in replacement.
+Retrieval stays cheap and deterministic:
+- heading-aware markdown chunking
+- in-memory BM25 per module
+- title / section text included in the search index
+- current-base docs get a small score boost over legacy content
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession  # for type hint parity
+    from sqlalchemy.ext.asyncio import AsyncSession  # kept for signature parity
 
 logger = logging.getLogger(__name__)
 
 VALID_MAXX_IDS = frozenset({"skinmax", "fitmax", "hairmax", "heightmax", "bonemax"})
 
-_CONTENT_DIR = Path(__file__).resolve().parent.parent / "rag_content"
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+_REPO_ROOT = _BACKEND_DIR.parent
+_PRIMARY_CONTENT_DIR = _REPO_ROOT / "rag_docs"
+_LEGACY_CONTENT_DIR = _BACKEND_DIR / "rag_content"
 
-# In-memory index built at first access. Keyed by maxx_id.
 _INDEX: dict[str, "_Bm25Index"] = {}
-
-
-# ---------------------------------------------------------------------------
-# Tiny BM25 implementation — vendored so we don't need rank_bm25 dependency.
-# ---------------------------------------------------------------------------
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOP = frozenset({
@@ -69,23 +47,33 @@ def _tokenize(s: str) -> list[str]:
     return [t for t in _TOKEN_RE.findall((s or "").lower()) if t not in _STOP and len(t) > 1]
 
 
+@dataclass(frozen=True)
+class _DocSource:
+    root: Path
+    label: str
+    priority_boost: float
+
+
+_DOC_SOURCES = (
+    _DocSource(_PRIMARY_CONTENT_DIR, "rag_docs", 1.2),
+    _DocSource(_LEGACY_CONTENT_DIR, "rag_content", 1.0),
+)
+
+
 class _Bm25Index:
-    """Minimal BM25Okapi. Enough for a few hundred chunks per maxx_id."""
+    """Minimal BM25Okapi over already-built chunks."""
 
     def __init__(self, chunks: list[dict], k1: float = 1.5, b: float = 0.75):
         self.chunks = chunks
-        self.tokens = [_tokenize(c["content"]) for c in chunks]
+        self.tokens = [_tokenize(c["search_text"]) for c in chunks]
         self.N = len(chunks) or 1
         self.avgdl = sum(len(t) for t in self.tokens) / self.N if self.tokens else 0.0
         self.k1 = k1
         self.b = b
-        # Document frequency per term
         df: dict[str, int] = {}
         for toks in self.tokens:
             for term in set(toks):
                 df[term] = df.get(term, 0) + 1
-        # idf with BM25+ smoothing
-        import math
         self.idf = {
             term: math.log((self.N - n + 0.5) / (n + 0.5) + 1.0)
             for term, n in df.items()
@@ -98,8 +86,8 @@ class _Bm25Index:
                 continue
             dl = len(doc_tokens)
             tf_map: dict[str, int] = {}
-            for t in doc_tokens:
-                tf_map[t] = tf_map.get(t, 0) + 1
+            for token in doc_tokens:
+                tf_map[token] = tf_map.get(token, 0) + 1
             score = 0.0
             for q in query_tokens:
                 tf = tf_map.get(q, 0)
@@ -116,68 +104,134 @@ class _Bm25Index:
         if not q_toks:
             return []
         scores = self.score(q_toks)
-        ranked = sorted(
-            range(self.N), key=lambda i: scores[i], reverse=True
-        )
+        ranked = sorted(range(self.N), key=lambda i: scores[i], reverse=True)
         out: list[dict] = []
-        for idx in ranked[:k]:
-            s = scores[idx]
-            if s < min_score:
+        for idx in ranked[: max(k * 3, k)]:
+            base_score = scores[idx]
+            chunk = self.chunks[idx]
+            boosted = base_score * float(chunk.get("priority_boost", 1.0))
+            if boosted < min_score:
                 continue
-            c = self.chunks[idx]
             out.append({
-                "content": c["content"],
-                "doc_title": c["doc_title"],
-                "chunk_index": c["chunk_index"],
-                "metadata": c.get("metadata") or {},
-                "similarity": round(float(s), 3),  # BM25 score, not cosine — same field name for compat
+                "content": chunk["content"],
+                "doc_title": chunk["doc_title"],
+                "chunk_index": chunk["chunk_index"],
+                "metadata": chunk.get("metadata") or {},
+                "similarity": round(float(boosted), 3),
             })
-        return out
+        out.sort(key=lambda c: c.get("similarity", 0.0), reverse=True)
+        return out[:k]
 
 
-# ---------------------------------------------------------------------------
-# Index builder
-# ---------------------------------------------------------------------------
+def _clean_line(line: str) -> str:
+    return re.sub(r"\s+", " ", (line or "").strip())
 
-def _split_markdown(body: str) -> list[str]:
-    """Chunk a markdown file on blank lines; keep chunks under ~1600 chars."""
-    raw_paragraphs = [p.strip() for p in re.split(r"\n\s*\n", body or "") if p.strip()]
-    chunks: list[str] = []
-    buf = ""
-    for para in raw_paragraphs:
-        if len(buf) + len(para) + 2 > 1600 and buf:
-            chunks.append(buf.strip())
-            buf = para
-        else:
-            buf = f"{buf}\n\n{para}" if buf else para
-    if buf.strip():
-        chunks.append(buf.strip())
+
+def _iter_markdown_files(maxx_id: str) -> list[tuple[_DocSource, Path]]:
+    picked: list[tuple[_DocSource, Path]] = []
+    seen_keys: set[str] = set()
+    for source in _DOC_SOURCES:
+        folder = source.root / maxx_id
+        if not folder.exists():
+            continue
+        for md in sorted(folder.glob("*.md")):
+            dedupe_key = md.stem.lower()
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+            picked.append((source, md))
+    return picked
+
+
+def _split_markdown_with_headings(body: str) -> list[dict]:
+    """Chunk markdown by heading path first, then by paragraph budget."""
+    lines = (body or "").splitlines()
+    heading_path: list[str] = []
+    blocks: list[dict] = []
+    current_lines: list[str] = []
+
+    def _flush() -> None:
+        text = "\n".join(current_lines).strip()
+        if not text:
+            return
+        section = " > ".join(heading_path)
+        blocks.append({"section": section, "text": text})
+
+    for raw in lines:
+        line = raw.rstrip()
+        m = re.match(r"^(#{1,6})\s+(.*)$", line.strip())
+        if m:
+            _flush()
+            current_lines = []
+            level = len(m.group(1))
+            title = _clean_line(m.group(2))
+            if not title:
+                continue
+            heading_path[:] = heading_path[: level - 1]
+            heading_path.append(title)
+            continue
+        current_lines.append(line)
+    _flush()
+
+    chunks: list[dict] = []
+    for block in blocks:
+        paragraphs = [p.strip() for p in re.split(r"\n\s*\n", block["text"]) if p.strip()]
+        buf = ""
+        chunk_index = 0
+        for para in paragraphs:
+            candidate = f"{buf}\n\n{para}".strip() if buf else para
+            if len(candidate) > 1400 and buf:
+                chunks.append({
+                    "section": block["section"],
+                    "chunk_index": chunk_index,
+                    "content": buf.strip(),
+                })
+                chunk_index += 1
+                buf = para
+            else:
+                buf = candidate
+        if buf.strip():
+            chunks.append({
+                "section": block["section"],
+                "chunk_index": chunk_index,
+                "content": buf.strip(),
+            })
     return chunks
 
 
 def _load_maxx_index(maxx_id: str) -> _Bm25Index:
-    folder = _CONTENT_DIR / maxx_id
     chunks: list[dict] = []
-    if not folder.exists():
-        logger.info("RAG: no content folder for %s at %s — retrieval will return []", maxx_id, folder)
+    files = _iter_markdown_files(maxx_id)
+    if not files:
+        logger.info("RAG: no docs found for %s under %s or %s", maxx_id, _PRIMARY_CONTENT_DIR, _LEGACY_CONTENT_DIR)
         return _Bm25Index([])
 
-    for md in sorted(folder.glob("*.md")):
+    for source, md in files:
         try:
             body = md.read_text(encoding="utf-8")
         except Exception as e:
             logger.warning("RAG: couldn't read %s: %s", md, e)
             continue
         doc_title = md.stem
-        for i, chunk in enumerate(_split_markdown(body)):
+        rel_source = str(md.relative_to(_REPO_ROOT if source.root == _PRIMARY_CONTENT_DIR else _BACKEND_DIR))
+        for block in _split_markdown_with_headings(body):
+            section = block["section"] or doc_title
+            content = block["content"]
+            search_text = "\n".join(part for part in (doc_title, section, content) if part)
             chunks.append({
-                "content": chunk,
+                "content": content,
+                "search_text": search_text,
                 "doc_title": doc_title,
-                "chunk_index": i,
-                "metadata": {"source": str(md.relative_to(_CONTENT_DIR.parent))},
+                "chunk_index": int(block["chunk_index"]),
+                "priority_boost": source.priority_boost,
+                "metadata": {
+                    "source": rel_source,
+                    "section": section,
+                    "source_set": source.label,
+                },
             })
 
-    logger.info("RAG: indexed %s (%d chunks across %d files)", maxx_id, len(chunks), len(list(folder.glob("*.md"))))
+    logger.info("RAG: indexed %s (%d chunks across %d files)", maxx_id, len(chunks), len(files))
     return _Bm25Index(chunks)
 
 
@@ -190,13 +244,9 @@ def _get_index(maxx_id: str) -> _Bm25Index:
 
 
 def reload_indexes() -> None:
-    """Clear the in-memory cache. Call after editing files in rag_content/."""
+    """Clear the in-memory cache. Call after editing rag docs."""
     _INDEX.clear()
 
-
-# ---------------------------------------------------------------------------
-# Public API — same signature the chat code already imports.
-# ---------------------------------------------------------------------------
 
 async def retrieve_chunks(
     db: "AsyncSession",  # kept for API compatibility; unused
@@ -205,15 +255,7 @@ async def retrieve_chunks(
     k: int = 4,
     min_similarity: float = 0.5,
 ) -> list[dict]:
-    """Return top-k BM25-scored chunks from the maxx_id content folder.
-
-    `db` is accepted for signature compatibility with the old pgvector version.
-    `min_similarity` here maps to a minimum BM25 score, not cosine similarity.
-    BM25 scores typically range 0–20; 0.5 is a permissive threshold that still
-    filters out totally off-topic queries.
-
-    Returns [] for invalid maxx_id, blank query, or when no chunks clear the bar.
-    """
+    """Return top-k BM25-scored chunks for the requested module."""
     if not query or not query.strip():
         return []
     if maxx_id not in VALID_MAXX_IDS:
@@ -226,13 +268,9 @@ async def retrieve_chunks(
         return []
 
 
-# Back-compat stubs — old ingest script imported these. File-based RAG doesn't
-# need embeddings, so these raise helpful errors if something still calls them.
-
 def embed_text(*_args, **_kwargs):  # pragma: no cover
     raise RuntimeError(
-        "embed_text is no longer used — file-based RAG reads from backend/rag_content/. "
-        "Drop markdown files into the maxx_id folder instead of ingesting."
+        "embed_text is no longer used — file-based RAG reads from rag_docs/ and backend/rag_content/."
     )
 
 

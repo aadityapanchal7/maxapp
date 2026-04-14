@@ -64,6 +64,7 @@ export default function MaxChatScreen() {
         sendMessageWithContext(
             `I want to start my ${maxxLabel} schedule.`,
             initSchedule,
+            'start_schedule',
         );
     }, [route.params?.initSchedule, loading, historyReady]);
 
@@ -76,7 +77,7 @@ export default function MaxChatScreen() {
         sendMessageWithContext(initQuestion);
     }, [route.params?.initQuestion, loading, historyReady]);
 
-    const sendMessageWithContext = async (msg: string, initContext?: string) => {
+    const sendMessageWithContext = async (msg: string, initContext?: string, chatIntent?: string) => {
         if (!msg.trim() || loading) return;
         setLoading(true);
         setServerChoices([]);
@@ -86,7 +87,7 @@ export default function MaxChatScreen() {
             { role: 'assistant', content: '', isTyping: true, typingMode: initContext ? 'schedule' : 'default' },
         ]);
         try {
-            const { response, choices } = await api.sendChatMessage(msg, undefined, undefined, initContext);
+            const { response, choices } = await api.sendChatMessage(msg, undefined, undefined, initContext, chatIntent);
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
                 { role: 'assistant', content: response },
@@ -122,11 +123,11 @@ export default function MaxChatScreen() {
         const trySendPending = async () => {
             const raw = await AsyncStorage.getItem(PENDING_CHAT_KEY).catch(() => null);
             if (!raw) return;
-            let queued: { msg: string; initContext?: string } | null = null;
+            let queued: { msg: string; initContext?: string; chatIntent?: string } | null = null;
             try { queued = JSON.parse(raw); } catch { return; }
             if (!queued?.msg) return;
             await AsyncStorage.removeItem(PENDING_CHAT_KEY).catch(() => undefined);
-            sendMessageWithContext(queued.msg, queued.initContext);
+            sendMessageWithContext(queued.msg, queued.initContext, queued.chatIntent);
         };
         const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
             const prev = appStateRef.current;
@@ -148,18 +149,16 @@ export default function MaxChatScreen() {
         setLoading(true);
         setServerChoices([]);
         if (!fromPreset) setInput('');
-        const scheduleCtx = route.params?.initSchedule as string | undefined;
         setMessages(prev => [
             ...prev,
             { role: 'user', content: userContent },
-            { role: 'assistant', content: '', isTyping: true, typingMode: scheduleCtx ? 'schedule' : 'default' },
+            { role: 'assistant', content: '', isTyping: true, typingMode: 'default' },
         ]);
         try {
             const { response, choices } = await api.sendChatMessage(
                 userContent,
                 undefined,
                 undefined,
-                scheduleCtx,
             );
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
@@ -183,7 +182,7 @@ export default function MaxChatScreen() {
             console.error(e);
             const serverMsg = e?.response?.data?.response || e?.response?.data?.detail;
             if (!e?.response) {
-                await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg: userContent, initContext: scheduleCtx })).catch(() => undefined);
+                await AsyncStorage.setItem(PENDING_CHAT_KEY, JSON.stringify({ msg: userContent })).catch(() => undefined);
             }
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
