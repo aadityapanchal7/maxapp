@@ -27,7 +27,7 @@ from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
 from services.intent_classifier import classify_turn
 from services.fast_rag_answer import answer_from_rag
-from services.fast_product_links import product_links_from_context
+from services.fast_product_links import product_links_from_context, product_brands_for_module
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
@@ -112,6 +112,18 @@ def _looks_like_link_request(text: str) -> bool:
         or "links" in s
         or "where can i buy" in s
         or "buy this" in s
+    )
+
+
+def _looks_like_brand_request(text: str) -> bool:
+    s = (text or "").lower()
+    return (
+        "brand" in s
+        or "brands" in s
+        or "what should i buy" in s
+        or "what to buy" in s
+        or "product rec" in s
+        or "product recommendation" in s
     )
 
 
@@ -2334,6 +2346,41 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             await db.commit()
             logger.info("[FAST_LINKS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
             return _finalize_assistant_message(link_response), []
+
+    # --- Fast brand-list path ---
+    if (
+        not explicit_schedule_start
+        and not image_data
+        and _looks_like_brand_request(message_text)
+        and link_maxx
+    ):
+        brands = product_brands_for_module(str(link_maxx[0]))
+        if brands:
+            brand_lines = ["here's a quick brand list from the current module references:"]
+            for brand in brands:
+                brand_lines.append(f"- {brand}")
+            brand_lines.append("if you want, ask for amazon links and i can give you quick search links.")
+            brand_response = "\n".join(brand_lines)
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=brand_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            logger.info("[FAST_BRANDS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
+            return _finalize_assistant_message(brand_response), []
 
     # --- Fast knowledge path: direct RAG answer, no agent/tool overhead ---
     if (

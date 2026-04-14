@@ -12,8 +12,6 @@ import asyncio
 import logging
 from typing import Optional
 
-from langchain_core.messages import HumanMessage, SystemMessage
-
 from config import settings
 from services.lc_providers import get_chat_llm_with_fallback
 from services.rag_service import retrieve_chunks
@@ -52,7 +50,7 @@ async def answer_from_rag(
     k_per_maxx = max(2, k_total // max(1, len(hints)) + 1)
 
     async def _one(maxx: str) -> list[dict]:
-        rows = await retrieve_chunks(None, maxx, message, k=k_per_maxx, min_similarity=0.45)
+        rows = await retrieve_chunks(None, maxx, message, k=k_per_maxx, min_similarity=0.12)
         return [{**row, "_maxx": maxx} for row in rows]
 
     gathered = await asyncio.gather(*[_one(h) for h in hints])
@@ -72,6 +70,7 @@ async def answer_from_rag(
         )
 
     llm = get_chat_llm_with_fallback(max_tokens=420).bind(temperature=0.2)
+    from langchain_core.messages import HumanMessage, SystemMessage
     human = (
         f"User question:\n{message.strip()}\n\n"
         f"Evidence:\n{chr(10).join(evidence_lines)}"

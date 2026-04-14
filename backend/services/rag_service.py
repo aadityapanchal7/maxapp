@@ -59,6 +59,12 @@ _DOC_SOURCES = (
     _DocSource(_LEGACY_CONTENT_DIR, "rag_content", 1.0),
 )
 
+_PLACEHOLDER_NEEDLES = (
+    "add your",
+    "content here",
+    "example sections",
+)
+
 
 class _Bm25Index:
     """Minimal BM25Okapi over already-built chunks."""
@@ -129,18 +135,24 @@ def _clean_line(line: str) -> str:
 
 def _iter_markdown_files(maxx_id: str) -> list[tuple[_DocSource, Path]]:
     picked: list[tuple[_DocSource, Path]] = []
-    seen_keys: set[str] = set()
     for source in _DOC_SOURCES:
         folder = source.root / maxx_id
         if not folder.exists():
             continue
         for md in sorted(folder.glob("*.md")):
-            dedupe_key = md.stem.lower()
-            if dedupe_key in seen_keys:
-                continue
-            seen_keys.add(dedupe_key)
             picked.append((source, md))
     return picked
+
+
+def _looks_like_placeholder(body: str) -> bool:
+    text = (body or "").strip().lower()
+    if not text:
+        return True
+    if all(needle in text for needle in _PLACEHOLDER_NEEDLES):
+        return True
+    if len(text) < 260 and "example sections" in text:
+        return True
+    return False
 
 
 def _split_markdown_with_headings(body: str) -> list[dict]:
@@ -202,16 +214,24 @@ def _split_markdown_with_headings(body: str) -> list[dict]:
 def _load_maxx_index(maxx_id: str) -> _Bm25Index:
     chunks: list[dict] = []
     files = _iter_markdown_files(maxx_id)
+    accepted_doc_keys: set[str] = set()
     if not files:
         logger.info("RAG: no docs found for %s under %s or %s", maxx_id, _PRIMARY_CONTENT_DIR, _LEGACY_CONTENT_DIR)
         return _Bm25Index([])
 
     for source, md in files:
+        doc_key = md.stem.lower()
+        if doc_key in accepted_doc_keys:
+            continue
         try:
             body = md.read_text(encoding="utf-8")
         except Exception as e:
             logger.warning("RAG: couldn't read %s: %s", md, e)
             continue
+        if _looks_like_placeholder(body):
+            logger.info("RAG: skipping placeholder doc %s", md)
+            continue
+        accepted_doc_keys.add(doc_key)
         doc_title = md.stem
         rel_source = str(md.relative_to(_REPO_ROOT if source.root == _PRIMARY_CONTENT_DIR else _BACKEND_DIR))
         for block in _split_markdown_with_headings(body):
@@ -253,7 +273,7 @@ async def retrieve_chunks(
     maxx_id: str,
     query: str,
     k: int = 4,
-    min_similarity: float = 0.5,
+    min_similarity: float = 0.12,
 ) -> list[dict]:
     """Return top-k BM25-scored chunks for the requested module."""
     if not query or not query.strip():

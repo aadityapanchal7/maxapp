@@ -60,6 +60,25 @@ _CURATED_PRODUCTS = {
     ],
 }
 
+_CURATED_BRANDS = {
+    "skinmax": [
+        "CeraVe",
+        "Paula's Choice",
+        "EltaMD",
+        "La Roche-Posay",
+        "The Ordinary",
+        "Differin",
+        "SkinCeuticals",
+        "Dr. Jart+",
+    ],
+    "hairmax": [
+        "Rogaine",
+        "Hims",
+        "Keeps",
+        "Nizoral",
+    ],
+}
+
 _PRODUCT_ALIASES = {
     "Paula's Choice 2% BHA Liquid Exfoliant": ["paulas choice bha", "paula's choice bha", "paulas choice"],
     "EltaMD UV Clear SPF 46": ["elta md", "eltamd", "elta md uv clear"],
@@ -131,6 +150,48 @@ def _module_products(maxx_id: str) -> list[str]:
 
 def _amazon_search_url(name: str) -> str:
     return f"https://www.amazon.com/s?k={quote_plus(name)}"
+
+
+def _brand_name(product_name: str) -> str:
+    aliases = (
+        ("paulaschoice", "Paula's Choice"),
+        ("eltamd", "EltaMD"),
+        ("larocheposay", "La Roche-Posay"),
+        ("cerave", "CeraVe"),
+        ("theordinary", "The Ordinary"),
+        ("drjart", "Dr. Jart+"),
+        ("skinceuticals", "SkinCeuticals"),
+        ("hims", "Hims"),
+        ("nizoral", "Nizoral"),
+        ("rogaine", "Rogaine"),
+        ("keeps", "Keeps"),
+    )
+    norm_full = _normalize(product_name)
+    for needle, brand in aliases:
+        if norm_full.startswith(needle):
+            return brand
+    toks = _norm_tokens(product_name)
+    if not toks:
+        return product_name
+    return toks[0].title()
+
+
+def product_brands_for_module(maxx_id: str, max_brands: int = 8) -> list[str]:
+    curated = list(_CURATED_BRANDS.get(maxx_id, []))
+    if curated:
+        return curated[:max_brands]
+    brands: list[str] = []
+    seen: set[str] = set()
+    for name in _module_products(maxx_id):
+        brand = _brand_name(name)
+        key = _normalize(brand)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        brands.append(brand)
+        if len(brands) >= max_brands:
+            break
+    return brands
 
 
 async def product_links_from_context(
