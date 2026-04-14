@@ -1,10 +1,8 @@
 """
-Seed the system_prompts table with all LLM prompt bodies.
+Seed / update the system_prompts table with all LLM prompt bodies.
 
-Safe to run multiple times — uses INSERT ... ON CONFLICT (key) DO NOTHING so
-existing rows are never overwritten.  To update a prompt body, edit it directly
-in Supabase (the admin UI or psql) and the running app will pick it up within
-the next hourly cache refresh.
+Safe to run multiple times — uses INSERT ... ON CONFLICT (key) DO UPDATE so
+existing rows are always refreshed with the latest code constants.
 
 Run from the backend root:
   python scripts/seed_prompts.py
@@ -41,6 +39,8 @@ from services.fitmax_notification_engine import (
 )
 from services.gemini_service import (
     FACE_ANALYSIS_SYSTEM_PROMPT,
+)
+from services.prompt_constants import (
     MAX_CHAT_SYSTEM_PROMPT,
     TRIPLE_FULL_SYSTEM_PROMPT,
     UMAX_TRIPLE_SYSTEM_PROMPT,
@@ -133,14 +133,17 @@ async def seed() -> None:
 
     async with AsyncSessionLocal() as session:
         inserted = 0
-        skipped = 0
+        updated = 0
         for key, (content, description) in _PROMPTS.items():
             result = await session.execute(
                 text(
                     """
                     INSERT INTO system_prompts (key, content, description, is_active, created_at, updated_at)
                     VALUES (:key, :content, :description, true, now(), now())
-                    ON CONFLICT (key) DO NOTHING
+                    ON CONFLICT (key) DO UPDATE SET
+                        content = EXCLUDED.content,
+                        description = EXCLUDED.description,
+                        updated_at = now()
                     """
                 ),
                 {"key": key, "content": content, "description": description},
@@ -148,10 +151,10 @@ async def seed() -> None:
             if result.rowcount > 0:
                 inserted += 1
             else:
-                skipped += 1
+                updated += 1
         await session.commit()
 
-    print(f"Done: {inserted} inserted, {skipped} already existed (skipped).")
+    print(f"Done: {inserted} upserted, {updated} unchanged.")
     print("Total prompts registered:", len(_PROMPTS))
 
 

@@ -50,6 +50,8 @@ _KNOWLEDGE_MARKERS = (
     "what", "why", "how", "when", "which", "who",
     "?", "explain", "tell me", "difference", "benefit",
     "does ", "should i", "can i", "is it", "is a ", "are ", "work?", "works?",
+    "give me", "list of", "recommend", "routine", "what do i", "what should",
+    "tips", "advice", "best ", "help with", "detail",
 )
 
 _CHECK_IN_MARKERS = (

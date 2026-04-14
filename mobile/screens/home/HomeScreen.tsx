@@ -11,6 +11,8 @@ import Svg, { Circle } from 'react-native-svg';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
+import { AttachStep } from 'react-native-spotlight-tour';
+import { TOUR_STEP } from '../../features/mainTour/mainTourSteps';
 import { colors, spacing, typography, fonts, borderRadius } from '../../theme/dark';
 import { normalizeMaxxTintHex } from '../../components/MaxxProgramRow';
 import { buildMaxxMaps, mergeSchedules, type MergedScheduleTask } from '../../utils/scheduleAggregation';
@@ -310,6 +312,7 @@ export default function HomeScreen() {
 
                     {/* ── PROGRAMS (horizontal scroll, top of screen) ── */}
                     {activeMaxxes.length > 0 && (
+                        <AttachStep index={TOUR_STEP.PROGRAMS}>
                         <View style={s.programsBar}>
                             <ScrollView
                                 horizontal
@@ -343,9 +346,11 @@ export default function HomeScreen() {
                                 </TouchableOpacity>
                             </ScrollView>
                         </View>
+                        </AttachStep>
                     )}
 
                     {/* ── PROGRESS HERO ── */}
+                    <AttachStep index={TOUR_STEP.PROGRESS}>
                     <TouchableOpacity
                         style={s.progressHero}
                         onPress={() => navigation.navigate('MasterScheduleTab')}
@@ -370,6 +375,7 @@ export default function HomeScreen() {
                             )}
                         </View>
                     </TouchableOpacity>
+                    </AttachStep>
 
                     {/* ── TASKS ── */}
                     <View style={s.section}>
