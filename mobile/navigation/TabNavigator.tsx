@@ -230,7 +230,9 @@ export default function TabNavigator() {
                         tabBarLabel: 'Schedule',
                         tabBarIcon: ({ color }) => (
                             <AttachStep index={TOUR_STEP.SCHEDULE_TAB}>
-                                <Ionicons name="calendar-outline" size={22} color={color} />
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="calendar-outline" size={22} color={color} />
+                                </View>
                             </AttachStep>
                         ),
                     }}
@@ -254,7 +256,9 @@ export default function TabNavigator() {
                         title: 'Scan',
                         tabBarIcon: ({ color }) => (
                             <AttachStep index={TOUR_STEP.SCAN_TAB}>
-                                <Ionicons name="scan-outline" size={22} color={color} />
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="scan-outline" size={22} color={color} />
+                                </View>
                             </AttachStep>
                         ),
                     }}
@@ -265,7 +269,9 @@ export default function TabNavigator() {
                     options={{
                         tabBarIcon: ({ color }) => (
                             <AttachStep index={TOUR_STEP.CHAT_TAB}>
-                                <Ionicons name="chatbubble-outline" size={22} color={color} />
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="chatbubble-outline" size={22} color={color} />
+                                </View>
                             </AttachStep>
                         ),
                     }}
@@ -276,7 +282,9 @@ export default function TabNavigator() {
                     options={{
                         tabBarIcon: ({ color }) => (
                             <AttachStep index={TOUR_STEP.FORUMS_TAB}>
-                                <Ionicons name="people-outline" size={22} color={color} />
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="people-outline" size={22} color={color} />
+                                </View>
                             </AttachStep>
                         ),
                     }}
@@ -309,5 +317,11 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: '500',
         letterSpacing: 0.2,
+    },
+    tourIconWrap: {
+        width: 28,
+        height: 28,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
     },
 });

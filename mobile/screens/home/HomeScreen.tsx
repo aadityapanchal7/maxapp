@@ -313,7 +313,7 @@ export default function HomeScreen() {
                     {/* ── PROGRAMS (horizontal scroll, top of screen) ── */}
                     {activeMaxxes.length > 0 && (
                         <AttachStep index={TOUR_STEP.PROGRAMS}>
-                        <View style={s.programsBar}>
+                        <View style={[s.programsBar, { alignSelf: 'stretch' }]}>
                             <ScrollView
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
@@ -352,7 +352,7 @@ export default function HomeScreen() {
                     {/* ── PROGRESS HERO ── */}
                     <AttachStep index={TOUR_STEP.PROGRESS}>
                     <TouchableOpacity
-                        style={s.progressHero}
+                        style={[s.progressHero, { alignSelf: 'stretch' }]}
                         onPress={() => navigation.navigate('MasterScheduleTab')}
                         activeOpacity={0.8}
                         accessibilityRole="button"
