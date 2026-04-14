@@ -193,6 +193,17 @@ async def _run_column_migrations():
     except Exception as e:
         print(f"[INFO] Column migration note: {e}")
 
+    # rag_documents.embedding → nullable so content can be added/edited without vectors
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '5s'"))
+            await conn.execute(text(
+                "ALTER TABLE rag_documents ALTER COLUMN embedding DROP NOT NULL"
+            ))
+        print("[OK] rag_documents.embedding made nullable")
+    except Exception as e:
+        print(f"[INFO] rag_documents embedding migration note: {e}")
+
     # pgvector indexes for kb_chunks -- skipped silently if the `vector` extension isn't enabled.
     # Enable it once in Supabase SQL editor: `create extension if not exists vector;`
     try:

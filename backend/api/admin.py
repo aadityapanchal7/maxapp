@@ -28,6 +28,16 @@ class BroadcastRequest(BaseModel):
     content: str
 
 
+@router.post("/rag/reload")
+async def reload_rag_cache(
+    _admin: dict = Depends(get_current_admin_user),
+):
+    """Clear the in-memory BM25 index so the next query re-fetches from Supabase."""
+    from services.rag_service import reload_indexes
+    reload_indexes()
+    return {"status": "ok", "message": "RAG index cache cleared — next query will rebuild from DB"}
+
+
 class DirectMessageRequest(BaseModel):
     user_id: str
     content: str

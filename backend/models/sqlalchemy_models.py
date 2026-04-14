@@ -391,8 +391,8 @@ class RagDocument(Base):
     doc_title   = Column(String(255), nullable=False)
     chunk_index = Column(Integer,     nullable=False, default=0)
     content     = Column(Text,        nullable=False)
-    # pgvector column -- defined only when the package is installed
-    embedding   = Column(Vector(1536), nullable=False) if _PGVECTOR_AVAILABLE else Column(Text, nullable=True)
+    # pgvector column -- nullable so rows can be added/edited without an embedding vector
+    embedding   = Column(Vector(1536), nullable=True) if _PGVECTOR_AVAILABLE else Column(Text, nullable=True)
     metadata_   = Column("metadata", JSON, default=dict)
     created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at  = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
