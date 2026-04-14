@@ -56,6 +56,10 @@ class ChatRequest(BaseModel):
     attachment_url: Optional[str] = None
     attachment_type: Optional[str] = None
     init_context: Optional[str] = Field(default=None, description="Optional context for schedule init, e.g. 'skinmax'")
+    chat_intent: Optional[str] = Field(
+        default=None,
+        description="Optional explicit client intent, e.g. 'start_schedule'",
+    )
 
 
 class ChatResponse(BaseModel):

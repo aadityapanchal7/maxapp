@@ -11,10 +11,6 @@ from sqlalchemy import select
 from db.sqlalchemy import AsyncSessionLocal, engine
 from models.sqlalchemy_models import User
 from api import chat as chat_mod
-from services import lc_agent, lc_maxx_intent
-from services.coaching_service import coaching_service
-from services.schedule_service import schedule_service
-
 
 def _wrap(label, async_fn):
     async def wrapper(*a, **kw):
@@ -31,9 +27,9 @@ async def main():
     msg = sys.argv[2] if len(sys.argv) > 2 else "what's my schedule today"
 
     # Monkey-patch timing into the module references used by chat.py
-    chat_mod.infer_maxx_chat_intent = _wrap("infer_maxx_chat_intent", chat_mod.infer_maxx_chat_intent)
     chat_mod.run_chat_agent = _wrap("run_chat_agent", chat_mod.run_chat_agent)
     chat_mod.rag_retrieve_chunks = _wrap("rag_retrieve_chunks", chat_mod.rag_retrieve_chunks)
+    chat_mod.answer_from_rag = _wrap("answer_from_rag", chat_mod.answer_from_rag)
 
     async with AsyncSessionLocal() as db:
         user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()

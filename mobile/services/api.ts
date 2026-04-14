@@ -790,6 +790,7 @@ class ApiService {
         attachmentUrl?: string,
         attachmentType?: string,
         initContext?: string,
+        chatIntent?: string,
     ): Promise<{ response: string; choices?: string[] }> {
         const body: any = {
             message,
@@ -797,6 +798,7 @@ class ApiService {
             attachment_type: attachmentType,
         };
         if (initContext) body.init_context = initContext;
+        if (chatIntent) body.chat_intent = chatIntent;
         // LangChain agent may chain multiple tool calls + LLM fallback,
         // so allow up to 120s before timing out.
         const response = await this.client.post('chat/message', body, {

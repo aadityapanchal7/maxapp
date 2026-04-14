@@ -22,10 +22,12 @@ from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 from services.coaching_service import coaching_service
 from services.lc_agent import make_chat_tools, run_chat_agent
-from services.lc_maxx_intent import infer_maxx_chat_intent
 from services.lc_memory import history_dicts_to_lc_messages
 from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
+from services.intent_classifier import classify_turn
+from services.fast_rag_answer import answer_from_rag
+from services.fast_product_links import product_links_from_context
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
@@ -90,6 +92,27 @@ def _coerce_chat_maxx_id(raw: Optional[str]) -> Optional[str]:
         if s == mid:
             return mid
     return str(raw).strip().lower()
+
+
+def _coerce_chat_intent(raw: Optional[str]) -> Optional[str]:
+    """Normalize optional client-supplied chat intent."""
+    if not raw:
+        return None
+    s = re.sub(r"[\s\-_]+", "", str(raw).strip().lower())
+    if s == "startschedule":
+        return "start_schedule"
+    return None
+
+
+def _looks_like_link_request(text: str) -> bool:
+    s = (text or "").lower()
+    return (
+        "amazon" in s
+        or "link" in s
+        or "links" in s
+        or "where can i buy" in s
+        or "buy this" in s
+    )
 
 
 def _expire_stale_chat_pending(profile: dict) -> bool:
@@ -1348,6 +1371,7 @@ async def process_chat_message(
     db: AsyncSession,
     rds_db: Optional[AsyncSession] = None,
     init_context: Optional[str] = None,
+    chat_intent: Optional[str] = None,
     attachment_url: Optional[str] = None,
     attachment_type: Optional[str] = None,
     channel: str = "app",
@@ -1459,22 +1483,22 @@ async def process_chat_message(
         await db.commit()
         return _finalize_assistant_message(response_text), []
 
+    explicit_chat_intent = _coerce_chat_intent(chat_intent)
+    explicit_schedule_start = explicit_chat_intent == "start_schedule"
+    start_schedule_maxx = _coerce_chat_maxx_id(init_context) if explicit_schedule_start else None
+    active_hint = str((active_schedule or {}).get("maxx_id") or "").strip() or None
+    turn_intent = classify_turn(message_text, active_maxx=active_hint)
+
     # --- Maxx module routing (structured LLM; init_context is hint inside classifier) ---
     message = message_text
     if not (message_text or "").strip():
-        maxx_id = _coerce_chat_maxx_id(init_context)
+        maxx_id = start_schedule_maxx
     else:
-        active_hint = None
-        if active_schedule:
-            active_hint = str(active_schedule.get("maxx_id") or "").strip() or None
-        inferred = await infer_maxx_chat_intent(
-            message_text=message_text,
-            init_context=init_context,
-            channel=channel,
-            active_maxx_hint=active_hint,
-            heightmax_app_kickoff=_is_heightmax_app_kickoff_message(message_text),
-        )
-        maxx_id = _coerce_chat_maxx_id(inferred) if inferred else None
+        if start_schedule_maxx:
+            maxx_id = start_schedule_maxx
+        else:
+            hints = turn_intent.get("maxx_hints") or []
+            maxx_id = hints[0] if hints else active_hint
 
     if maxx_id and maxx_id != "fitmax" and user:
         prof = dict(user.profile or {})
@@ -1507,7 +1531,7 @@ async def process_chat_message(
 
     scripted_mx = settings.chat_scripted_fitmax_hairmax_onboarding
 
-    if scripted_mx and maxx_id == "fitmax" and user and not fitmax_schedule_active:
+    if scripted_mx and explicit_schedule_start and start_schedule_maxx == "fitmax" and user and not fitmax_schedule_active:
         prof = dict(profile or {})
         if not prof.get("fitmax_chat_setup"):
             prof["fitmax_chat_setup"] = True
@@ -1518,7 +1542,7 @@ async def process_chat_message(
             await db.commit()
             profile = dict((user.profile or {}) or {})
 
-    if scripted_mx and maxx_id == "hairmax" and user and not hairmax_schedule_active:
+    if scripted_mx and explicit_schedule_start and start_schedule_maxx == "hairmax" and user and not hairmax_schedule_active:
         prof = dict(profile or {})
         if not prof.get("hairmax_chat_setup"):
             prof["hairmax_chat_setup"] = True
@@ -1538,7 +1562,7 @@ async def process_chat_message(
         and user
         and not fitmax_schedule_active
         and (
-            maxx_id == "fitmax"
+            (explicit_schedule_start and start_schedule_maxx == "fitmax")
             or fitmax_pending
             or (
                 fitmax_chat_setup
@@ -1554,7 +1578,7 @@ async def process_chat_message(
         and user
         and not hairmax_schedule_active
         and (
-            maxx_id == "hairmax"
+            (explicit_schedule_start and start_schedule_maxx == "hairmax")
             or (
                 hairmax_chat_setup
                 and not _hairmax_setup_stale(profile)
@@ -1688,6 +1712,7 @@ async def process_chat_message(
                         maxx_id="fitmax",
                         db=db,
                         rds_db=rds_db if rds_db else None,
+                        subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
                         wake_time=str(fw_fm),
                         sleep_time=str(fs_fm),
                         skin_concern=plan["goal_label"],
@@ -1705,7 +1730,7 @@ async def process_chat_message(
                 except ScheduleLimitError as e:
                     names = ", ".join(e.active_labels)
                     response_text = (
-                        f"your fitmax profile is saved, but you already have 2 active modules ({names}). "
+                        f"your fitmax profile is saved, but you already have {len(e.active_labels)} active modules ({names}). "
                         "stop one of them first and then come back to start fitmax."
                     )
 
@@ -1828,6 +1853,7 @@ async def process_chat_message(
                     maxx_id="hairmax",
                     db=db,
                     rds_db=rds_db if rds_db else None,
+                    subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
                     wake_time=wake,
                     sleep_time=sleep,
                     skin_concern=None,
@@ -1843,7 +1869,7 @@ async def process_chat_message(
             except ScheduleLimitError as e:
                 names = ", ".join(e.active_labels)
                 response_text = (
-                    f"your hairmax profile is saved, but you already have 2 active modules ({names}). "
+                    f"your hairmax profile is saved, but you already have {len(e.active_labels)} active modules ({names}). "
                     "stop one of them first and then come back to start hairmax."
                 )
 
@@ -1915,7 +1941,7 @@ async def process_chat_message(
             return _finalize_assistant_message(response_text), []
 
     existing_maxx = None
-    if maxx_id:
+    if maxx_id and explicit_schedule_start:
         if maxx_id == "fitmax":
             existing_maxx = fitmax_schedule_active
         elif maxx_id == "hairmax":
@@ -1960,6 +1986,7 @@ async def process_chat_message(
                     maxx_id="heightmax",
                     db=db,
                     rds_db=rds_db if rds_db else None,
+                    subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
                     wake_time=str(final_wake),
                     sleep_time=str(final_sleep),
                     skin_concern=None,
@@ -1978,7 +2005,7 @@ async def process_chat_message(
             except ScheduleLimitError as e:
                 names = ", ".join(e.active_labels)
                 response_text = (
-                    f"you already have 2 active modules ({names}). "
+                    f"you already have {len(e.active_labels)} active modules ({names}). "
                     "stop one of them first, then come back to start heightmax."
                 )
             except Exception as gen_err:
@@ -2272,13 +2299,91 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     if attachment_url and attachment_type == "image":
         image_data = await storage_service.get_image(attachment_url)
 
-    # --- RAG retrieval (only when there's an active maxx context and a knowledge question) ---
+    # --- Fast product-link path ---
+    link_maxx = list(turn_intent.get("maxx_hints") or [])
+    if not link_maxx and active_hint:
+        link_maxx = [active_hint]
+    if (
+        not explicit_schedule_start
+        and not image_data
+        and _looks_like_link_request(message_text)
+        and link_maxx
+    ):
+        link_response = await product_links_from_context(
+            message=message_text,
+            maxx_id=str(link_maxx[0]),
+        )
+        if link_response:
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=link_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            logger.info("[FAST_LINKS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
+            return _finalize_assistant_message(link_response), []
+
+    # --- Fast knowledge path: direct RAG answer, no agent/tool overhead ---
+    if (
+        not explicit_schedule_start
+        and not image_data
+        and turn_intent.get("intent") == "KNOWLEDGE"
+        and (turn_intent.get("maxx_hints") or active_hint)
+    ):
+        fast_response, fast_chunks = await answer_from_rag(
+            message=message_text,
+            maxx_hints=turn_intent.get("maxx_hints") or [],
+            active_maxx=active_hint,
+        )
+        if fast_response:
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=fast_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            logger.info(
+                "[FAST_RAG] user=%s intent=%s hints=%s chunks=%d",
+                str(user_id)[:8],
+                turn_intent.get("intent"),
+                turn_intent.get("maxx_hints"),
+                len(fast_chunks),
+            )
+            return _finalize_assistant_message(fast_response), []
+
+    # --- RAG retrieval (legacy agent path only; fast knowledge turns return earlier) ---
     # retrieve_chunks returns [] on any failure, so chat degrades gracefully.
     retrieved_chunks: list[dict] = []
     partner_rule_ids: list[int] = []
     try:
-        _maxx = (active_schedule or {}).get("maxx_id") if active_schedule else maxx_id
-        if _maxx:
+        _maxx = None
+        if explicit_schedule_start:
+            _maxx = (active_schedule or {}).get("maxx_id") if active_schedule else maxx_id
+        if _maxx and turn_intent.get("intent") != "KNOWLEDGE":
             retrieved_chunks = await rag_retrieve_chunks(
                 db,
                 maxx_id=str(_maxx),
@@ -2463,6 +2568,7 @@ async def send_message(
         db=db,
         rds_db=rds_db,
         init_context=data.init_context,
+        chat_intent=data.chat_intent,
         attachment_url=data.attachment_url,
         attachment_type=data.attachment_type,
     )
