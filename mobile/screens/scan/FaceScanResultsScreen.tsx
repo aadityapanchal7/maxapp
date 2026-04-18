@@ -480,7 +480,7 @@ function ScanProcessingView() {
 export default function FaceScanResultsScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
-    const { isPaid, refreshUser, user } = useAuth() as { isPaid: boolean; refreshUser: () => Promise<unknown>; user: any };
+    const { isPaid, isScanUser, refreshUser, user } = useAuth() as { isPaid: boolean; isScanUser: boolean; refreshUser: () => Promise<unknown>; user: any };
     const postPayParam = !!(route.params as RouteParams)?.postPay;
     const scanIdParam = (route.params as any)?.scanId as string | undefined;
     const viewingHistory = !!scanIdParam;
@@ -571,8 +571,7 @@ export default function FaceScanResultsScreen() {
     }, [scan?.processing_status, scanIdParam]);
 
     const a = coerceAnalysisObject(scan?.analysis);
-    /** API sets is_unlocked from DB — fixes empty screen when JWT context lags after payment */
-    const treatAsPaid = isPaid === true || scan?.is_unlocked === true;
+    const treatAsPaid = isPaid === true || isScanUser === true || scan?.is_unlocked === true;
     const locked = !treatAsPaid;
     /** After pay, user must pick programs — use server flag so CTA is correct even before Home re-pushes `postPay`. */
     // Only run the post-pay onboarding CTA when explicitly deep-linked from payment.
@@ -632,6 +631,11 @@ export default function FaceScanResultsScreen() {
     const goPayment = () => navigation.navigate('Payment');
 
     const onPrimaryCta = async () => {
+        if (isScanUser) {
+            // Reset rather than push so the back-stack doesn't grow across repeated scans.
+            navigation.reset({ index: 0, routes: [{ name: 'FaceScan' }] });
+            return;
+        }
         if (locked) {
             goPayment();
             return;
@@ -657,6 +661,10 @@ export default function FaceScanResultsScreen() {
 
     const headerBack = () => {
         if (postPayOnboardingFlow) {
+            return;
+        }
+        if (isScanUser) {
+            navigation.reset({ index: 0, routes: [{ name: 'FaceScan' }] });
             return;
         }
         if (navigation.canGoBack()) navigation.goBack();
@@ -944,18 +952,24 @@ export default function FaceScanResultsScreen() {
                     <>
                         <TouchableOpacity style={styles.cta} onPress={onPrimaryCta} activeOpacity={0.85}>
                             <Text style={styles.ctaText}>
-                                {locked
-                                    ? 'Unlock full results'
-                                    : postPay && sendbluePending
-                                      ? 'Continue'
-                                      : postPay
-                                        ? 'Choose your programs'
-                                        : 'Continue'}
+                                {isScanUser
+                                    ? 'Scan Again'
+                                    : locked
+                                        ? 'Unlock full results'
+                                        : postPay && sendbluePending
+                                          ? 'Continue'
+                                          : postPay
+                                            ? 'Choose your programs'
+                                            : 'Continue'}
                             </Text>
-                            <Ionicons name={locked ? 'lock-open-outline' : 'arrow-forward'} size={17} color={colors.background} />
+                            <Ionicons
+                                name={isScanUser ? 'camera-outline' : locked ? 'lock-open-outline' : 'arrow-forward'}
+                                size={17}
+                                color={colors.background}
+                            />
                         </TouchableOpacity>
 
-                        {!locked && !postSubscriptionOnboarding ? (
+                        {!isScanUser && !locked && !postSubscriptionOnboarding ? (
                             <TouchableOpacity style={styles.skipBtn} onPress={() => navigation.navigate('Main')} activeOpacity={0.7}>
                                 <Text style={styles.skipText}>Go to home</Text>
                             </TouchableOpacity>

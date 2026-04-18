@@ -71,6 +71,7 @@ interface User {
     };
     first_scan_completed: boolean;
     is_admin: boolean;
+    is_scan_user: boolean;
     /** Server has an APNs token on file (iOS push). */
     has_apns_token?: boolean;
 }
@@ -81,6 +82,7 @@ interface AuthContextType {
     isAuthenticated: boolean;
     isPaid: boolean;
     isPremium: boolean;
+    isScanUser: boolean;
     subscriptionTier: SubscriptionTier;
     login: (identifier: string, password: string) => Promise<void>;
     signup: (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => Promise<void>;
@@ -215,6 +217,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isAuthenticated: !!user,
             isPaid: user?.is_paid ?? false,
             isPremium: user?.is_admin || (user?.is_paid && subscriptionTier === 'premium') || false,
+            isScanUser: user?.is_scan_user ?? false,
             subscriptionTier,
             login,
             signup,

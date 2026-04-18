@@ -27,7 +27,7 @@ import './services/localScheduleNotifications';
 void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 
 function AppNavigator() {
-    const { isAuthenticated, refreshUser, user } = useAuth();
+    const { isAuthenticated, refreshUser, user, isScanUser } = useAuth();
     const navRef = useNavigationContainerRef();
     const appStateRef = useRef<AppStateStatus>(AppState.currentState);
     const recoveryRunning = useRef(false);
@@ -60,6 +60,9 @@ function AppNavigator() {
     // (or while on a different screen) still resolves correctly.
     useEffect(() => {
         if (!isAuthenticated || !user?.id) return;
+        // Scan-only users don't have a FeaturesIntro route and don't need pending-scan recovery
+        // (unlimited scans, no queued upload lifecycle). Skip entirely.
+        if (isScanUser) return;
 
         const runRecovery = async () => {
             if (recoveryRunning.current) return;
@@ -128,7 +131,7 @@ function AppNavigator() {
             }
         });
         return () => sub.remove();
-    }, [isAuthenticated, user?.id, refreshUser, navRef]);
+    }, [isAuthenticated, user?.id, isScanUser, refreshUser, navRef]);
 
     return (
         <NavigationContainer ref={navRef} key={isAuthenticated ? 'auth' : 'guest'}>

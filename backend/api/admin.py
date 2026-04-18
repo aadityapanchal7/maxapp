@@ -65,6 +65,7 @@ def _user_to_response(user: User) -> UserResponse:
         profile=UserProfile(**user.profile) if user.profile else UserProfile(),
         first_scan_completed=user.first_scan_completed,
         is_admin=user.is_admin,
+        is_scan_user=bool(getattr(user, "is_scan_user", False)),
         phone_number=user.phone_number,
         subscription_tier=user.subscription_tier,
         last_username_change=user.last_username_change,

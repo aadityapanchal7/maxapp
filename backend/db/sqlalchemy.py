@@ -170,28 +170,32 @@ async def _run_chat_history_column_migrations():
 
 
 async def _run_column_migrations():
-    """Add missing columns to existing tables (safe to run repeatedly)."""
+    """Add missing columns to existing tables (safe to run repeatedly).
+
+    Each migration runs in its own transaction so a lock timeout or failure on
+    one table (e.g. user_schedules held by another session) does not abort the
+    others.
+    """
     migrations = [
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'app'",
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS face_rating DOUBLE PRECISION",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS maxx_id VARCHAR",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_context JSONB DEFAULT '{}'",
+        "ALTER TABLE app_users ADD COLUMN IF NOT EXISTS is_scan_user BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE user_schedules ALTER COLUMN course_id DROP NOT NULL",
+        "ALTER TABLE user_schedules ALTER COLUMN module_number DROP NOT NULL",
     ]
-    try:
-        async with engine.begin() as conn:
-            await conn.execute(text("SET lock_timeout = '5s'"))
-            for sql in migrations:
+    applied = 0
+    for sql in migrations:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("SET lock_timeout = '5s'"))
                 await conn.execute(text(sql))
-            await conn.execute(text(
-                "ALTER TABLE user_schedules ALTER COLUMN course_id DROP NOT NULL"
-            ))
-            await conn.execute(text(
-                "ALTER TABLE user_schedules ALTER COLUMN module_number DROP NOT NULL"
-            ))
-        print("[OK] Column migrations applied")
-    except Exception as e:
-        print(f"[INFO] Column migration note: {e}")
+            applied += 1
+        except Exception as e:
+            print(f"[INFO] Column migration skipped ({sql[:80]}...): {e}")
+    print(f"[OK] Column migrations applied ({applied}/{len(migrations)})")
 
     # rag_documents.embedding → nullable so content can be added/edited without vectors
     try:

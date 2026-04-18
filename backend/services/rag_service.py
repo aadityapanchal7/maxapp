@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-VALID_MAXX_IDS = frozenset({"skinmax", "fitmax", "hairmax", "heightmax", "bonemax"})
+VALID_MAXX_IDS = frozenset({"skinmax", "fitmax", "hairmax", "heightmax", "bonemax", "general"})
 
 _INDEX: dict[str, "_Bm25Index"] = {}
 
@@ -247,14 +247,31 @@ async def retrieve_chunks(
     k: int = 4,
     min_similarity: float = 0.5,
 ) -> list[dict]:
-    """Return top-k BM25-scored chunks for the requested module."""
+    """Return top-k BM25-scored chunks for the requested module.
+
+    Also searches the 'general' index (cross-cutting knowledge like sleep,
+    debloat, eyes, stress) and merges results so every answer can draw on
+    both module-specific and general content.
+    """
     if not query or not query.strip():
         return []
     if maxx_id not in VALID_MAXX_IDS:
         return []
     try:
         idx = await _get_index(maxx_id)
-        return idx.top_k(query, k=k, min_score=min_similarity)
+        results = idx.top_k(query, k=k, min_score=min_similarity)
+
+        if maxx_id != "general":
+            try:
+                gen_idx = await _get_index("general")
+                gen_results = gen_idx.top_k(query, k=max(k // 2, 2), min_score=min_similarity)
+                results.extend(gen_results)
+                results.sort(key=lambda c: c.get("similarity", 0.0), reverse=True)
+                results = results[:k]
+            except Exception:
+                pass  # general index may be empty; non-fatal
+
+        return results
     except Exception as e:
         logger.warning("RAG retrieve_chunks failed (maxx=%s): %s", maxx_id, e)
         return []
