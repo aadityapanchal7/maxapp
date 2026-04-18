@@ -375,14 +375,21 @@ async def apple_verify(
 
             if not apple.subscription_active_from_claims(claims):
                 exp = apple.expires_datetime_from_claims(claims)
-                logger.warning(
-                    "Apple IAP expired: user=%s tid=%s expiresDate=%s (utc now=%s)",
+                logger.info(
+                    "Apple IAP expired (stale queued transaction, acking to clear client queue): "
+                    "user=%s tid=%s expiresDate=%s (utc now=%s)",
                     current_user["id"], tid, exp, datetime.utcnow(),
                 )
-                raise HTTPException(
-                    status_code=400,
-                    detail="This subscription is not active or has expired.",
-                )
+                # Historical/expired transactions are NOT an error — StoreKit
+                # replays old unfinished transactions on every launch. Return
+                # 200 so the client calls finishTransaction and clears the
+                # queue. Keep user's current entitlement state untouched
+                # (do not deactivate based on a stale transaction id).
+                return {
+                    "status": "expired",
+                    "tier": apple.tier_for_product_id(claims.get("productId") or ""),
+                    "message": "Transaction expired; acknowledged.",
+                }
 
             try:
                 await _apple_sync_entitlement(str(current_user["id"]), claims, db)

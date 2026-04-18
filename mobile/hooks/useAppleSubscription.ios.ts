@@ -20,19 +20,30 @@ export function useAppleSubscription() {
         useIAP({
             onPurchaseSuccess: async (purchase: Purchase) => {
                 if (Platform.OS !== 'ios') return;
+                const p = purchase as { transactionId?: string; id?: string; productId?: string };
+                const tid = String(p.transactionId ?? p.id ?? '').trim();
+                const isUserInitiated = pendingSkuRef.current !== null;
+
+                // Always attempt to finalize the transaction at the end so
+                // StoreKit stops replaying it on every launch, even when the
+                // backend rejects verification (e.g. stale / expired txn from
+                // a previous sandbox session).
+                const finalize = async () => {
+                    try { await finishTransaction({ purchase }); } catch (err) {
+                        console.warn('[AppleIAP] finishTransaction error (non-fatal):', err);
+                    }
+                };
+
                 try {
-                    const p = purchase as { transactionId?: string; id?: string; productId?: string };
-                    const tid = String(p.transactionId ?? p.id ?? '').trim();
                     if (!tid) {
                         console.error('[AppleIAP] Missing transaction id from StoreKit purchase:', JSON.stringify(p));
-                        throw new Error('Missing transaction id from StoreKit.');
+                        await finalize();
+                        return;
                     }
 
                     if (processedTids.current.has(tid)) {
                         console.log('[AppleIAP] Duplicate tid, finishing:', tid);
-                        try { await finishTransaction({ purchase }); } catch {}
-                        setLoading(null);
-                        pendingSkuRef.current = null;
+                        await finalize();
                         return;
                     }
                     processedTids.current.add(tid);
@@ -40,30 +51,36 @@ export function useAppleSubscription() {
                     const productId = p.productId || pendingSkuRef.current || undefined;
                     console.log('[AppleIAP] Verifying transaction:', tid, 'product:', productId);
 
-                    await api.verifyAppleIapTransaction(tid, productId);
-
+                    let result: { status?: string; tier?: string } | undefined;
                     try {
-                        await finishTransaction({ purchase });
-                    } catch (finishErr) {
-                        console.warn('[AppleIAP] finishTransaction error (non-fatal):', finishErr);
+                        result = await api.verifyAppleIapTransaction(tid, productId);
+                    } catch (e: unknown) {
+                        console.error('[AppleIAP] Purchase verification failed:', e);
+                        await finalize();
+                        if (isUserInitiated) {
+                            const d = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+                            const msg =
+                                typeof d === 'string'
+                                    ? d
+                                    : Array.isArray(d)
+                                      ? d.map((x: { msg?: string }) => x?.msg).filter(Boolean).join('\n') || 'Could not verify purchase.'
+                                      : (e as Error)?.message || 'Could not verify purchase.';
+                            Alert.alert('Purchase error', String(msg));
+                        }
+                        return;
+                    }
+
+                    await finalize();
+
+                    if (result?.status === 'expired') {
+                        console.log('[AppleIAP] Cleared stale expired transaction:', tid);
+                        return;
                     }
 
                     await refreshUser();
-                    Alert.alert('Subscribed!', 'Your plan is now active.');
-                } catch (e: unknown) {
-                    console.error('[AppleIAP] Purchase verification failed:', e);
-                    const d = (e as { response?: { data?: { detail?: unknown } } })?.response
-                        ?.data?.detail;
-                    const msg =
-                        typeof d === 'string'
-                            ? d
-                            : Array.isArray(d)
-                              ? d
-                                    .map((x: { msg?: string }) => x?.msg)
-                                    .filter(Boolean)
-                                    .join('\n') || 'Could not verify purchase.'
-                              : (e as Error)?.message || 'Could not verify purchase.';
-                    Alert.alert('Purchase error', String(msg));
+                    if (isUserInitiated) {
+                        Alert.alert('Subscribed!', 'Your plan is now active.');
+                    }
                 } finally {
                     setLoading(null);
                     pendingSkuRef.current = null;
