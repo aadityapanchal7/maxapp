@@ -363,7 +363,22 @@ async def apple_verify(
             claims = await apple.fetch_transaction_claims(tid)
             apple.validate_claims_for_user(claims, current_user["id"])
 
+            logger.info(
+                "Apple IAP claims: user=%s tid=%s productId=%s expiresDate=%s environment=%s bundleId=%s",
+                current_user["id"],
+                tid,
+                claims.get("productId"),
+                claims.get("expiresDate"),
+                claims.get("environment"),
+                claims.get("bundleId"),
+            )
+
             if not apple.subscription_active_from_claims(claims):
+                exp = apple.expires_datetime_from_claims(claims)
+                logger.warning(
+                    "Apple IAP expired: user=%s tid=%s expiresDate=%s (utc now=%s)",
+                    current_user["id"], tid, exp, datetime.utcnow(),
+                )
                 raise HTTPException(
                     status_code=400,
                     detail="This subscription is not active or has expired.",
@@ -372,13 +387,22 @@ async def apple_verify(
             try:
                 await _apple_sync_entitlement(str(current_user["id"]), claims, db)
             except ValueError as e:
+                logger.warning(
+                    "Apple IAP entitlement sync failed: user=%s tid=%s err=%s",
+                    current_user["id"], tid, e,
+                )
                 raise HTTPException(status_code=400, detail=str(e))
 
             tier = apple.tier_for_product_id(claims.get("productId") or "")
+            logger.info("Apple IAP verified OK: user=%s tid=%s tier=%s", current_user["id"], tid, tier)
             return {"status": "ok", "tier": tier}
         except HTTPException:
             raise
         except ValueError as e:
+            logger.warning(
+                "Apple IAP ValueError (server verify): user=%s tid=%s err=%s",
+                current_user["id"], tid, e,
+            )
             raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             logger.warning(
