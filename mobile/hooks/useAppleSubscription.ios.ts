@@ -78,30 +78,52 @@ export function useAppleSubscription() {
             },
         });
 
-    // Fetch products once connected
-    useEffect(() => {
-        if (Platform.OS !== 'ios' || !connected) return;
-        const skus = [APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU];
-        console.log('[AppleIAP] Store connected, fetching products:', skus);
-        void fetchProducts({ skus, type: 'subs' })
-            .then((fetched) => {
+    // Fetch products with retry — Apple sandbox occasionally returns an empty
+    // list on the first request even when products are fully configured.
+    const loadProducts = useCallback(
+        async (attempt = 0): Promise<Product[]> => {
+            const skus = [APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU];
+            console.log(`[AppleIAP] Fetching products (attempt ${attempt + 1}):`, skus);
+            try {
+                const fetched = await fetchProducts({ skus, type: 'subs' });
                 const list = (fetched ?? []) as Product[];
-                setProducts(list);
-                if (list.length === 0) {
-                    const msg = 'No subscription products found in App Store. Check App Store Connect product IDs and agreements.';
-                    console.error('[AppleIAP]', msg);
-                    setStoreError(msg);
-                } else {
+                if (list.length > 0) {
                     console.log('[AppleIAP] Products loaded:', list.map((p) => p.productId));
+                    setProducts(list);
                     setStoreError(null);
+                    return list;
                 }
-            })
-            .catch((err) => {
+                if (attempt < 3) {
+                    const delay = 1000 * Math.pow(2, attempt);
+                    console.warn(`[AppleIAP] Empty product list, retrying in ${delay}ms`);
+                    await new Promise((r) => setTimeout(r, delay));
+                    return loadProducts(attempt + 1);
+                }
+                const msg = 'No subscription products found in App Store. Check App Store Connect product IDs and agreements.';
+                console.error('[AppleIAP]', msg);
+                setProducts([]);
+                setStoreError(msg);
+                return [];
+            } catch (err) {
+                if (attempt < 3) {
+                    const delay = 1000 * Math.pow(2, attempt);
+                    console.warn(`[AppleIAP] fetchProducts threw, retrying in ${delay}ms:`, err);
+                    await new Promise((r) => setTimeout(r, delay));
+                    return loadProducts(attempt + 1);
+                }
                 const msg = `Failed to load products: ${(err as Error)?.message || err}`;
                 console.error('[AppleIAP]', msg);
                 setStoreError(msg);
-            });
-    }, [connected, fetchProducts]);
+                return [];
+            }
+        },
+        [fetchProducts],
+    );
+
+    useEffect(() => {
+        if (Platform.OS !== 'ios' || !connected) return;
+        void loadProducts();
+    }, [connected, loadProducts]);
 
     // Recover pending transactions
     useEffect(() => {
@@ -151,10 +173,16 @@ export function useAppleSubscription() {
 
             const sku = tier === 'premium' ? APPLE_IAP_PREMIUM_SKU : APPLE_IAP_BASIC_SKU;
 
-            // Check product availability
-            const productAvailable = products.some((p) => p.productId === sku);
+            // Check product availability. If we don't have the SKU yet, attempt
+            // one more fetch inline before giving up — sandbox sometimes lags.
+            let productList = products;
+            if (!productList.some((p) => p.productId === sku)) {
+                console.warn('[AppleIAP] Product missing at subscribe time, re-fetching:', sku);
+                productList = await loadProducts();
+            }
+            const productAvailable = productList.some((p) => p.productId === sku);
             if (!productAvailable) {
-                console.error('[AppleIAP] Product not available:', sku, 'loaded products:', products.map((p) => p.productId));
+                console.error('[AppleIAP] Product not available:', sku, 'loaded products:', productList.map((p) => p.productId));
                 Alert.alert(
                     'Plan unavailable',
                     'This subscription plan could not be loaded from the App Store. '
@@ -185,7 +213,7 @@ export function useAppleSubscription() {
                 return false;
             }
         },
-        [user?.id, requestPurchase, connected, products],
+        [user?.id, requestPurchase, connected, products, loadProducts],
     );
 
     const subscribeBasic = useCallback(
@@ -197,6 +225,10 @@ export function useAppleSubscription() {
         [subscribeTier],
     );
 
+    const retryLoadProducts = useCallback(() => {
+        void loadProducts();
+    }, [loadProducts]);
+
     return {
         loading,
         subscribeBasic,
@@ -205,5 +237,6 @@ export function useAppleSubscription() {
         storeConnected: connected,
         storeError,
         products,
+        retryLoadProducts,
     };
 }
