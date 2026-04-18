@@ -54,6 +54,10 @@ export default function PaymentScreen() {
 
     // iOS store error — show if products failed to load
     const iosStoreError = IS_IOS && 'storeError' in apple ? (apple as any).storeError as string | null : null;
+    const retryAppleProducts =
+        IS_IOS && 'retryLoadProducts' in apple
+            ? () => void (apple as any).retryLoadProducts()
+            : null;
 
     const handleSubscribe = async (tier: 'basic' | 'premium') => {
         if (user && !user.first_scan_completed) {
@@ -184,9 +188,17 @@ export default function PaymentScreen() {
                 {iosStoreError ? (
                     <View style={s.storeErrorBanner}>
                         <Ionicons name="warning" size={16} color="#FF6B35" />
-                        <Text style={s.storeErrorText}>
-                            {iosStoreError}
-                        </Text>
+                        <Text style={s.storeErrorText}>{iosStoreError}</Text>
+                        {retryAppleProducts ? (
+                            <TouchableOpacity
+                                onPress={retryAppleProducts}
+                                activeOpacity={0.75}
+                                accessibilityRole="button"
+                                accessibilityLabel="Retry loading App Store plans"
+                            >
+                                <Text style={s.storeErrorRetry}>Retry</Text>
+                            </TouchableOpacity>
+                        ) : null}
                     </View>
                 ) : null}
 
@@ -372,6 +384,11 @@ const s = StyleSheet.create({
         color: '#FF6B35',
         flex: 1,
         lineHeight: 18,
+    },
+    storeErrorRetry: {
+        fontSize: 13,
+        color: '#FF6B35',
+        fontFamily: fonts.semiBold,
     },
     disclaimer: {
         fontSize: 12,

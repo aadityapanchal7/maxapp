@@ -190,22 +190,22 @@ export function useAppleSubscription() {
 
             const sku = tier === 'premium' ? APPLE_IAP_PREMIUM_SKU : APPLE_IAP_BASIC_SKU;
 
-            // Check product availability. If we don't have the SKU yet, attempt
-            // one more fetch inline before giving up — sandbox sometimes lags.
+            // Try to warm the cache, but do not block the purchase flow on it.
+            // In TestFlight / sandbox, fetchProducts can intermittently return
+            // an empty list even though StoreKit can still present the purchase
+            // sheet for a valid SKU.
             let productList = products;
             if (!productList.some((p) => p.productId === sku)) {
                 console.warn('[AppleIAP] Product missing at subscribe time, re-fetching:', sku);
                 productList = await loadProducts();
             }
-            const productAvailable = productList.some((p) => p.productId === sku);
-            if (!productAvailable) {
-                console.error('[AppleIAP] Product not available:', sku, 'loaded products:', productList.map((p) => p.productId));
-                Alert.alert(
-                    'Plan unavailable',
-                    'This subscription plan could not be loaded from the App Store. '
-                    + 'Please try again later or contact support.',
+            if (!productList.some((p) => p.productId === sku)) {
+                console.warn(
+                    '[AppleIAP] Proceeding with requestPurchase despite empty product cache:',
+                    sku,
+                    'loaded products:',
+                    productList.map((p) => p.productId),
                 );
-                return false;
             }
 
             setLoading(tier);
@@ -215,7 +215,10 @@ export function useAppleSubscription() {
                 await requestPurchase({
                     type: 'subs',
                     request: {
-                        apple: { sku },
+                        apple: {
+                            sku,
+                            appAccountToken: user.id,
+                        },
                     },
                 });
                 return true;
