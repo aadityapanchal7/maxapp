@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useIAP, ErrorCode, type Purchase, type Product } from 'react-native-iap';
 import { APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU } from '../constants/appleIap';
 import { useAuth } from '../context/AuthContext';
+import { prefetchMainTabData } from '../lib/prefetchMainTabData';
+import { queryKeys } from '../lib/queryClient';
 import api from '../services/api';
 
 type Tier = 'basic' | 'premium';
 
 export function useAppleSubscription() {
     const { user, refreshUser } = useAuth();
+    const queryClient = useQueryClient();
     const [loading, setLoading] = useState<Tier | null>(null);
     const pendingSkuRef = useRef<string | null>(null);
+    const requestInFlightRef = useRef(false);
     const processedTids = useRef<Set<string>>(new Set());
     const recoveringRef = useRef(false);
     const [products, setProducts] = useState<Product[]>([]);
-    const [storeError, setStoreError] = useState<string | null>(null);
 
     const { connected, fetchProducts, requestPurchase, finishTransaction, getAvailablePurchases } =
         useIAP({
@@ -78,15 +82,16 @@ export function useAppleSubscription() {
                     }
 
                     await refreshUser();
-                    if (isUserInitiated) {
-                        Alert.alert('Subscribed!', 'Your plan is now active.');
-                    }
+                    void queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
+                    prefetchMainTabData(queryClient);
                 } finally {
+                    requestInFlightRef.current = false;
                     setLoading(null);
                     pendingSkuRef.current = null;
                 }
             },
             onPurchaseError: (error: { code?: string; message: string }) => {
+                requestInFlightRef.current = false;
                 setLoading(null);
                 pendingSkuRef.current = null;
                 if (error.code === ErrorCode.UserCancelled) return;
@@ -107,7 +112,6 @@ export function useAppleSubscription() {
                 if (list.length > 0) {
                     console.log('[AppleIAP] Products loaded:', list.map((p) => p.productId));
                     setProducts(list);
-                    setStoreError(null);
                     return list;
                 }
                 if (attempt < 3) {
@@ -119,7 +123,6 @@ export function useAppleSubscription() {
                 const msg = 'No subscription products found in App Store. Check App Store Connect product IDs and agreements.';
                 console.error('[AppleIAP]', msg);
                 setProducts([]);
-                setStoreError(msg);
                 return [];
             } catch (err) {
                 if (attempt < 3) {
@@ -130,7 +133,6 @@ export function useAppleSubscription() {
                 }
                 const msg = `Failed to load products: ${(err as Error)?.message || err}`;
                 console.error('[AppleIAP]', msg);
-                setStoreError(msg);
                 return [];
             }
         },
@@ -177,6 +179,10 @@ export function useAppleSubscription() {
                 Alert.alert('Sign in', 'Log in to subscribe.');
                 return false;
             }
+            if (requestInFlightRef.current || pendingSkuRef.current) {
+                console.log('[AppleIAP] Purchase request ignored; one is already in flight.');
+                return false;
+            }
 
             // Check store connectivity
             if (!connected) {
@@ -208,6 +214,7 @@ export function useAppleSubscription() {
                 );
             }
 
+            requestInFlightRef.current = true;
             setLoading(tier);
             pendingSkuRef.current = sku;
             console.log('[AppleIAP] Requesting purchase:', sku);
@@ -223,6 +230,7 @@ export function useAppleSubscription() {
                 });
                 return true;
             } catch (e: unknown) {
+                requestInFlightRef.current = false;
                 setLoading(null);
                 pendingSkuRef.current = null;
                 const msg = (e as Error)?.message || 'Could not start purchase.';
@@ -245,18 +253,12 @@ export function useAppleSubscription() {
         [subscribeTier],
     );
 
-    const retryLoadProducts = useCallback(() => {
-        void loadProducts();
-    }, [loadProducts]);
-
     return {
         loading,
         subscribeBasic,
         subscribePremium,
         subscribeTier,
         storeConnected: connected,
-        storeError,
         products,
-        retryLoadProducts,
     };
 }
