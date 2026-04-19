@@ -8,7 +8,14 @@ export const queryClient = new QueryClient({
             // cuts focus-refetch storms when users tab between screens.
             staleTime: 5 * 60 * 1000,
             gcTime: 30 * 60 * 1000,
-            retry: 2,
+            // Don't retry auth errors (401/403) — the axios interceptor already tried
+            // a refresh; retrying here just multiplies the request storm when the
+            // session is permanently dead.
+            retry: (failureCount, error) => {
+                const status = (error as any)?.response?.status;
+                if (status === 401 || status === 403) return false;
+                return failureCount < 2;
+            },
             retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
             // Don't auto-refetch on mount if data is fresh — trust the cache.
             refetchOnMount: false,

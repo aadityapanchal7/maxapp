@@ -101,9 +101,39 @@ const API_BASE_URL = resolveApiBaseUrl();
 /** Longer timeouts for web cold starts + DB on first auth request */
 const WEB_AUTH_TIMEOUT_MS = 45_000;
 
+/**
+ * Auth-lost pub/sub: fired when the refresh token is rejected (user deleted,
+ * signing key rotated, refresh token expired). AuthContext subscribes to tear
+ * down the authenticated navigation stack so React Query hooks unmount and
+ * stop hammering the server with re-auth attempts.
+ */
+type AuthLostListener = () => void;
+const authLostListeners = new Set<AuthLostListener>();
+export function subscribeAuthLost(listener: AuthLostListener): () => void {
+    authLostListeners.add(listener);
+    return () => {
+        authLostListeners.delete(listener);
+    };
+}
+function emitAuthLost(): void {
+    for (const l of Array.from(authLostListeners)) {
+        try {
+            l();
+        } catch {
+            /* listener errors must not crash the interceptor */
+        }
+    }
+}
+
 class ApiService {
     private client: AxiosInstance;
     private accessToken: string | null = null;
+    /** In-flight refresh promise so concurrent 401s don't stampede /auth/refresh. */
+    private refreshInFlight: Promise<void> | null = null;
+    /** Short cooldown after a failed refresh — block further refresh attempts so
+     * a screen full of useQuery hooks can't trigger dozens of refreshes per second
+     * while the UI tears down. */
+    private refreshFailedUntil = 0;
 
     constructor() {
         this.client = axios.create({
@@ -148,6 +178,11 @@ class ApiService {
                     | undefined;
                 if (error.response?.status === 401 && cfg && !cfg._retry) {
                     cfg._retry = true;
+                    // If a previous refresh just failed, skip straight to reject so
+                    // React Query / screens can unmount without piling on more requests.
+                    if (Date.now() < this.refreshFailedUntil) {
+                        return Promise.reject(error);
+                    }
                     try {
                         await this.refreshToken();
                         return this.client.request(cfg);
@@ -222,17 +257,46 @@ class ApiService {
     }
 
     private async refreshToken(): Promise<void> {
-        const refreshToken = await getItemAsync('refresh_token');
-        if (!refreshToken) throw new Error('No refresh token');
+        // Dedupe concurrent refreshes — a screen with N useQuery hooks would
+        // otherwise fire N parallel POST /auth/refresh calls, each racing the
+        // refresh-token rotation.
+        if (this.refreshInFlight) {
+            return this.refreshInFlight;
+        }
+        this.refreshInFlight = (async () => {
+            try {
+                const refreshToken = await getItemAsync('refresh_token');
+                if (!refreshToken) throw new Error('No refresh token');
 
-        const response = await axios.post(`${API_BASE_URL}auth/refresh`, { refresh_token: refreshToken }, {
-            timeout: 15_000,
-        });
-        await this.setTokens(response.data.access_token, response.data.refresh_token);
+                const response = await axios.post(
+                    `${API_BASE_URL}auth/refresh`,
+                    { refresh_token: refreshToken },
+                    { timeout: 15_000 },
+                );
+                await this.setTokens(response.data.access_token, response.data.refresh_token);
+            } catch (e: any) {
+                // Permanent auth failure: user deleted, key rotated, or token expired.
+                // Clear everything and notify the app so the authenticated stack unmounts —
+                // otherwise React Query retries keep hammering /auth/refresh forever.
+                const status = e?.response?.status;
+                const isAuthFail = status === 401 || status === 403 || e?.message === 'No refresh token';
+                if (isAuthFail) {
+                    this.refreshFailedUntil = Date.now() + 60_000;
+                    await this.clearTokens().catch(() => undefined);
+                    emitAuthLost();
+                }
+                throw e;
+            } finally {
+                this.refreshInFlight = null;
+            }
+        })();
+        return this.refreshInFlight;
     }
 
     async setTokens(accessToken: string, refreshToken: string): Promise<void> {
         this.accessToken = accessToken;
+        // Fresh tokens — lift any post-failure cooldown so new sessions work immediately.
+        this.refreshFailedUntil = 0;
         await setItemAsync('access_token', accessToken);
         await setItemAsync('refresh_token', refreshToken);
     }

@@ -6,7 +6,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { getItemAsync } from '../services/storage';
-import api from '../services/api';
+import api, { subscribeAuthLost } from '../services/api';
 import { clearFaceScanDraft, clearPendingFaceScanSubmit } from '../lib/faceScanDraft';
 import { getIosApnsDeviceTokenForBackend } from '../services/registerIosPushToken';
 
@@ -142,6 +142,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         void checkAuth();
     }, [checkAuth]);
+
+    // When the api layer detects a permanently-invalid session (refresh 401'd,
+    // account deleted, key rotated), tear down auth state so React Query hooks
+    // on the authenticated stack unmount. Without this the app loops — every
+    // mounted useQuery retries, each retry hits 401, each 401 tries refresh.
+    useEffect(() => {
+        const unsubscribe = subscribeAuthLost(() => {
+            setUser(null);
+            try {
+                queryClient.clear();
+            } catch {
+                /* ignore */
+            }
+            void clearPendingFaceScanSubmit().catch(() => undefined);
+            void clearFaceScanDraft().catch(() => undefined);
+        });
+        return unsubscribe;
+    }, [queryClient]);
 
     // Auto-refresh iOS APNs push token on launch for users who've opted into push.
     // Tokens can rotate (reinstall, restore, iOS refresh), so re-registering keeps
