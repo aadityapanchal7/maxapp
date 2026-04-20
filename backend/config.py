@@ -30,11 +30,10 @@ class Settings(BaseSettings):
     supabase_db_user: str = Field(default="postgres")
     supabase_db_password: str = Field(default="")
     supabase_db_name: str = Field(default="postgres")
-    # Session pooler (5432) enforces a tiny client cap → MaxClientsInSessionMode if pool+overflow
-    # exceeds it. Defaults are safe for 5432; for Transaction pooler (6543) raise via env, e.g.
-    # SUPABASE_DB_POOL_SIZE=5 and SUPABASE_DB_MAX_OVERFLOW=5.
-    supabase_db_pool_size: int = Field(default=1)
-    supabase_db_max_overflow: int = Field(default=0)
+    # Defaults allow multiple concurrent requests. If you connect through Supabase Session
+    # pooler (5432) and hit MaxClientsInSessionMode, lower these via env.
+    supabase_db_pool_size: int = Field(default=5)
+    supabase_db_max_overflow: int = Field(default=5)
 
     # AWS RDS (shared data)
     aws_rds_host: str = Field(default="localhost")
