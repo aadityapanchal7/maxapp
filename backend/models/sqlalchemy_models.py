@@ -265,7 +265,11 @@ class ChatHistory(Base):
     content = Column(Text, nullable=False)
     # "app" = in-app chat UI; "sms" = Twilio SMS thread (not shown in app history)
     channel = Column(String, default="app")
-    retrieved_chunk_ids = Column(ARRAY(BIGINT), nullable=True)
+    # JSONB after the RAG split refactor -- stores string chunk refs like
+    # "routines:0:abc123". DB migration in db/sqlalchemy.py already converted
+    # the column type; the ORM just needed to catch up, otherwise SQLAlchemy
+    # casts as BIGINT[] and Postgres rejects the INSERT.
+    retrieved_chunk_ids = Column(JSONB, nullable=True)
     partner_rule_ids = Column(ARRAY(BIGINT), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
