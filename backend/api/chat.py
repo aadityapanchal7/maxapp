@@ -2508,7 +2508,6 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             message=message_text,
             maxx_hints=turn_intent.get("maxx_hints") or [],
             active_maxx=active_hint,
-            user_context_str=coaching_context[:1500] if coaching_context else None,
         )
         if fast_response:
             if _persist_chat_history(channel):
