@@ -1,38 +1,53 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Platform } from 'react-native';
+import { useQueryClient } from '@tanstack/react-query';
 import { useIAP, ErrorCode, type Purchase, type Product } from 'react-native-iap';
 import { APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU } from '../constants/appleIap';
 import { useAuth } from '../context/AuthContext';
+import { prefetchMainTabData } from '../lib/prefetchMainTabData';
+import { queryKeys } from '../lib/queryClient';
 import api from '../services/api';
 
 type Tier = 'basic' | 'premium';
 
 export function useAppleSubscription() {
     const { user, refreshUser } = useAuth();
+    const queryClient = useQueryClient();
     const [loading, setLoading] = useState<Tier | null>(null);
     const pendingSkuRef = useRef<string | null>(null);
+    const requestInFlightRef = useRef(false);
     const processedTids = useRef<Set<string>>(new Set());
     const recoveringRef = useRef(false);
     const [products, setProducts] = useState<Product[]>([]);
-    const [storeError, setStoreError] = useState<string | null>(null);
 
     const { connected, fetchProducts, requestPurchase, finishTransaction, getAvailablePurchases } =
         useIAP({
             onPurchaseSuccess: async (purchase: Purchase) => {
                 if (Platform.OS !== 'ios') return;
+                const p = purchase as { transactionId?: string; id?: string; productId?: string };
+                const tid = String(p.transactionId ?? p.id ?? '').trim();
+                const isUserInitiated = pendingSkuRef.current !== null;
+
+                // Always attempt to finalize the transaction at the end so
+                // StoreKit stops replaying it on every launch, even when the
+                // backend rejects verification (e.g. stale / expired txn from
+                // a previous sandbox session).
+                const finalize = async () => {
+                    try { await finishTransaction({ purchase }); } catch (err) {
+                        console.warn('[AppleIAP] finishTransaction error (non-fatal):', err);
+                    }
+                };
+
                 try {
-                    const p = purchase as { transactionId?: string; id?: string; productId?: string };
-                    const tid = String(p.transactionId ?? p.id ?? '').trim();
                     if (!tid) {
                         console.error('[AppleIAP] Missing transaction id from StoreKit purchase:', JSON.stringify(p));
-                        throw new Error('Missing transaction id from StoreKit.');
+                        await finalize();
+                        return;
                     }
 
                     if (processedTids.current.has(tid)) {
                         console.log('[AppleIAP] Duplicate tid, finishing:', tid);
-                        try { await finishTransaction({ purchase }); } catch {}
-                        setLoading(null);
-                        pendingSkuRef.current = null;
+                        await finalize();
                         return;
                     }
                     processedTids.current.add(tid);
@@ -40,36 +55,43 @@ export function useAppleSubscription() {
                     const productId = p.productId || pendingSkuRef.current || undefined;
                     console.log('[AppleIAP] Verifying transaction:', tid, 'product:', productId);
 
-                    await api.verifyAppleIapTransaction(tid, productId);
-
+                    let result: { status?: string; tier?: string } | undefined;
                     try {
-                        await finishTransaction({ purchase });
-                    } catch (finishErr) {
-                        console.warn('[AppleIAP] finishTransaction error (non-fatal):', finishErr);
+                        result = await api.verifyAppleIapTransaction(tid, productId);
+                    } catch (e: unknown) {
+                        console.error('[AppleIAP] Purchase verification failed:', e);
+                        await finalize();
+                        if (isUserInitiated) {
+                            const d = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+                            const msg =
+                                typeof d === 'string'
+                                    ? d
+                                    : Array.isArray(d)
+                                      ? d.map((x: { msg?: string }) => x?.msg).filter(Boolean).join('\n') || 'Could not verify purchase.'
+                                      : (e as Error)?.message || 'Could not verify purchase.';
+                            Alert.alert('Purchase error', String(msg));
+                        }
+                        return;
+                    }
+
+                    await finalize();
+
+                    if (result?.status === 'expired') {
+                        console.log('[AppleIAP] Cleared stale expired transaction:', tid);
+                        return;
                     }
 
                     await refreshUser();
-                    Alert.alert('Subscribed!', 'Your plan is now active.');
-                } catch (e: unknown) {
-                    console.error('[AppleIAP] Purchase verification failed:', e);
-                    const d = (e as { response?: { data?: { detail?: unknown } } })?.response
-                        ?.data?.detail;
-                    const msg =
-                        typeof d === 'string'
-                            ? d
-                            : Array.isArray(d)
-                              ? d
-                                    .map((x: { msg?: string }) => x?.msg)
-                                    .filter(Boolean)
-                                    .join('\n') || 'Could not verify purchase.'
-                              : (e as Error)?.message || 'Could not verify purchase.';
-                    Alert.alert('Purchase error', String(msg));
+                    void queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
+                    prefetchMainTabData(queryClient);
                 } finally {
+                    requestInFlightRef.current = false;
                     setLoading(null);
                     pendingSkuRef.current = null;
                 }
             },
             onPurchaseError: (error: { code?: string; message: string }) => {
+                requestInFlightRef.current = false;
                 setLoading(null);
                 pendingSkuRef.current = null;
                 if (error.code === ErrorCode.UserCancelled) return;
@@ -78,30 +100,49 @@ export function useAppleSubscription() {
             },
         });
 
-    // Fetch products once connected
-    useEffect(() => {
-        if (Platform.OS !== 'ios' || !connected) return;
-        const skus = [APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU];
-        console.log('[AppleIAP] Store connected, fetching products:', skus);
-        void fetchProducts({ skus, type: 'subs' })
-            .then((fetched) => {
+    // Fetch products with retry — Apple sandbox occasionally returns an empty
+    // list on the first request even when products are fully configured.
+    const loadProducts = useCallback(
+        async (attempt = 0): Promise<Product[]> => {
+            const skus = [APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU];
+            console.log(`[AppleIAP] Fetching products (attempt ${attempt + 1}):`, skus);
+            try {
+                const fetched = await fetchProducts({ skus, type: 'subs' });
                 const list = (fetched ?? []) as Product[];
-                setProducts(list);
-                if (list.length === 0) {
-                    const msg = 'No subscription products found in App Store. Check App Store Connect product IDs and agreements.';
-                    console.error('[AppleIAP]', msg);
-                    setStoreError(msg);
-                } else {
+                if (list.length > 0) {
                     console.log('[AppleIAP] Products loaded:', list.map((p) => p.productId));
-                    setStoreError(null);
+                    setProducts(list);
+                    return list;
                 }
-            })
-            .catch((err) => {
+                if (attempt < 3) {
+                    const delay = 1000 * Math.pow(2, attempt);
+                    console.warn(`[AppleIAP] Empty product list, retrying in ${delay}ms`);
+                    await new Promise((r) => setTimeout(r, delay));
+                    return loadProducts(attempt + 1);
+                }
+                const msg = 'No subscription products found in App Store. Check App Store Connect product IDs and agreements.';
+                console.error('[AppleIAP]', msg);
+                setProducts([]);
+                return [];
+            } catch (err) {
+                if (attempt < 3) {
+                    const delay = 1000 * Math.pow(2, attempt);
+                    console.warn(`[AppleIAP] fetchProducts threw, retrying in ${delay}ms:`, err);
+                    await new Promise((r) => setTimeout(r, delay));
+                    return loadProducts(attempt + 1);
+                }
                 const msg = `Failed to load products: ${(err as Error)?.message || err}`;
                 console.error('[AppleIAP]', msg);
-                setStoreError(msg);
-            });
-    }, [connected, fetchProducts]);
+                return [];
+            }
+        },
+        [fetchProducts],
+    );
+
+    useEffect(() => {
+        if (Platform.OS !== 'ios' || !connected) return;
+        void loadProducts();
+    }, [connected, loadProducts]);
 
     // Recover pending transactions
     useEffect(() => {
@@ -138,6 +179,10 @@ export function useAppleSubscription() {
                 Alert.alert('Sign in', 'Log in to subscribe.');
                 return false;
             }
+            if (requestInFlightRef.current || pendingSkuRef.current) {
+                console.log('[AppleIAP] Purchase request ignored; one is already in flight.');
+                return false;
+            }
 
             // Check store connectivity
             if (!connected) {
@@ -151,18 +196,25 @@ export function useAppleSubscription() {
 
             const sku = tier === 'premium' ? APPLE_IAP_PREMIUM_SKU : APPLE_IAP_BASIC_SKU;
 
-            // Check product availability
-            const productAvailable = products.some((p) => p.productId === sku);
-            if (!productAvailable) {
-                console.error('[AppleIAP] Product not available:', sku, 'loaded products:', products.map((p) => p.productId));
-                Alert.alert(
-                    'Plan unavailable',
-                    'This subscription plan could not be loaded from the App Store. '
-                    + 'Please try again later or contact support.',
+            // Try to warm the cache, but do not block the purchase flow on it.
+            // In TestFlight / sandbox, fetchProducts can intermittently return
+            // an empty list even though StoreKit can still present the purchase
+            // sheet for a valid SKU.
+            let productList = products;
+            if (!productList.some((p) => p.productId === sku)) {
+                console.warn('[AppleIAP] Product missing at subscribe time, re-fetching:', sku);
+                productList = await loadProducts();
+            }
+            if (!productList.some((p) => p.productId === sku)) {
+                console.warn(
+                    '[AppleIAP] Proceeding with requestPurchase despite empty product cache:',
+                    sku,
+                    'loaded products:',
+                    productList.map((p) => p.productId),
                 );
-                return false;
             }
 
+            requestInFlightRef.current = true;
             setLoading(tier);
             pendingSkuRef.current = sku;
             console.log('[AppleIAP] Requesting purchase:', sku);
@@ -170,11 +222,15 @@ export function useAppleSubscription() {
                 await requestPurchase({
                     type: 'subs',
                     request: {
-                        apple: { sku },
+                        apple: {
+                            sku,
+                            appAccountToken: user.id,
+                        },
                     },
                 });
                 return true;
             } catch (e: unknown) {
+                requestInFlightRef.current = false;
                 setLoading(null);
                 pendingSkuRef.current = null;
                 const msg = (e as Error)?.message || 'Could not start purchase.';
@@ -185,7 +241,7 @@ export function useAppleSubscription() {
                 return false;
             }
         },
-        [user?.id, requestPurchase, connected, products],
+        [user?.id, requestPurchase, connected, products, loadProducts],
     );
 
     const subscribeBasic = useCallback(
@@ -203,7 +259,6 @@ export function useAppleSubscription() {
         subscribePremium,
         subscribeTier,
         storeConnected: connected,
-        storeError,
         products,
     };
 }

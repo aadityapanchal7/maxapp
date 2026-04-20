@@ -237,6 +237,7 @@ class UserResponse(BaseModel):
     profile: UserProfile = Field(default_factory=UserProfile)
     first_scan_completed: bool = False
     is_admin: bool = False
+    is_scan_user: bool = False
     phone_number: Optional[str] = None
     has_apns_token: bool = Field(
         default=False,
@@ -258,6 +259,7 @@ class UserInDB(BaseModel):
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     is_paid: bool = False
     is_admin: bool = False
+    is_scan_user: bool = False
     subscription_status: Optional[str] = None  # active, canceled, past_due
     subscription_id: Optional[str] = None
     subscription_end_date: Optional[datetime] = None

@@ -142,22 +142,23 @@ async def upload_scan_triple(
     uid_str = str(user_uuid)
 
     user_row = await db.get(User, user_uuid)
+    is_scan_user = bool(current_user.get("is_scan_user", False))
     is_paid = bool(current_user.get("is_paid", False))
     tier = (current_user.get("subscription_tier") or "").lower()
     is_premium = is_paid and tier == "premium"
 
-    if not is_paid:
+    if is_scan_user:
+        pass  # unlimited scans, no limits
+    elif not is_paid:
         if user_row and user_row.first_scan_completed:
             raise HTTPException(status_code=400, detail="You have already completed your free face scan. Subscribe to scan again.")
     elif not is_premium:
-        # Basic: one scan only (typically the signup / onboarding scan — no additional scans on Basic).
         if user_row and user_row.first_scan_completed:
             raise HTTPException(
                 status_code=400,
                 detail="Basic includes one face scan. Upgrade to Premium for daily scans.",
             )
     else:
-        # Premium tier: one *successful* scan per day (UTC). Failed attempts don't count.
         now = datetime.utcnow()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
@@ -399,16 +400,18 @@ async def get_latest_scan(
         raise HTTPException(status_code=404, detail="No scans found")
 
     is_paid = current_user.get("is_paid", False)
+    is_scan_user = current_user.get("is_scan_user", False)
+    treat_as_paid = is_paid or is_scan_user
     response = {
         "id": str(scan.id),
         "created_at": scan.created_at,
         "images": scan.images or {},
-        "is_unlocked": is_paid,
+        "is_unlocked": treat_as_paid,
         "processing_status": scan.processing_status,
     }
 
     if scan.analysis:
-        if is_paid:
+        if treat_as_paid:
             response["analysis"] = scan.analysis
         else:
             a = scan.analysis or {}

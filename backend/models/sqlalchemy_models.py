@@ -21,6 +21,18 @@ from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import uuid
 
+# pgvector is optional -- the rag_documents table is created manually in
+# Supabase (see db/sqlalchemy.py::init_db skip_tables) and DB-backed RAG no
+# longer requires a Vector column at the ORM layer. Fall back to TEXT when
+# the package isn't installed so `import sqlalchemy_models` never crashes
+# the process on boot.
+try:
+    from pgvector.sqlalchemy import Vector  # type: ignore
+    _PGVECTOR_AVAILABLE = True
+except Exception:  # ImportError, or any transitive failure
+    Vector = None  # type: ignore[assignment,misc]
+    _PGVECTOR_AVAILABLE = False
+
 Base = declarative_base()
 
 
@@ -42,6 +54,7 @@ class User(Base):
 
     is_paid = Column(Boolean, default=False)
     is_admin = Column(Boolean, default=False)
+    is_scan_user = Column(Boolean, default=False)
     subscription_tier = Column(String, default=None)  # null (free), 'basic', 'premium'
     subscription_status = Column(String)
     subscription_id = Column(String)
@@ -252,6 +265,10 @@ class ChatHistory(Base):
     content = Column(Text, nullable=False)
     # "app" = in-app chat UI; "sms" = Twilio SMS thread (not shown in app history)
     channel = Column(String, default="app")
+    # JSONB after the RAG split refactor -- stores string chunk refs like
+    # "routines:0:abc123". DB migration in db/sqlalchemy.py already converted
+    # the column type; the ORM just needed to catch up, otherwise SQLAlchemy
+    # casts as BIGINT[] and Postgres rejects the INSERT.
     retrieved_chunk_ids = Column(JSONB, nullable=True)
     partner_rule_ids = Column(ARRAY(BIGINT), nullable=True)
 
@@ -353,6 +370,22 @@ class UserSchedule(Base):
         Index("idx_user_schedules_active", is_active),
         Index("idx_user_schedules_maxx_id", maxx_id),
     )
+
+
+class RagDocument(Base):
+    """Chunked knowledge documents for RAG retrieval, namespaced by maxx_id."""
+    __tablename__ = "rag_documents"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    maxx_id     = Column(String(50),  nullable=False, index=True)   # "fitmax", "skinmax", …
+    doc_title   = Column(String(255), nullable=False)
+    chunk_index = Column(Integer,     nullable=False, default=0)
+    content     = Column(Text,        nullable=False)
+    # pgvector column -- nullable so rows can be added/edited without an embedding vector
+    embedding   = Column(Vector(1536), nullable=True) if _PGVECTOR_AVAILABLE else Column(Text, nullable=True)
+    metadata_   = Column("metadata", JSON, default=dict)
+    created_at  = Column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at  = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ChannelMessageReport(Base):

@@ -45,12 +45,13 @@ import TabNavigator from './TabNavigator';
 import LandingScreen from '../screens/onboarding/LandingScreen';
 import LegalDocumentScreen from '../screens/legal/LegalDocumentScreen';
 import AdminNavigator from './AdminNavigator';
+import ScanOnlyNavigator from './ScanOnlyNavigator';
 import { userHasSignupPhone } from '../utils/userPhone';
 
 const Stack = createNativeStackNavigator();
 
 export function RootNavigator() {
-    const { user, isLoading, isAuthenticated, isPaid } = useAuth();
+    const { user, isLoading, isAuthenticated, isPaid, isScanUser } = useAuth();
 
     if (isLoading) {
         return <MaxLoadingView />;
@@ -67,29 +68,33 @@ export function RootNavigator() {
      */
     const initialRoute = !isAuthenticated
         ? 'Landing'
-        : user?.is_admin
-            ? 'Admin'
-            : !isPaid
-                ? !onboardingCompleted
-                    ? 'Onboarding'
-                    : firstScanDone
-                        ? 'FaceScanResults'
-                        : 'FeaturesIntro'
-                : postSubscriptionOnboarding
-                    ? 'Main'
-                    : !sendblueDone
-                        ? userHasSignupPhone(user)
-                            ? 'SendblueConnect'
-                            : 'SmsCoachingIntro'
-                        : 'Main';
+        : isScanUser
+            ? 'ScanOnly'
+            : user?.is_admin
+                ? 'Admin'
+                : !isPaid
+                    ? !onboardingCompleted
+                        ? 'Onboarding'
+                        : firstScanDone
+                            ? 'FaceScanResults'
+                            : 'FeaturesIntro'
+                    : postSubscriptionOnboarding
+                        ? 'Main'
+                        : !sendblueDone
+                            ? userHasSignupPhone(user)
+                                ? 'SendblueConnect'
+                                : 'SmsCoachingIntro'
+                            : 'Main';
 
     const stackKey = !isAuthenticated
         ? 'guest'
-        : user?.is_admin
-            ? 'admin'
-            : isPaid
-                ? 'auth-paid'
-                : 'auth-unpaid';
+        : isScanUser
+            ? 'scan'
+            : user?.is_admin
+                ? 'admin'
+                : isPaid
+                    ? 'auth-paid'
+                    : 'auth-unpaid';
 
     return (
         <Stack.Navigator
@@ -109,6 +114,8 @@ export function RootNavigator() {
                     <Stack.Screen name="Settings" component={SettingsScreen} options={{ headerShown: false }} />
                     <Stack.Screen name="LegalDocument" component={LegalDocumentScreen} options={{ headerShown: false }} />
                 </>
+            ) : isScanUser ? (
+                <Stack.Screen name="ScanOnly" component={ScanOnlyNavigator} />
             ) : user?.is_admin ? (
                 <>
                     <Stack.Screen name="Admin" component={AdminNavigator} />

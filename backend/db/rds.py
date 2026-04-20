@@ -13,7 +13,7 @@ from config import settings
 # Create async engine for AWS RDS
 rds_engine = create_async_engine(
     settings.aws_rds_db_url,
-    echo=settings.debug,
+    echo=getattr(settings, "sql_echo", False),
     pool_size=5,
     max_overflow=5,
     pool_recycle=180,

@@ -187,6 +187,11 @@ class Settings(BaseSettings):
     app_name: str = Field(default="Max")
     app_env: str = Field(default="development")
     debug: bool = Field(default=True)
+    # SQLAlchemy query echo -- off by default, independent of `debug`. Turning this
+    # on in production (Render/Fly/etc.) floods the log pipeline with a full SELECT
+    # dump for every single authenticated request, which crushes dashboards and
+    # burns log-ingestion quota for no real diagnostic value.
+    sql_echo: bool = Field(default=False)
     api_version: str = Field(default="v1")
     
     # CORS -- comma-separated; Expo web uses :8081 (also matched by localhost regex in main.py when not production)

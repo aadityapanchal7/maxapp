@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from services import rag_service
 from services.rag_service import (
     VALID_MAXX_IDS,
     _chunk_id,
@@ -11,6 +12,24 @@ from services.rag_service import (
     reload_indexes,
     retrieve_chunks,
 )
+
+
+_FAKE_SKINMAX_DOCS = [
+    (
+        "routines",
+        "# Skinmax Routines\n\n## PM routine\nAt night use a gentle cleanser, then adapalene, "
+        "then a moisturizer. Acne-prone skin benefits from this order.\n\n"
+        "## AM routine\nCleanser, niacinamide, moisturizer, spf.\n",
+    ),
+]
+
+
+def _install_fake_docs(monkeypatch):
+    async def _fake_fetch(_maxx: str):
+        return list(_FAKE_SKINMAX_DOCS)
+
+    monkeypatch.setattr(rag_service, "_fetch_docs_from_db", _fake_fetch)
+    reload_indexes()
 
 
 def test_tokenize_drops_stopwords_and_punct():
@@ -53,8 +72,8 @@ async def test_retrieve_chunks_valid_modules_only():
 
 
 @pytest.mark.asyncio
-async def test_retrieve_chunks_carries_metadata_source_and_section():
-    reload_indexes()
+async def test_retrieve_chunks_carries_metadata_source_and_section(monkeypatch):
+    _install_fake_docs(monkeypatch)
     rows = await retrieve_chunks(None, "skinmax", "pm routine acne", k=2, min_similarity=0.0)
     assert rows
     for row in rows:
@@ -66,15 +85,13 @@ async def test_retrieve_chunks_carries_metadata_source_and_section():
 
 @pytest.mark.asyncio
 async def test_retrieve_chunks_logs_telemetry(monkeypatch):
-    from services import rag_service
-
     calls: list[dict] = []
 
     def _capture(**kwargs):
         calls.append(kwargs)
 
     monkeypatch.setattr(rag_service, "log_retrieval", _capture)
-    reload_indexes()
+    _install_fake_docs(monkeypatch)
     await retrieve_chunks(None, "skinmax", "pm routine acne", k=2, min_similarity=0.0)
     assert calls
     latest = calls[-1]

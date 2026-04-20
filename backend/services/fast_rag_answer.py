@@ -83,12 +83,17 @@ async def answer_from_chunks(
     retrieved: list[dict],
     maxx_hints: Optional[list[str]] = None,
     active_maxx: Optional[str] = None,
+    user_context_str: Optional[str] = None,
 ) -> str:
     """Answer a knowledge question from pre-retrieved evidence only.
 
     The system prompt is composed by `select_rag_system_prompt()` — it pulls
     `rag_answer_system` from the Supabase `system_prompts` cache and appends
     the best-matching `{maxx_id}_coaching_reference` based on the query.
+
+    If `user_context_str` is provided (schedule / profile / onboarding summary)
+    it is injected into the user message so grounded answers can reference the
+    caller's live state without pulling the full coaching context hot path.
     """
     if not retrieved:
         return ""
@@ -120,9 +125,14 @@ async def answer_from_chunks(
     llm = get_chat_llm_with_fallback(max_tokens=420, temperature=0.2)
     from langchain_core.messages import HumanMessage, SystemMessage
 
+    context_block = ""
+    if user_context_str:
+        context_block = f"User context (schedule, profile, onboarding):\n{user_context_str.strip()}\n\n"
+
     human = (
+        f"{context_block}"
         f"User question:\n{message.strip()}\n\n"
-        f"Evidence:\n{chr(10).join(evidence_lines)}"
+        f"Evidence from module docs:\n{chr(10).join(evidence_lines)}"
     )
     system_tokens = count_tokens(system_prompt)
     user_tokens = count_tokens(message)
@@ -130,11 +140,11 @@ async def answer_from_chunks(
     log_prompt_budget(
         path="fast_rag",
         system_tokens=system_tokens,
-        coaching_context_tokens=0,
+        coaching_context_tokens=count_tokens(user_context_str or ""),
         history_tokens=0,
         chunk_tokens=chunk_tokens,
         user_tokens=user_tokens,
-        total_tokens=system_tokens + user_tokens + chunk_tokens,
+        total_tokens=system_tokens + user_tokens + chunk_tokens + count_tokens(user_context_str or ""),
     )
     try:
         resp = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
@@ -153,6 +163,7 @@ async def answer_from_rag(
     maxx_hints: list[str],
     active_maxx: Optional[str] = None,
     max_chunks: Optional[int] = None,
+    user_context_str: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     """Return a direct RAG answer and the retrieved evidence used."""
     retrieved = await gather_rag_evidence(
@@ -168,5 +179,6 @@ async def answer_from_rag(
         retrieved=retrieved,
         maxx_hints=maxx_hints,
         active_maxx=active_maxx,
+        user_context_str=user_context_str,
     )
     return answer, retrieved

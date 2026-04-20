@@ -5,11 +5,27 @@ Authentication Middleware - JWT token verification
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+
+
+def _subscription_expired(sub_end) -> bool:
+    """Safely compare `subscription_end_date` (TIMESTAMPTZ from Postgres) against now.
+
+    Older rows or test-activate shortcuts can leave tz-naive datetimes on the
+    object even though the column is TIMESTAMPTZ. Normalize both sides to UTC
+    aware before comparing -- otherwise FastAPI crashes every authenticated
+    request with TypeError: can't compare offset-naive and offset-aware datetimes.
+    """
+    if sub_end is None or not isinstance(sub_end, datetime):
+        return False
+    now_utc = datetime.now(timezone.utc)
+    if sub_end.tzinfo is None:
+        sub_end = sub_end.replace(tzinfo=timezone.utc)
+    return sub_end < now_utc
 
 from config import settings
 from db import get_db
@@ -74,6 +90,7 @@ def _user_dict(user: User) -> dict:
         "created_at": user.created_at,
         "is_paid": user.is_paid,
         "is_admin": user.is_admin,
+        "is_scan_user": user.is_scan_user,
         "subscription_tier": user.subscription_tier,
         "subscription_status": user.subscription_status,
         "subscription_id": user.subscription_id,
@@ -143,9 +160,9 @@ async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Op
 
 async def require_paid_user(current_user: dict = Depends(get_current_user)) -> dict:
     """
-    Verify user has active subscription — any tier (admins always allowed).
+    Verify user has active subscription — any tier (admins and scan users always allowed).
     """
-    if current_user.get("is_admin", False):
+    if current_user.get("is_admin", False) or current_user.get("is_scan_user", False):
         return current_user
         
     if not current_user.get("is_paid", False):
@@ -153,24 +170,22 @@ async def require_paid_user(current_user: dict = Depends(get_current_user)) -> d
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail="Active subscription required"
         )
-    
-    sub_end = current_user.get("subscription_end_date")
-    if sub_end and isinstance(sub_end, datetime):
-        if sub_end < datetime.utcnow():
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Subscription has expired"
-            )
-    
+
+    if _subscription_expired(current_user.get("subscription_end_date")):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Subscription has expired"
+        )
+
     return current_user
 
 
 async def require_premium_user(current_user: dict = Depends(get_current_user)) -> dict:
     """
-    Verify user has a *premium* subscription (admins always allowed).
+    Verify user has a *premium* subscription (admins and scan users always allowed).
     Basic-tier users get a 403 pointing them to upgrade.
     """
-    if current_user.get("is_admin", False):
+    if current_user.get("is_admin", False) or current_user.get("is_scan_user", False):
         return current_user
 
     if not current_user.get("is_paid", False):
@@ -179,13 +194,11 @@ async def require_premium_user(current_user: dict = Depends(get_current_user)) -
             detail="Active subscription required"
         )
 
-    sub_end = current_user.get("subscription_end_date")
-    if sub_end and isinstance(sub_end, datetime):
-        if sub_end < datetime.utcnow():
-            raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Subscription has expired"
-            )
+    if _subscription_expired(current_user.get("subscription_end_date")):
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Subscription has expired"
+        )
 
     tier = (current_user.get("subscription_tier") or "").lower()
     if tier != "premium":

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { AppState, type AppStateStatus, View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AppState, type AppStateStatus, View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ActivityIndicator, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
@@ -196,6 +196,60 @@ export default function MaxChatScreen() {
         .map((c) => (typeof c === 'string' ? c.trim() : String(c ?? '').trim()))
         .filter((c) => c.length > 0);
 
+    const openUrl = useCallback((url: string) => {
+        Linking.openURL(url).catch(() => undefined);
+    }, []);
+
+    const extractProductLinks = useCallback((text: string): { label: string; url: string }[] => {
+        const links: { label: string; url: string }[] = [];
+        const oldFormat = /^-\s*(.+?):\s*(https?:\/\/\S+)/gm;
+        let m: RegExpExecArray | null;
+        while ((m = oldFormat.exec(text)) !== null) {
+            links.push({ label: m[1].trim(), url: m[2].trim() });
+        }
+        const mdFormat = /\[([^\]]+)\]\((https?:\/\/www\.amazon\.com\/s\?[^\s)]+)\)/g;
+        while ((m = mdFormat.exec(text)) !== null) {
+            if (!links.some(l => l.url === m![2])) {
+                links.push({ label: m[1].trim(), url: m[2].trim() });
+            }
+        }
+        return links;
+    }, []);
+
+    const stripProductLinkLines = useCallback((text: string): string => {
+        return text.replace(/^-\s*.+?:\s*https?:\/\/\S+\s*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
+    }, []);
+
+    const renderLinkedText = useCallback((text: string, baseStyle: any) => {
+        const splitRe = /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s)]+)/g;
+        const parts = text.split(splitRe);
+        if (parts.length <= 1) return <Text style={baseStyle}>{text}</Text>;
+        const mdLinkRe = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/;
+        const bareUrlRe = /^https?:\/\//;
+        return (
+            <Text style={baseStyle}>
+                {parts.map((part, i) => {
+                    const mdMatch = mdLinkRe.exec(part);
+                    if (mdMatch) {
+                        return (
+                            <Text key={i} style={styles.linkText} onPress={() => openUrl(mdMatch[2])}>
+                                {mdMatch[1]}
+                            </Text>
+                        );
+                    }
+                    if (bareUrlRe.test(part)) {
+                        return (
+                            <Text key={i} style={styles.linkText} onPress={() => openUrl(part)}>
+                                {part}
+                            </Text>
+                        );
+                    }
+                    return <Text key={i}>{part}</Text>;
+                })}
+            </Text>
+        );
+    }, [openUrl]);
+
     const renderMessage = ({ item }: { item: Message }) => {
         if (item.isTyping) {
             return (
@@ -207,10 +261,31 @@ export default function MaxChatScreen() {
             );
         }
         if (!item.content?.trim() && !(item.attachment_url && item.attachment_type === 'image')) return null;
+
+        const isAssistant = item.role === 'assistant';
+        const productLinks = isAssistant && item.content ? extractProductLinks(item.content) : [];
+        const displayText = productLinks.length > 0 ? stripProductLinkLines(item.content!) : item.content;
+
         return (
             <View style={[styles.messageRow, item.role === 'user' && styles.userMessageRow]}>
                 <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
-                    {item.content ? <Text style={[styles.messageText, item.role === 'user' && styles.userMessageText]}>{item.content}</Text> : null}
+                    {displayText ? renderLinkedText(displayText, [styles.messageText, item.role === 'user' && styles.userMessageText]) : null}
+                    {productLinks.length > 0 && (
+                        <View style={styles.productLinksContainer}>
+                            {productLinks.map((link, i) => (
+                                <TouchableOpacity
+                                    key={i}
+                                    style={styles.productLinkButton}
+                                    onPress={() => openUrl(link.url)}
+                                    activeOpacity={0.7}
+                                >
+                                    <Ionicons name="cart-outline" size={14} color={colors.foreground} style={{ marginRight: 6 }} />
+                                    <Text style={styles.productLinkText} numberOfLines={1}>{link.label}</Text>
+                                    <Ionicons name="open-outline" size={12} color={colors.textMuted} style={{ marginLeft: 6 }} />
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
                     {item.attachment_url && item.attachment_type === 'image' && (
                         <CachedImage uri={api.resolveAttachmentUrl(item.attachment_url)} style={styles.attachmentImage} contentFit="contain" />
                     )}
@@ -351,6 +426,24 @@ const styles = StyleSheet.create({
     },
     messageText: { fontSize: 15, lineHeight: 22, color: colors.foreground },
     userMessageText: { color: colors.buttonText },
+    linkText: { color: '#60A5FA', textDecorationLine: 'underline' },
+    productLinksContainer: { marginTop: 10, gap: 6 },
+    productLinkButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderWidth: 1,
+        borderColor: colors.borderLight,
+        borderRadius: borderRadius.md,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
+    },
+    productLinkText: {
+        flex: 1,
+        fontSize: 13,
+        fontWeight: '600',
+        color: colors.foreground,
+    },
     typingBubble: { paddingVertical: 10, paddingHorizontal: 16 },
     typingText: { fontSize: 14, color: colors.textMuted, fontStyle: 'italic' },
     attachmentImage: { width: 220, height: 160, borderRadius: 12, marginTop: spacing.sm },
