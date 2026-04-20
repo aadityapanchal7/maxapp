@@ -48,7 +48,7 @@ def _supabase_connect_args() -> dict:
 
 engine = create_async_engine(
     _clean_asyncpg_url(settings.supabase_db_url),
-    echo=settings.debug,
+    echo=getattr(settings, "sql_echo", False),
     pool_size=settings.supabase_db_pool_size,
     max_overflow=settings.supabase_db_max_overflow,
     pool_recycle=180,
