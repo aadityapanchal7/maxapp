@@ -186,21 +186,8 @@ def _random_string(length: int, chars: str = string.ascii_lowercase + string.dig
     return "".join(random.choices(chars, k=length))
 
 
-@router.post("/faux-signup", response_model=TokenResponse)
-async def faux_signup(db: AsyncSession = Depends(get_db)):
-    """
-    Create a throwaway demo account with pre-completed onboarding so the user
-    lands directly on FeaturesIntro → FaceScan.  No real PII required.
-    """
-    tag = _random_string(10)
-    email = f"demo_{tag}@trymax.app"
-    username = f"demo_{tag}"
-    password = secrets.token_urlsafe(16)
-    phone = f"+1555{random.randint(1000000, 9999999)}"
-
-    genders = ["male", "female"]
-    gender = random.choice(genders)
-    age = random.randint(16, 35)
+def _build_demo_onboarding() -> dict:
+    """Shared randomized onboarding payload used by faux-signup variants."""
     unit_system = random.choice(["imperial", "metric"])
     if unit_system == "imperial":
         height = round(random.uniform(60, 76), 1)  # inches
@@ -217,7 +204,7 @@ async def faux_signup(db: AsyncSession = Depends(get_db)):
     random.shuffle(priorities)
     goals = random.sample(["skinmax", "hairmax", "fitmax", "bonemax", "heightmax"], k=2)
 
-    onboarding_data = {
+    return {
         "completed": True,
         "questionnaire_v2_completed": True,
         "goals": goals,
@@ -226,8 +213,8 @@ async def faux_signup(db: AsyncSession = Depends(get_db)):
             ["acne", "dark_circles", "jawline", "hair_thinning", "posture", "body_fat", "skin_texture"],
             k=random.randint(1, 3),
         ),
-        "age": age,
-        "gender": gender,
+        "age": random.randint(16, 35),
+        "gender": random.choice(["male", "female"]),
         "height": height,
         "weight": weight,
         "height_cm": height_cm,
@@ -254,6 +241,24 @@ async def faux_signup(db: AsyncSession = Depends(get_db)):
         "preferred_workout_time": "08:00",
     }
 
+
+def _new_demo_identity(prefix: str = "demo") -> tuple[str, str, str, str]:
+    tag = _random_string(10)
+    email = f"{prefix}_{tag}@trymax.app"
+    username = f"{prefix}_{tag}"
+    password = secrets.token_urlsafe(16)
+    phone = f"+1555{random.randint(1000000, 9999999)}"
+    return email, username, password, phone
+
+
+@router.post("/faux-signup", response_model=TokenResponse)
+async def faux_signup(db: AsyncSession = Depends(get_db)):
+    """
+    Create a throwaway demo account with pre-completed onboarding so the user
+    lands directly on FeaturesIntro → FaceScan.  No real PII required.
+    """
+    email, username, password, phone = _new_demo_identity("demo")
+
     user = User(
         email=email,
         password_hash=hash_password(password),
@@ -264,9 +269,59 @@ async def faux_signup(db: AsyncSession = Depends(get_db)):
         updated_at=datetime.utcnow(),
         is_paid=False,
         is_admin=False,
-        onboarding=onboarding_data,
+        onboarding=_build_demo_onboarding(),
         profile=UserProfile().model_dump(),
         first_scan_completed=False,
+        phone_number=phone,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    user_id = str(user.id)
+    access_token = create_access_token(user_id)
+    refresh_token = create_refresh_token(user_id)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+    )
+
+
+@router.post("/faux-signup-skip", response_model=TokenResponse)
+async def faux_signup_skip(db: AsyncSession = Depends(get_db)):
+    """
+    Create a throwaway demo account that is fully provisioned (paid +
+    onboarding done + post-subscription steps done) so the client lands
+    directly on the Main/home tab, skipping auth, onboarding, scan, and payment.
+    """
+    email, username, password, phone = _new_demo_identity("skip")
+
+    onboarding_data = _build_demo_onboarding()
+    # Mark every post-subscription onboarding gate as completed so RootNavigator
+    # routes straight to 'Main'.
+    onboarding_data["post_subscription_onboarding"] = True
+    onboarding_data["sendblue_connect_completed"] = True
+    onboarding_data["notification_channels_completed"] = True
+    onboarding_data["module_select_completed"] = True
+
+    user = User(
+        email=email,
+        password_hash=hash_password(password),
+        first_name="Demo",
+        last_name="User",
+        username=username,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
+        is_paid=True,
+        is_admin=False,
+        subscription_tier="premium",
+        subscription_status="active",
+        subscription_end_date=datetime.now(timezone.utc) + timedelta(days=365),
+        onboarding=onboarding_data,
+        profile=UserProfile().model_dump(),
+        first_scan_completed=True,
         phone_number=phone,
     )
     db.add(user)

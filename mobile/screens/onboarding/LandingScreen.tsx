@@ -48,9 +48,10 @@ const SLIDES = [
 
 export default function LandingScreen() {
     const navigation = useNavigation<any>();
-    const { fauxSignup } = useAuth();
+    const { fauxSignup, fauxSkipSignup } = useAuth();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [demoLoading, setDemoLoading] = useState(false);
+    const [skipLoading, setSkipLoading] = useState(false);
     const flatListRef = useRef<FlatList>(null);
 
     const handleTryNow = async () => {
@@ -67,6 +68,23 @@ export default function LandingScreen() {
             }
         } finally {
             setDemoLoading(false);
+        }
+    };
+
+    const handleSkip = async () => {
+        if (skipLoading) return;
+        setSkipLoading(true);
+        try {
+            await fauxSkipSignup();
+        } catch (e: any) {
+            const msg = e?.response?.data?.detail ?? e?.message ?? 'Something went wrong';
+            if (Platform.OS === 'web') {
+                window.alert(msg);
+            } else {
+                Alert.alert('Error', msg);
+            }
+        } finally {
+            setSkipLoading(false);
         }
     };
 
@@ -130,6 +148,24 @@ export default function LandingScreen() {
 
     return (
         <View style={styles.container}>
+            <TouchableOpacity
+                style={styles.skipPill}
+                activeOpacity={0.7}
+                onPress={handleSkip}
+                disabled={skipLoading}
+                accessibilityRole="button"
+                accessibilityLabel="Skip to home"
+            >
+                {skipLoading ? (
+                    <ActivityIndicator size="small" color={colors.textPrimary} />
+                ) : (
+                    <>
+                        <Text style={styles.skipPillText}>Skip</Text>
+                        <Ionicons name="chevron-forward" size={14} color={colors.textPrimary} />
+                    </>
+                )}
+            </TouchableOpacity>
+
             <View style={styles.carouselWrap}>
                 <FlatList
                     ref={flatListRef}
@@ -218,6 +254,32 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: colors.background,
         ...(isWeb && { alignItems: 'center' as const }),
+    },
+    skipPill: {
+        position: 'absolute',
+        top: Platform.OS === 'ios' ? 60 : 40,
+        right: spacing.lg,
+        zIndex: 10,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 2,
+        paddingVertical: 6,
+        paddingLeft: 12,
+        paddingRight: 8,
+        borderRadius: 999,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+        minWidth: 64,
+        minHeight: 30,
+        justifyContent: 'center',
+        ...(isWeb && { cursor: 'pointer' as const }),
+    },
+    skipPillText: {
+        fontSize: 12,
+        fontWeight: '500',
+        letterSpacing: 0.3,
+        color: colors.textPrimary,
     },
     carouselWrap: {
         flex: 1,
