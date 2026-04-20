@@ -21,6 +21,18 @@ from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime
 import uuid
 
+# pgvector is optional -- the rag_documents table is created manually in
+# Supabase (see db/sqlalchemy.py::init_db skip_tables) and DB-backed RAG no
+# longer requires a Vector column at the ORM layer. Fall back to TEXT when
+# the package isn't installed so `import sqlalchemy_models` never crashes
+# the process on boot.
+try:
+    from pgvector.sqlalchemy import Vector  # type: ignore
+    _PGVECTOR_AVAILABLE = True
+except Exception:  # ImportError, or any transitive failure
+    Vector = None  # type: ignore[assignment,misc]
+    _PGVECTOR_AVAILABLE = False
+
 Base = declarative_base()
 
 
