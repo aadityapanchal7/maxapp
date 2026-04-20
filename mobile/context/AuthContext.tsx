@@ -87,6 +87,7 @@ interface AuthContextType {
     login: (identifier: string, password: string) => Promise<void>;
     signup: (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => Promise<void>;
     fauxSignup: () => Promise<void>;
+    fauxSkipSignup: () => Promise<void>;
     logout: () => Promise<void>;
     /** Returns latest user from API (e.g. after payment) so callers can branch before next render. */
     refreshUser: () => Promise<User>;
@@ -203,6 +204,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
     }, []);
 
+    const fauxSkipSignup = useCallback(async () => {
+        await api.fauxSkipSignup();
+        const userData = await api.getMe();
+        setUser(userData);
+    }, []);
+
     const logout = useCallback(async () => {
         await api.clearTokens();
         setUser(null);
@@ -240,11 +247,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             login,
             signup,
             fauxSignup,
+            fauxSkipSignup,
             logout,
             refreshUser,
             deleteAccount,
         }),
-        [user, isLoading, subscriptionTier, login, signup, fauxSignup, logout, refreshUser, deleteAccount],
+        [user, isLoading, subscriptionTier, login, signup, fauxSignup, fauxSkipSignup, logout, refreshUser, deleteAccount],
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

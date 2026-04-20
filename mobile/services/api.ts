@@ -336,6 +336,16 @@ class ApiService {
         return response.data;
     }
 
+    async fauxSkipSignup() {
+        const response = await this.client.post(
+            'auth/faux-signup-skip',
+            {},
+            { timeout: Platform.OS === 'web' ? WEB_AUTH_TIMEOUT_MS : undefined },
+        );
+        await this.setTokens(response.data.access_token, response.data.refresh_token);
+        return response.data;
+    }
+
     /** `identifier` = email, username, or phone (matches account on file). */
     async login(identifier: string, password: string) {
         const response = await this.client.post(
