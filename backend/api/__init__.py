@@ -16,3 +16,4 @@ from .notifications import router as notifications_router
 from .schedules import router as schedules_router
 from .maxes import router as maxes_router
 from .sendblue_webhook import router as sendblue_webhook_router
+from .onairos import router as onairos_router

@@ -51,6 +51,21 @@ Structured telemetry now logs:
 - agent iteration counts
 - fast-path hit rate
 
+## Supabase-backed System Prompts
+
+The RAG answerer no longer hardcodes its system prompt. `services/rag_prompt_selector.py` pulls the base prompt from the Supabase `system_prompts` table (key `rag_answer_system`) via the existing `prompt_loader` cache, then appends the best-matching `{maxx_id}_coaching_reference` for the query.
+
+Selection is a cheap NLP scoring pass (hand-curated weighted lexicon per module):
+
+1. Single `maxx_hint` from the classifier → trust it.
+2. Multiple hints → score each lexicon against the message tokens; highest wins.
+3. No hints → score all five modules; winner must clear a floor (score ≥ 3) and beat runner-up by a margin (≥ 1).
+4. Otherwise fall back to `active_maxx`, finally to the module-agnostic base.
+
+Seed with `backend/scripts/sql/rag_answer_system_prompt.sql`. The existing `seed_prompts.py` script already keeps the per-module references in sync.
+
+Backtest (50 labeled queries, no classifier hints) — **100% accuracy**, covering all five modules. Selector cost is sub-millisecond: p50 **0.04ms with a hint**, **0.16ms without**. See `tests/test_rag_prompt_selector.py`.
+
 ## Retrieval Threshold
 
 `rag_score_threshold` (default `0.35`) in `config.py` is the single source of truth. Call sites that previously hardcoded a threshold (`fast_product_links.py`) now read from settings.

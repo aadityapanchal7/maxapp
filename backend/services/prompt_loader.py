@@ -68,6 +68,10 @@ class PromptKey:
     # Previously hardcoded-only prompts — now DB-managed
     MAXX_INTENT_SYSTEM = "maxx_intent_system"
     GROQ_FACE_ANALYZER = "groq_face_analyzer"
+    # RAG answer system prompt — the grounding rules for KNOWLEDGE turns that
+    # bypass the full agent. Loaded from Supabase; the module-specific coaching
+    # reference is appended at runtime based on the query classification.
+    RAG_ANSWER_SYSTEM = "rag_answer_system"
 
 
 # ---------------------------------------------------------------------------

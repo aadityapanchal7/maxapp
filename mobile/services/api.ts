@@ -373,6 +373,39 @@ class ApiService {
         return response.data;
     }
 
+    // --- Onairos personalization ---
+    async connectOnairos(payload: {
+        apiUrl: string;
+        accessToken: string;
+        approvedRequests?: Record<string, any>;
+        userData?: { basic?: { name?: string; email?: string } } | null;
+    }) {
+        const response = await this.client.post('onairos/connect', payload);
+        return response.data as { ok: boolean; initial_traits?: any };
+    }
+
+    async refreshOnairosTraits() {
+        const response = await this.client.post('onairos/refresh-traits');
+        return response.data as { ok: boolean; traits?: any };
+    }
+
+    async getOnairosStatus() {
+        const response = await this.client.get('onairos/status');
+        return response.data as {
+            connected: boolean;
+            connected_at?: string | null;
+            token_expires_at?: string | null;
+            traits_cached_at?: string | null;
+            approved_requests?: Record<string, any>;
+            traits?: any;
+        };
+    }
+
+    async disconnectOnairos() {
+        const response = await this.client.delete('onairos/disconnect');
+        return response.data as { ok: boolean; removed: boolean };
+    }
+
     async deleteAccount(password: string) {
         const response = await this.client.delete('users/me', { data: { password } });
         return response.data;

@@ -169,6 +169,8 @@ async def knowledge_answer_node(state: ChatState) -> ChatState:
     state["response"] = await answer_from_chunks(
         message=state.get("message", ""),
         retrieved=state.get("retrieved") or [],
+        maxx_hints=state.get("maxx_hints") or [],
+        active_maxx=state.get("active_maxx"),
     )
     state["schedule_mutated"] = False
     fast_path_snapshot("graph_knowledge")

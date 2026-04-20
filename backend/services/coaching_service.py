@@ -173,7 +173,13 @@ def _clean_memory_summary(text: str, *, max_tokens: int = 120) -> str:
     )
 
 
-def _format_memory_slots(user: User, onboarding: dict[str, Any], state: UserCoachingState) -> str:
+def _format_memory_slots(
+    user: User,
+    onboarding: dict[str, Any],
+    state: UserCoachingState,
+    *,
+    onairos_traits: Optional[dict[str, Any]] = None,
+) -> str:
     goals: list[str] = []
     ob_goals = onboarding.get("goals")
     if isinstance(ob_goals, list):
@@ -209,13 +215,26 @@ def _format_memory_slots(user: User, onboarding: dict[str, Any], state: UserCoac
             tolerances.append(str(raw).strip())
     tone = str(getattr(user, "coaching_tone", "") or state.preferred_tone or "default").strip()
 
-    return "\n".join([
+    lines = [
         "MEMORY SLOTS:",
         f"- goals: {', '.join(deduped_goals) if deduped_goals else 'unknown'}",
         f"- injuries: {', '.join(injuries) if injuries else 'none noted'}",
         f"- tolerances: {', '.join(dict.fromkeys(tolerances)) if tolerances else 'none noted'}",
         f"- tone: {tone or 'default'}",
-    ])
+    ]
+
+    # Optional: Onairos personalization snapshot. Only append when the user has
+    # consented and we have a cached trait row — absence is the norm, not an error.
+    try:
+        from services.onairos_service import OnairosService
+
+        trait_line = OnairosService.format_traits_slot(onairos_traits)
+        if trait_line:
+            lines.append(trait_line)
+    except Exception:
+        pass
+
+    return "\n".join(lines)
 
 
 class CoachingService:
@@ -597,8 +616,16 @@ class CoachingService:
             parts.append(f"User responds better to: {state.preferred_tone} tone")
             sections.append("tone")
 
-        parts.append(_format_memory_slots(user, onboarding, state))
+        onairos_traits = None
+        try:
+            from services.onairos_service import onairos_service
+            onairos_traits = await onairos_service.get_active_traits(user_id, db)
+        except Exception as e:
+            logger.debug("onairos trait fetch skipped: %s", e)
+        parts.append(_format_memory_slots(user, onboarding, state, onairos_traits=onairos_traits))
         sections.append("memory_slots")
+        if onairos_traits:
+            sections.append("onairos_traits")
 
         # --- Latest scan ---
         scan_result = await db.execute(

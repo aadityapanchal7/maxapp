@@ -385,3 +385,43 @@ class SystemPrompt(Base):
     created_at  = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at  = Column(DateTime(timezone=True), default=datetime.utcnow,
                          onupdate=datetime.utcnow, nullable=False)
+
+
+class UserOnairosConnection(Base):
+    """Per-user Onairos consent handoff + cached trait snapshot.
+
+    One row per user (unique on user_id). Created/updated on SDK re-consent;
+    soft-deleted via revoked_at when the user disconnects. The coaching context
+    builder reads traits_cached to append a MEMORY SLOT of traits/preferences
+    without calling the Onairos API on every chat turn.
+    """
+
+    __tablename__ = "user_onairos_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    api_url = Column(Text, nullable=False)
+    access_token = Column(Text, nullable=False)
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)
+
+    approved_requests = Column(JSONB, nullable=False, default=dict)
+    user_basic = Column(JSONB, nullable=True)
+
+    traits_cached = Column(JSONB, nullable=True)
+    traits_cached_at = Column(DateTime(timezone=True), nullable=True)
+
+    connected_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow,
+                        onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("idx_user_onairos_connections_user_id", user_id),
+    )

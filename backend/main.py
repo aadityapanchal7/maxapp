@@ -21,6 +21,7 @@ from api import (
     admin_router, admin_forums_v2_router, notifications_router, schedules_router, maxes_router,
     forums_v2_router,
     sendblue_webhook_router,
+    onairos_router,
 )
 
 
@@ -135,6 +136,7 @@ app.include_router(notifications_router, prefix="/api")
 app.include_router(schedules_router, prefix="/api")
 app.include_router(maxes_router, prefix="/api")
 app.include_router(sendblue_webhook_router, prefix="/api")
+app.include_router(onairos_router, prefix="/api")
 
 # Mount uploads directory
 uploads_dir = os.path.join(os.path.dirname(__file__), "uploads")

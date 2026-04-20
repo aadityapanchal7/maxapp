@@ -107,7 +107,7 @@ async def test_langgraph_knowledge_node_bypasses_agent(monkeypatch):
     async def _fake_retrieve_chunks(_db, _maxx, _query, **_kwargs):
         return list(fake_chunks)
 
-    async def _fake_answer_from_chunks(*, message: str, retrieved: list[dict]):
+    async def _fake_answer_from_chunks(*, message: str, retrieved: list[dict], **_kwargs):
         assert message == "what is mewing"
         assert retrieved
         return "mewing is covered in the docs. [source: rag_docs/bonemax/bonemax-guide.md > mewing]"

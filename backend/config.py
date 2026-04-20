@@ -95,6 +95,20 @@ class Settings(BaseSettings):
         description="Hard cap for the final system prompt after context injection.",
     )
 
+    # Onairos personalization — optional partner-level config. The mobile SDK
+    # handles end-user consent directly; the backend just stores the resulting
+    # per-user apiUrl + token and fetches traits/sentiment. Partner API key is
+    # only needed for partner-level operations (currently none), left blank
+    # so the feature degrades gracefully when not configured.
+    onairos_partner_api_key: str = Field(default="", description="Optional Onairos partner API key")
+    onairos_http_timeout_seconds: float = Field(
+        default=6.0, description="HTTP timeout for Onairos inference calls"
+    )
+    onairos_traits_ttl_seconds: int = Field(
+        default=43200,
+        description="How long to trust the cached Onairos trait snapshot before re-fetching (12h default).",
+    )
+
     # External Facial Analysis API (cannon_facial_analysis service)
     facial_analysis_api_url: str = Field(default="http://13.236.183.141:8001/api")
     

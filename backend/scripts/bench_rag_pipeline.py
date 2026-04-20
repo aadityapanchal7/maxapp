@@ -275,7 +275,7 @@ async def bench_graph_knowledge_path() -> list[dict]:
     async def _fake_retrieve(_db, _maxx, _query, **_kwargs):
         return list(fake_chunks)
 
-    async def _fake_answer(*, message: str, retrieved: list[dict]):
+    async def _fake_answer(*, message: str, retrieved: list[dict], **_kwargs):
         return "use the PM routine. [source: rag_docs/skinmax/routines.md > PM routine]"
 
     import services.rag_service as rag_service
@@ -301,6 +301,34 @@ def bench_context_requirements_decision() -> list[dict]:
     rows: list[dict] = []
     for intent in ("GREETING", "KNOWLEDGE", "CHECK_IN", "OTHER", "SCHEDULE_CHANGE"):
         rows.append(_time(f"context_requirements[{intent}]", lambda i=intent: _context_requirements(i), 2000))
+    return rows
+
+
+def bench_rag_prompt_selector() -> list[dict]:
+    """How expensive is picking the module-specific system prompt per turn?"""
+    from services import prompt_loader
+    from services.rag_prompt_selector import select_rag_system_prompt
+
+    # Seed the cache so the selector has references to return.
+    prompt_loader._CACHE.update({
+        "rag_answer_system": "BASE RAG SYSTEM PROMPT.",
+        "skinmax_coaching_reference": "SKINMAX REF",
+        "fitmax_coaching_reference": "FITMAX REF",
+        "hairmax_coaching_reference": "HAIRMAX REF",
+        "bonemax_coaching_reference": "BONEMAX REF",
+        "heightmax_coaching_reference": "HEIGHTMAX REF",
+    })
+
+    rows: list[dict] = []
+    samples: list[tuple[str, str, list[str] | None]] = [
+        ("what should i do for acne at night", "skinmax_hint", ["skinmax"]),
+        ("best split for hypertrophy with creatine", "no_hint", None),
+        ("how often should i use minoxidil", "no_hint", None),
+        ("what is mewing exactly", "no_hint", None),
+        ("anything new today?", "no_hint", None),
+    ]
+    for msg, label, hints in samples:
+        rows.append(_time(f"selector[{label}]", lambda m=msg, h=hints: select_rag_system_prompt(m, maxx_hints=h), 2000))
     return rows
 
 
@@ -347,6 +375,10 @@ async def main() -> None:
 
     print("\n[side] context_requirements dispatch cost")
     for row in bench_context_requirements_decision():
+        _print_row(row)
+
+    print("\n[side] rag_prompt_selector cost")
+    for row in bench_rag_prompt_selector():
         _print_row(row)
 
     print()
