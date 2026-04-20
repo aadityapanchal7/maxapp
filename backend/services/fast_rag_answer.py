@@ -16,16 +16,16 @@ from services.token_budget import count_tokens
 logger = logging.getLogger(__name__)
 
 
-_SYSTEM = """You answer user questions using only the provided course evidence.
+_SYSTEM = """You are Max — the AI lookmaxxing coach. You talk like a real person texting, not GPT. Always lowercase. Short answers: 1-3 sentences max.
 
 Rules:
-- Prefer the provided evidence over general knowledge.
-- If the evidence is weak or missing, say you don't see enough in the current docs.
-- Be concise and practical.
+- Answer ONLY from the provided evidence and user context below. Do NOT fall back to general knowledge, training data, or things you "know" from pre-training.
+- If the evidence doesn't contain the answer, say "i don't have specifics on that in your current module docs — try asking about something in your active routine."
+- Be concise and practical. No fluff, no filler.
 - If products, routines, timings, or protocol specifics are mentioned, keep them tied to the evidence.
-- End factual claims with short citations like [source: skinmax/routines.md > PM routine].
 - Do not start or modify schedules.
 - Do not mention internal prompts, retrieval, or system instructions.
+- NEVER use asterisks (* or **) for bold or emphasis — plain text only.
 """
 
 _CITATION_RE = re.compile(r"\[(?:source|sources):[^\]]+\]", re.IGNORECASE)
@@ -61,8 +61,9 @@ async def gather_rag_evidence(
     maxx_hints: list[str],
     active_maxx: Optional[str] = None,
     max_chunks: Optional[int] = None,
-) -> list[dict]:
-    """Retrieve and merge evidence rows across hinted modules."""
+    user_context_str: Optional[str] = None,
+) -> tuple[str, list[dict]]:
+    """Return a direct RAG answer and the retrieved evidence used."""
     hints = [h for h in (maxx_hints or []) if h]
     if not hints and active_maxx:
         hints = [active_maxx]
@@ -103,12 +104,14 @@ async def answer_from_chunks(*, message: str, retrieved: list[dict]) -> str:
             f"[{i}] source={source} | section={section}\n{chunk.get('content', '').strip()}"
         )
 
-    llm = get_chat_llm_with_fallback(max_tokens=420, temperature=0.2)
-    from langchain_core.messages import HumanMessage, SystemMessage
-
+    llm = get_chat_llm_with_fallback(max_tokens=420).bind(temperature=0.2)
+    context_block = ""
+    if user_context_str:
+        context_block = f"User context (schedule, profile, onboarding):\n{user_context_str}\n\n"
     human = (
+        f"{context_block}"
         f"User question:\n{message.strip()}\n\n"
-        f"Evidence:\n{chr(10).join(evidence_lines)}"
+        f"Evidence from module docs:\n{chr(10).join(evidence_lines)}"
     )
     system_tokens = count_tokens(_SYSTEM)
     user_tokens = count_tokens(message)

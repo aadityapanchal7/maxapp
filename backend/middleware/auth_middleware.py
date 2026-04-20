@@ -74,6 +74,7 @@ def _user_dict(user: User) -> dict:
         "created_at": user.created_at,
         "is_paid": user.is_paid,
         "is_admin": user.is_admin,
+        "is_scan_user": user.is_scan_user,
         "subscription_tier": user.subscription_tier,
         "subscription_status": user.subscription_status,
         "subscription_id": user.subscription_id,
@@ -143,9 +144,9 @@ async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Op
 
 async def require_paid_user(current_user: dict = Depends(get_current_user)) -> dict:
     """
-    Verify user has active subscription — any tier (admins always allowed).
+    Verify user has active subscription — any tier (admins and scan users always allowed).
     """
-    if current_user.get("is_admin", False):
+    if current_user.get("is_admin", False) or current_user.get("is_scan_user", False):
         return current_user
         
     if not current_user.get("is_paid", False):
@@ -167,10 +168,10 @@ async def require_paid_user(current_user: dict = Depends(get_current_user)) -> d
 
 async def require_premium_user(current_user: dict = Depends(get_current_user)) -> dict:
     """
-    Verify user has a *premium* subscription (admins always allowed).
+    Verify user has a *premium* subscription (admins and scan users always allowed).
     Basic-tier users get a 403 pointing them to upgrade.
     """
-    if current_user.get("is_admin", False):
+    if current_user.get("is_admin", False) or current_user.get("is_scan_user", False):
         return current_user
 
     if not current_user.get("is_paid", False):

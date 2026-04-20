@@ -53,26 +53,17 @@ export function useStripeSubscription() {
                 const weeklyAmount = tier === 'premium' ? '5.99' : '3.99';
                 const planLabel = tier === 'premium' ? 'Max Premium (weekly)' : 'Max Basic (weekly)';
 
+                // Stripe is only used on Android/web. iOS uses Apple IAP, and Apple
+                // Pay support is intentionally disabled to avoid linking PassKit
+                // (which triggers App Store review rejections when unused).
+                void weeklyAmount;
+                void planLabel;
                 const sheetParams = {
                     customerId: preview.customer_id,
                     customerEphemeralKeySecret: preview.ephemeral_key_secret,
                     setupIntentClientSecret: preview.setup_intent_client_secret,
                     merchantDisplayName: 'Max',
                     returnURL: 'cannon://stripe-redirect',
-                    ...(Platform.OS === 'ios'
-                        ? {
-                              applePay: {
-                                  merchantCountryCode: 'US',
-                                  cartItems: [
-                                      {
-                                          paymentType: 'Immediate' as const,
-                                          label: planLabel,
-                                          amount: weeklyAmount,
-                                      },
-                                  ],
-                              },
-                          }
-                        : {}),
                     ...(Platform.OS === 'android'
                         ? {
                               googlePay: { merchantCountryCode: 'US', testEnv: __DEV__ },

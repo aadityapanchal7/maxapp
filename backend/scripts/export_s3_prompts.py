@@ -51,6 +51,8 @@ from services.langgraph_face_prompts import (
 )
 from services.gemini_service import (
     FACE_ANALYSIS_SYSTEM_PROMPT,
+)
+from services.prompt_constants import (
     MAX_CHAT_SYSTEM_PROMPT,
     TRIPLE_FULL_SYSTEM_PROMPT,
     UMAX_TRIPLE_SYSTEM_PROMPT,

@@ -1426,14 +1426,13 @@ async def process_chat_message(
     # them into one query where we can: user + history are one round-trip
     # via gather only if they run on SEPARATE sessions. Keeping sequential
     # here for correctness; biggest win comes from trimming what each call does.
-    # LLM only uses the last 10 messages, and the periodic memory/tone jobs
-    # use the last 20-30. Pulling 50 rows on every turn wastes DB time.
+    # LLM window is CHAT_HISTORY_WINDOW (15) and bg jobs use last 20.
     history_result = await db.execute(
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
         .where(_chat_history_channel_clause(history_channel_for_load))
         .order_by(ChatHistory.created_at.desc())
-        .limit(30)
+        .limit(20)
     )
     history_rows = list(reversed(history_result.scalars().all()))
     history = [
@@ -1517,6 +1516,21 @@ async def process_chat_message(
             db.add(assistant_message)
         await db.commit()
         return _finalize_assistant_message(response_text), []
+
+    explicit_chat_intent = _coerce_chat_intent(chat_intent)
+    explicit_schedule_start = explicit_chat_intent == "start_schedule"
+    active_hint = str((active_schedule or {}).get("maxx_id") or "").strip() or None
+    turn_intent = classify_turn(message_text, active_maxx=active_hint)
+
+    # If the frontend sent start_schedule but the user typed an informational
+    # question (not a schedule kickoff), treat it as a normal message so the
+    # fast-knowledge path can handle it instead of entering the schedule setup.
+    if explicit_schedule_start and (message_text or "").strip():
+        if _looks_like_informational_question(message_text) or turn_intent.get("intent") == "KNOWLEDGE":
+            explicit_schedule_start = False
+            explicit_chat_intent = None
+
+    start_schedule_maxx = _coerce_chat_maxx_id(init_context) if explicit_schedule_start else None
 
     # --- Maxx module routing (structured LLM; init_context is hint inside classifier) ---
     message = message_text
@@ -2428,6 +2442,101 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                     "Ask outside today only if this module needs UV context; otherwise call generate_maxx_schedule with wake/sleep from onboarding or 07:00/23:00.]\n\n"
                     + message
                 )
+
+    # --- Image handling ---
+    image_data = None
+    if attachment_url and attachment_type == "image":
+        image_data = await storage_service.get_image(attachment_url)
+
+    # --- Fast product-link path ---
+    link_maxx = list(turn_intent.get("maxx_hints") or [])
+    if not link_maxx and active_hint:
+        link_maxx = [active_hint]
+    if not link_maxx and user:
+        try:
+            all_active = await schedule_service.get_all_active_schedules(user_id, db)
+            for s in all_active:
+                mid = s.get("maxx_id")
+                if mid:
+                    link_maxx.append(mid)
+        except Exception:
+            pass
+    if (
+        not explicit_schedule_start
+        and not image_data
+        and _looks_like_link_request(message_text)
+        and link_maxx
+    ):
+        link_response = ""
+        for _lm in link_maxx[:3]:
+            link_response = await product_links_from_context(
+                message=message_text,
+                maxx_id=str(_lm),
+            )
+            if link_response:
+                break
+        if link_response:
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=link_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            logger.info("[FAST_LINKS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
+            return _finalize_assistant_message(link_response), []
+
+    # --- Fast knowledge path: direct RAG answer, no agent/tool overhead ---
+    if (
+        not explicit_schedule_start
+        and not image_data
+        and turn_intent.get("intent") == "KNOWLEDGE"
+        and (turn_intent.get("maxx_hints") or active_hint)
+    ):
+        fast_response, fast_chunks = await answer_from_rag(
+            message=message_text,
+            maxx_hints=turn_intent.get("maxx_hints") or [],
+            active_maxx=active_hint,
+            user_context_str=coaching_context[:1500] if coaching_context else None,
+        )
+        if fast_response:
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=fast_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            logger.info(
+                "[FAST_RAG] user=%s intent=%s hints=%s chunks=%d",
+                str(user_id)[:8],
+                turn_intent.get("intent"),
+                turn_intent.get("maxx_hints"),
+                len(fast_chunks),
+            )
+            return _finalize_assistant_message(fast_response), []
 
     # --- RAG retrieval (legacy agent path only; fast knowledge turns return earlier) ---
     # retrieve_chunks returns [] on any failure, so chat degrades gracefully.

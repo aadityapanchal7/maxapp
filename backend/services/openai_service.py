@@ -13,13 +13,11 @@ from typing import Any, Dict, List, Optional, Union
 
 from config import settings
 from models.scan import TripleFullScanResult, UmaxTripleScanResult
+from services.prompt_constants import MAX_CHAT_SYSTEM_PROMPT, TRIPLE_FULL_SYSTEM_PROMPT, UMAX_TRIPLE_SYSTEM_PROMPT
 from services.prompt_loader import PromptKey, resolve_prompt
 from services.sms_reply_style import sms_chat_appendix
 
 from services.gemini_service import (
-    MAX_CHAT_SYSTEM_PROMPT,
-    TRIPLE_FULL_SYSTEM_PROMPT,
-    UMAX_TRIPLE_SYSTEM_PROMPT,
     _mime_for_image_bytes,
     _normalize_triple_full_result,
     _normalize_umax_result,

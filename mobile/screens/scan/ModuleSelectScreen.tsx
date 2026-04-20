@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { CommonActions, useNavigation } from '@react-navigation/native';
+import { CommonActions, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -24,12 +24,20 @@ export default function ModuleSelectScreen() {
     const { user, refreshUser } = useAuth();
     const maxxesQuery = useMaxxesQuery();
     const maxes = (maxxesQuery.data?.maxes ?? []) as MaxxCard[];
-    const loading = maxxesQuery.isPending && !maxxesQuery.data;
+    const loading = (maxxesQuery.isPending || maxxesQuery.isFetching) && !maxxesQuery.data;
     const [finishing, setFinishing] = useState(false);
     /** Lowercase maxx ids to show on Home (same as onboarding.goals). */
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const maxSlots = maxHomeMaxxesForUser(user);
+    const needsReload = maxxesQuery.isError || (!maxxesQuery.isFetching && maxes.length === 0);
+
+    useFocusEffect(
+        useCallback(() => {
+            if (!needsReload) return;
+            void maxxesQuery.refetch();
+        }, [needsReload, maxxesQuery]),
+    );
 
     const toggleMaxx = (id: string) => {
         const key = String(id || '').toLowerCase();
@@ -90,6 +98,39 @@ export default function ModuleSelectScreen() {
         return (
             <View style={[styles.root, styles.center]}>
                 <ActivityIndicator size="large" color={colors.foreground} />
+            </View>
+        );
+    }
+
+    if (maxxesQuery.isError || maxes.length === 0) {
+        const message = maxxesQuery.isError
+            ? 'We could not load your programs yet. Pull them in again and this screen should populate.'
+            : 'Your programs are still loading after payment. Try again and they should appear.';
+        return (
+            <View style={styles.root}>
+                <View style={[styles.center, styles.emptyWrap]}>
+                    <View style={styles.emptyIcon}>
+                        <Ionicons name="grid-outline" size={28} color={colors.foreground} />
+                    </View>
+                    <Text style={styles.emptyTitle}>Programs are loading</Text>
+                    <Text style={styles.emptySubtitle}>{message}</Text>
+                    <TouchableOpacity
+                        style={styles.retryBtn}
+                        onPress={() => void maxxesQuery.refetch()}
+                        activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel="Reload available programs"
+                    >
+                        {maxxesQuery.isFetching ? (
+                            <ActivityIndicator color={colors.background} />
+                        ) : (
+                            <>
+                                <Text style={styles.retryBtnText}>Reload programs</Text>
+                                <Ionicons name="refresh" size={18} color={colors.background} />
+                            </>
+                        )}
+                    </TouchableOpacity>
+                </View>
             </View>
         );
     }
@@ -198,4 +239,45 @@ const styles = StyleSheet.create({
         borderColor: colors.foreground,
     },
     ctaText: { ...typography.button, color: colors.background, fontSize: 16 },
+    emptyWrap: {
+        paddingHorizontal: spacing.xl,
+    },
+    emptyIcon: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: colors.surface,
+        marginBottom: spacing.lg,
+    },
+    emptyTitle: {
+        ...typography.h2,
+        textAlign: 'center',
+        marginBottom: spacing.sm,
+    },
+    emptySubtitle: {
+        fontSize: 15,
+        color: colors.textSecondary,
+        lineHeight: 22,
+        textAlign: 'center',
+        marginBottom: spacing.xl,
+        maxWidth: 320,
+    },
+    retryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        backgroundColor: colors.foreground,
+        paddingVertical: 12,
+        paddingHorizontal: spacing.xl,
+        borderRadius: borderRadius.md,
+        minWidth: 220,
+    },
+    retryBtnText: {
+        ...typography.button,
+        color: colors.background,
+        fontSize: 16,
+    },
 });

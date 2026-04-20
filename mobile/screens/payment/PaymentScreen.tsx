@@ -52,9 +52,6 @@ export default function PaymentScreen() {
 
     const busy = sub.loading !== null || devLoading;
 
-    // iOS store error — show if products failed to load
-    const iosStoreError = IS_IOS && 'storeError' in apple ? (apple as any).storeError as string | null : null;
-
     const handleSubscribe = async (tier: 'basic' | 'premium') => {
         if (user && !user.first_scan_completed) {
             Alert.alert(
@@ -180,15 +177,6 @@ export default function PaymentScreen() {
                         </Text>
                     </TouchableOpacity>
                 </View>
-
-                {iosStoreError ? (
-                    <View style={s.storeErrorBanner}>
-                        <Ionicons name="warning" size={16} color="#FF6B35" />
-                        <Text style={s.storeErrorText}>
-                            {iosStoreError}
-                        </Text>
-                    </View>
-                ) : null}
 
                 <Text style={s.disclaimer}>
                     Subscriptions renew weekly until cancelled.{'\n'}
@@ -358,21 +346,6 @@ const s = StyleSheet.create({
     },
     ctaDisabled: { opacity: 0.45 },
 
-    storeErrorBanner: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        backgroundColor: 'rgba(255,107,53,0.1)',
-        borderRadius: borderRadius.md,
-        padding: spacing.md,
-        marginBottom: spacing.md,
-    },
-    storeErrorText: {
-        fontSize: 13,
-        color: '#FF6B35',
-        flex: 1,
-        lineHeight: 18,
-    },
     disclaimer: {
         fontSize: 12,
         color: colors.textMuted,

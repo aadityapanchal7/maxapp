@@ -6,7 +6,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { getItemAsync } from '../services/storage';
-import api from '../services/api';
+import api, { subscribeAuthLost } from '../services/api';
 import { clearFaceScanDraft, clearPendingFaceScanSubmit } from '../lib/faceScanDraft';
 import { getIosApnsDeviceTokenForBackend } from '../services/registerIosPushToken';
 
@@ -71,6 +71,7 @@ interface User {
     };
     first_scan_completed: boolean;
     is_admin: boolean;
+    is_scan_user: boolean;
     /** Server has an APNs token on file (iOS push). */
     has_apns_token?: boolean;
 }
@@ -81,6 +82,7 @@ interface AuthContextType {
     isAuthenticated: boolean;
     isPaid: boolean;
     isPremium: boolean;
+    isScanUser: boolean;
     subscriptionTier: SubscriptionTier;
     login: (identifier: string, password: string) => Promise<void>;
     signup: (email: string, password: string, first_name: string, last_name: string, username: string, phone_number?: string) => Promise<void>;
@@ -140,6 +142,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         void checkAuth();
     }, [checkAuth]);
+
+    // When the api layer detects a permanently-invalid session (refresh 401'd,
+    // account deleted, key rotated), tear down auth state so React Query hooks
+    // on the authenticated stack unmount. Without this the app loops — every
+    // mounted useQuery retries, each retry hits 401, each 401 tries refresh.
+    useEffect(() => {
+        const unsubscribe = subscribeAuthLost(() => {
+            setUser(null);
+            try {
+                queryClient.clear();
+            } catch {
+                /* ignore */
+            }
+            void clearPendingFaceScanSubmit().catch(() => undefined);
+            void clearFaceScanDraft().catch(() => undefined);
+        });
+        return unsubscribe;
+    }, [queryClient]);
 
     // Auto-refresh iOS APNs push token on launch for users who've opted into push.
     // Tokens can rotate (reinstall, restore, iOS refresh), so re-registering keeps
@@ -215,6 +235,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isAuthenticated: !!user,
             isPaid: user?.is_paid ?? false,
             isPremium: user?.is_admin || (user?.is_paid && subscriptionTier === 'premium') || false,
+            isScanUser: user?.is_scan_user ?? false,
             subscriptionTier,
             login,
             signup,

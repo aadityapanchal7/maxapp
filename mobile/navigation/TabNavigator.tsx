@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, Platform, View, Text, TouchableOpacity, Modal } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,9 @@ import { useNavigation } from '@react-navigation/native';
 import { queryClient } from '../lib/queryClient';
 import { prefetchMainTabData } from '../lib/prefetchMainTabData';
 import { useAuth } from '../context/AuthContext';
+import { SpotlightTourProvider, AttachStep, useSpotlightTour } from 'react-native-spotlight-tour';
+import { TOUR_STEPS, TOUR_STEP } from '../features/mainTour/mainTourSteps';
+import api from '../services/api';
 
 import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
@@ -148,9 +151,29 @@ const modal = StyleSheet.create({
     },
 });
 
+function TourTrigger() {
+    const { user, isPaid } = useAuth();
+    const { start } = useSpotlightTour();
+    const fired = useRef(false);
+
+    useEffect(() => {
+        if (fired.current) return;
+        if (!isPaid) return;
+        const ob = user?.onboarding as Record<string, unknown> | undefined;
+        if (ob?.post_subscription_onboarding) return;
+        if (ob?.main_app_tour_completed) return;
+
+        fired.current = true;
+        const id = setTimeout(() => start(), 600);
+        return () => clearTimeout(id);
+    }, [isPaid, user?.onboarding, start]);
+
+    return null;
+}
+
 export default function TabNavigator() {
     const insets = useSafeAreaInsets();
-    const { isPaid, isPremium } = useAuth();
+    const { isPaid, isPremium, refreshUser } = useAuth();
     const [showGate, setShowGate] = useState(false);
     const navigation = useNavigation<any>();
 
@@ -158,8 +181,23 @@ export default function TabNavigator() {
         prefetchMainTabData(queryClient);
     }, []);
 
+    const handleTourStop = useCallback(async () => {
+        try {
+            await api.completeMainAppTour();
+            await refreshUser();
+        } catch { /* non-fatal */ }
+    }, [refreshUser]);
+
     return (
         <>
+            <SpotlightTourProvider
+                steps={TOUR_STEPS}
+                overlayColor="black"
+                overlayOpacity={0.65}
+                nativeDriver={false}
+                onBackdropPress="continue"
+                onStop={handleTourStop}
+            >
             <Tab.Navigator
                 screenOptions={{
                     headerShown: false,
@@ -191,7 +229,11 @@ export default function TabNavigator() {
                         title: 'Schedule',
                         tabBarLabel: 'Schedule',
                         tabBarIcon: ({ color }) => (
-                            <Ionicons name="calendar-outline" size={22} color={color} />
+                            <AttachStep index={TOUR_STEP.SCHEDULE_TAB}>
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="calendar-outline" size={22} color={color} />
+                                </View>
+                            </AttachStep>
                         ),
                     }}
                 />
@@ -213,7 +255,11 @@ export default function TabNavigator() {
                     options={{
                         title: 'Scan',
                         tabBarIcon: ({ color }) => (
-                            <Ionicons name="scan-outline" size={22} color={color} />
+                            <AttachStep index={TOUR_STEP.SCAN_TAB}>
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="scan-outline" size={22} color={color} />
+                                </View>
+                            </AttachStep>
                         ),
                     }}
                 />
@@ -222,7 +268,11 @@ export default function TabNavigator() {
                     component={MaxChatScreen}
                     options={{
                         tabBarIcon: ({ color }) => (
-                            <Ionicons name="chatbubble-outline" size={22} color={color} />
+                            <AttachStep index={TOUR_STEP.CHAT_TAB}>
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="chatbubble-outline" size={22} color={color} />
+                                </View>
+                            </AttachStep>
                         ),
                     }}
                 />
@@ -231,11 +281,17 @@ export default function TabNavigator() {
                     component={ForumsStack}
                     options={{
                         tabBarIcon: ({ color }) => (
-                            <Ionicons name="people-outline" size={22} color={color} />
+                            <AttachStep index={TOUR_STEP.FORUMS_TAB}>
+                                <View style={styles.tourIconWrap}>
+                                    <Ionicons name="people-outline" size={22} color={color} />
+                                </View>
+                            </AttachStep>
                         ),
                     }}
                 />
             </Tab.Navigator>
+            <TourTrigger />
+            </SpotlightTourProvider>
 
             <PremiumGateModal
                 visible={showGate}
@@ -261,5 +317,11 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: '500',
         letterSpacing: 0.2,
+    },
+    tourIconWrap: {
+        width: 28,
+        height: 28,
+        alignItems: 'center' as const,
+        justifyContent: 'center' as const,
     },
 });

@@ -48,12 +48,13 @@ const STEPS = [
 
 export default function FaceScanScreen() {
     const navigation = useNavigation<any>();
-    const { user, isPaid, isPremium, refreshUser } = useAuth();
+    const { user, isPaid, isPremium, isScanUser, refreshUser } = useAuth();
     const [permission, requestPermission] = useCameraPermissions();
     const cameraRef = useRef<CameraView>(null);
 
     const [stepIndex, setStepIndex] = useState(0);
     const [uris, setUris] = useState<(string | null)[]>([null, null, null]);
+    const [facing, setFacing] = useState<'front' | 'back'>('front');
     const [analyzing, setAnalyzing] = useState(false);
     const [analysisStep, setAnalysisStep] = useState(0);
     const [bootstrapped, setBootstrapped] = useState(false);
@@ -65,13 +66,23 @@ export default function FaceScanScreen() {
     const uploadActiveRef = useRef(false);
 
     const navigateToResults = useCallback(() => {
+        if (isScanUser) {
+            // ScanOnlyNavigator only contains FaceScan + FaceScanResults; FeaturesIntro doesn't exist there.
+            navigation.dispatch(
+                CommonActions.reset({
+                    index: 0,
+                    routes: [{ name: 'FaceScanResults' }],
+                }),
+            );
+            return;
+        }
         navigation.dispatch(
             CommonActions.reset({
                 index: 1,
                 routes: [{ name: 'FeaturesIntro' }, { name: 'FaceScanResults' }],
             }),
         );
-    }, [navigation]);
+    }, [navigation, isScanUser]);
 
     const runAnalyzingRecovery = useCallback(
         async (fromForeground: boolean) => {
@@ -200,8 +211,8 @@ export default function FaceScanScreen() {
         }
     }, [permission?.granted, permission?.canAskAgain, requestPermission]);
 
-    /** One face scan per account — block repeat visits to this screen. */
     useLayoutEffect(() => {
+        if (isScanUser) return;
         if (user?.first_scan_completed && !isPaid) {
             navigation.dispatch(
                 CommonActions.reset({
@@ -210,11 +221,11 @@ export default function FaceScanScreen() {
                 }),
             );
         }
-    }, [user?.first_scan_completed, isPaid, navigation]);
+    }, [user?.first_scan_completed, isPaid, isScanUser, navigation]);
 
-    // Premium: one scan per calendar day. Basic can scan multiple days until server enforces the lifetime cap.
     useEffect(() => {
         const run = async () => {
+            if (isScanUser) return;
             if (!isPaid || !isPremium) return;
             try {
                 const latest = await api.getLatestScan();
@@ -236,7 +247,7 @@ export default function FaceScanScreen() {
             }
         };
         void run();
-    }, [isPaid, isPremium, navigation]);
+    }, [isPaid, isPremium, isScanUser, navigation]);
 
     /**
      * Resume camera cleanly after background; recover analyzing flow from server when user returns.
@@ -428,13 +439,24 @@ export default function FaceScanScreen() {
                 {hasCurrent ? (
                     <CachedImage uri={currentUri!} style={styles.preview} />
                 ) : appActive ? (
-                    <CameraView
-                        key={cameraSession}
-                        ref={cameraRef}
-                        style={styles.camera}
-                        facing="front"
-                        mode="picture"
-                    />
+                    <>
+                        <CameraView
+                            key={cameraSession}
+                            ref={cameraRef}
+                            style={styles.camera}
+                            facing={facing}
+                            mode="picture"
+                        />
+                        <TouchableOpacity
+                            style={styles.flipBtn}
+                            onPress={() => setFacing((f) => (f === 'front' ? 'back' : 'front'))}
+                            activeOpacity={0.85}
+                            hitSlop={8}
+                            accessibilityLabel="Flip camera"
+                        >
+                            <Ionicons name="camera-reverse-outline" size={22} color="#fff" />
+                        </TouchableOpacity>
+                    </>
                 ) : (
                     <View style={[styles.camera, styles.cameraPaused]}>
                         <Text style={styles.cameraPausedText}>Camera paused</Text>
@@ -565,6 +587,17 @@ const styles = StyleSheet.create({
         minHeight: 360,
     },
     camera: { flex: 1, width: '100%', minHeight: 360 },
+    flipBtn: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: 'rgba(0,0,0,0.45)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
     cameraPaused: { backgroundColor: '#111', justifyContent: 'center', alignItems: 'center' },
     cameraPausedText: { color: '#fff', fontSize: 15, opacity: 0.85 },
     preview: { flex: 1, width: '100%', minHeight: 360 },

@@ -1,14 +1,12 @@
-"""Fast file-based RAG over the current markdown knowledge base.
+"""Fast DB-backed RAG over the rag_documents table in Supabase.
 
-Sources, in priority order:
-1. repo-root ``rag_docs/<maxx_id>``            -- preferred, current canonical docs
-2. ``backend/rag_content/<maxx_id>``           -- legacy fallback content
+Content is stored in the ``rag_documents`` table (one row per document or chunk,
+grouped by ``maxx_id`` + ``doc_title``).  On first query for a module the rows
+are fetched, reassembled into full markdown per doc, chunked with a heading-aware
+splitter, and indexed with in-memory BM25.  Subsequent queries hit the cache.
 
-Retrieval stays cheap and deterministic:
-- heading-aware markdown chunking
-- in-memory BM25 per module
-- title / section text included in the search index
-- current-base docs get a small score boost over legacy content
+Call ``reload_indexes()`` (or hit the admin endpoint) after editing content in
+the Supabase dashboard to rebuild the cache.
 """
 
 from __future__ import annotations
@@ -17,9 +15,8 @@ import hashlib
 import logging
 import math
 import re
-import time
+from collections import defaultdict
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -30,12 +27,7 @@ from services.chat_telemetry import log_retrieval
 
 logger = logging.getLogger(__name__)
 
-VALID_MAXX_IDS = frozenset({"skinmax", "fitmax", "hairmax", "heightmax", "bonemax"})
-
-_BACKEND_DIR = Path(__file__).resolve().parent.parent
-_REPO_ROOT = _BACKEND_DIR.parent
-_PRIMARY_CONTENT_DIR = _REPO_ROOT / "rag_docs"
-_LEGACY_CONTENT_DIR = _BACKEND_DIR / "rag_content"
+VALID_MAXX_IDS = frozenset({"skinmax", "fitmax", "hairmax", "heightmax", "bonemax", "general"})
 
 _INDEX: dict[str, "_Bm25Index"] = {}
 
@@ -50,31 +42,6 @@ _STOP = frozenset({
 
 def _tokenize(s: str) -> list[str]:
     return [t for t in _TOKEN_RE.findall((s or "").lower()) if t not in _STOP and len(t) > 1]
-
-
-def _chunk_id(*, source: str, doc_title: str, section: str, chunk_index: int) -> str:
-    raw = f"{source}|{doc_title}|{section}|{chunk_index}"
-    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
-    return f"{doc_title}:{chunk_index}:{digest}"
-
-
-@dataclass(frozen=True)
-class _DocSource:
-    root: Path
-    label: str
-    priority_boost: float
-
-
-_DOC_SOURCES = (
-    _DocSource(_PRIMARY_CONTENT_DIR, "rag_docs", 1.2),
-    _DocSource(_LEGACY_CONTENT_DIR, "rag_content", 1.0),
-)
-
-_PLACEHOLDER_NEEDLES = (
-    "add your",
-    "content here",
-    "example sections",
-)
 
 
 class _Bm25Index:
@@ -145,28 +112,6 @@ def _clean_line(line: str) -> str:
     return re.sub(r"\s+", " ", (line or "").strip())
 
 
-def _iter_markdown_files(maxx_id: str) -> list[tuple[_DocSource, Path]]:
-    picked: list[tuple[_DocSource, Path]] = []
-    for source in _DOC_SOURCES:
-        folder = source.root / maxx_id
-        if not folder.exists():
-            continue
-        for md in sorted(folder.glob("*.md")):
-            picked.append((source, md))
-    return picked
-
-
-def _looks_like_placeholder(body: str) -> bool:
-    text = (body or "").strip().lower()
-    if not text:
-        return True
-    if all(needle in text for needle in _PLACEHOLDER_NEEDLES):
-        return True
-    if len(text) < 260 and "example sections" in text:
-        return True
-    return False
-
-
 def _split_markdown_with_headings(body: str) -> list[dict]:
     """Chunk markdown by heading path first, then by paragraph budget."""
     lines = (body or "").splitlines()
@@ -223,29 +168,50 @@ def _split_markdown_with_headings(body: str) -> list[dict]:
     return chunks
 
 
-def _load_maxx_index(maxx_id: str) -> _Bm25Index:
-    chunks: list[dict] = []
-    files = _iter_markdown_files(maxx_id)
-    accepted_doc_keys: set[str] = set()
-    if not files:
-        logger.info("RAG: no docs found for %s under %s or %s", maxx_id, _PRIMARY_CONTENT_DIR, _LEGACY_CONTENT_DIR)
+async def _fetch_docs_from_db(maxx_id: str) -> list[tuple[str, str]]:
+    """Fetch (doc_title, full_body) pairs from rag_documents for a module.
+
+    Rows sharing the same doc_title are concatenated in chunk_index order to
+    reassemble the full markdown body.
+    """
+    from db.sqlalchemy import AsyncSessionLocal
+    from sqlalchemy import text
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text(
+                "SELECT doc_title, chunk_index, content "
+                "FROM rag_documents "
+                "WHERE maxx_id = :mid "
+                "ORDER BY doc_title, chunk_index"
+            ),
+            {"mid": maxx_id},
+        )
+        rows = result.fetchall()
+
+    if not rows:
+        return []
+
+    grouped: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    for doc_title, chunk_index, content in rows:
+        grouped[doc_title].append((chunk_index, content))
+
+    docs: list[tuple[str, str]] = []
+    for doc_title, parts in grouped.items():
+        parts.sort(key=lambda t: t[0])
+        full_body = "\n\n".join(content for _, content in parts)
+        docs.append((doc_title, full_body))
+    return docs
+
+
+async def _load_maxx_index(maxx_id: str) -> _Bm25Index:
+    docs = await _fetch_docs_from_db(maxx_id)
+    if not docs:
+        logger.info("RAG: no docs found for %s in rag_documents table", maxx_id)
         return _Bm25Index([])
 
-    for source, md in files:
-        doc_key = md.stem.lower()
-        if doc_key in accepted_doc_keys:
-            continue
-        try:
-            body = md.read_text(encoding="utf-8")
-        except Exception as e:
-            logger.warning("RAG: couldn't read %s: %s", md, e)
-            continue
-        if _looks_like_placeholder(body):
-            logger.info("RAG: skipping placeholder doc %s", md)
-            continue
-        accepted_doc_keys.add(doc_key)
-        doc_title = md.stem
-        rel_source = str(md.relative_to(_REPO_ROOT if source.root == _PRIMARY_CONTENT_DIR else _BACKEND_DIR))
+    chunks: list[dict] = []
+    for doc_title, body in docs:
         for block in _split_markdown_with_headings(body):
             section = block["section"] or doc_title
             content = block["content"]
@@ -261,28 +227,27 @@ def _load_maxx_index(maxx_id: str) -> _Bm25Index:
                 "search_text": search_text,
                 "doc_title": doc_title,
                 "chunk_index": int(block["chunk_index"]),
-                "priority_boost": source.priority_boost,
+                "priority_boost": 1.0,
                 "metadata": {
-                    "source": rel_source,
+                    "source": "rag_documents",
                     "section": section,
-                    "source_set": source.label,
                 },
             })
 
-    logger.info("RAG: indexed %s (%d chunks across %d files)", maxx_id, len(chunks), len(files))
+    logger.info("RAG: indexed %s (%d chunks across %d docs)", maxx_id, len(chunks), len(docs))
     return _Bm25Index(chunks)
 
 
-def _get_index(maxx_id: str) -> _Bm25Index:
+async def _get_index(maxx_id: str) -> _Bm25Index:
     idx = _INDEX.get(maxx_id)
     if idx is None:
-        idx = _load_maxx_index(maxx_id)
+        idx = await _load_maxx_index(maxx_id)
         _INDEX[maxx_id] = idx
     return idx
 
 
 def reload_indexes() -> None:
-    """Clear the in-memory cache. Call after editing rag docs."""
+    """Clear the in-memory cache. Call after editing rag docs in Supabase."""
     _INDEX.clear()
 
 
@@ -293,23 +258,32 @@ async def retrieve_chunks(
     k: int = 4,
     min_similarity: float = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35),
 ) -> list[dict]:
-    """Return top-k BM25-scored chunks for the requested module."""
+    """Return top-k BM25-scored chunks for the requested module.
+
+    Also searches the 'general' index (cross-cutting knowledge like sleep,
+    debloat, eyes, stress) and merges results so every answer can draw on
+    both module-specific and general content.
+    """
     if not query or not query.strip():
         return []
     if maxx_id not in VALID_MAXX_IDS:
         return []
     t0 = time.perf_counter()
     try:
-        idx = _get_index(maxx_id)
-        rows = idx.top_k(query, k=k, min_score=min_similarity)
-        log_retrieval(
-            maxx_id=maxx_id,
-            elapsed_ms=(time.perf_counter() - t0) * 1000,
-            hits=len(rows),
-            threshold=min_similarity,
-            query_tokens=len(_tokenize(query)),
-        )
-        return rows
+        idx = await _get_index(maxx_id)
+        results = idx.top_k(query, k=k, min_score=min_similarity)
+
+        if maxx_id != "general":
+            try:
+                gen_idx = await _get_index("general")
+                gen_results = gen_idx.top_k(query, k=max(k // 2, 2), min_score=min_similarity)
+                results.extend(gen_results)
+                results.sort(key=lambda c: c.get("similarity", 0.0), reverse=True)
+                results = results[:k]
+            except Exception:
+                pass  # general index may be empty; non-fatal
+
+        return results
     except Exception as e:
         logger.warning("RAG retrieve_chunks failed (maxx=%s): %s", maxx_id, e)
         return []
@@ -317,9 +291,9 @@ async def retrieve_chunks(
 
 def embed_text(*_args, **_kwargs):  # pragma: no cover
     raise RuntimeError(
-        "embed_text is no longer used — file-based RAG reads from rag_docs/ and backend/rag_content/."
+        "embed_text is no longer used — DB-backed RAG reads from rag_documents table."
     )
 
 
 def _vec_to_pg_str(*_args, **_kwargs):  # pragma: no cover
-    raise RuntimeError("pgvector helpers are gone — file-based RAG doesn't use vectors.")
+    raise RuntimeError("pgvector helpers are gone — DB-backed RAG doesn't use vectors.")

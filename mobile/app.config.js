@@ -14,10 +14,24 @@ module.exports = () => {
     const communityGuidelinesUrl = process.env.EXPO_PUBLIC_COMMUNITY_GUIDELINES_URL;
     const cookieNoticeUrl = process.env.EXPO_PUBLIC_COOKIE_NOTICE_URL;
     const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+    const buildPlatform =
+        process.env.EAS_BUILD_PLATFORM ||
+        process.env.EXPO_OS ||
+        process.env.PLATFORM ||
+        '';
+    const isIosBuild = buildPlatform === 'ios';
+    const plugins = Array.isArray(ex.plugins) ? ex.plugins : [];
+    const filteredPlugins = isIosBuild
+        ? plugins.filter((plugin) => {
+            const name = Array.isArray(plugin) ? plugin[0] : plugin;
+            return name !== '@stripe/stripe-react-native';
+        })
+        : plugins;
 
     return {
         expo: {
             ...ex,
+            plugins: filteredPlugins,
             extra: {
                 ...baseExtra,
                 supportEmail: supportEmail || baseExtra.supportEmail,
