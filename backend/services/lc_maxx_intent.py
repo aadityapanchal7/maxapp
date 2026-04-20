@@ -74,7 +74,7 @@ async def infer_maxx_chat_intent(
     )
 
     try:
-        llm = get_primary_llm(max_tokens=128).bind(temperature=0.2)
+        llm = get_primary_llm(max_tokens=128, temperature=0.2)
         structured = llm.with_structured_output(MaxxChatIntent)
         out: MaxxChatIntent = await structured.ainvoke(
             [

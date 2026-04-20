@@ -131,7 +131,7 @@ _LLM_FALLBACK_EXCEPTIONS = _llm_fallback_exception_types()
 # Per-provider builders
 # ---------------------------------------------------------------------------
 
-def _build_gemini_llm(max_tokens: int) -> BaseChatModel:
+def _build_gemini_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatModel:
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     key = (settings.gemini_api_key or "").strip()
@@ -143,7 +143,7 @@ def _build_gemini_llm(max_tokens: int) -> BaseChatModel:
         model=model,
         google_api_key=key,
         max_output_tokens=max_tokens,
-        temperature=0.7,
+        temperature=temperature,
         timeout=settings.llm_timeout_seconds,
         # Disable LangChain's internal retry loop. llm_router does provider-level
         # failover (gemini → openai), so per-call retries just add 30-90s of dead
@@ -152,7 +152,7 @@ def _build_gemini_llm(max_tokens: int) -> BaseChatModel:
     )
 
 
-def _build_openai_llm(max_tokens: int) -> BaseChatModel:
+def _build_openai_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatModel:
     from langchain_openai import ChatOpenAI
 
     key = (settings.openai_api_key or "").strip()
@@ -164,13 +164,13 @@ def _build_openai_llm(max_tokens: int) -> BaseChatModel:
         model=model,
         api_key=key,
         max_tokens=max_tokens,
-        temperature=0.7,
+        temperature=temperature,
         timeout=settings.llm_timeout_seconds,
         max_retries=0,
     )
 
 
-def _build_mistral_llm(max_tokens: int) -> BaseChatModel:
+def _build_mistral_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatModel:
     from langchain_mistralai import ChatMistralAI
 
     key = (settings.mistral_api_key or "").strip()
@@ -182,7 +182,7 @@ def _build_mistral_llm(max_tokens: int) -> BaseChatModel:
         model=model,
         mistral_api_key=key,
         max_tokens=max_tokens,
-        temperature=0.7,
+        temperature=temperature,
         timeout=settings.llm_timeout_seconds,
         max_retries=0,
     )
@@ -205,19 +205,21 @@ _FALLBACK_ORDER: dict[str, list[str]] = {
 }
 
 
-def _try_build(provider: str, max_tokens: int) -> Optional[BaseChatModel]:
+def _try_build(provider: str, max_tokens: int, temperature: float = 0.7) -> Optional[BaseChatModel]:
     """Attempt to build a provider LLM; return None if the key is missing."""
     try:
-        return _BUILDERS[provider](max_tokens)
+        return _BUILDERS[provider](max_tokens, temperature=temperature)
     except Exception:
         return None
 
 
-def _build_fallback_list(primary_name: str, max_tokens: int) -> List[BaseChatModel]:
+def _build_fallback_list(
+    primary_name: str, max_tokens: int, temperature: float = 0.7
+) -> List[BaseChatModel]:
     """Return all available fallback LLMs in priority order (primary excluded)."""
     fallbacks: List[BaseChatModel] = []
     for candidate in _FALLBACK_ORDER.get(primary_name, []):
-        llm = _try_build(candidate, max_tokens)
+        llm = _try_build(candidate, max_tokens, temperature=temperature)
         if llm is not None:
             fallbacks.append(llm)
     return fallbacks
@@ -227,10 +229,10 @@ def _build_fallback_list(primary_name: str, max_tokens: int) -> List[BaseChatMod
 # Public API
 # ---------------------------------------------------------------------------
 
-def get_primary_llm(max_tokens: int = 768) -> BaseChatModel:
+def get_primary_llm(max_tokens: int = 768, temperature: float = 0.7) -> BaseChatModel:
     """Return the primary LLM configured by LLM_PROVIDER. No fallback."""
     provider = llm_provider()
-    llm = _try_build(provider, max_tokens)
+    llm = _try_build(provider, max_tokens, temperature=temperature)
     if llm is None:
         raise ValueError(
             f"LLM_PROVIDER={provider!r} but the corresponding API key is not set. "
@@ -239,7 +241,7 @@ def get_primary_llm(max_tokens: int = 768) -> BaseChatModel:
     return llm
 
 
-def get_chat_llm_with_fallback(max_tokens: int = 768) -> BaseChatModel:
+def get_chat_llm_with_fallback(max_tokens: int = 768, temperature: float = 0.7) -> BaseChatModel:
     """
     Return the primary LLM with available fallback(s) registered via
     LangChain's native .with_fallbacks(). Use for plain text generation
@@ -248,8 +250,8 @@ def get_chat_llm_with_fallback(max_tokens: int = 768) -> BaseChatModel:
     primary_name = llm_provider()
     logger.debug("[lc_providers] primary=%s max_tokens=%d", primary_name, max_tokens)
 
-    primary = get_primary_llm(max_tokens)
-    fallbacks = _build_fallback_list(primary_name, max_tokens)
+    primary = get_primary_llm(max_tokens, temperature=temperature)
+    fallbacks = _build_fallback_list(primary_name, max_tokens, temperature=temperature)
 
     if not fallbacks:
         logger.warning(

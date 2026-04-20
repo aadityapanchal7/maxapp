@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from config import settings
 from services.rag_service import retrieve_chunks
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,25 @@ _CURATED_PRODUCTS = {
         "Ketoconazole Shampoo",
         "Nizoral",
         "Dermaroller",
+    ],
+}
+
+_CURATED_BRANDS = {
+    "skinmax": [
+        "CeraVe",
+        "Paula's Choice",
+        "EltaMD",
+        "La Roche-Posay",
+        "The Ordinary",
+        "Differin",
+        "SkinCeuticals",
+        "Dr. Jart+",
+    ],
+    "hairmax": [
+        "Rogaine",
+        "Hims",
+        "Keeps",
+        "Nizoral",
     ],
 }
 
@@ -133,6 +153,48 @@ def _amazon_search_url(name: str) -> str:
     return f"https://www.amazon.com/s?k={quote_plus(name)}"
 
 
+def _brand_name(product_name: str) -> str:
+    aliases = (
+        ("paulaschoice", "Paula's Choice"),
+        ("eltamd", "EltaMD"),
+        ("larocheposay", "La Roche-Posay"),
+        ("cerave", "CeraVe"),
+        ("theordinary", "The Ordinary"),
+        ("drjart", "Dr. Jart+"),
+        ("skinceuticals", "SkinCeuticals"),
+        ("hims", "Hims"),
+        ("nizoral", "Nizoral"),
+        ("rogaine", "Rogaine"),
+        ("keeps", "Keeps"),
+    )
+    norm_full = _normalize(product_name)
+    for needle, brand in aliases:
+        if norm_full.startswith(needle):
+            return brand
+    toks = _norm_tokens(product_name)
+    if not toks:
+        return product_name
+    return toks[0].title()
+
+
+def product_brands_for_module(maxx_id: str, max_brands: int = 8) -> list[str]:
+    curated = list(_CURATED_BRANDS.get(maxx_id, []))
+    if curated:
+        return curated[:max_brands]
+    brands: list[str] = []
+    seen: set[str] = set()
+    for name in _module_products(maxx_id):
+        brand = _brand_name(name)
+        key = _normalize(brand)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        brands.append(brand)
+        if len(brands) >= max_brands:
+            break
+    return brands
+
+
 async def product_links_from_context(
     *,
     message: str,
@@ -141,7 +203,11 @@ async def product_links_from_context(
 ) -> str:
     """Return Amazon search links for module-relevant products."""
     module_products = _module_products(maxx_id)
-    retrieved = await retrieve_chunks(None, maxx_id, message, k=4, min_similarity=0.35)
+    min_similarity = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35)
+    top_k = int(getattr(settings, "rag_top_k", 4) or 4)
+    retrieved = await retrieve_chunks(
+        None, maxx_id, message, k=top_k, min_similarity=min_similarity
+    )
     evidence_text = "\n".join(c.get("content", "") for c in retrieved)
     evidence_products = _extract_products(evidence_text)
 

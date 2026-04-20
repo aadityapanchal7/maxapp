@@ -19,7 +19,7 @@ async def main():
 
         r = await conn.execute(text(
             "select table_schema, table_name from information_schema.tables "
-            "where table_name in ('kb_chunks','app_users','scheduled_notifications','partner_rules') "
+            "where table_name in ('app_users','chat_history','scheduled_notifications','partner_rules') "
             "order by table_name"
         ))
         print("\nTABLES visible:")

@@ -21,13 +21,14 @@ from middleware.auth_middleware import require_paid_user
 from models.leaderboard import ChatRequest, ChatResponse
 from models.sqlalchemy_models import ChatHistory, Scan, User
 from services.coaching_service import coaching_service
+from services.chat_telemetry import fast_path_snapshot, note_chat_turn
 from services.lc_agent import make_chat_tools, run_chat_agent
 from services.lc_memory import history_dicts_to_lc_messages
 from services.nutrition_service import nutrition_service
 from services.storage_service import storage_service
 from services.intent_classifier import classify_turn
 from services.fast_rag_answer import answer_from_rag
-from services.fast_product_links import product_links_from_context
+from services.fast_product_links import product_links_from_context, product_brands_for_module
 from services.bonemax_chat_prompt import BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT
 from services.maxx_guidelines import SKINMAX_PROTOCOLS, resolve_skin_concern
 from services.prompt_loader import PromptKey, resolve_prompt
@@ -83,6 +84,23 @@ def _friendly_llm_error_message(llm_err: BaseException) -> str:
     )
 
 
+def _chunk_audit_refs(chunks: list[dict]) -> list[str] | None:
+    refs: list[str] = []
+    for chunk in chunks or []:
+        if not isinstance(chunk, dict):
+            continue
+        ref = str(chunk.get("id") or "").strip()
+        if not ref:
+            meta = chunk.get("metadata") or {}
+            source = str(meta.get("source") or chunk.get("doc_title") or "").strip()
+            section = str(meta.get("section") or chunk.get("chunk_index") or "").strip()
+            if source:
+                ref = f"{source}::{section}" if section else source
+        if ref and ref not in refs:
+            refs.append(ref)
+    return refs or None
+
+
 def _coerce_chat_maxx_id(raw: Optional[str]) -> Optional[str]:
     """Normalize init_context / inferred maxx id so HairMax, hair-max, etc. hit the right SYSTEM branch."""
     if not raw:
@@ -112,6 +130,18 @@ def _looks_like_link_request(text: str) -> bool:
         or "links" in s
         or "where can i buy" in s
         or "buy this" in s
+    )
+
+
+def _looks_like_brand_request(text: str) -> bool:
+    s = (text or "").lower()
+    return (
+        "brand" in s
+        or "brands" in s
+        or "what should i buy" in s
+        or "what to buy" in s
+        or "product rec" in s
+        or "product recommendation" in s
     )
 
 
@@ -1384,6 +1414,7 @@ async def process_chat_message(
     """
     from services.schedule_service import schedule_service, ScheduleLimitError
     user_uuid = UUID(user_id)
+    note_chat_turn()
 
     fitmax_schedule_active = None
     hairmax_schedule_active = None
@@ -1409,10 +1440,14 @@ async def process_chat_message(
         for h in history_rows
     ]
 
-    coaching_context = await coaching_service.build_full_context(user_id, db, rds_db)
     active_schedule = await schedule_service.get_current_schedule(user_id, db=db)
     user = await db.get(User, user_uuid)
     onboarding = _merge_onboarding_with_schedule_prefs(user)
+    active_hint = str((active_schedule or {}).get("maxx_id") or "").strip() or None
+    explicit_chat_intent = _coerce_chat_intent(chat_intent)
+    explicit_schedule_start = explicit_chat_intent == "start_schedule"
+    start_schedule_maxx = _coerce_chat_maxx_id(init_context) if explicit_schedule_start else None
+    turn_intent = classify_turn(message_text, active_maxx=active_hint)
     # Batch all stale-flag cleanups into a single commit. Previously this block
     # could issue up to 5 separate commits before the LLM call even started --
     # each one a ~5-20ms round-trip. Now: mutate in memory, commit once at end.
@@ -1455,7 +1490,7 @@ async def process_chat_message(
             await db.commit()
 
     user_context = {
-        "coaching_context": coaching_context,
+        "coaching_context": "",
         "active_schedule": active_schedule,
         "onboarding": onboarding,
     }
@@ -1507,6 +1542,112 @@ async def process_chat_message(
         else:
             hints = turn_intent.get("maxx_hints") or []
             maxx_id = hints[0] if hints else active_hint
+
+    image_data = None
+    if attachment_url and attachment_type == "image":
+        image_data = await storage_service.get_image(attachment_url)
+
+    link_maxx = list(turn_intent.get("maxx_hints") or [])
+    if not link_maxx and active_hint:
+        link_maxx = [active_hint]
+
+    if (
+        not explicit_schedule_start
+        and not image_data
+        and _looks_like_link_request(message_text)
+        and link_maxx
+    ):
+        link_response = await product_links_from_context(
+            message=message_text,
+            maxx_id=str(link_maxx[0]),
+        )
+        if link_response:
+            if _persist_chat_history(channel):
+                db.add(ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                ))
+                db.add(ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=link_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                ))
+            await db.commit()
+            fast_path_snapshot("links")
+            logger.info("[FAST_LINKS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
+            return _finalize_assistant_message(link_response), []
+
+    if (
+        not explicit_schedule_start
+        and not image_data
+        and _looks_like_brand_request(message_text)
+        and link_maxx
+    ):
+        brands = product_brands_for_module(str(link_maxx[0]))
+        if brands:
+            brand_lines = ["here's a quick brand list from the current module references:"]
+            for brand in brands:
+                brand_lines.append(f"- {brand}")
+            brand_lines.append("if you want, ask for amazon links and i can give you quick search links.")
+            brand_response = "\n".join(brand_lines)
+            if _persist_chat_history(channel):
+                db.add(ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                ))
+                db.add(ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=brand_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                ))
+            await db.commit()
+            fast_path_snapshot("brands")
+            logger.info("[FAST_BRANDS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
+            return _finalize_assistant_message(brand_response), []
+
+    if turn_intent.get("intent") == "KNOWLEDGE" and (turn_intent.get("maxx_hints") or active_hint):
+        fast_response, fast_chunks = await answer_from_rag(
+            message=message_text,
+            maxx_hints=turn_intent.get("maxx_hints") or [],
+            active_maxx=active_hint,
+        )
+        if fast_response:
+            if _persist_chat_history(channel):
+                db.add(ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                ))
+                db.add(ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=fast_response,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                    retrieved_chunk_ids=_chunk_audit_refs(fast_chunks),
+                ))
+            await db.commit()
+            fast_path_snapshot("knowledge")
+            logger.info(
+                "[FAST_RAG] user=%s intent=%s hints=%s chunks=%d",
+                str(user_id)[:8],
+                turn_intent.get("intent"),
+                turn_intent.get("maxx_hints"),
+                len(fast_chunks),
+            )
+            return _finalize_assistant_message(fast_response), []
 
     if maxx_id and maxx_id != "fitmax" and user:
         prof = dict(user.profile or {})
@@ -2402,9 +2543,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     retrieved_chunks: list[dict] = []
     partner_rule_ids: list[int] = []
     try:
-        _maxx = None
-        if explicit_schedule_start:
-            _maxx = (active_schedule or {}).get("maxx_id") if active_schedule else maxx_id
+        _maxx = maxx_id or ((active_schedule or {}).get("maxx_id") if active_schedule else None)
         if _maxx and turn_intent.get("intent") != "KNOWLEDGE":
             retrieved_chunks = await rag_retrieve_chunks(
                 db,
@@ -2415,6 +2554,13 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             )
     except Exception as rag_err:
         logger.warning("RAG retrieval skipped: %s", rag_err)
+
+    user_context["coaching_context"] = await coaching_service.build_full_context(
+        user_id,
+        db,
+        rds_db,
+        intent=str(turn_intent.get("intent") or "OTHER"),
+    )
 
     # --- Inject tone preamble + RAG context + partner suffix into coaching_context ---
     # user_context.coaching_context is later rendered as `## USER CONTEXT:` by the
@@ -2544,10 +2690,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             content=response_text,
             channel=channel,
             created_at=datetime.utcnow(),
-            retrieved_chunk_ids=[
-                c["id"] for c in retrieved_chunks
-                if isinstance(c, dict) and isinstance(c.get("id"), int)
-            ] or None,
+            retrieved_chunk_ids=_chunk_audit_refs(retrieved_chunks),
             partner_rule_ids=partner_rule_ids or None,
         )
         db.add(user_message)

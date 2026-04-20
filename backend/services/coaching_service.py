@@ -19,11 +19,13 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
+from services.chat_telemetry import log_context_build
 from services.llm_sync import sync_llm_plain_text
 from models.sqlalchemy_models import User, UserCoachingState, UserSchedule, ChatHistory, Scan
 from db.sqlalchemy import AsyncSessionLocal
 from services.prompt_loader import PromptKey, resolve_prompt
 from services.sms_reply_style import SMS_OUTBOUND_LLM_APPENDIX
+from services.token_budget import count_tokens, trim_context_blob, trim_text_block
 
 
 def _strip_asterisks_outbound(text: str) -> str:
@@ -151,6 +153,71 @@ Rules:
 Output ONLY the message body, no quotes."""
 
 
+def _context_requirements(intent: str | None) -> dict[str, bool]:
+    intent_key = (intent or "OTHER").strip().upper() or "OTHER"
+    if intent_key in {"KNOWLEDGE", "GREETING"}:
+        return {"schedules": False, "task_completions": False, "module_engines": False}
+    if intent_key == "ONBOARDING":
+        return {"schedules": True, "task_completions": False, "module_engines": True}
+    if intent_key in {"SCHEDULE_CHANGE", "CHECK_IN"}:
+        return {"schedules": True, "task_completions": True, "module_engines": True}
+    return {"schedules": True, "task_completions": False, "module_engines": False}
+
+
+def _clean_memory_summary(text: str, *, max_tokens: int = 120) -> str:
+    return trim_text_block(
+        (text or "").strip(),
+        max_tokens=max_tokens,
+        preserve_head_chars=400,
+        preserve_tail_chars=0,
+    )
+
+
+def _format_memory_slots(user: User, onboarding: dict[str, Any], state: UserCoachingState) -> str:
+    goals: list[str] = []
+    ob_goals = onboarding.get("goals")
+    if isinstance(ob_goals, list):
+        goals.extend(str(g) for g in ob_goals if g)
+    elif ob_goals:
+        goals.append(str(ob_goals))
+    for extra in (
+        state.primary_goal,
+        onboarding.get("fitmax_primary_goal"),
+        onboarding.get("primary_skin_concern"),
+        onboarding.get("secondary_skin_concern"),
+    ):
+        if extra:
+            goals.append(str(extra))
+    deduped_goals = list(dict.fromkeys(g.strip() for g in goals if str(g).strip()))
+
+    injuries = []
+    for item in list(state.injuries or [])[-3:]:
+        area = str((item or {}).get("area") or "").strip()
+        note = str((item or {}).get("note") or "").strip()
+        if area and note:
+            injuries.append(f"{area} ({note})")
+        elif area:
+            injuries.append(area)
+
+    tolerances: list[str] = []
+    for raw in (
+        onboarding.get("hair_side_effect_sensitivity"),
+        onboarding.get("skincare_routine_level"),
+        onboarding.get("skin_type"),
+    ):
+        if raw:
+            tolerances.append(str(raw).strip())
+    tone = str(getattr(user, "coaching_tone", "") or state.preferred_tone or "default").strip()
+
+    return "\n".join([
+        "MEMORY SLOTS:",
+        f"- goals: {', '.join(deduped_goals) if deduped_goals else 'unknown'}",
+        f"- injuries: {', '.join(injuries) if injuries else 'none noted'}",
+        f"- tolerances: {', '.join(dict.fromkeys(tolerances)) if tolerances else 'none noted'}",
+        f"- tone: {tone or 'default'}",
+    ])
+
+
 class CoachingService:
 
     # Expose the module-level cache invalidator as an instance method so callers
@@ -251,9 +318,13 @@ class CoachingService:
         if not user:
             return
 
+        cleaned_summary = _clean_memory_summary(conversation_summary, max_tokens=120)
+        if not cleaned_summary:
+            return
+
         summaries = list(user.ai_summaries or [])
         summaries.append({
-            "summary": conversation_summary,
+            "summary": cleaned_summary,
             "date": datetime.utcnow().isoformat(),
         })
         # Keep only last 3
@@ -263,8 +334,12 @@ class CoachingService:
         user.ai_summaries = summaries
         flag_modified(user, "ai_summaries")
 
-        # Build a merged context from all 3 summaries
-        merged = "\n---\n".join(s["summary"] for s in summaries)
+        # Keep the narrative memory short; durable facts live in structured slots.
+        merged = "\n---\n".join(
+            _clean_memory_summary(str(s.get("summary") or ""), max_tokens=80)
+            for s in summaries[-2:]
+            if str(s.get("summary") or "").strip()
+        )
         user.ai_context = merged
         user.updated_at = datetime.utcnow()
         await db.commit()
@@ -317,7 +392,14 @@ class CoachingService:
     # Context builder — pulls everything for the AI prompt
     # ------------------------------------------------------------------
 
-    async def build_full_context(self, user_id: str, db: AsyncSession, rds_db=None) -> str:
+    async def build_full_context(
+        self,
+        user_id: str,
+        db: AsyncSession,
+        rds_db=None,
+        *,
+        intent: str = "OTHER",
+    ) -> str:
         """
         Build the complete user context string for the AI prompt.
         Pulls: onboarding, coaching state, schedule, scans, AI memory, maxx guidelines.
@@ -328,15 +410,35 @@ class CoachingService:
         The cached string excludes CURRENT_TIME_FOR_USER so clock answers stay
         accurate on every turn (light onboarding fetch on cache hit).
         """
-        cache_key = str(user_id)
+        cache_key = f"{user_id}:{(intent or 'OTHER').upper()}"
         now_m = time.monotonic()
+        t0 = time.perf_counter()
+        cache_hit = False
         with _CONTEXT_CACHE_LOCK:
             hit = _CONTEXT_CACHE.get(cache_key)
         if hit and (now_m - hit[0]) < _CONTEXT_CACHE_TTL_SEC:
+            cache_hit = True
             ob = await self._fetch_onboarding_for_time(user_id, db)
-            return hit[1] + "\n\n" + _authoritative_local_time_block(ob)
+            result = hit[1] + "\n\n" + _authoritative_local_time_block(ob)
+            log_context_build(
+                intent=intent,
+                elapsed_ms=(time.perf_counter() - t0) * 1000,
+                cache_hit=cache_hit,
+                tokens=count_tokens(result),
+                sections=["cached"],
+            )
+            return result
 
-        core, onboarding = await self._build_full_context_uncached(user_id, db, rds_db)
+        core, onboarding, sections = await self._build_full_context_uncached(
+            user_id,
+            db,
+            rds_db,
+            intent=intent,
+        )
+        bounded = trim_context_blob(
+            core,
+            max_tokens=int(getattr(settings, "chat_max_coaching_context_tokens", 1800) or 1800),
+        )
 
         with _CONTEXT_CACHE_LOCK:
             # Best-effort LRU: if cache is full, evict the oldest entry.
@@ -346,8 +448,16 @@ class CoachingService:
                     _CONTEXT_CACHE.pop(oldest_key, None)
                 except ValueError:
                     pass
-            _CONTEXT_CACHE[cache_key] = (now_m, core)
-        return core + "\n\n" + _authoritative_local_time_block(onboarding)
+            _CONTEXT_CACHE[cache_key] = (now_m, bounded)
+        result = bounded + "\n\n" + _authoritative_local_time_block(onboarding)
+        log_context_build(
+            intent=intent,
+            elapsed_ms=(time.perf_counter() - t0) * 1000,
+            cache_hit=cache_hit,
+            tokens=count_tokens(result),
+            sections=sections,
+        )
+        return result
 
     async def _fetch_onboarding_for_time(self, user_id: str, db: AsyncSession) -> dict[str, Any]:
         """Single-column read for fresh timezone without rebuilding full context."""
@@ -357,16 +467,23 @@ class CoachingService:
         return ob if isinstance(ob, dict) else {}
 
     async def _build_full_context_uncached(
-        self, user_id: str, db: AsyncSession, rds_db=None
-    ) -> Tuple[str, dict[str, Any]]:
+        self,
+        user_id: str,
+        db: AsyncSession,
+        rds_db=None,
+        *,
+        intent: str = "OTHER",
+    ) -> Tuple[str, dict[str, Any], list[str]]:
         user_uuid = UUID(user_id)
         user = await db.get(User, user_uuid)
         if not user:
-            return "", {}
+            return "", {}, []
 
         parts = []
+        sections: list[str] = []
         onboarding = user.onboarding or {}
         state = await self.get_or_create_state(user_id, db)
+        requirements = _context_requirements(intent)
 
         # --- Account (address naturally in replies) ---
         account_bits = []
@@ -381,6 +498,7 @@ class CoachingService:
                 "ACCOUNT — use first name when greeting if present; username is social handle: "
                 + " | ".join(account_bits)
             )
+            sections.append("account")
 
         # --- User profile (signup / global onboarding — always surface for schedule + chat flows) ---
         profile_bits = []
@@ -433,6 +551,7 @@ class CoachingService:
                 "GLOBAL ONBOARDING (from app signup — use as source of truth; do not re-ask unless user wants to change): "
                 + " | ".join(global_bits)
             )
+            sections.append("onboarding")
         wt = onboarding.get("wake_time")
         st = onboarding.get("sleep_time")
         sp = user.schedule_preferences or {}
@@ -448,6 +567,7 @@ class CoachingService:
             )
         if profile_bits:
             parts.append(f"PROFILE: {' | '.join(profile_bits)}")
+            sections.append("profile")
 
         # --- Coaching state ---
         coaching_bits = []
@@ -470,10 +590,15 @@ class CoachingService:
             coaching_bits.append(f"injuries: {inj_str}")
         if coaching_bits:
             parts.append(f"COACHING STATE: {' | '.join(coaching_bits)}")
+            sections.append("state")
 
         # --- Tone (user preference; AI decides how to adapt) ---
         if state.preferred_tone:
             parts.append(f"User responds better to: {state.preferred_tone} tone")
+            sections.append("tone")
+
+        parts.append(_format_memory_slots(user, onboarding, state))
+        sections.append("memory_slots")
 
         # --- Latest scan ---
         scan_result = await db.execute(
@@ -483,14 +608,17 @@ class CoachingService:
         if scan and scan.analysis:
             a = scan.analysis
             parts.append(f"LATEST SCAN: score={a.get('overall_score', '?')}/10, focus={a.get('focus_areas', [])}")
+            sections.append("latest_scan")
 
         # --- Active schedules ---
-        sched_result = await db.execute(
-            select(UserSchedule).where(
-                (UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True)
-            ).order_by(UserSchedule.created_at.desc()).limit(3)
-        )
-        schedules = sched_result.scalars().all()
+        schedules = []
+        if requirements["schedules"]:
+            sched_result = await db.execute(
+                select(UserSchedule).where(
+                    (UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True)
+                ).order_by(UserSchedule.created_at.desc()).limit(3)
+            )
+            schedules = sched_result.scalars().all()
         skinmax_protocol_added = False
         bonemax_protocol_added = False
         heightmax_protocol_added = False
@@ -530,9 +658,11 @@ class CoachingService:
                 else:
                     sched_str += " | outside_today: unknown — ask user each morning"
             parts.append(sched_str)
+            if "schedules" not in sections:
+                sections.append("schedules")
 
             # --- Skinmax notification engine + protocol (for skin Q&A & SMS alignment) ---
-            if s.maxx_id == "skinmax" and not skinmax_protocol_added:
+            if requirements["module_engines"] and s.maxx_id == "skinmax" and not skinmax_protocol_added:
                 concern = ctx.get("skin_concern", "aging")
                 wt = ctx.get("wake_time") or onboarding.get("wake_time") or "07:00"
                 st = ctx.get("sleep_time") or onboarding.get("sleep_time") or "23:00"
@@ -553,9 +683,11 @@ class CoachingService:
                     f"SKINMAX NOTIFICATION ENGINE (reference for skin + routine):\n{protocol_section}"
                 )
                 skinmax_protocol_added = True
+                if "module_engines" not in sections:
+                    sections.append("module_engines")
 
             # --- BoneMax notification engine (jaw / posture / SMS alignment) ---
-            if s.maxx_id == "bonemax" and not bonemax_protocol_added:
+            if requirements["module_engines"] and s.maxx_id == "bonemax" and not bonemax_protocol_added:
                 from services.guideline_service import get_maxx_guideline_async
                 from services.maxx_guidelines import MAXX_GUIDELINES, build_bonemax_prompt_section
 
@@ -579,8 +711,10 @@ class CoachingService:
                     f"BONEMAX NOTIFICATION ENGINE (reference for jaw + posture + routine):\n{bonemax_block}"
                 )
                 bonemax_protocol_added = True
+                if "module_engines" not in sections:
+                    sections.append("module_engines")
 
-            if s.maxx_id == "heightmax" and not heightmax_protocol_added:
+            if requirements["module_engines"] and s.maxx_id == "heightmax" and not heightmax_protocol_added:
                 from services.guideline_service import (
                     build_heightmax_protocol_section,
                     get_maxx_guideline_async,
@@ -630,8 +764,10 @@ class CoachingService:
                     f"HEIGHTMAX NOTIFICATION ENGINE (reference for posture + sleep + sprints):\n{hm_block}"
                 )
                 heightmax_protocol_added = True
+                if "module_engines" not in sections:
+                    sections.append("module_engines")
 
-            if s.maxx_id == "hairmax" and not hairmax_protocol_added:
+            if requirements["module_engines"] and s.maxx_id == "hairmax" and not hairmax_protocol_added:
                 from services.maxx_guidelines import (
                     HAIRMAX_PROTOCOLS,
                     build_hairmax_prompt_section,
@@ -662,8 +798,10 @@ class CoachingService:
                     f"HAIRMAX NOTIFICATION ENGINE (reference for hair loss stack + routine):\n{hair_block}"
                 )
                 hairmax_protocol_added = True
+                if "module_engines" not in sections:
+                    sections.append("module_engines")
 
-            if s.maxx_id == "fitmax" and not fitmax_protocol_added:
+            if requirements["module_engines"] and s.maxx_id == "fitmax" and not fitmax_protocol_added:
                 from services.guideline_service import get_maxx_guideline_async
                 from services.maxx_guidelines import MAXX_GUIDELINES, build_fitmax_prompt_section
 
@@ -692,33 +830,39 @@ class CoachingService:
                     f"FITMAX NOTIFICATION ENGINE (reference for training + nutrition + body-comp SMS):\n{fm_block}"
                 )
                 fitmax_protocol_added = True
+                if "module_engines" not in sections:
+                    sections.append("module_engines")
 
-        completed_today: list[str] = []
-        for s in schedules:
-            label = s.course_title or s.maxx_id or "program"
-            for day in s.days or []:
-                if day.get("date") != today_iso:
-                    continue
-                for t in day.get("tasks") or []:
-                    if str(t.get("status", "")).lower() == "completed":
-                        completed_today.append(
-                            f"- {t.get('time', '?')} {t.get('title', '?')} ({label})"
-                        )
-        if completed_today:
-            parts.append(
-                "TASKS COMPLETED TODAY (use this to answer SMS/app questions about what they finished or checked off):\n"
-                + "\n".join(completed_today[:25])
-            )
-        elif schedules:
-            parts.append(
-                "TASKS COMPLETED TODAY: none marked completed yet for the user's local calendar date across active schedules."
-            )
+        if requirements["task_completions"]:
+            completed_today: list[str] = []
+            for s in schedules:
+                label = s.course_title or s.maxx_id or "program"
+                for day in s.days or []:
+                    if day.get("date") != today_iso:
+                        continue
+                    for t in day.get("tasks") or []:
+                        if str(t.get("status", "")).lower() == "completed":
+                            completed_today.append(
+                                f"- {t.get('time', '?')} {t.get('title', '?')} ({label})"
+                            )
+            if completed_today:
+                parts.append(
+                    "TASKS COMPLETED TODAY (use this to answer SMS/app questions about what they finished or checked off):\n"
+                    + "\n".join(completed_today[:25])
+                )
+                sections.append("task_completions")
+            elif schedules:
+                parts.append(
+                    "TASKS COMPLETED TODAY: none marked completed yet for the user's local calendar date across active schedules."
+                )
+                sections.append("task_completions")
 
         # --- AI memory ---
         if user.ai_context:
-            parts.append(f"MEMORY (from past convos):\n{user.ai_context}")
+            parts.append(f"RECENT MEMORY SUMMARY:\n{_clean_memory_summary(user.ai_context, max_tokens=80)}")
+            sections.append("memory_summary")
 
-        return "\n".join(parts), onboarding
+        return "\n".join(parts), onboarding, sections
 
     # ------------------------------------------------------------------
     # Check-in message generation — fully AI-driven, no hardcoded tone
@@ -733,7 +877,7 @@ class CoachingService:
         missed_today: int,
     ) -> tuple[str | None, str]:
         """DB-only: Fitmax-specific prompt if applicable, plus general fallback prompt."""
-        context_str = await self.build_full_context(user_id, db, rds_db)
+        context_str = await self.build_full_context(user_id, db, rds_db, intent="CHECK_IN")
         if not context_str:
             context_str = "No context yet."
 
@@ -838,7 +982,7 @@ class CoachingService:
         self, user_id: str, db: AsyncSession, rds_db
     ) -> tuple[str, str]:
         """Returns (gemini_prompt, fallback_sms_with_name_placeholder filled)."""
-        context_str = await self.build_full_context(user_id, db, rds_db)
+        context_str = await self.build_full_context(user_id, db, rds_db, intent="OTHER")
         if not context_str:
             context_str = "No context yet."
         user = await db.get(User, UUID(user_id))

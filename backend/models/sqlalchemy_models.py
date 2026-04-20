@@ -18,15 +18,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, ARRAY, BIGINT, JSONB
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime, date
+from datetime import datetime
 import uuid
-
-try:
-    from pgvector.sqlalchemy import Vector
-    _PGVECTOR_AVAILABLE = True
-except ImportError:
-    _PGVECTOR_AVAILABLE = False
-    Vector = None  # type: ignore
 
 Base = declarative_base()
 
@@ -269,26 +262,6 @@ class ChatHistory(Base):
         Index("idx_chat_user_id", user_id),
         Index("idx_chat_created_at", created_at.desc()),
     )
-
-
-class KbChunk(Base):
-    """RAG knowledge-base chunk. One row = one embeddable unit of course content.
-
-    pgvector extension must be enabled in Supabase before this table can be created.
-    See DEPLOY notes for the one-time `create extension if not exists vector;` step.
-    """
-    __tablename__ = "kb_chunks"
-
-    id = Column(BIGINT, primary_key=True, autoincrement=True)
-    module = Column(String, nullable=False, index=True)
-    persona = Column(String, nullable=True)
-    content = Column(Text, nullable=False)
-    # Hash of normalized content -- idempotent re-ingestion: same hash = skip.
-    content_hash = Column(String, unique=True, nullable=False)
-    # 1536-dim matches text-embedding-3-small. Change with embedding_model in config.py.
-    embedding = Column(Vector(1536) if _PGVECTOR_AVAILABLE else Text, nullable=False)
-    meta = Column("metadata", JSONB, default=dict)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class ScheduledNotification(Base):

@@ -37,6 +37,58 @@ def count_tokens(text: str) -> int:
     return len(enc.encode(text))
 
 
+def trim_text_block(
+    text: str,
+    *,
+    max_tokens: int,
+    preserve_head_chars: int = 1200,
+    preserve_tail_chars: int = 600,
+) -> str:
+    """Trim a large text blob to a hard token budget.
+
+    Preserves the start and end of the text because system/context blocks often
+    put stable instructions up front and the freshest details near the end.
+    """
+    raw = (text or "").strip()
+    if not raw or max_tokens <= 0:
+        return ""
+    if count_tokens(raw) <= max_tokens:
+        return raw
+
+    head = raw[:preserve_head_chars].rstrip()
+    tail = raw[-preserve_tail_chars:].lstrip() if preserve_tail_chars > 0 else ""
+    combined = head
+    if tail and tail not in head:
+        combined = f"{head}\n\n[... trimmed for budget ...]\n\n{tail}"
+    if count_tokens(combined) <= max_tokens:
+        return combined
+
+    # Fallback: trim the raw string proportionally until it fits.
+    low = 0
+    high = len(raw)
+    best = raw[: max(64, min(len(raw), max_tokens * 4))]
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = raw[:mid].rstrip()
+        tokens = count_tokens(candidate)
+        if tokens <= max_tokens:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best
+
+
+def trim_context_blob(text: str, *, max_tokens: int) -> str:
+    """Clamp coaching/user context to a hard budget."""
+    return trim_text_block(
+        text,
+        max_tokens=max_tokens,
+        preserve_head_chars=1400,
+        preserve_tail_chars=800,
+    )
+
+
 def trim_history(
     history: list[dict],
     *,

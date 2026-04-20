@@ -11,6 +11,7 @@ the Supabase dashboard to rebuild the cache.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import re
@@ -20,6 +21,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession  # kept for signature parity
+
+from config import settings
+from services.chat_telemetry import log_retrieval
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +97,7 @@ class _Bm25Index:
             if boosted < min_score:
                 continue
             out.append({
+                "id": chunk["id"],
                 "content": chunk["content"],
                 "doc_title": chunk["doc_title"],
                 "chunk_index": chunk["chunk_index"],
@@ -212,6 +217,12 @@ async def _load_maxx_index(maxx_id: str) -> _Bm25Index:
             content = block["content"]
             search_text = "\n".join(part for part in (doc_title, section, content) if part)
             chunks.append({
+                "id": _chunk_id(
+                    source=rel_source,
+                    doc_title=doc_title,
+                    section=section,
+                    chunk_index=int(block["chunk_index"]),
+                ),
                 "content": content,
                 "search_text": search_text,
                 "doc_title": doc_title,
@@ -245,7 +256,7 @@ async def retrieve_chunks(
     maxx_id: str,
     query: str,
     k: int = 4,
-    min_similarity: float = 0.5,
+    min_similarity: float = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35),
 ) -> list[dict]:
     """Return top-k BM25-scored chunks for the requested module.
 
@@ -257,6 +268,7 @@ async def retrieve_chunks(
         return []
     if maxx_id not in VALID_MAXX_IDS:
         return []
+    t0 = time.perf_counter()
     try:
         idx = await _get_index(maxx_id)
         results = idx.top_k(query, k=k, min_score=min_similarity)
