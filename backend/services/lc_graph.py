@@ -35,6 +35,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
+from services.chat_telemetry import fast_path_snapshot
+from services.fast_rag_answer import answer_from_chunks
 from services.intent_classifier import classify_turn, is_injection_attempt
 from services.token_budget import trim_chunks, trim_history, summarize_usage
 
@@ -130,10 +132,17 @@ async def retrieve_node(state: ChatState) -> ChatState:
         return state
 
     k_per_maxx = max(2, int(getattr(settings, "rag_top_k", 4) or 4) // max(1, len(hints)) + 1)
+    min_similarity = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35)
 
     async def _one(maxx: str) -> list[dict]:
         try:
-            return await retrieve_chunks(None, maxx, message, k=k_per_maxx, min_similarity=0.5)
+            return await retrieve_chunks(
+                None,
+                maxx,
+                message,
+                k=k_per_maxx,
+                min_similarity=min_similarity,
+            )
         except Exception as e:  # pragma: no cover — defensive
             logger.warning("retrieve_chunks failed for %s: %s", maxx, e)
             return []
@@ -142,15 +151,28 @@ async def retrieve_node(state: ChatState) -> ChatState:
 
     # Interleave top chunks across maxxes, then trim by global top_k by score
     merged: list[dict] = []
-    for row_set in results_per_maxx:
+    for hint, row_set in zip(hints, results_per_maxx):
         for i, chunk in enumerate(row_set):
             # preserve origin for logs
-            chunk = {**chunk, "_maxx": chunk.get("_maxx") or (hints[results_per_maxx.index(row_set)] if chunk else None)}
+            chunk = {**chunk, "_maxx": chunk.get("_maxx") or hint}
             merged.append(chunk)
     merged.sort(key=lambda c: c.get("similarity", 0.0), reverse=True)
     state["retrieved"] = merged[: int(getattr(settings, "rag_top_k", 4) or 4)]
     _time(state, "retrieve", t0)
     logger.info("[GRAPH] retrieved %d chunks from %s", len(state["retrieved"]), hints)
+    return state
+
+
+async def knowledge_answer_node(state: ChatState) -> ChatState:
+    """Direct answer path for knowledge turns; skips the agent entirely."""
+    t0 = time.perf_counter()
+    state["response"] = await answer_from_chunks(
+        message=state.get("message", ""),
+        retrieved=state.get("retrieved") or [],
+    )
+    state["schedule_mutated"] = False
+    fast_path_snapshot("graph_knowledge")
+    _time(state, "knowledge_answer", t0)
     return state
 
 
@@ -265,6 +287,10 @@ def _guardrail_router(state: ChatState) -> str:
     return "end" if state.get("guardrail_verdict") == "block" else "classify"
 
 
+def _post_retrieve_router(state: ChatState) -> str:
+    return "knowledge_answer" if state.get("intent") == "KNOWLEDGE" else "trim"
+
+
 _compiled_graph = None
 
 
@@ -280,6 +306,7 @@ def build_graph():
     g.add_node("guardrail", guardrail_node)
     g.add_node("classify", classify_node)
     g.add_node("retrieve", retrieve_node)
+    g.add_node("knowledge_answer", knowledge_answer_node)
     g.add_node("trim", trim_node)
     g.add_node("agent", agent_node)
     g.add_node("finalize", finalize_node)
@@ -287,7 +314,8 @@ def build_graph():
     g.add_edge(START, "guardrail")
     g.add_conditional_edges("guardrail", _guardrail_router, {"classify": "classify", "end": "finalize"})
     g.add_conditional_edges("classify", _should_retrieve, {"retrieve": "retrieve", "trim": "trim"})
-    g.add_edge("retrieve", "trim")
+    g.add_conditional_edges("retrieve", _post_retrieve_router, {"knowledge_answer": "knowledge_answer", "trim": "trim"})
+    g.add_edge("knowledge_answer", "finalize")
     g.add_edge("trim", "agent")
     g.add_edge("agent", "finalize")
     g.add_edge("finalize", END)

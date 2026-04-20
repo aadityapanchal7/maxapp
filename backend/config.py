@@ -71,16 +71,11 @@ class Settings(BaseSettings):
     # truncation on dense schedules; cap is the model's own max (e.g. OpenAI completion limit).
     schedule_adapt_max_output_tokens: int = Field(default=16384)
 
-    # RAG / embeddings -- matches kb_chunks.embedding / rag_documents.embedding (VECTOR(1536))
-    embedding_model: str = Field(
-        default="text-embedding-3-small",
-        description="OpenAI embedding model for RAG. 1536-dim.",
-    )
-    embedding_dim: int = Field(default=1536)
+    # File-based RAG / prompt budgets
     rag_top_k: int = Field(default=4, description="How many chunks to retrieve per query")
     rag_score_threshold: float = Field(
         default=0.35,
-        description="Min cosine similarity to inject a chunk. Below this, retrieval is ignored (guardrail).",
+        description="Min BM25 score to keep a retrieved chunk. Below this, retrieval is ignored.",
     )
 
     # LangGraph chat orchestration -- when true, chat uses services/lc_graph.py
@@ -90,6 +85,14 @@ class Settings(BaseSettings):
     chat_max_context_tokens: int = Field(
         default=8000,
         description="Hard ceiling for history + retrieved chunks tokens in the agent prompt.",
+    )
+    chat_max_coaching_context_tokens: int = Field(
+        default=1800,
+        description="Hard cap for the serialized coaching_context blob added to prompts.",
+    )
+    chat_max_system_prompt_tokens: int = Field(
+        default=3200,
+        description="Hard cap for the final system prompt after context injection.",
     )
 
     # External Facial Analysis API (cannon_facial_analysis service)

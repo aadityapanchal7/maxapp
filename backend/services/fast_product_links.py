@@ -12,6 +12,7 @@ import re
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from config import settings
 from services.rag_service import retrieve_chunks
 
 logger = logging.getLogger(__name__)
@@ -202,7 +203,11 @@ async def product_links_from_context(
 ) -> str:
     """Return Amazon search links for module-relevant products."""
     module_products = _module_products(maxx_id)
-    retrieved = await retrieve_chunks(None, maxx_id, message, k=4, min_similarity=0.35)
+    min_similarity = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35)
+    top_k = int(getattr(settings, "rag_top_k", 4) or 4)
+    retrieved = await retrieve_chunks(
+        None, maxx_id, message, k=top_k, min_similarity=min_similarity
+    )
     evidence_text = "\n".join(c.get("content", "") for c in retrieved)
     evidence_products = _extract_products(evidence_text)
 

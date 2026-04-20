@@ -36,11 +36,13 @@ from langchain_core.tools import tool
 
 from config import settings
 from services import fitmax_plan as fplan
+from services.chat_telemetry import log_agent_run, log_prompt_budget
 from services.lc_memory import history_dicts_to_lc_messages
 from services.lc_providers import get_chat_llm_with_tools_and_fallback
 from services.prompt_constants import MAX_CHAT_SYSTEM_PROMPT
 from services.prompt_loader import PromptKey, resolve_prompt
 from services.sms_reply_style import sms_chat_appendix
+from services.token_budget import count_tokens, trim_context_blob, trim_text_block
 
 logger = logging.getLogger(__name__)
 
@@ -234,9 +236,6 @@ async def _persist_user_wake_sleep(user, db, wake_time, sleep_time) -> None:
 async def build_agent_system_prompt(
     user_context: Optional[dict],
     delivery_channel: str,
-    maxx_id: Optional[str] = None,
-    user_message: Optional[str] = None,
-    db=None,
 ) -> str:
     """Build the full system prompt for the agent (same logic as _lc_chat in llm_router)."""
     chat_prompt = await asyncio.to_thread(
@@ -268,28 +267,24 @@ async def build_agent_system_prompt(
             context_str += f"\nActive {ms.get('maxx_id')} schedule exists."
 
     if context_str:
-        chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
-
-    # Auto-inject RAG knowledge chunks when a maxx_id is known and docs have been ingested
-    if maxx_id and user_message and db is not None:
-        try:
-            from services.rag_service import retrieve_chunks
-            chunks = await retrieve_chunks(db, maxx_id=maxx_id, query=user_message, k=3)
-            if chunks:
-                rag_lines = []
-                for c in chunks:
-                    rag_lines.append(f"[{c['doc_title']}]\n{c['content']}")
-                rag_block = "\n\n---\n\n".join(rag_lines)
-                chat_prompt += f"\n\n## Relevant Knowledge ({maxx_id})\n{rag_block}"
-                logger.debug("[RAG] injected %d chunks for maxx=%s", len(chunks), maxx_id)
-        except Exception as rag_err:
-            # Never let RAG errors block the chat response
-            logger.warning("[RAG] auto-inject failed (maxx=%s): %s", maxx_id, rag_err)
+        bounded_context = trim_context_blob(
+            context_str,
+            max_tokens=int(getattr(settings, "chat_max_coaching_context_tokens", 1800) or 1800),
+        )
+        chat_prompt += f"\n\n## USER CONTEXT:\n{bounded_context}"
 
     sms_extra = sms_chat_appendix(delivery_channel)
     if sms_extra:
         chat_prompt += "\n\n" + sms_extra
 
+    system_budget = int(getattr(settings, "chat_max_system_prompt_tokens", 3200) or 3200)
+    if count_tokens(chat_prompt) > system_budget:
+        chat_prompt = trim_text_block(
+            chat_prompt,
+            max_tokens=system_budget,
+            preserve_head_chars=2200,
+            preserve_tail_chars=900,
+        )
     return chat_prompt
 
 
@@ -931,10 +926,7 @@ async def run_chat_agent(
     The agent handles the full reasoning → tool call → observe → respond loop.
     max_iterations=4 allows: tool call → observe → (optional second tool) → final answer.
     """
-    system_prompt = await build_agent_system_prompt(
-        user_context, delivery_channel,
-        maxx_id=maxx_id, user_message=message, db=db,
-    )
+    system_prompt = await build_agent_system_prompt(user_context, delivery_channel)
 
     # Image: inject as multimodal content part in the human message
     if image_data:
@@ -971,6 +963,19 @@ async def run_chat_agent(
     call_timeout = float(settings.llm_timeout_seconds) * 4
 
     logger.info("[AGENT] user channel=%s msg=%.80s", delivery_channel, message or "")
+    history_tokens = sum(count_tokens(getattr(m, "content", "") or "") for m in lc_history)
+    coaching_context_tokens = count_tokens((user_context or {}).get("coaching_context", ""))
+    user_tokens = count_tokens(message or "")
+    system_tokens = count_tokens(system_prompt)
+    log_prompt_budget(
+        path="agent",
+        system_tokens=system_tokens,
+        coaching_context_tokens=coaching_context_tokens,
+        history_tokens=history_tokens,
+        chunk_tokens=0,
+        user_tokens=user_tokens,
+        total_tokens=system_tokens + coaching_context_tokens + history_tokens + user_tokens,
+    )
 
     try:
         result = await asyncio.wait_for(
@@ -1005,6 +1010,12 @@ async def run_chat_agent(
         logger.info("[AGENT] tools fired: %s", ", ".join(sorted(tool_names_fired)))
     else:
         logger.info("[AGENT] no tools — response: %.150s", response_text[:150])
+
+    log_agent_run(
+        iterations=len(result.get("intermediate_steps") or []),
+        tool_calls=len(tool_names_fired),
+        response_len=len(response_text),
+    )
 
     schedule_mutated = bool(
         tool_names_fired & {"generate_maxx_schedule", "modify_schedule", "stop_schedule"}

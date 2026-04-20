@@ -13,15 +13,20 @@ Retrieval stays cheap and deterministic:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import math
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession  # kept for signature parity
+
+from config import settings
+from services.chat_telemetry import log_retrieval
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,12 @@ _STOP = frozenset({
 
 def _tokenize(s: str) -> list[str]:
     return [t for t in _TOKEN_RE.findall((s or "").lower()) if t not in _STOP and len(t) > 1]
+
+
+def _chunk_id(*, source: str, doc_title: str, section: str, chunk_index: int) -> str:
+    raw = f"{source}|{doc_title}|{section}|{chunk_index}"
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
+    return f"{doc_title}:{chunk_index}:{digest}"
 
 
 @dataclass(frozen=True)
@@ -119,6 +130,7 @@ class _Bm25Index:
             if boosted < min_score:
                 continue
             out.append({
+                "id": chunk["id"],
                 "content": chunk["content"],
                 "doc_title": chunk["doc_title"],
                 "chunk_index": chunk["chunk_index"],
@@ -239,6 +251,12 @@ def _load_maxx_index(maxx_id: str) -> _Bm25Index:
             content = block["content"]
             search_text = "\n".join(part for part in (doc_title, section, content) if part)
             chunks.append({
+                "id": _chunk_id(
+                    source=rel_source,
+                    doc_title=doc_title,
+                    section=section,
+                    chunk_index=int(block["chunk_index"]),
+                ),
                 "content": content,
                 "search_text": search_text,
                 "doc_title": doc_title,
@@ -273,16 +291,25 @@ async def retrieve_chunks(
     maxx_id: str,
     query: str,
     k: int = 4,
-    min_similarity: float = 0.12,
+    min_similarity: float = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35),
 ) -> list[dict]:
     """Return top-k BM25-scored chunks for the requested module."""
     if not query or not query.strip():
         return []
     if maxx_id not in VALID_MAXX_IDS:
         return []
+    t0 = time.perf_counter()
     try:
         idx = _get_index(maxx_id)
-        return idx.top_k(query, k=k, min_score=min_similarity)
+        rows = idx.top_k(query, k=k, min_score=min_similarity)
+        log_retrieval(
+            maxx_id=maxx_id,
+            elapsed_ms=(time.perf_counter() - t0) * 1000,
+            hits=len(rows),
+            threshold=min_similarity,
+            query_tokens=len(_tokenize(query)),
+        )
+        return rows
     except Exception as e:
         logger.warning("RAG retrieve_chunks failed (maxx=%s): %s", maxx_id, e)
         return []
