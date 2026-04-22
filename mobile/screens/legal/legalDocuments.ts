@@ -5,7 +5,7 @@ import { APPLE_APP_REVIEW_BUSINESS, APPLE_APP_REVIEW_LEGAL, APPLE_APP_REVIEW_SAF
 export const privacyBlocks: LegalBlock[] = [
     {
         type: 'meta',
-        text: 'Effective March 23, 2026 · Last updated March 23, 2026 · App: Max (iOS/Android bundle: com.cannon.mobile)',
+        text: 'Effective March 23, 2026 · Last updated April 21, 2026 · App: Max (iOS/Android bundle: com.cannon.mobile)',
     },
     {
         type: 'p',
@@ -155,12 +155,42 @@ export const privacyBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'If you use features that capture or upload face or body images, those images may be processed on our servers and/or sent to subprocessors (for example an image analysis API or an AI model) to generate scores, feedback, or coaching content. We use such processing only to provide the feature you invoke, subject to this policy and in-app disclosures. We do not use HealthKit or Apple health APIs unless explicitly integrated and disclosed separately.',
+            'This section explains, in detail, how Max handles face data. It applies whenever you use the in-app face-scan feature (front, left, and right photos of your face) or otherwise upload facial images. It is intended to address Apple App Review Guideline 2.1 and 5.1.1 requirements for transparency about face data.',
+    },
+    { type: 'h3', text: '7.1 What face data we collect' },
+    {
+        type: 'p',
+        text:
+            'When you initiate a face scan, the app captures three still photographs of your face (front, left profile, and right profile). These photographs are uploaded to our servers. From those photographs we derive numerical facial landmark coordinates (using Google’s on-server MediaPipe Face Landmarker model — up to 478 non-identifying (x, y, z) coordinate points per image) and a set of derived geometric measurements (for example proportions, symmetry, and angle scores). We do not compute or store a biometric “faceprint,” template, or other unique identifier intended to identify a specific individual from the image, and we do not use Apple’s Face ID, the TrueDepth API, or any Apple biometric framework. The face-scan feature is entirely optional; you can use the rest of the app without submitting any face images.',
+    },
+    { type: 'h3', text: '7.2 How we use face data' },
+    {
+        type: 'p',
+        text:
+            'We use face photographs and the derived landmark and measurement data solely to generate the wellness, aesthetic, and coaching feedback you request inside Max — for example symmetry scores, proportion feedback, posture or facial-training suggestions, and AI-generated coaching content about your own scan. We do not use face data to identify, authenticate, track, or recognize you across services; we do not use it for advertising, marketing, or profiling; we do not sell it; and we do not use it to train general-purpose machine-learning models for third parties.',
+    },
+    { type: 'h3', text: '7.3 Third parties and where face data is stored' },
+    {
+        type: 'p',
+        text:
+            'Face images are stored as private objects in Amazon Web Services S3 (Amazon S3) under our account, accessible only to Max backend services and authenticated administrative access. The derived landmark coordinates and measurement scores are stored alongside your user record in our primary application database (PostgreSQL, hosted with Supabase; some shared or forum data on AWS RDS). Face landmark detection runs server-side on our own infrastructure using the MediaPipe Face Landmarker model. To produce natural-language feedback about a scan, we may send the face image and/or its derived measurement values to a large language model provider (currently Google Gemini; where configured, OpenAI) strictly for per-request inference; those providers act as subprocessors under their published terms and do not receive the data for training general models on our behalf. Face data is not shared with any advertising network, data broker, or analytics provider.',
+    },
+    { type: 'h3', text: '7.4 Retention of face data' },
+    {
+        type: 'p',
+        text:
+            'Face images and the derived landmark and measurement data are retained only while your account is active and the scan remains in your history. You can delete an individual scan at any time from within the app; deletion removes the associated images from our storage and the scan record from our database (subject to limited backup retention described in section 8 Retention). When you delete your Max account, all face images, landmark data, and derived scan measurements associated with your account are deleted or anonymized, subject to the same limited backup and legal-retention exceptions.',
+    },
+    { type: 'h3', text: '7.5 Consent, disclosure, and user control' },
+    {
+        type: 'p',
+        text:
+            'Before you take a face scan, Max requests camera permission with a clear on-device prompt that explains the data will be used for face analysis and wellness feedback, and the scan flow in the app shows what will be submitted. You can revoke camera access at any time in your device settings, delete individual scans from the app, and delete your account and all face data as described in section 9.1 Account deletion. We do not use HealthKit or Apple health APIs for the face-scan feature.',
     },
     {
         type: 'p',
         text:
-            'Do not use the Services to obtain regulated medical measurements that the app does not support; Apple may reject apps that claim unsupported clinical measurements from device sensors alone.',
+            'Max does not provide medical diagnosis or treatment. Outputs from face scans are general wellness and aesthetic feedback only and must not be relied on for medical purposes. Do not use the Services to obtain regulated medical measurements that the app does not support.',
     },
 
     { type: 'h2', text: '8. Retention' },
