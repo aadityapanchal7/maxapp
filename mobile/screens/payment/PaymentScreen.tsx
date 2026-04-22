@@ -213,6 +213,29 @@ export default function PaymentScreen() {
                     </TouchableOpacity>
                 ) : null}
 
+                {/* Apple Guideline 3.1.2 — Terms of Service (EULA) and Privacy
+                    Policy must be linked directly on any subscription offer
+                    screen. */}
+                <View style={s.legalRow}>
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate('LegalDocument', { document: 'terms' })}
+                        activeOpacity={0.6}
+                        accessibilityRole="link"
+                        accessibilityLabel="Terms of Service"
+                    >
+                        <Text style={s.legalLink}>Terms of Service</Text>
+                    </TouchableOpacity>
+                    <Text style={s.legalDot}>·</Text>
+                    <TouchableOpacity
+                        onPress={() => navigation.navigate('LegalDocument', { document: 'privacy' })}
+                        activeOpacity={0.6}
+                        accessibilityRole="link"
+                        accessibilityLabel="Privacy Policy"
+                    >
+                        <Text style={s.legalLink}>Privacy Policy</Text>
+                    </TouchableOpacity>
+                </View>
+
                 <TouchableOpacity
                     style={s.signOutBtn}
                     onPress={() => {
@@ -411,6 +434,24 @@ const s = StyleSheet.create({
         fontWeight: '500',
         color: colors.textMuted,
         textDecorationLine: 'underline',
+    },
+
+    legalRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        marginTop: spacing.md,
+    },
+    legalLink: {
+        fontSize: 12,
+        fontWeight: '500',
+        color: colors.textSecondary,
+        textDecorationLine: 'underline',
+    },
+    legalDot: {
+        fontSize: 12,
+        color: colors.textMuted,
     },
 
     devRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },

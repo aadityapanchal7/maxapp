@@ -491,6 +491,10 @@ export default function FaceScanResultsScreen() {
     /** First GET /latest in flight — use a small spinner, not the full analyzing UI. */
     const [hydrating, setHydrating] = useState(true);
     const [processing, setProcessing] = useState(false);
+    /** Set true when we auto-advance past a missing scan (dev-skip flow) so we
+     *  show a spinner instead of flashing the "Couldn't load your scan" error. */
+    const [advancing, setAdvancing] = useState(false);
+    const advancedRef = useRef(false);
     const shareCardRef = useRef<View>(null);
     const [shareImageReady, setShareImageReady] = useState(true);
     const [shareCaptureBusy, setShareCaptureBusy] = useState(false);
@@ -582,6 +586,37 @@ export default function FaceScanResultsScreen() {
     const sendbluePending =
         treatAsPaid &&
         (user?.onboarding as { sendblue_connect_completed?: boolean | null } | undefined)?.sendblue_connect_completed !== true;
+
+    /** Jump to the next post-pay onboarding step without needing a scan.
+     *  Used both by the auto-advance effect below and the manual Skip button
+     *  on the fetch-error UI, so a paid user with no scan (e.g. DEV
+     *  test-activate) is never trapped on "Couldn't load your scan". */
+    const advancePostPay = useCallback(() => {
+        if (sendbluePending) {
+            const next = 'ModuleSelect';
+            if (isPaid === true && !userHasSignupPhone(user)) {
+                navigation.navigate('SmsCoachingIntro', { next });
+            } else {
+                navigation.navigate('SendblueConnect', { next });
+            }
+            return;
+        }
+        navigation.navigate('ModuleSelect');
+    }, [sendbluePending, isPaid, user, navigation]);
+
+    /** Auto-advance when we arrived from the paywall redirect but there is no
+     *  scan on file. The normal flow requires scanning before paying, but
+     *  dev/test-activate bypasses the scan, which would otherwise dead-end
+     *  this screen (back is disabled in postPayOnboardingFlow). */
+    useEffect(() => {
+        if (hydrating || scan) return;
+        if (!postPayParam) return;
+        if (!(isPaid === true || isScanUser === true)) return;
+        if (advancedRef.current) return;
+        advancedRef.current = true;
+        setAdvancing(true);
+        advancePostPay();
+    }, [hydrating, scan, postPayParam, isPaid, isScanUser, advancePostPay]);
 
     const overallScore = parseOverall(a);
     const base = overallScore ?? 5;
@@ -688,7 +723,7 @@ export default function FaceScanResultsScreen() {
         return <ScanProcessingView />;
     }
 
-    if (hydrating && !scan) {
+    if ((hydrating && !scan) || (advancing && !scan)) {
         return (
             <View style={[styles.root, styles.fetchingRoot]}>
                 <ActivityIndicator size="large" color={colors.foreground} />
@@ -697,12 +732,27 @@ export default function FaceScanResultsScreen() {
     }
 
     if (!hydrating && !scan) {
+        const canSkipForward = treatAsPaid;
         return (
             <View style={[styles.root, styles.fetchingRoot]}>
                 <Text style={styles.fetchErrorText}>Couldn&apos;t load your scan.</Text>
                 <TouchableOpacity style={styles.fetchRetryBtn} onPress={bootstrap} activeOpacity={0.85}>
                     <Text style={styles.fetchRetryText}>Try again</Text>
                 </TouchableOpacity>
+                {canSkipForward ? (
+                    <TouchableOpacity
+                        style={styles.fetchSkipBtn}
+                        onPress={() => {
+                            advancedRef.current = true;
+                            setAdvancing(true);
+                            if (postPayParam) advancePostPay();
+                            else navigation.navigate('Main');
+                        }}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={styles.fetchSkipText}>Skip for now</Text>
+                    </TouchableOpacity>
+                ) : null}
             </View>
         );
     }
@@ -1008,6 +1058,15 @@ const styles = StyleSheet.create({
     fetchErrorText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.md },
     fetchRetryBtn: { backgroundColor: colors.foreground, paddingHorizontal: spacing.xl, paddingVertical: spacing.md, borderRadius: borderRadius.full },
     fetchRetryText: { ...typography.button, color: colors.background },
+    fetchSkipBtn: {
+        marginTop: spacing.md,
+        paddingHorizontal: spacing.xl,
+        paddingVertical: spacing.sm + 2,
+        borderRadius: borderRadius.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+    },
+    fetchSkipText: { ...typography.button, color: colors.textSecondary },
     loadingHeader: { marginBottom: spacing.md, width: '100%', maxWidth: 420, alignItems: 'center' },
     loadingTrackWrap: { alignSelf: 'stretch', width: '100%', marginTop: spacing.sm },
     loadingSub: { fontSize: 14, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center', alignSelf: 'stretch' },

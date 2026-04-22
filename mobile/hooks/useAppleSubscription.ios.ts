@@ -111,7 +111,9 @@ export function useAppleSubscription() {
                 const fetched = await fetchProducts({ skus, type: 'subs' });
                 const list = (fetched ?? []) as Product[];
                 if (list.length > 0) {
-                    console.log('[AppleIAP] Products loaded:', list.map((p) => p.productId));
+                    // `Product` is a union (iOS | Android); cast so TS picks up
+                    // the `productId` field that exists at runtime on iOS.
+                    console.log('[AppleIAP] Products loaded:', list.map((p) => (p as { productId?: string }).productId));
                     setProducts(list);
                     return list;
                 }
@@ -151,7 +153,10 @@ export function useAppleSubscription() {
         recoveringRef.current = true;
         const recoverPending = async () => {
             try {
-                const purchases = await getAvailablePurchases();
+                // `getAvailablePurchases()` can resolve to `undefined` on iOS
+                // when the StoreKit queue is empty or not yet initialised; normalise
+                // to an array so downstream `.length` / `for..of` never crash.
+                const purchases = (await getAvailablePurchases()) ?? [];
                 console.log('[AppleIAP] Recovering pending purchases:', purchases.length);
                 for (const purchase of purchases) {
                     const p = purchase as { transactionId?: string; id?: string; productId?: string };
@@ -204,7 +209,7 @@ export function useAppleSubscription() {
             // StoreKit can present the sheet for a valid SKU regardless, and
             // blocking here was costing up to ~15s of retry/backoff before the
             // sheet appeared.
-            const productCached = products.some((p) => p.productId === sku);
+            const productCached = products.some((p) => (p as { productId?: string }).productId === sku);
             if (!productCached) {
                 console.log('[AppleIAP] Cache miss at subscribe time; warming in background:', sku);
                 void loadProducts();
@@ -272,7 +277,11 @@ export function useAppleSubscription() {
         let restoredActive = false;
         let attempted = 0;
         try {
-            const purchases = await getAvailablePurchases();
+            // Normalise to an array — `react-native-iap` has been observed to
+            // resolve to `undefined` when there are no prior purchases on the
+            // Apple ID, which would otherwise throw "Cannot read property
+            // 'length' of undefined" and surface a misleading "Restore failed".
+            const purchases = (await getAvailablePurchases()) ?? [];
             console.log('[AppleIAP] restorePurchases: found', purchases.length, 'purchase(s)');
 
             for (const purchase of purchases) {
