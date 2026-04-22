@@ -177,26 +177,26 @@ export default function SignupScreen() {
 
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.firstName && styles.labelError]}>FIRST NAME</Text>
-                                <TextInput style={[styles.input, fieldErrors.firstName && styles.inputError]} placeholder="John" placeholderTextColor={colors.textMuted} value={firstName} onChangeText={(t) => { setFirstName(t); setFieldErrors((p) => ({ ...p, firstName: false })); setApiError(null); }} autoCapitalize="words" />
+                                <TextInput style={[styles.input, fieldErrors.firstName && styles.inputError]} placeholder="First name" placeholderTextColor={colors.textMuted} value={firstName} onChangeText={(t) => { setFirstName(t); setFieldErrors((p) => ({ ...p, firstName: false })); setApiError(null); }} autoCapitalize="words" />
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.lastName && styles.labelError]}>LAST NAME</Text>
-                                <TextInput style={[styles.input, fieldErrors.lastName && styles.inputError]} placeholder="Doe" placeholderTextColor={colors.textMuted} value={lastName} onChangeText={(t) => { setLastName(t); setFieldErrors((p) => ({ ...p, lastName: false })); setApiError(null); }} autoCapitalize="words" />
+                                <TextInput style={[styles.input, fieldErrors.lastName && styles.inputError]} placeholder="Last name" placeholderTextColor={colors.textMuted} value={lastName} onChangeText={(t) => { setLastName(t); setFieldErrors((p) => ({ ...p, lastName: false })); setApiError(null); }} autoCapitalize="words" />
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.username && styles.labelError]}>USERNAME</Text>
-                                <TextInput style={[styles.input, fieldErrors.username && styles.inputError]} placeholder="johndoe" placeholderTextColor={colors.textMuted} value={username} onChangeText={(t) => { setUsername(t); setFieldErrors((p) => ({ ...p, username: false })); setFieldErrorMessages((p) => ({ ...p, username: '' })); setApiError(null); }} autoCapitalize="none" />
+                                <TextInput style={[styles.input, fieldErrors.username && styles.inputError]} placeholder="Username" placeholderTextColor={colors.textMuted} value={username} onChangeText={(t) => { setUsername(t); setFieldErrors((p) => ({ ...p, username: false })); setFieldErrorMessages((p) => ({ ...p, username: '' })); setApiError(null); }} autoCapitalize="none" />
                                 {fieldErrorMessages.username ? <Text style={styles.helperError}>{fieldErrorMessages.username}</Text> : null}
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.email && styles.labelError]}>EMAIL</Text>
-                                <TextInput style={[styles.input, fieldErrors.email && styles.inputError]} placeholder="you@example.com" placeholderTextColor={colors.textMuted} value={email} onChangeText={(t) => { setEmail(t); setFieldErrors((p) => ({ ...p, email: false })); setFieldErrorMessages((p) => ({ ...p, email: '' })); setApiError(null); }} keyboardType="email-address" autoCapitalize="none" />
+                                <TextInput style={[styles.input, fieldErrors.email && styles.inputError]} placeholder="Email address" placeholderTextColor={colors.textMuted} value={email} onChangeText={(t) => { setEmail(t); setFieldErrors((p) => ({ ...p, email: false })); setFieldErrorMessages((p) => ({ ...p, email: '' })); setApiError(null); }} keyboardType="email-address" autoCapitalize="none" />
                                 {fieldErrorMessages.email ? <Text style={styles.helperError}>{fieldErrorMessages.email}</Text> : null}
                             </View>
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.password && styles.labelError]}>PASSWORD</Text>
                                 <View style={[styles.passwordRow, fieldErrors.password && styles.inputError]}>
-                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Min. 8 characters" placeholderTextColor={colors.textMuted} value={password} onChangeText={(t) => { setPassword(t); setFieldErrors((p) => ({ ...p, password: false, confirmPassword: false })); setPasswordMismatch(false); setApiError(null); }} secureTextEntry={!showPassword} />
+                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Password" placeholderTextColor={colors.textMuted} value={password} onChangeText={(t) => { setPassword(t); setFieldErrors((p) => ({ ...p, password: false, confirmPassword: false })); setPasswordMismatch(false); setApiError(null); }} secureTextEntry={!showPassword} />
                                     <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword((p) => !p)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                                         <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textMuted} />
                                     </TouchableOpacity>
@@ -205,7 +205,7 @@ export default function SignupScreen() {
                             <View style={styles.inputGroup}>
                                 <Text style={[styles.label, fieldErrors.confirmPassword && styles.labelError]}>CONFIRM PASSWORD</Text>
                                 <View style={[styles.passwordRow, fieldErrors.confirmPassword && styles.inputError]}>
-                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Re-enter password" placeholderTextColor={colors.textMuted} value={confirmPassword} onChangeText={(t) => { setConfirmPassword(t); setFieldErrors((p) => ({ ...p, confirmPassword: false, password: false })); setPasswordMismatch(false); setApiError(null); }} secureTextEntry={!showConfirmPassword} />
+                                    <TextInput style={[styles.input, styles.passwordInput]} placeholder="Confirm password" placeholderTextColor={colors.textMuted} value={confirmPassword} onChangeText={(t) => { setConfirmPassword(t); setFieldErrors((p) => ({ ...p, confirmPassword: false, password: false })); setPasswordMismatch(false); setApiError(null); }} secureTextEntry={!showConfirmPassword} />
                                     <TouchableOpacity style={styles.eyeButton} onPress={() => setShowConfirmPassword((p) => !p)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                                         <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={22} color={colors.textMuted} />
                                     </TouchableOpacity>
@@ -213,7 +213,9 @@ export default function SignupScreen() {
                                 {passwordMismatch && <Text style={styles.helperError}>Passwords don&apos;t match</Text>}
                             </View>
                             <View style={styles.inputGroup}>
-                                <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>PHONE NUMBER</Text>
+                                <Text style={[styles.label, fieldErrors.phone && styles.labelError]}>
+                                    PHONE NUMBER <Text style={styles.labelOptional}>(OPTIONAL)</Text>
+                                </Text>
                                 <View style={[styles.phoneRow, fieldErrors.phone && styles.inputError]}>
                                     <TouchableOpacity
                                         style={styles.countryCodeButton}
@@ -228,7 +230,7 @@ export default function SignupScreen() {
                                     </TouchableOpacity>
                                     <TextInput
                                         style={styles.phoneNationalInput}
-                                        placeholder="555 123 4567"
+                                        placeholder="Phone number (optional)"
                                         placeholderTextColor={colors.textMuted}
                                         value={phoneNational}
                                         onChangeText={(t) => {
@@ -383,6 +385,7 @@ const styles = StyleSheet.create({
     },
     inputGroup: { gap: spacing.xs + 2 },
     label: { ...typography.label, marginLeft: 2 },
+    labelOptional: { color: colors.textMuted, fontWeight: '400' },
     input: {
         backgroundColor: colors.surface, borderRadius: borderRadius.sm,
         paddingVertical: 14, paddingHorizontal: spacing.md,

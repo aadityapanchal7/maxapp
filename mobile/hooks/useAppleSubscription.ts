@@ -78,11 +78,22 @@ export function useAppleSubscription() {
         [user?.id, refreshUser],
     );
 
+    const restorePurchases = useCallback(async (): Promise<boolean> => {
+        if (Platform.OS === 'web') {
+            window.alert('Restore purchases is only available on iOS.');
+        } else {
+            Alert.alert('Not available', 'Restore purchases is only available on iOS.');
+        }
+        return false;
+    }, []);
+
     return {
         loading,
+        restoring: false,
         subscribeBasic: useCallback(() => subscribeTier('basic'), [subscribeTier]),
         subscribePremium: useCallback(() => subscribeTier('premium'), [subscribeTier]),
         subscribeTier,
+        restorePurchases,
         storeConnected: __DEV__,
     };
 }

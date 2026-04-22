@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useAppleSubscription } from '../../hooks/useAppleSubscription';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 
 const BASIC_FEATURES = [
@@ -50,6 +51,8 @@ export default function ManageSubscriptionScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const { user, refreshUser, subscriptionTier } = useAuth();
+    const apple = useAppleSubscription();
+    const appleRestoring = 'restoring' in apple ? !!apple.restoring : false;
     const [loading, setLoading] = useState(true);
     const [statusError, setStatusError] = useState<string | null>(null);
     const [cancelAtPeriodEnd, setCancelAtPeriodEnd] = useState(false);
@@ -225,6 +228,21 @@ export default function ManageSubscriptionScreen() {
                 },
             },
         ]);
+    };
+
+    const handleRestore = async () => {
+        if (Platform.OS !== 'ios' || appleRestoring) return;
+        try {
+            await apple.restorePurchases();
+            await refreshUser();
+            await loadStatus();
+        } catch (e: unknown) {
+            const msg =
+                (e as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail ||
+                (e as Error)?.message ||
+                'Could not restore purchases.';
+            Alert.alert('Restore failed', String(msg));
+        }
     };
 
     const openCancelMenu = () => {
@@ -504,6 +522,22 @@ export default function ManageSubscriptionScreen() {
                                   : 'When billing is linked to Stripe, you can change plans and cancel here.'}
                         </Text>
 
+                        {Platform.OS === 'ios' ? (
+                            <TouchableOpacity
+                                style={[styles.restoreBtn, appleRestoring && styles.btnDisabled]}
+                                onPress={() => void handleRestore()}
+                                disabled={appleRestoring}
+                                activeOpacity={0.85}
+                                accessibilityRole="button"
+                                accessibilityLabel="Restore previous purchases"
+                            >
+                                <Ionicons name="refresh-outline" size={18} color={colors.foreground} />
+                                <Text style={styles.restoreBtnText}>
+                                    {appleRestoring ? 'Restoring…' : 'Restore Purchases'}
+                                </Text>
+                            </TouchableOpacity>
+                        ) : null}
+
                         {stripeManageEnabled ? (
                             <View style={styles.dangerBlock}>
                                 <Text style={styles.sectionKicker}>CANCEL</Text>
@@ -781,6 +815,21 @@ const styles = StyleSheet.create({
         marginBottom: spacing.lg,
         paddingHorizontal: spacing.sm,
     },
+    restoreBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: spacing.sm,
+        alignSelf: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: spacing.xl,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+        marginBottom: spacing.lg,
+    },
+    restoreBtnText: { fontSize: 14, fontWeight: '600', color: colors.foreground, letterSpacing: -0.1 },
     statusBanner: {
         flexDirection: 'row',
         alignItems: 'flex-start',

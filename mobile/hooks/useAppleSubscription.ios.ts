@@ -14,6 +14,7 @@ export function useAppleSubscription() {
     const { user, refreshUser } = useAuth();
     const queryClient = useQueryClient();
     const [loading, setLoading] = useState<Tier | null>(null);
+    const [restoring, setRestoring] = useState(false);
     const pendingSkuRef = useRef<string | null>(null);
     const requestInFlightRef = useRef(false);
     const processedTids = useRef<Set<string>>(new Set());
@@ -196,22 +197,17 @@ export function useAppleSubscription() {
 
             const sku = tier === 'premium' ? APPLE_IAP_PREMIUM_SKU : APPLE_IAP_BASIC_SKU;
 
-            // Try to warm the cache, but do not block the purchase flow on it.
-            // In TestFlight / sandbox, fetchProducts can intermittently return
-            // an empty list even though StoreKit can still present the purchase
-            // sheet for a valid SKU.
-            let productList = products;
-            if (!productList.some((p) => p.productId === sku)) {
-                console.warn('[AppleIAP] Product missing at subscribe time, re-fetching:', sku);
-                productList = await loadProducts();
-            }
-            if (!productList.some((p) => p.productId === sku)) {
-                console.warn(
-                    '[AppleIAP] Proceeding with requestPurchase despite empty product cache:',
-                    sku,
-                    'loaded products:',
-                    productList.map((p) => p.productId),
-                );
+            // Fire requestPurchase immediately so StoreKit opens its sheet
+            // with no perceptible delay. If the products cache happens to be
+            // empty (e.g. first launch, fetch still in flight), kick off a
+            // background warmup but do NOT block the purchase flow on it —
+            // StoreKit can present the sheet for a valid SKU regardless, and
+            // blocking here was costing up to ~15s of retry/backoff before the
+            // sheet appeared.
+            const productCached = products.some((p) => p.productId === sku);
+            if (!productCached) {
+                console.log('[AppleIAP] Cache miss at subscribe time; warming in background:', sku);
+                void loadProducts();
             }
 
             requestInFlightRef.current = true;
@@ -253,11 +249,94 @@ export function useAppleSubscription() {
         [subscribeTier],
     );
 
+    // User-initiated "Restore Purchases" flow required by Apple
+    // (App Review Guideline 3.1.1). Queries StoreKit for the user's
+    // prior purchases, re-verifies each with the backend, finalizes
+    // the transactions, and refreshes the account.
+    const restorePurchases = useCallback(async (): Promise<boolean> => {
+        if (Platform.OS !== 'ios') return false;
+        if (restoring) return false;
+        if (!user?.id) {
+            Alert.alert('Sign in', 'Log in to restore purchases.');
+            return false;
+        }
+        if (!connected) {
+            Alert.alert(
+                'App Store unavailable',
+                'Cannot connect to the App Store. Please check your internet connection and try again.',
+            );
+            return false;
+        }
+
+        setRestoring(true);
+        let restoredActive = false;
+        let attempted = 0;
+        try {
+            const purchases = await getAvailablePurchases();
+            console.log('[AppleIAP] restorePurchases: found', purchases.length, 'purchase(s)');
+
+            for (const purchase of purchases) {
+                const p = purchase as { transactionId?: string; id?: string; productId?: string };
+                const tid = String(p.transactionId ?? p.id ?? '').trim();
+                if (!tid) continue;
+                attempted += 1;
+
+                try {
+                    const result = await api.verifyAppleIapTransaction(tid, p.productId || undefined);
+                    if (result?.status && result.status !== 'expired') {
+                        restoredActive = true;
+                    }
+                } catch (err) {
+                    console.warn('[AppleIAP] restore verify failed for', tid, err);
+                } finally {
+                    try { await finishTransaction({ purchase }); } catch {}
+                    processedTids.current.add(tid);
+                }
+            }
+
+            await refreshUser();
+            void queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
+            prefetchMainTabData(queryClient);
+
+            if (restoredActive) {
+                Alert.alert('Purchases restored', 'Your subscription has been restored on this device.');
+            } else if (attempted === 0) {
+                Alert.alert(
+                    'Nothing to restore',
+                    'No previous purchases were found for your Apple ID on this device. If you believe this is wrong, make sure you are signed in to the App Store with the Apple ID used for the original purchase.',
+                );
+            } else {
+                Alert.alert(
+                    'No active subscription',
+                    'We found previous transactions, but none are currently active. If your subscription expired, please subscribe again.',
+                );
+            }
+            return restoredActive;
+        } catch (e: unknown) {
+            console.error('[AppleIAP] restorePurchases failed:', e);
+            const msg = (e as Error)?.message || 'Could not restore purchases. Please try again.';
+            Alert.alert('Restore failed', String(msg));
+            return false;
+        } finally {
+            setRestoring(false);
+        }
+    }, [
+        restoring,
+        user?.id,
+        connected,
+        getAvailablePurchases,
+        finishTransaction,
+        refreshUser,
+        queryClient,
+    ]);
+
     return {
         loading,
+        restoring,
         subscribeBasic,
         subscribePremium,
         subscribeTier,
+        restorePurchases,
         storeConnected: connected,
         products,
     };

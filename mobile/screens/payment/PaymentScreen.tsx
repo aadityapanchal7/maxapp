@@ -45,12 +45,24 @@ export default function PaymentScreen() {
     const sub = IS_IOS || useAppleSim ? apple : stripe;
 
     const [devLoading, setDevLoading] = useState(false);
+    const appleRestoring = 'restoring' in apple ? !!apple.restoring : false;
 
     // Post-payment navigation is handled automatically by RootNavigator:
     // when refreshUser() sets is_paid=true, the navigator swaps from the
     // unpaid stack to the paid stack with the correct initialRoute.
 
-    const busy = sub.loading !== null || devLoading;
+    const busy = sub.loading !== null || devLoading || appleRestoring;
+
+    const handleRestore = async () => {
+        if (!IS_IOS || busy) return;
+        try {
+            await apple.restorePurchases();
+            await refreshUser();
+        } catch (error: any) {
+            const msg = error?.message || 'Could not restore purchases. Please try again.';
+            Alert.alert('Restore failed', String(msg));
+        }
+    };
 
     const handleSubscribe = async (tier: 'basic' | 'premium') => {
         if (user && !user.first_scan_completed) {
@@ -184,6 +196,22 @@ export default function PaymentScreen() {
                         ? 'Manage billing in Settings → Subscriptions.'
                         : 'Manage billing via Stripe customer portal.'}
                 </Text>
+
+                {IS_IOS ? (
+                    <TouchableOpacity
+                        style={[s.restoreBtn, busy && s.ctaDisabled]}
+                        onPress={handleRestore}
+                        disabled={busy}
+                        activeOpacity={0.7}
+                        accessibilityRole="button"
+                        accessibilityLabel="Restore previous purchases"
+                    >
+                        <Ionicons name="refresh-outline" size={16} color={colors.foreground} />
+                        <Text style={s.restoreBtnText}>
+                            {appleRestoring ? 'Restoring…' : 'Restore Purchases'}
+                        </Text>
+                    </TouchableOpacity>
+                ) : null}
 
                 <TouchableOpacity
                     style={s.signOutBtn}
@@ -353,6 +381,25 @@ const s = StyleSheet.create({
         lineHeight: 18,
     },
 
+    restoreBtn: {
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: spacing.lg,
+        paddingVertical: 12,
+        paddingHorizontal: 20,
+        borderRadius: borderRadius.full,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        backgroundColor: colors.surface,
+    },
+    restoreBtnText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.foreground,
+        letterSpacing: 0.1,
+    },
     signOutBtn: {
         alignSelf: 'center',
         marginTop: spacing.xl,
