@@ -148,23 +148,25 @@ export default function LandingScreen() {
 
     return (
         <View style={styles.container}>
-            <TouchableOpacity
-                style={styles.skipPill}
-                activeOpacity={0.7}
-                onPress={handleSkip}
-                disabled={skipLoading}
-                accessibilityRole="button"
-                accessibilityLabel="Skip to home"
-            >
-                {skipLoading ? (
-                    <ActivityIndicator size="small" color={colors.textPrimary} />
-                ) : (
-                    <>
-                        <Text style={styles.skipPillText}>Skip</Text>
-                        <Ionicons name="chevron-forward" size={14} color={colors.textPrimary} />
-                    </>
-                )}
-            </TouchableOpacity>
+            {isWeb ? (
+                <TouchableOpacity
+                    style={styles.skipPill}
+                    activeOpacity={0.7}
+                    onPress={handleSkip}
+                    disabled={skipLoading}
+                    accessibilityRole="button"
+                    accessibilityLabel="Skip to home"
+                >
+                    {skipLoading ? (
+                        <ActivityIndicator size="small" color={colors.textPrimary} />
+                    ) : (
+                        <>
+                            <Text style={styles.skipPillText}>Skip</Text>
+                            <Ionicons name="chevron-forward" size={14} color={colors.textPrimary} />
+                        </>
+                    )}
+                </TouchableOpacity>
+            ) : null}
 
             <View style={styles.carouselWrap}>
                 <FlatList
@@ -211,18 +213,20 @@ export default function LandingScreen() {
                         >
                             <Text style={styles.secondaryText}>Create account</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.demoButton}
-                            activeOpacity={0.7}
-                            onPress={handleTryNow}
-                            disabled={demoLoading}
-                        >
-                            {demoLoading ? (
-                                <ActivityIndicator size="small" color={colors.textMuted} />
-                            ) : (
-                                <Text style={styles.demoText}>Try it first — no account needed</Text>
-                            )}
-                        </TouchableOpacity>
+                        {isWeb ? (
+                            <TouchableOpacity
+                                style={styles.demoButton}
+                                activeOpacity={0.7}
+                                onPress={handleTryNow}
+                                disabled={demoLoading}
+                            >
+                                {demoLoading ? (
+                                    <ActivityIndicator size="small" color={colors.textMuted} />
+                                ) : (
+                                    <Text style={styles.demoText}>Try it first — no account needed</Text>
+                                )}
+                            </TouchableOpacity>
+                        ) : null}
                     </View>
                 ) : (
                     <View style={styles.actions}>
@@ -230,18 +234,20 @@ export default function LandingScreen() {
                             <Text style={styles.nextButtonText}>Next</Text>
                             <Ionicons name="arrow-forward" size={18} color={colors.buttonText} />
                         </TouchableOpacity>
-                        <TouchableOpacity
-                            style={styles.demoButton}
-                            activeOpacity={0.7}
-                            onPress={handleTryNow}
-                            disabled={demoLoading}
-                        >
-                            {demoLoading ? (
-                                <ActivityIndicator size="small" color={colors.textMuted} />
-                            ) : (
-                                <Text style={styles.demoText}>Try it first — no account needed</Text>
-                            )}
-                        </TouchableOpacity>
+                        {isWeb ? (
+                            <TouchableOpacity
+                                style={styles.demoButton}
+                                activeOpacity={0.7}
+                                onPress={handleTryNow}
+                                disabled={demoLoading}
+                            >
+                                {demoLoading ? (
+                                    <ActivityIndicator size="small" color={colors.textMuted} />
+                                ) : (
+                                    <Text style={styles.demoText}>Try it first — no account needed</Text>
+                                )}
+                            </TouchableOpacity>
+                        ) : null}
                     </View>
                 )}
             </View>

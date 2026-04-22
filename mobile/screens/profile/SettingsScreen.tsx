@@ -18,7 +18,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
-import api from '../../services/api';
 import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import type { LegalDocId } from '../legal/legalDocuments';
 import { LEGAL_SUPPORT_EMAIL } from '../legal/legalConstants';
@@ -77,31 +76,6 @@ export default function SettingsScreen() {
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [deletePassword, setDeletePassword] = useState('');
     const [deleteBusy, setDeleteBusy] = useState(false);
-    const [pushBusy, setPushBusy] = useState(false);
-
-    const sendTestPush = async () => {
-        setPushBusy(true);
-        try {
-            const { getIosApnsDeviceTokenForBackend } = await import('../../services/registerIosPushToken');
-            const freshToken = await getIosApnsDeviceTokenForBackend();
-            if (freshToken) {
-                await api.registerPushToken(freshToken);
-            }
-            await api.sendTestPush();
-            Alert.alert(
-                'Sent',
-                'A push notification was sent. If it doesn\'t appear within 10 seconds:\n\n'
-                + '1. Check iOS Settings → Max → Notifications is ON\n'
-                + '2. Make sure Do Not Disturb / Focus is OFF\n'
-                + '3. Try locking the screen first, then sending',
-            );
-        } catch (e: any) {
-            const detail = e?.response?.data?.detail || e?.message || 'Could not send test push';
-            Alert.alert('Error', detail);
-        } finally {
-            setPushBusy(false);
-        }
-    };
 
     const openDoc = (document: LegalDocId) => navigation.navigate('LegalDocument', { document });
 
@@ -176,18 +150,6 @@ export default function SettingsScreen() {
                         hint="Goals & habits for better recommendations"
                         onPress={() => navigation.navigate('EditPersonal')}
                     />
-                    {Platform.OS === 'ios' ? (
-                        <Row
-                            label="Test push notification"
-                            onPress={sendTestPush}
-                            disabled={pushBusy}
-                            trailing={
-                                pushBusy
-                                    ? <ActivityIndicator size="small" color={colors.textMuted} />
-                                    : <Ionicons name="send-outline" size={14} color={colors.textMuted} style={{ opacity: 0.5 }} />
-                            }
-                        />
-                    ) : null}
                 </View>
 
                 {/* ── Profile ────────────────────────────────────────── */}
