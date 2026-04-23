@@ -15,7 +15,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from config import settings
 from db import AsyncSessionLocal
 from db.rds import RDSSessionLocal
-from models.sqlalchemy_models import User
+from models.sqlalchemy_models import ChatHistory, User
+from services.paywall_reply import generate_paywall_reply
 from services.sendblue_service import phone_lookup_candidates, sendblue_service
 from services.sms_mms_ingest import ingest_sendblue_media_progress_photo
 from api.chat import process_chat_message
@@ -79,10 +80,47 @@ async def _sendblue_inbound_core(
         await db.commit()
 
     if not user.is_paid:
-        await sendblue_service.send_message(
-            raw_number,
-            "need an active sub to coach you from here — open max and subscribe, then we can go back and forth.",
+        # Load the last few turns (app + sms threads) so the paywall reply
+        # isn't identical to one we just sent — avoids the "repeat loop" when
+        # the user replies with slang or nonsense.
+        recent_history: list[dict] = []
+        try:
+            recent_result = await db.execute(
+                select(ChatHistory)
+                .where(ChatHistory.user_id == user.id)
+                .order_by(ChatHistory.created_at.desc())
+                .limit(6)
+            )
+            recent_history = [
+                {"role": row.role, "content": row.content}
+                for row in reversed(recent_result.scalars().all())
+            ]
+        except Exception as hist_err:
+            logger.info("paywall history load skipped: %s", hist_err)
+
+        reply_text = await generate_paywall_reply(
+            user_id=str(user.id),
+            inbound_message=body or "",
+            recent_history=recent_history,
         )
+        await sendblue_service.send_message(raw_number, reply_text)
+        # Persist the assistant reply to app-thread history so the next
+        # paywall turn sees it and won't repeat itself. We don't persist the
+        # inbound (SMS turns historically aren't persisted), just our side.
+        try:
+            db.add(ChatHistory(
+                user_id=user.id,
+                role="assistant",
+                content=reply_text,
+                channel="sms",
+            ))
+            await db.commit()
+        except Exception as persist_err:
+            logger.info("paywall reply persist skipped: %s", persist_err)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
         return
 
     parts: list[str] = []

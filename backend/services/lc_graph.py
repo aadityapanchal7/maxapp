@@ -166,11 +166,14 @@ async def retrieve_node(state: ChatState) -> ChatState:
 async def knowledge_answer_node(state: ChatState) -> ChatState:
     """Direct answer path for knowledge turns; skips the agent entirely."""
     t0 = time.perf_counter()
+    ob = ((state.get("user_context") or {}).get("onboarding") or {}) if isinstance(state.get("user_context"), dict) else {}
+    length_pref = str(ob.get("response_length") or "").strip().lower() or None
     state["response"] = await answer_from_chunks(
         message=state.get("message", ""),
         retrieved=state.get("retrieved") or [],
         maxx_hints=state.get("maxx_hints") or [],
         active_maxx=state.get("active_maxx"),
+        response_length=length_pref,
     )
     state["schedule_mutated"] = False
     fast_path_snapshot("graph_knowledge")
