@@ -209,6 +209,19 @@ class OnairosService:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _top(d: dict[str, Any], n: int = 3) -> list[tuple[str, float]]:
+        numeric: list[tuple[str, float]] = []
+        for name, score in (d or {}).items():
+            if not name:
+                continue
+            try:
+                numeric.append((str(name), float(score)))
+            except (TypeError, ValueError):
+                continue
+        numeric.sort(key=lambda kv: kv[1], reverse=True)
+        return numeric[:n]
+
+    @staticmethod
     def format_traits_slot(traits_cached: dict[str, Any] | None) -> Optional[str]:
         """Render the cached trait snapshot into a single MEMORY SLOT line.
         Returns None when there is nothing worth showing."""
@@ -217,29 +230,127 @@ class OnairosService:
         traits_obj = traits_cached.get("traits") or {}
         positive = traits_obj.get("positive_traits") or {}
         to_improve = traits_obj.get("traits_to_improve") or {}
+        inference = traits_cached.get("inference") or {}
 
-        def _top(d: dict[str, Any], n: int = 3) -> list[str]:
-            numeric: list[tuple[str, float]] = []
-            for name, score in d.items():
-                if not name:
-                    continue
-                try:
-                    numeric.append((str(name), float(score)))
-                except (TypeError, ValueError):
-                    continue
-            numeric.sort(key=lambda kv: kv[1], reverse=True)
-            return [f"{name} ({score:.1f})" for name, score in numeric[:n]]
+        def _fmt(pairs: list[tuple[str, float]]) -> list[str]:
+            return [f"{name} ({score:.1f})" for name, score in pairs]
 
-        pos = _top(positive, 3)
-        neg = _top(to_improve, 2)
-        if not pos and not neg:
-            return None
+        pos = _fmt(OnairosService._top(positive, 3))
+        neg = _fmt(OnairosService._top(to_improve, 2))
+
         parts = []
         if pos:
             parts.append("strengths: " + ", ".join(pos))
         if neg:
             parts.append("room to grow: " + ", ".join(neg))
+
+        # Surface top inference affinities so Max can tailor tone / topic (e.g. more or
+        # less fitness-heavy framing) when the chat prompt says to quietly personalize.
+        affinities_raw = inference.get("affinities") or inference.get("interests") or {}
+        if isinstance(affinities_raw, dict) and affinities_raw:
+            aff_top = _fmt(OnairosService._top(affinities_raw, 3))
+            if aff_top:
+                parts.append("affinities: " + ", ".join(aff_top))
+
+        if not parts:
+            return None
         return "- traits (onairos): " + " | ".join(parts)
+
+    # --- deterministic trait → behavioral-frame sentences -------------------
+    #
+    # Keep narrow and literal. Each key matches the lowercased trait name from
+    # Onairos; the value is a one-line framing directive Max can lean on. We
+    # never cite the source and never list scores — the frame reads as Max's
+    # own observation about the user.
+    _STRENGTH_FRAMES: dict[str, str] = {
+        "consistency": "Rides habit well — frame protocols as streaks, not novel stacks.",
+        "discipline": "High discipline — can handle stricter targets than average.",
+        "openness": "Open to trying new protocols; willing to experiment.",
+        "conscientiousness": "Detail-oriented — give exact numbers, not vague ranges.",
+        "extraversion": "Responds to accountability framing (public streaks, check-ins).",
+    }
+    _IMPROVE_FRAMES: dict[str, str] = {
+        "consistency": "Tends to start strong and fade by week 2. Frame in 7-day blocks, not 30-day arcs.",
+        "discipline": "Discipline-rebuild mode — pick 2-3 core actions, not a full stack.",
+        "neuroticism": "Don't pile on — one action per reply, skip scolding tone even in candid mode.",
+        "openness": "Low novelty tolerance — stick to core protocol; don't suggest experiments.",
+        "agreeableness": "Won't push back easily — double-check they're actually on board before ratcheting intensity.",
+    }
+
+    @staticmethod
+    def format_behavioral_frame(traits_cached: dict[str, Any] | None) -> Optional[str]:
+        """Return a short multi-line frame Max can treat as facts-about-the-user.
+
+        Output is already labelled — callers append it directly to context.
+        Never names the source. Never lists numeric scores. Returns None when
+        there is nothing high-signal enough to frame.
+        """
+        if not traits_cached:
+            return None
+        traits_obj = traits_cached.get("traits") or {}
+        positive = traits_obj.get("positive_traits") or {}
+        to_improve = traits_obj.get("traits_to_improve") or {}
+
+        lines: list[str] = []
+        for name, score in OnairosService._top(positive, 2):
+            key = name.strip().lower()
+            if score < 0.55:
+                continue
+            frame = OnairosService._STRENGTH_FRAMES.get(key)
+            if frame:
+                lines.append(f"- {frame}")
+        for name, score in OnairosService._top(to_improve, 2):
+            key = name.strip().lower()
+            if score < 0.55:
+                continue
+            frame = OnairosService._IMPROVE_FRAMES.get(key)
+            if frame:
+                lines.append(f"- {frame}")
+
+        # Dedupe while preserving order (traits may collide across buckets).
+        seen: set[str] = set()
+        unique: list[str] = []
+        for ln in lines:
+            if ln in seen:
+                continue
+            seen.add(ln)
+            unique.append(ln)
+
+        if not unique:
+            return None
+        return "## USER BEHAVIORAL FRAME (internal — never cite source, never name it)\n" + "\n".join(unique)
+
+    @staticmethod
+    def query_bias_terms(traits_cached: dict[str, Any] | None) -> Optional[str]:
+        """Return a short space-joined string of bias terms to append to a RAG query.
+
+        Biases retrieval toward docs that match the user's behavioral profile
+        (e.g. "habit-stacking" sections for low-consistency users). Narrow on
+        purpose — too many terms drown the signal from the actual question.
+        """
+        if not traits_cached:
+            return None
+        traits_obj = traits_cached.get("traits") or {}
+        improve = traits_obj.get("traits_to_improve") or {}
+
+        TERM_MAP: dict[str, str] = {
+            "consistency": "habit stacking beginner routine",
+            "discipline": "minimal effective dose beginner",
+            "openness": "standard protocol core stack",
+            "neuroticism": "gentle low-intensity starter",
+        }
+        terms: list[str] = []
+        for name, score in OnairosService._top(improve, 2):
+            if score < 0.55:
+                continue
+            m = TERM_MAP.get(name.strip().lower())
+            if m:
+                terms.append(m)
+        if not terms:
+            return None
+        # Dedupe individual tokens.
+        tokens = list(dict.fromkeys(" ".join(terms).split()))
+        return " ".join(tokens)
 
 
 onairos_service = OnairosService()

@@ -77,6 +77,32 @@ async def gather_rag_evidence(
     return retrieved[:k_total]
 
 
+_RESPONSE_LENGTH_BLOCKS: dict[str, str] = {
+    "concise": (
+        "\n\n## USER RESPONSE LENGTH PREFERENCE: CONCISE  (overrides any other length rule above)\n"
+        "- Hard cap: 1 sentence. 2 only if the question literally has two parts.\n"
+        "- No bullets, no headers, no lists, no lead-ins.\n"
+        "- One inline citation is fine; skip others. Pick the single most useful specific."
+    ),
+    "medium": (
+        "\n\n## USER RESPONSE LENGTH PREFERENCE: MEDIUM  (default)\n"
+        "- 2-3 sentences. Or up to 4 short bullets if a list genuinely helps.\n"
+        "- Answer first, then one concrete specific (product, dose, timing, or timeframe) with inline citation."
+    ),
+    "detailed": (
+        "\n\n## USER RESPONSE LENGTH PREFERENCE: DETAILED  (overrides any other length rule above)\n"
+        "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Max's voice — length is not license to pad.\n"
+        "- Every specific you name (ingredient %, minutes, reps, macros) needs an inline citation.\n"
+        "- Structure: direct answer → specifics with citations → one sentence on why. No intros, no end-summaries."
+    ),
+}
+
+
+def _length_suffix(response_length: Optional[str]) -> str:
+    key = (response_length or "").strip().lower()
+    return _RESPONSE_LENGTH_BLOCKS.get(key, _RESPONSE_LENGTH_BLOCKS["medium"])
+
+
 async def answer_from_chunks(
     *,
     message: str,
@@ -84,6 +110,7 @@ async def answer_from_chunks(
     maxx_hints: Optional[list[str]] = None,
     active_maxx: Optional[str] = None,
     user_context_str: Optional[str] = None,
+    response_length: Optional[str] = None,
 ) -> str:
     """Answer a knowledge question from pre-retrieved evidence only.
 
@@ -116,13 +143,16 @@ async def answer_from_chunks(
     selection = select_rag_system_prompt(
         message, maxx_hints=maxx_hints, active_maxx=active_maxx
     )
-    system_prompt = selection.system_prompt
+    system_prompt = selection.system_prompt + _length_suffix(response_length)
     logger.info(
-        "[fast_rag] selector chosen_maxx=%s score=%d runner_up=%d reason=%s",
+        "[fast_rag] selector chosen_maxx=%s score=%d runner_up=%d reason=%s length=%s",
         selection.chosen_maxx, selection.score, selection.runner_up_score, selection.reason,
+        (response_length or "medium"),
     )
 
-    llm = get_chat_llm_with_fallback(max_tokens=420, temperature=0.2)
+    length_key = (response_length or "").strip().lower()
+    max_tokens = 120 if length_key == "concise" else 640 if length_key == "detailed" else 420
+    llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.2)
     from langchain_core.messages import HumanMessage, SystemMessage
 
     context_block = ""
@@ -164,6 +194,7 @@ async def answer_from_rag(
     active_maxx: Optional[str] = None,
     max_chunks: Optional[int] = None,
     user_context_str: Optional[str] = None,
+    response_length: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     """Return a direct RAG answer and the retrieved evidence used."""
     retrieved = await gather_rag_evidence(
@@ -180,5 +211,6 @@ async def answer_from_rag(
         maxx_hints=maxx_hints,
         active_maxx=active_maxx,
         user_context_str=user_context_str,
+        response_length=response_length,
     )
     return answer, retrieved

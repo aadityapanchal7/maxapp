@@ -277,6 +277,31 @@ async def build_agent_system_prompt(
     if sms_extra:
         chat_prompt += "\n\n" + sms_extra
 
+    # Response-length preference — OVERRIDES any sentence-count rule in the base prompt.
+    onboarding = (user_context or {}).get("onboarding") or {}
+    length_pref = str(onboarding.get("response_length") or "").strip().lower()
+    if length_pref == "concise":
+        chat_prompt += (
+            "\n\n## USER RESPONSE LENGTH PREFERENCE: CONCISE  (overrides all other length rules)\n"
+            "- Hard cap: 1 sentence. 2 only if the question literally has two parts.\n"
+            "- No bullets, no headers, no lists, no lead-ins (\"so basically…\", \"here's the thing…\").\n"
+            "- Cut every word that isn't load-bearing. If you can't answer in one line, pick the single most useful thing and say it.\n"
+            "- Never end with a question unless required to proceed (onboarding step)."
+        )
+    elif length_pref == "detailed":
+        chat_prompt += (
+            "\n\n## USER RESPONSE LENGTH PREFERENCE: DETAILED  (overrides all other length rules)\n"
+            "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Max's voice — length is not license to pad.\n"
+            "- Every expansion must add real info: mechanisms, exact protocols, numbers, evidence. If you catch yourself restating, stop.\n"
+            "- Structure: direct answer → specifics (ingredient + %, time, reps, macros) → one sentence on why. No intros, no end-summaries."
+        )
+    else:
+        chat_prompt += (
+            "\n\n## USER RESPONSE LENGTH PREFERENCE: MEDIUM  (default)\n"
+            "- 2-3 sentences. Or up to 4 short bullets if a list genuinely helps.\n"
+            "- Answer first, then one concrete specific (product, dose, timing, or timeframe). No background, no throat-clearing."
+        )
+
     system_budget = int(getattr(settings, "chat_max_system_prompt_tokens", 3200) or 3200)
     if count_tokens(chat_prompt) > system_budget:
         chat_prompt = trim_text_block(

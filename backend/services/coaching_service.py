@@ -225,16 +225,25 @@ def _format_memory_slots(
 
     # Optional: Onairos personalization snapshot. Only append when the user has
     # consented and we have a cached trait row — absence is the norm, not an error.
+    # We emit two artifacts:
+    #   1) One-line memory slot with trait scores (legacy, kept for existing prompts).
+    #   2) A first-person behavioral frame block Max treats as facts-about-the-user,
+    #      producing more natural blending than score readouts.
+    behavioral_frame: Optional[str] = None
     try:
         from services.onairos_service import OnairosService
 
         trait_line = OnairosService.format_traits_slot(onairos_traits)
         if trait_line:
             lines.append(trait_line)
+        behavioral_frame = OnairosService.format_behavioral_frame(onairos_traits)
     except Exception:
-        pass
+        behavioral_frame = None
 
-    return "\n".join(lines)
+    slots_text = "\n".join(lines)
+    if behavioral_frame:
+        slots_text = f"{slots_text}\n\n{behavioral_frame}"
+    return slots_text
 
 
 class CoachingService:
