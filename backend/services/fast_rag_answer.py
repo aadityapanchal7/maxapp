@@ -149,6 +149,81 @@ def _length_suffix(response_length: Optional[str]) -> str:
     return _RESPONSE_LENGTH_BLOCKS.get(key, _RESPONSE_LENGTH_BLOCKS["medium"])
 
 
+# When retrieval returns nothing, switch the system prompt into "standard
+# template" mode. This OVERRIDES the strict-grounding rules from the base RAG
+# prompt for this specific turn — the user gets a competent answer from the
+# LLM's foundational knowledge, plus a short up-front disclosure that it's a
+# template (not the user's personalized doc-grounded protocol).
+_STANDARD_TEMPLATE_SUFFIX = """
+
+## STANDARD-TEMPLATE FALLBACK (this turn only)
+No matching evidence was retrieved for the user's question. Override the
+"don't see that in your current docs" rule for this turn:
+
+- Use your foundational knowledge of fitness, dermatology, hair, skeletal,
+  and lookmaxxing protocols to give a competent, standard answer.
+- Open the answer with ONE short clause noting it's a standard template
+  (e.g. "no protocol on file for that — here's a standard template:").
+- Then deliver the answer at full quality. Specific numbers, products,
+  ingredients, doses, sets/reps — give them. Standard means industry-
+  accepted, not vague.
+- Do NOT cite [source: ...] — there's no evidence to cite.
+- Do NOT refuse, hedge, or push the user to "consult a professional"
+  unless the question is genuinely medical/diagnostic.
+- Keep the same Max voice: lowercase, direct, no fluff."""
+
+
+async def _answer_without_evidence(
+    *,
+    message: str,
+    maxx_hints: Optional[list[str]],
+    active_maxx: Optional[str],
+    user_context_str: Optional[str],
+    response_length: Optional[str],
+) -> str:
+    """LLM call when retrieval returned zero chunks.
+
+    Uses the same selector + length budget as the evidence path, but appends
+    `_STANDARD_TEMPLATE_SUFFIX` so the LLM is explicitly permitted to draw on
+    general knowledge. The user gets a useful answer instead of a refusal.
+    """
+    selection = select_rag_system_prompt(
+        message, maxx_hints=maxx_hints or [], active_maxx=active_maxx
+    )
+    system_prompt = (
+        selection.system_prompt + _length_suffix(response_length) + _STANDARD_TEMPLATE_SUFFIX
+    )
+    logger.info(
+        "[fast_rag] no-evidence fallback: chosen_maxx=%s reason=%s",
+        selection.chosen_maxx, selection.reason,
+    )
+
+    length_key = (response_length or "").strip().lower()
+    max_tokens = 120 if length_key == "concise" else 640 if length_key == "detailed" else 420
+    llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.3)
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    context_block = ""
+    if user_context_str:
+        context_block = f"User context (schedule, profile, onboarding):\n{user_context_str.strip()}\n\n"
+
+    human = (
+        f"{context_block}"
+        f"User question:\n{message.strip()}\n\n"
+        f"(No matching evidence in module docs. Use the standard-template "
+        f"fallback rules above.)"
+    )
+    try:
+        resp = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
+        text = getattr(resp, "content", resp)
+        if isinstance(text, list):
+            text = "\n".join(str(x) for x in text)
+        return str(text or "").strip()
+    except Exception as e:
+        logger.warning("fast rag standard-template fallback failed: %s", e)
+        return ""
+
+
 async def answer_from_chunks(
     *,
     message: str,
@@ -242,7 +317,14 @@ async def answer_from_rag(
     user_context_str: Optional[str] = None,
     response_length: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
-    """Return a direct RAG answer and the retrieved evidence used."""
+    """Return a direct RAG answer and the retrieved evidence used.
+
+    When retrieval returns zero chunks we DO NOT short-circuit to "" anymore —
+    the empty string used to bubble up to the caller and trigger a generic
+    refusal ("don't see that in your docs"). Instead we hand the turn to
+    `_answer_without_evidence`, which lets the LLM fall back to general
+    knowledge under the STANDARD-TEMPLATE rules.
+    """
     retrieved = await gather_rag_evidence(
         message=message,
         maxx_hints=maxx_hints,
@@ -250,7 +332,14 @@ async def answer_from_rag(
         max_chunks=max_chunks,
     )
     if not retrieved:
-        return "", []
+        fallback = await _answer_without_evidence(
+            message=message,
+            maxx_hints=maxx_hints,
+            active_maxx=active_maxx,
+            user_context_str=user_context_str,
+            response_length=response_length,
+        )
+        return fallback, []
     answer = await answer_from_chunks(
         message=message,
         retrieved=retrieved,

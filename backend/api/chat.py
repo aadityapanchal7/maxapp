@@ -11,7 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Tuple
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -610,6 +611,156 @@ def _parse_session_minutes_reply(text: str) -> Optional[int]:
         v = int(m.group(1))
         if 20 <= v <= 180:
             return v
+    return None
+
+
+# --- Generic fuzzy choice coercion ----------------------------------------
+# Used by the onboarding extractors to accept natural-language replies that
+# logically map to one of the offered choices ("3" -> "3-4", "i lift weights"
+# -> "dumbbells", "thinning a bit" -> "yes"). Replaces previous strict-equal
+# matching that caused infinite re-ask loops when users typed valid-but-not-
+# exact answers.
+_CHOICE_ALIASES: dict[str, dict[str, str]] = {
+    # Map of choice-canonical-form -> {alias_token: same canonical}.
+    # All keys + alias tokens are lowercase. Multi-word aliases use spaces.
+    "yes": {
+        "yes": "yes", "y": "yes", "yeah": "yes", "yep": "yes", "yea": "yes",
+        "sure": "yes", "definitely": "yes", "for sure": "yes", "true": "yes",
+        "correct": "yes", "kinda": "yes", "a bit": "yes", "some": "yes",
+        "noticing": "yes", "a little": "yes",
+    },
+    "no": {
+        "no": "no", "n": "no", "nope": "no", "nah": "no", "not really": "no",
+        "none": "no", "minimal": "no", "barely": "no", "false": "no",
+    },
+    "male": {"male": "male", "m": "male", "man": "male", "guy": "male", "boy": "male"},
+    "female": {"female": "female", "f": "female", "woman": "female", "girl": "female"},
+}
+
+
+def _coerce_to_choice(
+    text: str,
+    choices: list[str],
+    *,
+    aliases: Optional[dict[str, str]] = None,
+) -> Optional[str]:
+    """Best-effort match `text` to one of `choices`. Returns None if no match.
+
+    Strategy (highest-confidence first):
+      1. Exact match (after lower+strip).
+      2. Alias dictionary (caller-provided + global yes/no/sex aliases).
+      3. Substring: a choice token that fully appears in the text wins.
+      4. Numeric coercion against ranges ("3" -> "3-4", "5" -> "5+").
+      5. Token overlap: pick the choice with the most tokens covered by text.
+
+    The point is: if the user's reply *logically fits* a category, accept it.
+    Reject only when nothing plausibly maps. Never trap them in a loop on a
+    legitimate answer.
+    """
+    raw = (text or "").strip().lower()
+    if not raw or not choices:
+        return None
+    norm_choices = [c.lower() for c in choices]
+
+    # 0. Number-word substitution — "three" -> "3" so the rest of the
+    # pipeline (range coercion, exact match) can handle word-form replies.
+    _NUM_WORDS = {
+        "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
+        "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9", "ten": "10",
+    }
+    for word, digit in _NUM_WORDS.items():
+        raw = re.sub(rf"\b{word}\b", digit, raw)
+
+    # 1. Exact
+    if raw in norm_choices:
+        return choices[norm_choices.index(raw)]
+
+    # 2. Aliases — exact OR substring (so "a little thinning" still hits
+    # the "a little" -> "yes" alias).
+    merged_aliases: dict[str, str] = {}
+    for canonical_map in _CHOICE_ALIASES.values():
+        for alias, canon in canonical_map.items():
+            if canon.lower() in norm_choices:
+                merged_aliases[alias] = canon
+    if aliases:
+        merged_aliases.update(aliases)
+    if raw in merged_aliases:
+        canon = merged_aliases[raw].lower()
+        if canon in norm_choices:
+            return choices[norm_choices.index(canon)]
+    # Substring alias check, longest-alias-first (avoids "no" matching inside
+    # "noticing" before the more specific "noticing" rule fires).
+    for alias in sorted(merged_aliases.keys(), key=len, reverse=True):
+        if alias and re.search(rf"\b{re.escape(alias)}\b", raw):
+            canon = merged_aliases[alias].lower()
+            if canon in norm_choices:
+                return choices[norm_choices.index(canon)]
+
+    # 3. Substring matching — score every choice and pick the strongest.
+    # Two-stage scoring so "i'm very active" picks "very active" over
+    # "moderately active" (both contain "active", but "very active" has 2
+    # word-token matches and "moderately active" only has 1).
+    raw_tokens_list = re.findall(r"[a-z0-9]+", raw)
+    raw_tokens_set = set(raw_tokens_list)
+    scored: list[tuple[int, int, str]] = []  # (whole-word-hits, prefix-hits, choice)
+    for c, norm_c in zip(choices, norm_choices):
+        if not norm_c:
+            continue
+        if norm_c in raw:
+            # Full phrase appears verbatim — strongest signal.
+            scored.append((100, 0, c))
+            continue
+        choice_toks = [t for t in norm_c.split() if len(t) >= 3]
+        if not choice_toks:
+            continue
+        whole = sum(1 for t in choice_toks if t in raw_tokens_set)
+        prefix = 0
+        for t in choice_toks:
+            if t in raw_tokens_set:
+                continue  # already counted
+            for rt in raw_tokens_list:
+                if len(rt) >= 4 and (t.startswith(rt) or rt.startswith(t)):
+                    prefix += 1
+                    break
+        if whole or prefix:
+            scored.append((whole, prefix, c))
+    if scored:
+        scored.sort(key=lambda x: (-x[0], -x[1]))
+        return scored[0][2]
+
+    # 4. Numeric coercion against range-like choices ("1-2", "3-4", "5+")
+    num_match = re.search(r"\b(\d+)\b", raw)
+    if num_match:
+        n = int(num_match.group(1))
+        for c, norm_c in zip(choices, norm_choices):
+            # exact integer choice
+            if norm_c == str(n):
+                return c
+            # range "a-b"
+            r_match = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", norm_c)
+            if r_match:
+                lo, hi = int(r_match.group(1)), int(r_match.group(2))
+                if lo <= n <= hi:
+                    return c
+            # "N+" open-upper
+            plus_match = re.fullmatch(r"(\d+)\s*\+", norm_c)
+            if plus_match and n >= int(plus_match.group(1)):
+                return c
+
+    # 5. Token-overlap (last resort — useful for "i train at home with dumbbells"
+    # -> "dumbbells")
+    raw_tokens = set(re.findall(r"[a-z0-9]+", raw))
+    if raw_tokens:
+        best: tuple[int, Optional[str]] = (0, None)
+        for c, norm_c in zip(choices, norm_choices):
+            choice_tokens = set(re.findall(r"[a-z0-9]+", norm_c))
+            if not choice_tokens:
+                continue
+            overlap = len(raw_tokens & choice_tokens)
+            if overlap > best[0]:
+                best = (overlap, c)
+        if best[1] and best[0] >= 1:
+            return best[1]
     return None
 
 
@@ -1405,19 +1556,54 @@ async def process_chat_message(
     attachment_url: Optional[str] = None,
     attachment_type: Optional[str] = None,
     channel: str = "app",
+    conversation_id: Optional[str] = None,
 ) -> Tuple[str, list[str]]:
     """
     Core chat logic shared by the HTTP endpoint and the SMS webhook.
     Persists app turns to ChatHistory (channel=app). SMS turns are not persisted.
     In-app GET /history shows app (and legacy NULL channel) only.
-    Returns (assistant_text, quick_reply_choices). Choices are only for active module schedule onboarding.
+    Returns (assistant_text, quick_reply_choices). Choices are only for active
+    module schedule onboarding.
     """
     from services.schedule_service import schedule_service, ScheduleLimitError
+    from services import chat_conversations_service as _conv
+    from models.sqlalchemy_models import active_conversation_id as _active_conv_cv
+
     user_uuid = UUID(user_id)
     note_chat_turn()
 
     fitmax_schedule_active = None
     hairmax_schedule_active = None
+
+    # --- Resolve the active conversation for this turn ---------------------
+    # SMS stays untracked (channel != app → no persistence, no thread). For
+    # app turns: use the supplied id if it belongs to this user, otherwise
+    # route to the user's most-recent thread (or create one on first message).
+    active_conversation = None
+    active_conv_id_str: Optional[str] = None
+    if channel == "app":
+        try:
+            active_conversation = await _conv.resolve_active_conversation(
+                db,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                channel="app",
+            )
+            active_conv_id_str = str(active_conversation.id)
+            # Every ChatHistory() constructed below inherits this id via the
+            # model's contextvar default. FastAPI gives each request its own
+            # asyncio Context so there's no cross-request leak.
+            _active_conv_cv.set(active_conversation.id)
+            # Bump recency + auto-title once per turn.
+            await _conv.touch_last_message(
+                db,
+                conversation_id=active_conv_id_str,
+                first_user_message=message_text,
+                commit=False,
+            )
+        except Exception as e:
+            logger.warning("[chat] could not resolve conversation for user=%s: %s",
+                           str(user_id)[:8], e)
 
     # SMS is not persisted; use in-app thread as read-only context for the model.
     history_channel_for_load = "app" if channel == "sms" else channel
@@ -1427,10 +1613,21 @@ async def process_chat_message(
     # via gather only if they run on SEPARATE sessions. Keeping sequential
     # here for correctness; biggest win comes from trimming what each call does.
     # LLM window is CHAT_HISTORY_WINDOW (15) and bg jobs use last 20.
-    history_result = await db.execute(
+    history_stmt = (
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
         .where(_chat_history_channel_clause(history_channel_for_load))
+    )
+    if active_conversation is not None:
+        # Scope to the active thread so each conversation has its own context
+        # window. Legacy rows without conversation_id are invisible once the
+        # user has any active thread (they're backfilled into "Chat history"
+        # at migration time, so they still show up under that thread).
+        history_stmt = history_stmt.where(
+            ChatHistory.conversation_id == active_conversation.id
+        )
+    history_result = await db.execute(
+        history_stmt
         .order_by(ChatHistory.created_at.desc())
         .limit(20)
     )
@@ -1620,6 +1817,7 @@ async def process_chat_message(
             message=message_text,
             maxx_hints=turn_intent.get("maxx_hints") or [],
             active_maxx=active_hint,
+            response_length=str(onboarding.get("response_length") or "").strip().lower() or None,
         )
         if fast_response:
             if _persist_chat_history(channel):
@@ -1777,6 +1975,24 @@ async def process_chat_message(
                     updates["biological_sex"] = "male"
                 elif raw in ("female", "f", "woman", "girl"):
                     updates["biological_sex"] = "female"
+
+            # Generic fuzzy fallback: if the field is still missing, try to
+            # coerce the user's reply to one of the offered choices for the
+            # CURRENT question. This is what stops the "user typed 3 but we
+            # wanted '3-4' so we re-ask forever" loop.
+            if nxt not in updates:
+                _, choices = FITMAX_QUESTION_MAP.get(nxt, ("", []))
+                if choices:
+                    coerced = _coerce_to_choice(message_text, choices)
+                    if coerced is not None:
+                        # Numeric fields stored as int; everything else as str.
+                        if nxt in ("days_per_week", "session_minutes", "age"):
+                            try:
+                                updates[nxt] = int(re.search(r"\d+", coerced).group())
+                            except (AttributeError, ValueError):
+                                updates[nxt] = coerced
+                        else:
+                            updates[nxt] = coerced
         if updates:
             fitmax_profile.update(updates)
             profile["fitmax_profile"] = fitmax_profile
@@ -1945,6 +2161,16 @@ async def process_chat_message(
                         if re.search(rf"\b{re.escape(w)}\b", s_low):
                             updates["thinning"] = "no"
                             break
+
+            # Generic fuzzy fallback — see fitmax block above. Stops re-asking
+            # when the user's reply logically maps to one of the offered
+            # choices but isn't a strict-equal string match.
+            if nxt not in updates:
+                _, choices = HAIRMAX_QUESTION_MAP.get(nxt, ("", []))
+                if choices:
+                    coerced = _coerce_to_choice(message_text, choices)
+                    if coerced is not None:
+                        updates[nxt] = coerced
         if updates:
             hairmax_profile.update(updates)
             profile["hairmax_profile"] = hairmax_profile
@@ -2508,6 +2734,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             message=message_text,
             maxx_hints=turn_intent.get("maxx_hints") or [],
             active_maxx=active_hint,
+            response_length=str(onboarding.get("response_length") or "").strip().lower() or None,
         )
         if fast_response:
             if _persist_chat_history(channel):
@@ -2726,6 +2953,17 @@ async def send_message(
     rds_db: AsyncSession | None = Depends(get_rds_db_optional),
 ):
     """Send message to Max AI (in-app)"""
+    from services import chat_conversations_service as _conv
+
+    # Resolve the conversation up-front so we can echo the id back even if
+    # process_chat_message takes a fast path that wouldn't otherwise expose it.
+    conv = await _conv.resolve_active_conversation(
+        db,
+        user_id=current_user["id"],
+        conversation_id=data.conversation_id,
+        channel="app",
+    )
+
     response_text, choices = await process_chat_message(
         user_id=current_user["id"],
         message_text=data.message,
@@ -2735,8 +2973,13 @@ async def send_message(
         chat_intent=data.chat_intent,
         attachment_url=data.attachment_url,
         attachment_type=data.attachment_type,
+        conversation_id=str(conv.id),
     )
-    return ChatResponse(response=response_text, choices=choices)
+    return ChatResponse(
+        response=response_text,
+        choices=choices,
+        conversation_id=str(conv.id),
+    )
 
 
 @router.post("/trigger-check-in")
@@ -2776,28 +3019,142 @@ async def trigger_check_in(
 async def get_chat_history(
     limit: int = 50,
     offset: int = 0,
+    conversation_id: Optional[str] = None,
     current_user: dict = Depends(require_paid_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get in-app chat history only (SMS thread is excluded)."""
+    """Get in-app chat history.
+
+    Without conversation_id: returns the user's most-recent thread (matches
+    legacy single-thread mobile behavior).
+    With conversation_id: returns that specific thread, or 404 if it doesn't
+    belong to the caller.
+    """
+    from services import chat_conversations_service as _conv
+
     limit = min(max(limit, 1), 200)
     offset = max(offset, 0)
-    user_uuid = UUID(current_user["id"])
-    result = await db.execute(
+    user_id = current_user["id"]
+    user_uuid = UUID(user_id)
+
+    # Decide which conversation to read.
+    target_conv = None
+    if conversation_id:
+        target_conv = await _conv.get_conversation(
+            db, conversation_id=conversation_id, user_id=user_id
+        )
+        if target_conv is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+    else:
+        convs = await _conv.list_conversations(db, user_id=user_id, limit=1)
+        target_conv = None if not convs else await _conv.get_conversation(
+            db, conversation_id=convs[0]["id"], user_id=user_id
+        )
+
+    stmt = (
         select(ChatHistory)
         .where(ChatHistory.user_id == user_uuid)
         .where(or_(ChatHistory.channel == "app", ChatHistory.channel.is_(None)))
-        .order_by(ChatHistory.created_at.desc())
-        .offset(offset)
-        .limit(limit)
+    )
+    if target_conv is not None:
+        stmt = stmt.where(ChatHistory.conversation_id == target_conv.id)
+    result = await db.execute(
+        stmt.order_by(ChatHistory.created_at.desc())
+            .offset(offset)
+            .limit(limit)
     )
     rows = list(reversed(result.scalars().all()))
     return {
+        "conversation_id": str(target_conv.id) if target_conv else None,
         "messages": [
-        {"role": r.role, "content": r.content, "created_at": r.created_at}
-        for r in rows
-        ]
+            {"role": r.role, "content": r.content, "created_at": r.created_at}
+            for r in rows
+        ],
     }
+
+
+# -----------------------------------------------------------------------
+#  Conversations CRUD — list / create / rename / archive / delete
+# -----------------------------------------------------------------------
+
+class ConversationCreateBody(BaseModel):
+    title: Optional[str] = None
+
+
+class ConversationRenameBody(BaseModel):
+    title: str
+
+
+@router.get("/conversations")
+async def list_chat_conversations(
+    include_archived: bool = False,
+    limit: int = 50,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return this user's chat threads, most recent first."""
+    from services import chat_conversations_service as _conv
+    items = await _conv.list_conversations(
+        db,
+        user_id=current_user["id"],
+        include_archived=include_archived,
+        limit=limit,
+    )
+    return {"conversations": items}
+
+
+@router.post("/conversations")
+async def create_chat_conversation(
+    body: ConversationCreateBody,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create a new chat thread. Returns the thread for immediate use."""
+    from services import chat_conversations_service as _conv
+    conv = await _conv.create_conversation(
+        db,
+        user_id=current_user["id"],
+        title=body.title,
+        channel="app",
+    )
+    return {"conversation": _conv.row_to_dict(conv)}
+
+
+@router.patch("/conversations/{conversation_id}")
+async def rename_chat_conversation(
+    conversation_id: str,
+    body: ConversationRenameBody,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from services import chat_conversations_service as _conv
+    conv = await _conv.rename_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_id=current_user["id"],
+        title=body.title,
+    )
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"conversation": _conv.row_to_dict(conv)}
+
+
+@router.delete("/conversations/{conversation_id}")
+async def delete_chat_conversation(
+    conversation_id: str,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete the thread and its messages."""
+    from services import chat_conversations_service as _conv
+    removed = await _conv.delete_conversation(
+        db,
+        conversation_id=conversation_id,
+        user_id=current_user["id"],
+    )
+    if not removed:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"ok": True}
 
 
 def _summarise_schedule(schedule: dict) -> str:
