@@ -146,14 +146,23 @@ async def _run_app_users_column_migrations():
 
 
 async def _run_chat_history_column_migrations():
-    """Add chat_history columns in a dedicated transaction so they commit even if other migrations fail.
+    """Add chat_history columns + multi-conversation wiring.
 
-    retrieved_chunk_ids: the RAG refactor changed the column type from BIGINT[] (old
-    pgvector integer chunk IDs) to JSONB (file-based string IDs). Dropping and
-    recreating the column on every boot would wipe the audit trail — instead we
-    only drop it when the existing type is not already JSONB.
+    Each migration runs in its OWN transaction so a failure in one can't roll
+    back the others. Previously the conversation_id FK + backfill block was
+    grouped with the basic-column adds in a single transaction — if Supabase
+    perms or `chat_conversations` not-yet-existing made the FK ALTER fail,
+    `retrieved_chunk_ids` and `conversation_id` itself both rolled back too.
+    Production hit exactly this and queries that selected `conversation_id`
+    started 500ing.
+
+    retrieved_chunk_ids: the RAG refactor changed the column type from
+    BIGINT[] to JSONB. We only drop+re-add it when the existing type is
+    not already JSONB so the audit trail isn't wiped on every boot.
     """
-    statements = [
+    # ---- 1. Basic columns. These must succeed independently of any other
+    # table's existence. -----------------------------------------------------
+    basic_statements = [
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS channel VARCHAR DEFAULT 'app'",
         """
         DO $$
@@ -170,47 +179,118 @@ async def _run_chat_history_column_migrations():
         """,
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS retrieved_chunk_ids JSONB",
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS partner_rule_ids BIGINT[]",
-        # Multi-conversation support: FK + index + one-time backfill of legacy
-        # rows into a "Chat history" thread per user. create_all() already
-        # creates chat_conversations itself; these statements only touch
-        # chat_history and only run once because the UPDATE guards on NULL.
-        """
-        ALTER TABLE chat_history
-            ADD COLUMN IF NOT EXISTS conversation_id uuid
-                REFERENCES chat_conversations(id) ON DELETE CASCADE
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_chat_history_conversation
-            ON chat_history(conversation_id, created_at)
-        """,
-        """
-        INSERT INTO chat_conversations (user_id, title, last_message_at)
-        SELECT ch.user_id, 'Chat history', MAX(ch.created_at)
-        FROM chat_history ch
-        WHERE ch.conversation_id IS NULL
-          AND NOT EXISTS (
-              SELECT 1 FROM chat_conversations cc
-              WHERE cc.user_id = ch.user_id
-          )
-        GROUP BY ch.user_id
-        """,
-        """
-        UPDATE chat_history ch
-        SET conversation_id = cc.id
-        FROM chat_conversations cc
-        WHERE ch.conversation_id IS NULL
-          AND cc.user_id = ch.user_id
-          AND cc.title = 'Chat history'
-        """,
     ]
+    for sql in basic_statements:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("SET lock_timeout = '30s'"))
+                await conn.execute(text(sql))
+        except Exception as e:
+            print(f"[WARNING] chat_history basic migration failed: {e}")
+
+    # ---- 2. Ensure chat_conversations table exists. create_all() should
+    # have done this from the ORM model, but if Supabase RLS or a transient
+    # error blocked it, we recreate it here from the canonical SQL so the
+    # subsequent FK + index + backfill don't fail with "relation does not
+    # exist". ----------------------------------------------------------------
     try:
         async with engine.begin() as conn:
             await conn.execute(text("SET lock_timeout = '30s'"))
-            for sql in statements:
-                await conn.execute(text(sql))
-        print("[OK] chat_history column migrations applied")
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS public.chat_conversations (
+                    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+                    user_id uuid NOT NULL,
+                    title varchar(120) NOT NULL DEFAULT 'new chat',
+                    is_archived boolean NOT NULL DEFAULT false,
+                    last_message_at timestamptz,
+                    created_at timestamptz NOT NULL DEFAULT now(),
+                    updated_at timestamptz NOT NULL DEFAULT now()
+                )
+            """))
+            await conn.execute(text("""
+                CREATE INDEX IF NOT EXISTS idx_chat_conversations_user
+                    ON public.chat_conversations(user_id, is_archived, last_message_at DESC)
+            """))
     except Exception as e:
-        print(f"[WARNING] chat_history column migrations: {e}")
+        print(f"[WARNING] chat_conversations bootstrap failed: {e}")
+
+    # ---- 3. Add conversation_id column WITHOUT the FK constraint first.
+    # The column is what the ORM SELECTs reference — it must exist even if
+    # the FK can't be installed (e.g. permission lockouts, lock contention).
+    # -----------------------------------------------------------------------
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '30s'"))
+            await conn.execute(text(
+                "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS conversation_id uuid"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_chat_history_conversation "
+                "ON chat_history(conversation_id, created_at)"
+            ))
+        print("[OK] chat_history.conversation_id column ensured")
+    except Exception as e:
+        print(f"[WARNING] chat_history.conversation_id column add failed: {e}")
+
+    # ---- 4. Best-effort: install FK constraint pointing at chat_conversations.
+    # If this fails (e.g. orphan rows, permissions), we keep the column
+    # without referential integrity rather than blowing up the whole boot.
+    # -----------------------------------------------------------------------
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '30s'"))
+            await conn.execute(text("""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.table_constraints
+                        WHERE table_name = 'chat_history'
+                          AND constraint_name = 'chat_history_conversation_id_fkey'
+                    ) AND EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public'
+                          AND table_name = 'chat_conversations'
+                    ) THEN
+                        ALTER TABLE chat_history
+                            ADD CONSTRAINT chat_history_conversation_id_fkey
+                            FOREIGN KEY (conversation_id)
+                            REFERENCES chat_conversations(id)
+                            ON DELETE CASCADE;
+                    END IF;
+                END $$;
+            """))
+    except Exception as e:
+        print(f"[WARNING] chat_history.conversation_id FK install skipped: {e}")
+
+    # ---- 5. One-time backfill so legacy rows have a thread to live in.
+    # Each runs idempotently — the WHERE clauses guard on conversation_id
+    # IS NULL, so re-running is a no-op once everything is migrated.
+    # -----------------------------------------------------------------------
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '30s'"))
+            await conn.execute(text("""
+                INSERT INTO chat_conversations (user_id, title, last_message_at)
+                SELECT ch.user_id, 'Chat history', MAX(ch.created_at)
+                FROM chat_history ch
+                WHERE ch.conversation_id IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM chat_conversations cc
+                      WHERE cc.user_id = ch.user_id
+                  )
+                GROUP BY ch.user_id
+            """))
+            await conn.execute(text("""
+                UPDATE chat_history ch
+                SET conversation_id = cc.id
+                FROM chat_conversations cc
+                WHERE ch.conversation_id IS NULL
+                  AND cc.user_id = ch.user_id
+                  AND cc.title = 'Chat history'
+            """))
+        print("[OK] chat_history conversation_id backfill complete")
+    except Exception as e:
+        print(f"[WARNING] chat_history conversation_id backfill skipped: {e}")
 
 
 async def _run_column_migrations():
