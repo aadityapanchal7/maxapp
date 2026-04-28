@@ -293,7 +293,7 @@ const styles = StyleSheet.create({
     },
     drawerTitle: {
         color: colors.foreground,
-        fontSize: typography.title?.fontSize ?? 20,
+        fontSize: typography.h2?.fontSize ?? 20,
         fontWeight: '700',
     },
     newChatButton: {
