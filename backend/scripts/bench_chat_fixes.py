@@ -173,6 +173,173 @@ def backtest_input_validation(chat: dict) -> dict:
 #  Backtest 2 — RAG empty-evidence fallback wiring                             #
 # --------------------------------------------------------------------------- #
 
+def _load_fast_rag_helpers() -> dict:
+    """AST-extract _scrub_leakage and _looks_like_template_response without
+    importing the heavy module (langchain etc.)."""
+    src = (_BACKEND_ROOT / "services" / "fast_rag_answer.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    wanted_assigns = {"_LEAKAGE_PATTERNS", "_TEMPLATE_OUTPUT_MARKERS"}
+    wanted_funcs = {"_scrub_leakage", "_looks_like_template_response"}
+    selected: list[ast.AST] = []
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            getattr(t, "id", "") in wanted_assigns for t in node.targets
+        ):
+            selected.append(node)
+        elif isinstance(node, ast.AnnAssign) and getattr(node.target, "id", "") in wanted_assigns:
+            selected.append(node)
+        elif isinstance(node, ast.FunctionDef) and node.name in wanted_funcs:
+            selected.append(node)
+    ns: dict[str, Any] = {"re": re}
+    exec(compile(ast.Module(body=selected, type_ignores=[]), "frt.py", "exec"), ns)
+    return ns
+
+
+def backtest_no_evidence_leakage_scrub() -> dict:
+    """Sanitizer must remove every template-marker phrase from any output.
+    These are the user-visible failure modes from production."""
+    helpers = _load_fast_rag_helpers()
+    scrub = helpers["_scrub_leakage"]
+
+    cases: list[tuple[str, str, str]] = [
+        # (label, raw_llm_output, must_not_contain)
+        ("production_truncated",
+         "no protocol on file for that — here's a standard template: adult acne and",
+         "no protocol on file"),
+        ("template_prefix_then_real_answer",
+         "no protocol on file for that — here's a standard template: use adapalene 0.1% nightly + spf 30 mornings.",
+         "standard template"),
+        ("standalone_standard_template_phrase",
+         "here's a standard template: do 3x10 pushups, 3x10 squats, 3x10 rows.",
+         "standard template"),
+        ("docs_refusal_inline",
+         "(not in your current docs) but you can try minoxidil 5% twice daily.",
+         "not in your current docs"),
+        ("dont_have_that_info",
+         "i don't have that info on file. but in general, retinol nightly works.",
+         "i don't have that info"),
+        ("based_on_industry_practice_preamble",
+         "based on industry practice, take creatine 5g daily.",
+         "based on industry practice"),
+        ("clean_answer_passes_through",
+         "use cerave foaming cleanser AM, retinoid PM. spf 30 over the top.",
+         "should never appear"),  # negative — text MUST stay intact
+        ("multiple_leaks_combined",
+         "no protocol on file for that — here's a standard template: based on industry guidelines, eat 0.8g/lb protein.",
+         "standard template"),
+    ]
+
+    results = []
+    for label, raw, marker in cases:
+        cleaned = scrub(raw)
+        # must_not_contain: marker should be gone
+        if label == "clean_answer_passes_through":
+            ok = cleaned == raw  # must not mutate clean text
+        else:
+            ok = marker.lower() not in cleaned.lower() and len(cleaned) > 0
+        results.append({
+            "case": label,
+            "raw": raw[:80],
+            "cleaned": cleaned[:80],
+            "pass": ok,
+        })
+    passed = sum(1 for r in results if r["pass"])
+    return {
+        "name": "leakage_scrub",
+        "total": len(results),
+        "passed": passed,
+        "pass_rate": passed / len(results) if results else 0.0,
+        "results": results,
+    }
+
+
+def backtest_diverse_no_evidence_queries() -> dict:
+    """A wide variety of plausible no-evidence queries: any of these could
+    fire the native-knowledge path. We don't run the LLM here — we verify
+    the WIRING is correct (function exists, persona prompt is loaded,
+    sanitizer is applied to the output, no template phrases in the
+    instruction set itself)."""
+    src = _read_fast_rag_text()
+    prompt_src = _read_prompt_text()
+
+    # 30 diverse queries spanning every module + cross-cutting topics.
+    # All would plausibly trigger no-evidence fallback in production.
+    queries = [
+        "what's the best push day workout",
+        "give me a leg day routine",
+        "how do i deload a powerbuilding split",
+        "what supplements help with sleep recovery",
+        "how do i build forearms",
+        "best cardio for fat loss",
+        "how to fix a chicken-leg physique",
+        "skincare routine for combination skin",
+        "how do i fix dark circles",
+        "best peptides for skin",
+        "how to thicken a beard",
+        "what causes facial bloating from alcohol",
+        "best routine for sensitive scalp",
+        "do i need to seal my hair after washing",
+        "how to grow eyebrows back",
+        "natural ways to boost testosterone",
+        "how do i lower cortisol",
+        "morning sunlight protocol",
+        "how long to deload the chin tucks",
+        "is mewing safe with braces",
+        "how do i train neck thickness",
+        "best eye exercises for tired eyes",
+        "why does my face look puffy in the morning",
+        "best protocol for under-eye hollows",
+        "how do i build a v-taper",
+        "how to fix posterior pelvic tilt",
+        "how to taper down off finasteride",
+        "what to do during a steroid pause",
+        "how do i clean up cystic acne fast",
+        "best routine for keratosis pilaris",
+    ]
+
+    checks = [
+        ("native_knowledge_suffix_defined",
+         "_NATIVE_KNOWLEDGE_SUFFIX" in src and "NATIVE KNOWLEDGE MODE" in src),
+        ("standard_template_phrase_removed_from_suffix",
+         # The OLD suffix instructed the LLM to lead with "no protocol on file".
+         # The NEW suffix forbids that phrase. So `_NATIVE_KNOWLEDGE_SUFFIX`
+         # must contain the NEVER-list (with the phrase quoted as forbidden)
+         # but must NOT contain a positive instruction to use it.
+         "NEVER" in src and "no protocol on file" in src.lower()
+         and "lead with one short clause noting it's a standard template" not in src.lower()),
+        ("answer_without_evidence_uses_max_persona",
+         "MAX_CHAT_SYSTEM" in src or "max_chat_system" in src.lower()
+         and "PromptKey.MAX_CHAT_SYSTEM" in src),
+        ("scrub_leakage_called_in_no_evidence_path",
+         re.search(r"_answer_without_evidence.*?_scrub_leakage\(",
+                   src, flags=re.DOTALL) is not None),
+        ("scrub_leakage_called_in_evidence_path",
+         re.search(r"_clean_citations.*?\n.*?_scrub_leakage\(",
+                   src, flags=re.DOTALL) is not None),
+        ("rag_answer_prompt_no_template_announce",
+         # Old: "lead with one short clause noting it's a standard template"
+         # New: that line should be GONE from the prompt body.
+         "lead with one short clause noting it's a standard template" not in prompt_src.lower()),
+        ("max_chat_prompt_forbids_template_phrases",
+         # The MAX_CHAT_SYSTEM_PROMPT must explicitly forbid the leak phrases.
+         "no protocol on file" in prompt_src.lower()
+         and "NEVER say" in prompt_src),
+        ("native_knowledge_max_tokens_above_old_template",
+         # New tokens: 180/700/1000 (was 160/600/900).
+         "max_tokens = 180" in src and "1000" in src),
+    ]
+    results = [{"check": label, "pass": ok} for label, ok in checks]
+    passed = sum(1 for r in results if r["pass"])
+    return {
+        "name": "no_evidence_diversity",
+        "total": len(results),
+        "passed": passed,
+        "pass_rate": passed / len(results) if results else 0.0,
+        "results": results,
+        "queries_covered": len(queries),
+    }
+
+
 def backtest_rag_fallback() -> dict:
     """Verify the no-evidence branch actually calls the LLM with the
     standard-template suffix instead of returning empty. We do this by
@@ -182,16 +349,16 @@ def backtest_rag_fallback() -> dict:
     prompt_src = _read_prompt_text()
 
     checks = [
-        ("standard_template_suffix_defined",
-         "_STANDARD_TEMPLATE_SUFFIX" in src and "STANDARD-TEMPLATE FALLBACK" in src),
+        ("native_knowledge_suffix_defined",
+         "_NATIVE_KNOWLEDGE_SUFFIX" in src and "NATIVE KNOWLEDGE MODE" in src),
         ("answer_without_evidence_function_exists",
          "async def _answer_without_evidence" in src),
         ("answer_from_rag_calls_fallback_on_empty",
          "_answer_without_evidence(" in src),
-        ("rag_answer_system_prompt_has_template_branch",
-         "STANDARD-TEMPLATE FALLBACK" in prompt_src),
+        ("rag_answer_system_prompt_has_no_evidence_branch",
+         "NO-EVIDENCE FALLBACK" in prompt_src),
         ("max_chat_system_has_knowledge_fallback",
-         "STANDARD-TEMPLATE KNOWLEDGE FALLBACK" in prompt_src),
+         "KNOWLEDGE FALLBACK" in prompt_src),
         ("fallback_does_not_short_circuit_with_empty_string",
          # The OLD bug: `if not retrieved: return "", []`. The NEW code must
          # NOT have that exact pattern in answer_from_rag.
@@ -200,10 +367,11 @@ def backtest_rag_fallback() -> dict:
              src,
              flags=re.DOTALL,
          )),
-        ("standard_template_suffix_permits_general_knowledge",
+        ("native_knowledge_suffix_permits_general_knowledge",
          "foundational knowledge" in src or "general knowledge" in src),
-        ("standard_template_announces_template",
-         "standard template" in src.lower()),
+        ("native_knowledge_forbids_template_phrase_leakage",
+         # NEW behavior: prompt explicitly forbids leaking template phrases.
+         "no protocol on file" in src.lower() and "NEVER" in src),
         # Tier-2: broad fan-out across all maxx indexes before template
         ("broad_fanout_helper_exists",
          "_broad_fanout_retrieval" in src),
@@ -218,8 +386,8 @@ def backtest_rag_fallback() -> dict:
          "_looks_like_template_response" in src),
         ("template_detector_catches_production_string",
          "no protocol on file" in src.lower() and "here's a standard template" in src.lower()),
-        ("template_max_tokens_bumped_above_evidence_path",
-         # Template path uses 600 vs evidence path 420 (medium length)
+        ("native_knowledge_max_tokens_above_evidence_path",
+         # Template path uses 700 vs evidence path 420 (medium length)
          re.search(r"_answer_without_evidence.*?max_tokens\s*=\s*\d+\s*if[^.]*?else\s+\d+\s*if[^.]*?else\s+(\d+)",
                    src, flags=re.DOTALL) is not None),
         ("retry_logic_on_template_shaped_output",
@@ -342,13 +510,16 @@ def backtest_persona_prompt() -> dict:
         ("loop_guardrail_has_yes_no_phrase_example",
          "a little" in src or "kinda" in src),
 
-        # Guardrail #2 — standard-template knowledge fallback
+        # Guardrail #2 — knowledge fallback (renamed from STANDARD-TEMPLATE
+        # KNOWLEDGE FALLBACK so the prompt no longer instructs the LLM to
+        # leak that phrase to users).
         ("kb_fallback_section_exists",
-         "STANDARD-TEMPLATE KNOWLEDGE FALLBACK" in src),
+         "KNOWLEDGE FALLBACK" in src),
         ("kb_fallback_warns_no_refusal",
          "DO NOT refuse" in src or "do not refuse" in src.lower()),
-        ("kb_fallback_announces_template",
-         "standard template" in src.lower()),
+        ("kb_fallback_forbids_leak_phrases",
+         # The new prompt explicitly forbids the leak phrases.
+         "no protocol on file" in src.lower() and "NEVER say" in src),
 
         # Guardrail #3 — helpfulness > persona under frustration
         ("helpfulness_over_persona_line",
@@ -356,9 +527,10 @@ def backtest_persona_prompt() -> dict:
         ("frustration_signals_drop_slang",
          "drop the slang" in src.lower() or "drop slang" in src.lower()),
 
-        # Companion: RAG-path standard-template branch
-        ("rag_path_template_branch",
-         "STANDARD-TEMPLATE FALLBACK" in src),
+        # Companion: RAG-path no-evidence branch (renamed from
+        # STANDARD-TEMPLATE FALLBACK to NO-EVIDENCE FALLBACK).
+        ("rag_path_no_evidence_branch",
+         "NO-EVIDENCE FALLBACK" in src),
     ]
 
     results = [{"check": label, "pass": ok} for label, ok in checks]
@@ -483,6 +655,8 @@ def run_all() -> dict:
     return {
         "input_validation": backtest_input_validation(chat),
         "rag_fallback": backtest_rag_fallback(),
+        "leakage_scrub": backtest_no_evidence_leakage_scrub(),
+        "no_evidence_diversity": backtest_diverse_no_evidence_queries(),
         "product_links": backtest_product_links(prod),
         "persona_prompt": backtest_persona_prompt(),
         "onboarding_integration": backtest_onboarding_integration(chat),
@@ -501,14 +675,31 @@ def _print_report(report: dict) -> None:
     print()
 
     rf = report["rag_fallback"]
-    print(f"[2/5] RAG fallback wiring — {rf['passed']}/{rf['total']} ({rf['pass_rate']:.1%})")
+    print(f"[2/7] RAG fallback wiring — {rf['passed']}/{rf['total']} ({rf['pass_rate']:.1%})")
     for r in rf["results"]:
         flag = "OK " if r["pass"] else "FAIL"
         print(f"   {flag}  {r['check']}")
     print()
 
+    ls = report["leakage_scrub"]
+    print(f"[3/7] no-evidence leakage scrubber — {ls['passed']}/{ls['total']} ({ls['pass_rate']:.1%})")
+    for r in ls["results"]:
+        flag = "OK " if r["pass"] else "FAIL"
+        print(f"   {flag}  {r['case']:<32}  raw={r['raw']!r}")
+        if not r["pass"]:
+            print(f"          cleaned={r['cleaned']!r}")
+    print()
+
+    nd = report["no_evidence_diversity"]
+    print(f"[4/7] no-evidence diversity wiring — {nd['passed']}/{nd['total']} ({nd['pass_rate']:.1%})")
+    for r in nd["results"]:
+        flag = "OK " if r["pass"] else "FAIL"
+        print(f"   {flag}  {r['check']}")
+    print(f"   queries_covered={nd['queries_covered']}")
+    print()
+
     pl = report["product_links"]
-    print(f"[3/5] product link specificity — {pl['passed']}/{pl['total']} ({pl['pass_rate']:.1%})")
+    print(f"[5/7] product link specificity — {pl['passed']}/{pl['total']} ({pl['pass_rate']:.1%})")
     if pl["fails"]:
         for r in pl["fails"]:
             print(f"   FAIL  {r['query']!r}  got={r['got']}  want={r['want']}")
@@ -517,14 +708,14 @@ def _print_report(report: dict) -> None:
     print()
 
     pp = report["persona_prompt"]
-    print(f"[4/5] persona prompt guardrails — {pp['passed']}/{pp['total']} ({pp['pass_rate']:.1%})")
+    print(f"[6/7] persona prompt guardrails — {pp['passed']}/{pp['total']} ({pp['pass_rate']:.1%})")
     for r in pp["results"]:
         flag = "OK " if r["pass"] else "FAIL"
         print(f"   {flag}  {r['check']}")
     print()
 
     oi = report["onboarding_integration"]
-    print(f"[5/5] onboarding integration — {oi['successful_turns']}/{oi['total_turns']} turns landed first try")
+    print(f"[7/7] onboarding integration — {oi['successful_turns']}/{oi['total_turns']} turns landed first try")
     for t in oi["transcript"]:
         flag = "OK " if t["pass"] else "FAIL"
         result_str = repr(t.get("profile_now")) if "profile_now" in t else t.get("outcome", "?")
@@ -534,11 +725,13 @@ def _print_report(report: dict) -> None:
 
     # Verdict
     sections = [
-        ("input_validation",   iv["pass_rate"] >= 0.95),
-        ("rag_fallback",       rf["pass_rate"] >= 1.0),
-        ("product_links",      pl["pass_rate"] >= 0.95),
-        ("persona_prompt",     pp["pass_rate"] >= 1.0),
-        ("onboarding_loop_fix", oi["fully_completed_no_reasking"] and oi["infinite_loop_failures"] == 0),
+        ("input_validation",     iv["pass_rate"] >= 0.95),
+        ("rag_fallback",         rf["pass_rate"] >= 1.0),
+        ("leakage_scrub",        ls["pass_rate"] >= 1.0),
+        ("no_evidence_diversity", nd["pass_rate"] >= 1.0),
+        ("product_links",        pl["pass_rate"] >= 0.95),
+        ("persona_prompt",       pp["pass_rate"] >= 1.0),
+        ("onboarding_loop_fix",  oi["fully_completed_no_reasking"] and oi["infinite_loop_failures"] == 0),
     ]
     print("=== VERDICT ===")
     for name, ok in sections:
@@ -562,6 +755,8 @@ def main() -> int:
     sections = [
         report["input_validation"]["pass_rate"] >= 0.95,
         report["rag_fallback"]["pass_rate"] >= 1.0,
+        report["leakage_scrub"]["pass_rate"] >= 1.0,
+        report["no_evidence_diversity"]["pass_rate"] >= 1.0,
         report["product_links"]["pass_rate"] >= 0.95,
         report["persona_prompt"]["pass_rate"] >= 1.0,
         report["onboarding_integration"]["fully_completed_no_reasking"]

@@ -13,6 +13,8 @@ from typing import Optional
 from config import settings
 from services.chat_telemetry import log_prompt_budget
 from services.lc_providers import get_chat_llm_with_fallback
+from services.prompt_constants import MAX_CHAT_SYSTEM_PROMPT
+from services.prompt_loader import PromptKey, resolve_prompt
 from services.rag_prompt_selector import _LEXICONS, select_rag_system_prompt
 from services.rag_service import retrieve_chunks, VALID_MAXX_IDS
 from services.token_budget import count_tokens
@@ -240,28 +242,79 @@ def _length_suffix(response_length: Optional[str]) -> str:
     return _RESPONSE_LENGTH_BLOCKS.get(key, _RESPONSE_LENGTH_BLOCKS["medium"])
 
 
-# When retrieval returns nothing, switch the system prompt into "standard
-# template" mode. This OVERRIDES the strict-grounding rules from the base RAG
-# prompt for this specific turn — the user gets a competent answer from the
-# LLM's foundational knowledge, plus a short up-front disclosure that it's a
-# template (not the user's personalized doc-grounded protocol).
-_STANDARD_TEMPLATE_SUFFIX = """
+# When retrieval returns nothing, the LLM still needs to produce a real,
+# coach-quality answer using its foundational knowledge — but it must NEVER
+# leak the system architecture (no "no protocol on file", no "standard
+# template", no "I don't have that info"). The user-facing answer should
+# look identical to a doc-grounded answer, just without citations.
+_NATIVE_KNOWLEDGE_SUFFIX = """
 
-## STANDARD-TEMPLATE FALLBACK (this turn only)
-No matching evidence was retrieved for the user's question. Override the
-"don't see that in your current docs" rule for this turn:
+## NATIVE KNOWLEDGE MODE (this turn)
+You have no module-specific docs to cite for this question. Answer directly
+using your foundational knowledge of fitness, dermatology, hair science,
+skeletal/jaw protocols, and lookmaxxing best practices.
 
-- Use your foundational knowledge of fitness, dermatology, hair, skeletal,
-  and lookmaxxing protocols to give a competent, standard answer.
-- Open the answer with ONE short clause noting it's a standard template
-  (e.g. "no protocol on file for that — here's a standard template:").
-- Then deliver the answer at full quality. Specific numbers, products,
-  ingredients, doses, sets/reps — give them. Standard means industry-
-  accepted, not vague.
-- Do NOT cite [source: ...] — there's no evidence to cite.
-- Do NOT refuse, hedge, or push the user to "consult a professional"
-  unless the question is genuinely medical/diagnostic.
-- Keep the same Max voice: lowercase, direct, no fluff."""
+ABSOLUTE RULES — these are user-visible product issues if violated:
+- NEVER say "no protocol on file", "no protocol for that", "i don't have
+  that info", "i don't have that on file", "don't see that in your current
+  docs", "standard template", "here's a standard template", "module docs",
+  "knowledge base", or any phrase that surfaces the retrieval system to the
+  user. The user does not know about docs. The user asked a question. Just
+  answer it.
+- NEVER add a preamble like "here's a general answer" or "based on standard
+  practice". Lead with the answer itself.
+- NEVER cite [source: ...] — there's nothing to cite.
+- NEVER refuse, hedge, or push to a professional unless the question is
+  genuinely medical/diagnostic (e.g. "is this mole cancer", "what's my T").
+
+ANSWER QUALITY:
+- Specific numbers (sets x reps, %, mg, minutes, days/week) — give them.
+- Industry-accepted protocols only. If a topic has multiple valid
+  approaches, pick the most evidence-backed one and commit.
+- Lowercase, direct, in Max's voice. No filler. No motivational closing.
+- Use any user context provided (their goals, preferences, schedule) to
+  personalize the answer, just like you would for a doc-grounded reply."""
+
+
+# Final-stage sanitizer. Even with the prompt above, an LLM occasionally
+# leaks "standard template" phrasing — usually as a sentence opener it
+# learned from earlier prompt versions. We strip those at the edge so the
+# user never sees them.
+_LEAKAGE_PATTERNS: tuple[re.Pattern, ...] = (
+    # Whole leading clauses up to the first sentence break.
+    re.compile(r"^\s*no\s+protocol\s+(?:on\s+file|for\s+that)[^.\n!?:\-—]*[.\n!?:\-—]\s*", re.IGNORECASE),
+    re.compile(r"^\s*here'?s?\s+a\s+standard\s+template[^.\n!?:\-—]*[.\n!?:\-—]\s*", re.IGNORECASE),
+    re.compile(r"^\s*(?:as\s+a\s+)?standard\s+template[^.\n!?:\-—]*[.\n!?:\-—]\s*", re.IGNORECASE),
+    re.compile(r"^\s*(?:i\s+)?don'?t\s+(?:have|see)\s+(?:that|this)[^.\n!?:\-—]*?(?:docs?|file|info)[^.\n!?:\-—]*[.\n!?:\-—]\s*", re.IGNORECASE),
+    # Inline mid-sentence cleanups for the same phrases.
+    re.compile(r"\s*\(?\s*no\s+protocol\s+on\s+file[^)\n.]*\)?", re.IGNORECASE),
+    re.compile(r"\s*here'?s?\s+a\s+standard\s+template\s*[—:\-]?\s*", re.IGNORECASE),
+    re.compile(r"\s*standard\s+template\s*[—:\-]?\s*", re.IGNORECASE),
+    re.compile(r"\s*\(?\s*not\s+in\s+your\s+(?:current\s+)?(?:docs?|module\s+docs?)[^)\n.]*\)?", re.IGNORECASE),
+    re.compile(r"\s*\(?\s*based\s+on\s+(?:industry|standard)\s+(?:practice|guidelines?)\s*[,\.\)]?", re.IGNORECASE),
+)
+
+
+def _scrub_leakage(text: str) -> str:
+    """Remove any leaked template-marker phrases from a no-evidence answer.
+
+    Defensive: the prompt forbids these phrases, but if the model leaks one
+    anyway, we strip it before the user sees it. Idempotent — running twice
+    is the same as running once.
+    """
+    if not text:
+        return ""
+    out = text
+    for pat in _LEAKAGE_PATTERNS:
+        out = pat.sub("", out)
+    # Collapse double spaces / orphan whitespace from the cuts
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    out = out.strip()
+    # Capitalize-first-word-after-strip is unwanted in Max's lowercase voice,
+    # but if the strip leaves a stray dangling punctuation, clean it.
+    out = re.sub(r"^[\s,;:\-—]+", "", out)
+    return out
 
 
 async def _answer_without_evidence(
@@ -272,50 +325,52 @@ async def _answer_without_evidence(
     user_context_str: Optional[str],
     response_length: Optional[str],
 ) -> str:
-    """LLM call when retrieval returned zero chunks.
+    """LLM call when retrieval returned zero chunks across every index.
 
-    Uses the same selector + length budget as the evidence path, but appends
-    `_STANDARD_TEMPLATE_SUFFIX` so the LLM is explicitly permitted to draw on
-    general knowledge. The user gets a useful answer instead of a refusal.
+    Uses the full Max chat persona prompt (max_chat_system from Supabase)
+    plus a NATIVE KNOWLEDGE MODE suffix that tells the LLM to answer
+    natively without surfacing the retrieval system. Any leaked template-
+    marker phrases get scrubbed at the edge by `_scrub_leakage` so the user
+    never sees a "no protocol on file" message.
     """
-    selection = select_rag_system_prompt(
-        message, maxx_hints=maxx_hints or [], active_maxx=active_maxx
-    )
-    system_prompt = (
-        selection.system_prompt + _length_suffix(response_length) + _STANDARD_TEMPLATE_SUFFIX
-    )
+    # Use the Max persona prompt (Supabase-loaded with in-code fallback) so
+    # the no-evidence answer feels native to the bot, not like a separate
+    # template-mode reply. The strict RAG_ANSWER_SYSTEM_PROMPT is for
+    # evidence-grounded turns only — it's calibrated to refuse when docs
+    # are thin, which is the wrong shape for a foundational-knowledge turn.
+    persona_prompt = resolve_prompt(PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT)
+    system_prompt = persona_prompt + _length_suffix(response_length) + _NATIVE_KNOWLEDGE_SUFFIX
+
     logger.info(
-        "[fast_rag] no-evidence fallback: chosen_maxx=%s reason=%s",
-        selection.chosen_maxx, selection.reason,
+        "[fast_rag] native-knowledge fallback fired: maxx_hints=%s active_maxx=%s msg=%r",
+        maxx_hints, active_maxx, (message or "")[:120],
     )
 
     length_key = (response_length or "").strip().lower()
-    # Bumped from the evidence-path budget — template responses got truncated
-    # mid-sentence in production ("here's a standard template: adult acne and"
-    # cut off). The template path needs more headroom because there's no
-    # citation tax and the LLM expands more on standard-template content.
-    max_tokens = 160 if length_key == "concise" else 900 if length_key == "detailed" else 600
+    # Generous budget — native answers naturally expand without citation tax.
+    max_tokens = 180 if length_key == "concise" else 1000 if length_key == "detailed" else 700
     llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.3)
     from langchain_core.messages import HumanMessage, SystemMessage
 
     context_block = ""
     if user_context_str:
-        context_block = f"User context (schedule, profile, onboarding):\n{user_context_str.strip()}\n\n"
+        context_block = (
+            f"USER CONTEXT (use this to personalize the answer):\n"
+            f"{user_context_str.strip()}\n\n"
+        )
 
     human = (
         f"{context_block}"
-        f"User question:\n{message.strip()}\n\n"
-        f"(No matching evidence in module docs. Use the standard-template "
-        f"fallback rules above.)"
+        f"User question:\n{message.strip()}"
     )
     try:
         resp = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
         text = getattr(resp, "content", resp)
         if isinstance(text, list):
             text = "\n".join(str(x) for x in text)
-        return str(text or "").strip()
+        return _scrub_leakage(str(text or "").strip())
     except Exception as e:
-        logger.warning("fast rag standard-template fallback failed: %s", e)
+        logger.warning("fast rag native-knowledge fallback failed: %s", e)
         return ""
 
 
@@ -397,7 +452,11 @@ async def answer_from_chunks(
         text = getattr(resp, "content", resp)
         if isinstance(text, list):
             text = "\n".join(str(x) for x in text)
-        return _clean_citations(str(text or "").strip(), retrieved)
+        cleaned = _clean_citations(str(text or "").strip(), retrieved)
+        # Defensive: strip any "no protocol on file" / "standard template"
+        # leakage even on the evidence path. The LLM occasionally inherits
+        # those phrases from earlier prompt versions cached in its weights.
+        return _scrub_leakage(cleaned)
     except Exception as e:
         logger.warning("fast rag answer failed: %s", e)
         return ""
