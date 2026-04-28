@@ -101,6 +101,78 @@ _BLOCKLIST = {
     "Combining", "Daily", "Bloodwork", "Real Talk", "Dermarolling",
 }
 
+# Tokens that look like product names but are actually workflow steps,
+# routine sections, or generic body parts. The LLM frequently emits these
+# via the recommend_product tool. Drop the link entirely if the proposed
+# name normalizes to one of these.
+_GENERIC_NAME_BLACKLIST: frozenset[str] = frozenset({
+    # routine workflow words
+    "routine", "amroutine", "pmroutine", "morningroutine", "eveningroutine",
+    "nightroutine", "morning", "evening", "night", "midday", "noon",
+    "step", "step1", "step2", "step3", "stepone", "steptwo",
+    # body / category words
+    "skin", "skincare", "hair", "haircare", "scalp", "face", "facial",
+    "body", "lips", "lip", "eyes", "eye", "feet", "foot",
+    "fitness", "workout", "training", "lifting", "diet", "nutrition",
+    # ambiguous singletons that aren't products
+    "cleanser", "moisturizer", "serum", "exfoliant", "toner",
+    "mask", "spray", "lotion", "cream", "gel", "oil",
+    "shampoo", "conditioner",
+    # bot fillers
+    "tip", "tips", "advice", "recommend", "recommendation", "product", "products",
+    "yes", "no", "ok", "okay",
+})
+
+# Ingredient + protocol tokens that DO make a single-word query specific
+# enough to ship as a product link. "salicylic" alone is a real product
+# search; "cleanser" alone is not.
+_INGREDIENT_TOKENS: frozenset[str] = frozenset({
+    # skin actives
+    "salicylic", "glycolic", "lactic", "mandelic", "azelaic", "retinol",
+    "retinoid", "tretinoin", "adapalene", "niacinamide", "hyaluronic",
+    "ceramide", "panthenol", "centella", "vitaminc", "ascorbic",
+    "benzoyl", "peroxide",
+    # hair
+    "minoxidil", "finasteride", "dutasteride", "ketoconazole", "biotin",
+    # sun
+    "spf", "zinc", "titanium",
+    # fitness supplements
+    "creatine", "whey", "casein", "magnesium", "ashwagandha", "caffeine",
+    # bone / chewing
+    "mastic", "falim", "jawzrsize",
+})
+
+
+def _is_specific_product_query(name: str) -> bool:
+    """A product link query is specific enough to ship if at least one is true:
+
+      1. Multi-token name (>= 2 word tokens). "CeraVe Foaming Cleanser" passes.
+      2. Single token but matches a known ingredient ("salicylic", "minoxidil").
+      3. Already a curated brand/product (caller guarantees this if needed).
+
+    Generic single-noun queries ("routine", "skin", "moisturizer") fail —
+    those produce useless Amazon search pages and confuse the user.
+    """
+    raw = (name or "").strip()
+    if not raw:
+        return False
+    norm = re.sub(r"[^a-z0-9]+", "", raw.lower())
+    if norm in _GENERIC_NAME_BLACKLIST:
+        return False
+    tokens = [t for t in re.findall(r"[a-z0-9]+", raw.lower()) if t]
+    if len(tokens) >= 2:
+        return True
+    if not tokens:
+        return False
+    single = tokens[0]
+    if single in _INGREDIENT_TOKENS:
+        return True
+    # Single brand-name token (e.g. "CeraVe", "Nizoral") — at least 5 chars
+    # and starts uppercase in the original.
+    if raw[0:1].isupper() and len(single) >= 5 and single not in _GENERIC_NAME_BLACKLIST:
+        return True
+    return False
+
 _PRODUCT_CACHE: dict[str, list[str]] = {}
 
 
@@ -280,6 +352,17 @@ async def product_links_from_context(
             break
 
     if not chosen:
+        return ""
+
+    # Final entity-specificity filter — drop links whose query is too generic
+    # to be a useful Amazon search ("routine", "skin", "step 1"). The LLM
+    # sometimes hands these in via tool calls; we refuse to render them.
+    chosen = [name for name in chosen if _is_specific_product_query(name)]
+    if not chosen:
+        logger.info(
+            "[product_links] all candidates failed specificity filter for maxx=%s message=%r",
+            maxx_id, (message or "")[:80],
+        )
         return ""
 
     lines = ["here are quick amazon search links for the products mentioned in the current module docs:"]
