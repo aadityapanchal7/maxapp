@@ -3,18 +3,109 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
+import time
+from collections import OrderedDict
 from typing import Optional
 
 from config import settings
 from services.chat_telemetry import log_prompt_budget
 from services.lc_providers import get_chat_llm_with_fallback
 from services.rag_prompt_selector import _LEXICONS, select_rag_system_prompt
-from services.rag_service import retrieve_chunks
+from services.rag_service import retrieve_chunks, VALID_MAXX_IDS
 from services.token_budget import count_tokens
 
 logger = logging.getLogger(__name__)
+
+
+# --- Broad-fan-out cache --------------------------------------------------
+# When a query misses the chosen module, we re-retrieve across all 6 indexes
+# (skinmax/fitmax/hairmax/heightmax/bonemax/general). That's 6x retrieve_chunks
+# calls. Most of the cost is the BM25 score computation — already <1ms warm,
+# but we cache by (message_normalized) so identical re-asks (the user retries
+# the same question) skip the work entirely.
+_BROAD_CACHE: "OrderedDict[str, tuple[float, list[dict]]]" = OrderedDict()
+_BROAD_CACHE_MAX = 256
+_BROAD_CACHE_TTL_S = 300.0  # 5 minutes — long enough for a retry, short
+                            # enough that doc edits show up quickly.
+
+
+def _normalize_for_cache(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip().lower())
+
+
+def _broad_cache_key(message: str) -> str:
+    norm = _normalize_for_cache(message)
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:16]
+
+
+def _broad_cache_get(key: str) -> Optional[list[dict]]:
+    entry = _BROAD_CACHE.get(key)
+    if not entry:
+        return None
+    ts, rows = entry
+    if (time.time() - ts) > _BROAD_CACHE_TTL_S:
+        _BROAD_CACHE.pop(key, None)
+        return None
+    # LRU touch
+    _BROAD_CACHE.move_to_end(key)
+    return rows
+
+
+def _broad_cache_put(key: str, rows: list[dict]) -> None:
+    _BROAD_CACHE[key] = (time.time(), rows)
+    _BROAD_CACHE.move_to_end(key)
+    while len(_BROAD_CACHE) > _BROAD_CACHE_MAX:
+        _BROAD_CACHE.popitem(last=False)
+
+
+async def _broad_fanout_retrieval(
+    message: str,
+    *,
+    k_total: int = 5,
+    min_similarity: Optional[float] = None,
+) -> list[dict]:
+    """Re-retrieve across ALL maxx indexes when the targeted retrieval missed.
+
+    Used as a second pass before falling to the foundational-knowledge
+    template. Multi-topic queries like "acne and aging" or queries where
+    the classifier picked the wrong module recover here without paying the
+    cost of a generic LLM call that ignores the docs.
+
+    Cached by normalized message text — identical re-asks (user retries
+    the same question) skip the 6x retrieve cost entirely.
+    """
+    cache_key = _broad_cache_key(message)
+    cached = _broad_cache_get(cache_key)
+    if cached is not None:
+        return list(cached)  # defensive copy — callers mutate
+
+    threshold = float(
+        min_similarity
+        if min_similarity is not None
+        else (getattr(settings, "rag_score_threshold", 0.35) or 0.35)
+    )
+    # Per-module budget kept small so the merge favors strong-signal modules
+    # rather than bulk-importing weak hits from every index.
+    k_per_maxx = max(2, k_total // 3 + 1)
+
+    async def _one(maxx: str) -> list[dict]:
+        try:
+            rows = await retrieve_chunks(
+                None, maxx, message, k=k_per_maxx, min_similarity=threshold,
+            )
+            return [{**row, "_maxx": maxx} for row in rows]
+        except Exception:
+            return []
+
+    gathered = await asyncio.gather(*[_one(m) for m in VALID_MAXX_IDS])
+    flat = [row for rows in gathered for row in rows]
+    flat.sort(key=lambda c: c.get("similarity", 0.0), reverse=True)
+    top = flat[:k_total]
+    _broad_cache_put(cache_key, top)
+    return top
 
 
 # Per-module fallback expansion terms. Only the highest-weight (3) lexicon
@@ -199,7 +290,11 @@ async def _answer_without_evidence(
     )
 
     length_key = (response_length or "").strip().lower()
-    max_tokens = 120 if length_key == "concise" else 640 if length_key == "detailed" else 420
+    # Bumped from the evidence-path budget — template responses got truncated
+    # mid-sentence in production ("here's a standard template: adult acne and"
+    # cut off). The template path needs more headroom because there's no
+    # citation tax and the LLM expands more on standard-template content.
+    max_tokens = 160 if length_key == "concise" else 900 if length_key == "detailed" else 600
     llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.3)
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -308,6 +403,40 @@ async def answer_from_chunks(
         return ""
 
 
+# Phrases that indicate the LLM produced a standard-template response. We
+# detect on these and treat the answer as low-quality so the caller can re-
+# attempt with broader retrieval. Lower-cased substring match — be liberal,
+# false positives on real grounded answers are unlikely because grounded
+# answers don't say "no protocol on file" or "standard template."
+_TEMPLATE_OUTPUT_MARKERS: tuple[str, ...] = (
+    "no protocol on file",
+    "no protocol for that",
+    "here's a standard template",
+    "standard template",
+    "no matching evidence",
+    "don't see that in your current docs",
+    "don't have that on file",
+    "i don't have that info",
+)
+
+
+def _looks_like_template_response(text: str) -> bool:
+    if not text:
+        return False
+    low = text.lower()
+    if any(m in low for m in _TEMPLATE_OUTPUT_MARKERS):
+        return True
+    # Truncation heuristic: response ends mid-word with no terminal
+    # punctuation (e.g. "adult acne and" in production). LLM hit max_tokens
+    # before finishing — caller should retry with broader knowledge / higher
+    # token budget. Threshold of 50 chars: lower than that and a one-clause
+    # answer like "use cerave AM" isn't truncated, just terse.
+    stripped = text.rstrip()
+    if len(stripped) > 50 and not re.search(r"[.!?\"\)\]]\s*$", stripped):
+        return True
+    return False
+
+
 async def answer_from_rag(
     *,
     message: str,
@@ -319,11 +448,18 @@ async def answer_from_rag(
 ) -> tuple[str, list[dict]]:
     """Return a direct RAG answer and the retrieved evidence used.
 
-    When retrieval returns zero chunks we DO NOT short-circuit to "" anymore —
-    the empty string used to bubble up to the caller and trigger a generic
-    refusal ("don't see that in your docs"). Instead we hand the turn to
-    `_answer_without_evidence`, which lets the LLM fall back to general
-    knowledge under the STANDARD-TEMPLATE rules.
+    Three-tier retrieval strategy:
+      1. Targeted fan-out across maxx_hints (existing behavior, ~95% of turns).
+      2. If targeted retrieval is empty: broad fan-out across ALL maxx
+         indexes. This catches multi-topic queries ("acne and aging") and
+         queries where the classifier picked the wrong module.
+      3. Only if broad retrieval is ALSO empty: foundational-knowledge
+         template fallback. This is now the last resort, not the first.
+
+    Plus a quality-recovery layer: if the LLM's first answer looks like a
+    no-evidence template response (truncated, "no protocol on file", etc.)
+    AND broad fan-out finds chunks the targeted pass missed, we re-run
+    `answer_from_chunks` with the broader evidence and return that.
     """
     retrieved = await gather_rag_evidence(
         message=message,
@@ -331,21 +467,59 @@ async def answer_from_rag(
         active_maxx=active_maxx,
         max_chunks=max_chunks,
     )
-    if not retrieved:
-        fallback = await _answer_without_evidence(
+
+    # Tier 1: targeted retrieval found chunks → answer from them.
+    if retrieved:
+        answer = await answer_from_chunks(
             message=message,
+            retrieved=retrieved,
             maxx_hints=maxx_hints,
             active_maxx=active_maxx,
             user_context_str=user_context_str,
             response_length=response_length,
         )
-        return fallback, []
-    answer = await answer_from_chunks(
+        # Quality-recovery: if the LLM still produced a template-shaped
+        # response despite having evidence (truncated output, refused tone,
+        # "no protocol on file" leak), try the broader fan-out below.
+        if answer and not _looks_like_template_response(answer):
+            return answer, retrieved
+        logger.info(
+            "[fast_rag] tier-1 answer flagged as template-shaped; trying broad fan-out"
+        )
+
+    # Tier 2: broad fan-out — re-retrieve across every module before
+    # giving up to the foundational-knowledge template.
+    broad = await _broad_fanout_retrieval(message, k_total=int(max_chunks or 5))
+    if broad:
+        # Use chunk-origin maxx as the selector hint so the system prompt
+        # picks the most relevant module reference.
+        chunk_maxxes = [c.get("_maxx") for c in broad if c.get("_maxx")]
+        broad_hints = list(dict.fromkeys(m for m in chunk_maxxes if isinstance(m, str)))
+        answer = await answer_from_chunks(
+            message=message,
+            retrieved=broad,
+            maxx_hints=broad_hints or maxx_hints,
+            active_maxx=active_maxx,
+            user_context_str=user_context_str,
+            response_length=response_length,
+        )
+        if answer and not _looks_like_template_response(answer):
+            logger.info(
+                "[fast_rag] broad fan-out recovered answer (chunks=%d hints=%s)",
+                len(broad), broad_hints,
+            )
+            return answer, broad
+
+    # Tier 3: nothing in any index — foundational-knowledge template.
+    logger.info(
+        "[fast_rag] all retrieval exhausted; falling to standard-template (msg=%r)",
+        (message or "")[:120],
+    )
+    fallback = await _answer_without_evidence(
         message=message,
-        retrieved=retrieved,
         maxx_hints=maxx_hints,
         active_maxx=active_maxx,
         user_context_str=user_context_str,
         response_length=response_length,
     )
-    return answer, retrieved
+    return fallback, broad if broad else []

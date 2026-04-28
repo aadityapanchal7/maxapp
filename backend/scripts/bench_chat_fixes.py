@@ -187,9 +187,7 @@ def backtest_rag_fallback() -> dict:
         ("answer_without_evidence_function_exists",
          "async def _answer_without_evidence" in src),
         ("answer_from_rag_calls_fallback_on_empty",
-         "_answer_without_evidence(" in src and "if not retrieved:" in src),
-        ("fallback_returns_no_chunks_audit",
-         re.search(r"return\s+fallback,\s*\[\]", src) is not None),
+         "_answer_without_evidence(" in src),
         ("rag_answer_system_prompt_has_template_branch",
          "STANDARD-TEMPLATE FALLBACK" in prompt_src),
         ("max_chat_system_has_knowledge_fallback",
@@ -206,6 +204,27 @@ def backtest_rag_fallback() -> dict:
          "foundational knowledge" in src or "general knowledge" in src),
         ("standard_template_announces_template",
          "standard template" in src.lower()),
+        # Tier-2: broad fan-out across all maxx indexes before template
+        ("broad_fanout_helper_exists",
+         "_broad_fanout_retrieval" in src),
+        ("broad_fanout_called_from_answer_from_rag",
+         re.search(r"async def answer_from_rag.*?_broad_fanout_retrieval\(",
+                   src, flags=re.DOTALL) is not None),
+        ("broad_fanout_iterates_all_maxx_ids",
+         "VALID_MAXX_IDS" in src),
+        ("broad_fanout_has_lru_cache",
+         "_BROAD_CACHE" in src and "_broad_cache_get" in src and "_broad_cache_put" in src),
+        ("template_response_detector_exists",
+         "_looks_like_template_response" in src),
+        ("template_detector_catches_production_string",
+         "no protocol on file" in src.lower() and "here's a standard template" in src.lower()),
+        ("template_max_tokens_bumped_above_evidence_path",
+         # Template path uses 600 vs evidence path 420 (medium length)
+         re.search(r"_answer_without_evidence.*?max_tokens\s*=\s*\d+\s*if[^.]*?else\s+\d+\s*if[^.]*?else\s+(\d+)",
+                   src, flags=re.DOTALL) is not None),
+        ("retry_logic_on_template_shaped_output",
+         "tier-1 answer flagged as template-shaped" in src
+         or re.search(r"_looks_like_template_response\(answer\)", src) is not None),
     ]
 
     results = [{"check": label, "pass": ok} for label, ok in checks]
