@@ -141,13 +141,34 @@ export function useForumV2NotificationsQuery(unreadOnly: boolean) {
     });
 }
 
-export function useChatHistoryQuery() {
+export function useChatHistoryQuery(conversationId?: string | null) {
+    // When `conversationId` is undefined the backend returns the user's most-recent
+    // thread (matches legacy single-thread behavior). When it's a specific id, the
+    // history is scoped to that thread.
     return useQuery({
-        queryKey: queryKeys.chatHistory,
+        queryKey: conversationId
+            ? queryKeys.chatHistoryByConv(conversationId)
+            : queryKeys.chatHistory,
         queryFn: async () => {
-            const { messages } = await api.getChatHistory({ limit: 80, offset: 0 });
-            return messages ?? [];
+            const { messages, conversation_id } = await api.getChatHistory({
+                limit: 80,
+                offset: 0,
+                conversationId: conversationId ?? null,
+            });
+            return { messages: messages ?? [], conversationId: conversation_id ?? null };
         },
         staleTime: STALE_CHAT_HISTORY_MS,
+    });
+}
+
+
+export function useChatConversationsQuery() {
+    return useQuery({
+        queryKey: queryKeys.chatConversations,
+        queryFn: async () => {
+            const { conversations } = await api.listChatConversations({ limit: 100 });
+            return conversations ?? [];
+        },
+        staleTime: 30 * 1000,
     });
 }

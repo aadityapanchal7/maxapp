@@ -51,6 +51,8 @@ interface User {
         sendblue_connect_completed?: boolean;
         /** True after user texts the Sendblue line; enables automated SMS from the server */
         sendblue_sms_engaged?: boolean;
+        /** Chat reply verbosity preference — concise | medium | detailed (missing = medium default) */
+        response_length?: 'concise' | 'medium' | 'detailed';
         facial_scan_summary?: {
             overall_score?: number;
             potential_score?: number;

@@ -60,6 +60,13 @@ class ChatRequest(BaseModel):
         default=None,
         description="Optional explicit client intent, e.g. 'start_schedule'",
     )
+    # Multi-conversation: when omitted, the server reuses the user's most-recent
+    # conversation (or creates one on first message) so legacy single-thread
+    # clients keep working.
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="Target chat_conversations.id. Omit to auto-route to latest / new thread.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -67,6 +74,9 @@ class ChatResponse(BaseModel):
     response: str
     choices: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    # Echo back the conversation the message landed in — lets the mobile client
+    # discover the server-assigned id on first message without a separate call.
+    conversation_id: Optional[str] = None
 
 
 class ChatHistoryInDB(BaseModel):

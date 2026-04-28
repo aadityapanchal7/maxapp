@@ -744,6 +744,11 @@ class ApiService {
         return response.data as { message: string; tone: string };
     }
 
+    async patchResponseLength(length: 'concise' | 'medium' | 'detailed') {
+        const response = await this.client.patch('users/response-length', { length });
+        return response.data as { message: string; length: string };
+    }
+
     async getScanHistory() {
         const response = await this.client.get('scans/history');
         return response.data;
@@ -898,7 +903,8 @@ class ApiService {
         attachmentType?: string,
         initContext?: string,
         chatIntent?: string,
-    ): Promise<{ response: string; choices?: string[] }> {
+        conversationId?: string | null,
+    ): Promise<{ response: string; choices?: string[]; conversation_id?: string | null }> {
         const body: any = {
             message,
             attachment_url: attachmentUrl,
@@ -906,6 +912,7 @@ class ApiService {
         };
         if (initContext) body.init_context = initContext;
         if (chatIntent) body.chat_intent = chatIntent;
+        if (conversationId) body.conversation_id = conversationId;
         // LangChain agent may chain multiple tool calls + LLM fallback,
         // so allow up to 120s before timing out.
         const response = await this.client.post('chat/message', body, {
@@ -916,12 +923,69 @@ class ApiService {
         return response.data;
     }
 
-    async getChatHistory(opts?: { limit?: number; offset?: number }) {
-        const params: Record<string, number> = {};
+    async getChatHistory(opts?: {
+        limit?: number;
+        offset?: number;
+        conversationId?: string | null;
+    }) {
+        const params: Record<string, string | number> = {};
         if (opts?.limit != null) params.limit = opts.limit;
         if (opts?.offset != null) params.offset = opts.offset;
+        if (opts?.conversationId) params.conversation_id = opts.conversationId;
         const response = await this.client.get('chat/history', { params });
-        return response.data;
+        return response.data as {
+            conversation_id: string | null;
+            messages: Array<{ role: 'user' | 'assistant'; content: string; created_at: string }>;
+        };
+    }
+
+    // --- Multi-chat conversations ---
+    async listChatConversations(opts?: { includeArchived?: boolean; limit?: number }) {
+        const params: Record<string, string | number> = {};
+        if (opts?.includeArchived) params.include_archived = 'true';
+        if (opts?.limit != null) params.limit = opts.limit;
+        const response = await this.client.get('chat/conversations', { params });
+        return response.data as {
+            conversations: Array<{
+                id: string;
+                title: string;
+                channel: string;
+                is_archived: boolean;
+                last_message_at: string | null;
+                created_at: string | null;
+                updated_at: string | null;
+            }>;
+        };
+    }
+
+    async createChatConversation(title?: string) {
+        const response = await this.client.post('chat/conversations', { title: title ?? null });
+        return response.data as {
+            conversation: {
+                id: string;
+                title: string;
+                channel: string;
+                is_archived: boolean;
+                last_message_at: string | null;
+                created_at: string | null;
+                updated_at: string | null;
+            };
+        };
+    }
+
+    async renameChatConversation(conversationId: string, title: string) {
+        const response = await this.client.patch(
+            `chat/conversations/${conversationId}`,
+            { title },
+        );
+        return response.data as {
+            conversation: { id: string; title: string };
+        };
+    }
+
+    async deleteChatConversation(conversationId: string) {
+        const response = await this.client.delete(`chat/conversations/${conversationId}`);
+        return response.data as { ok: boolean };
     }
 
     // Channels (Discord-like chat)

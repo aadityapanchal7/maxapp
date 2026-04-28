@@ -12,6 +12,7 @@ import { queryKeys } from '../../lib/queryClient';
 import { ChatTypingIndicator, ChatTypingMode } from '../../components/ChatTypingIndicator';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
+import ChatConversationsDrawer from '../../components/ChatConversationsDrawer';
 
 const PENDING_CHAT_KEY = '@max_pending_chat_v1';
 
@@ -28,12 +29,16 @@ export default function MaxChatScreen() {
     const route = useRoute<any>();
     const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
-    const chatHistoryQuery = useChatHistoryQuery();
+    const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+    const chatHistoryQuery = useChatHistoryQuery(activeConversationId);
     const [messages, setMessages] = useState<Message[]>([]);
-    const [historySeeded, setHistorySeeded] = useState(false);
+    /** Keys on the active conversation so switching threads forces a re-seed
+     *  from the query data (prevents stale messages from the previous thread). */
+    const [seededForConversation, setSeededForConversation] = useState<string | null>(null);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [serverChoices, setServerChoices] = useState<string[]>([]);
+    const [drawerOpen, setDrawerOpen] = useState(false);
     const flatListRef = useRef<FlashListRef<Message>>(null);
     const initScheduleHandled = useRef(false);
     const initQuestionHandled = useRef<string | null>(null);
@@ -42,11 +47,25 @@ export default function MaxChatScreen() {
     const [historyReady, setHistoryReady] = useState(false);
 
     useEffect(() => {
-        if (!chatHistoryQuery.isSuccess || historySeeded) return;
-        setMessages(chatHistoryQuery.data ?? []);
+        if (!chatHistoryQuery.isSuccess) return;
+        const data = chatHistoryQuery.data;
+        // data shape was Message[] pre-multi-chat; now {messages, conversationId}.
+        const msgs: Message[] = Array.isArray(data) ? data : data?.messages ?? [];
+        const resolvedId: string | null =
+            Array.isArray(data) ? null : data?.conversationId ?? null;
+
+        // Seed once per conversation. Avoids wiping in-flight optimistic turns
+        // when React Query refetches without a thread change.
+        const keyFor = activeConversationId ?? resolvedId ?? '__default__';
+        if (seededForConversation === keyFor) return;
+
+        setMessages(msgs);
+        setSeededForConversation(keyFor);
         setHistoryReady(true);
-        setHistorySeeded(true);
-    }, [chatHistoryQuery.isSuccess, chatHistoryQuery.data, historySeeded]);
+        if (!activeConversationId && resolvedId) {
+            setActiveConversationId(resolvedId);
+        }
+    }, [chatHistoryQuery.isSuccess, chatHistoryQuery.data, activeConversationId, seededForConversation]);
 
     useEffect(() => {
         if (chatHistoryQuery.isError) {
@@ -87,17 +106,26 @@ export default function MaxChatScreen() {
             { role: 'assistant', content: '', isTyping: true, typingMode: initContext ? 'schedule' : 'default' },
         ]);
         try {
-            const { response, choices } = await api.sendChatMessage(msg, undefined, undefined, initContext, chatIntent);
+            const { response, choices, conversation_id } = await api.sendChatMessage(
+                msg,
+                undefined,
+                undefined,
+                initContext,
+                chatIntent,
+                activeConversationId ?? undefined,
+            );
+            // Adopt the server-assigned conversation on first message so the
+            // mobile client stays aligned with backend routing (no second call).
+            if (conversation_id && conversation_id !== activeConversationId) {
+                setActiveConversationId(conversation_id);
+            }
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
                 { role: 'assistant', content: response },
             ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
-            queryClient.setQueryData<Message[]>(queryKeys.chatHistory, (prev = []) => [
-                ...prev,
-                { role: 'user', content: msg },
-                { role: 'assistant', content: response },
-            ]);
+            // Invalidate the conversations list so the sidebar reorders + renames.
+            queryClient.invalidateQueries({ queryKey: queryKeys.chatConversations });
             queryClient.invalidateQueries({
                 predicate: (q) => {
                     const k = q.queryKey;
@@ -310,10 +338,43 @@ export default function MaxChatScreen() {
 
             <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
                 <View style={[styles.header, { paddingTop: Math.max(insets.top + spacing.md, 52) }]}>
+                    <TouchableOpacity
+                        style={styles.headerMenuButton}
+                        onPress={() => setDrawerOpen(true)}
+                        accessibilityLabel="Open chat list"
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                        <Ionicons name="menu" size={22} color={colors.foreground} />
+                    </TouchableOpacity>
                     <Text style={styles.headerEyebrow}>Coach</Text>
                     <Text style={styles.title}>Max</Text>
                     <Text style={styles.subtitle}>Your lookmaxxing coach</Text>
                 </View>
+
+                <ChatConversationsDrawer
+                    visible={drawerOpen}
+                    activeConversationId={activeConversationId}
+                    onClose={() => setDrawerOpen(false)}
+                    onSelect={(id) => {
+                        // Empty id means the active conversation was deleted — clear
+                        // state and let useChatHistoryQuery route to the newest thread
+                        // (or show empty state on first-ever use).
+                        setActiveConversationId(id || null);
+                        setSeededForConversation(null);
+                        setMessages([]);
+                        setServerChoices([]);
+                        queryClient.invalidateQueries({
+                            predicate: (q) =>
+                                q.queryKey[0] === 'chat' && q.queryKey[1] === 'history',
+                        });
+                    }}
+                    onCreated={(id) => {
+                        setActiveConversationId(id);
+                        setSeededForConversation(null);
+                        setMessages([]);
+                        setServerChoices([]);
+                    }}
+                />
 
                 {!historyReady && chatHistoryQuery.isPending ? (
                     <View style={styles.historyLoading}>
@@ -391,6 +452,14 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: colors.borderLight,
         backgroundColor: colors.card,
+        position: 'relative',
+    },
+    headerMenuButton: {
+        position: 'absolute',
+        top: 10,
+        left: spacing.md,
+        zIndex: 2,
+        padding: 6,
     },
     headerEyebrow: {
         ...typography.label,

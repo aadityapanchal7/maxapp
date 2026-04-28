@@ -232,6 +232,38 @@ class CoachingToneBody(BaseModel):
     tone: str = Field(..., description="default | hardcore | gentle | influencer")
 
 
+class ResponseLengthBody(BaseModel):
+    length: str = Field(..., description="concise | medium | detailed")
+
+
+RESPONSE_LENGTH_VALUES = {"concise", "medium", "detailed"}
+
+
+@router.patch("/response-length")
+async def patch_response_length(
+    body: ResponseLengthBody,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the user's preferred chat response length. Takes effect on the next chat turn."""
+    length = (body.length or "").strip().lower()
+    if length not in RESPONSE_LENGTH_VALUES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"length must be one of {sorted(RESPONSE_LENGTH_VALUES)}",
+        )
+    user_uuid = UUID(current_user["id"])
+    user = await db.get(User, user_uuid)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    ob = dict(user.onboarding or {})
+    ob["response_length"] = length
+    user.onboarding = ob
+    user.updated_at = datetime.utcnow()
+    await db.commit()
+    return {"message": "ok", "length": length}
+
+
 @router.patch("/coaching-tone")
 async def patch_coaching_tone(
     body: CoachingToneBody,

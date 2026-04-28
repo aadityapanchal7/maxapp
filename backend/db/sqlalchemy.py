@@ -170,6 +170,38 @@ async def _run_chat_history_column_migrations():
         """,
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS retrieved_chunk_ids JSONB",
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS partner_rule_ids BIGINT[]",
+        # Multi-conversation support: FK + index + one-time backfill of legacy
+        # rows into a "Chat history" thread per user. create_all() already
+        # creates chat_conversations itself; these statements only touch
+        # chat_history and only run once because the UPDATE guards on NULL.
+        """
+        ALTER TABLE chat_history
+            ADD COLUMN IF NOT EXISTS conversation_id uuid
+                REFERENCES chat_conversations(id) ON DELETE CASCADE
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_chat_history_conversation
+            ON chat_history(conversation_id, created_at)
+        """,
+        """
+        INSERT INTO chat_conversations (user_id, title, last_message_at)
+        SELECT ch.user_id, 'Chat history', MAX(ch.created_at)
+        FROM chat_history ch
+        WHERE ch.conversation_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM chat_conversations cc
+              WHERE cc.user_id = ch.user_id
+          )
+        GROUP BY ch.user_id
+        """,
+        """
+        UPDATE chat_history ch
+        SET conversation_id = cc.id
+        FROM chat_conversations cc
+        WHERE ch.conversation_id IS NULL
+          AND cc.user_id = ch.user_id
+          AND cc.title = 'Chat history'
+        """,
     ]
     try:
         async with engine.begin() as conn:

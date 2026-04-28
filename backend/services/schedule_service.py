@@ -91,6 +91,19 @@ Preferred workout times: {preferred_times}
 Days to generate: {num_days}
 {user_history_context}
 
+## CALENDAR-FRIENDLY TITLES (CRITICAL — users scan these on a calendar grid)
+- Title must be ≤ 28 characters, action-first, and specific enough to recognize at a glance.
+- Lead with a concrete verb + object. Good: "mew 15m", "cerave + bha", "scalp microneedle", "3L water check". Bad: "AM Routine", "Midday Tip", "Reminder", "Morning Task".
+- Never reuse the same title twice in one day. If two tasks sit on the same day, differentiate them (e.g. "AM cerave + SPF" vs "PM differin").
+- No vague filler: no "daily", "routine", "check-in" unless paired with a specific object.
+- Never prefix with the time — the calendar already shows it.
+
+## SPECIFICITY (CRITICAL — use every piece of USER CONTEXT above)
+- Descriptions MUST mention the user's concern, tier, scan finding, or stack — not generic advice. If USER CONTEXT says past completion was ≥80%, ramp intensity; if ≤50%, shorten/simplify.
+- If past feedback exists, visibly respect it (e.g. user flagged "too much pm time" → shorter PM tasks, earlier starts).
+- For product tasks, reference the specific protocol item the user is on (brand/strength). Never write "use your cleanser".
+- If a piece of USER CONTEXT is missing, skip that tailoring — don't invent stats or history.
+
 ## INSTRUCTIONS
 1. Create a schedule for {num_days} days (include every day 1…{num_days}). If {num_days} > 7, repeat **weekly** checkpoints (e.g. weigh-in, wash day, progress photo) on the same weekday each week, and **bi-weekly** items every 14 days — not only in the first week.
 2. Space tasks throughout the day between wake and sleep times.
@@ -169,6 +182,21 @@ Profile hint: {profile_hint}
 Selected concern: {selected_concern}
 Outside today: {outside_today}
 {user_profile_context}
+{user_history_context}
+
+## CALENDAR-FRIENDLY TITLES (CRITICAL — users scan these on a calendar grid)
+- Title ≤ 28 characters, action-first, and specific enough to recognize at a glance.
+- Lead with a concrete verb + object. Good: "mew 15m", "minox AM", "scalp microneedle", "pillowcase swap", "pre-workout cals". Bad: "AM Routine", "Midday Tip", "Reminder", "Hydration".
+- Never reuse the same title twice in one day. Distinguish AM vs PM vs reapply (e.g. "cerave + bha AM", "differin PM").
+- Never prefix with the time — the calendar already shows it.
+- No stiff "Category: Name — 2:22pm" patterns. Lowercase is fine.
+
+## SPECIFICITY (CRITICAL — use every piece of USER CONTEXT above)
+- Descriptions MUST reference the user's actual concern, tier, scan finding, or stack — not generic advice. "reapply SPF, you're fair-skinned and outside today" beats "reapply SPF".
+- If USER HISTORY shows past completion ≥80%, ramp intensity; if ≤50%, shorten / simplify / push morning tasks later.
+- If past feedback exists, visibly respect it (e.g. user flagged "too many pings" → merge adjacent tasks; "too hard morning" → shift).
+- For product tasks, name the specific brand/strength from the protocol. Never write "use your cleanser" — write the product.
+- If a piece of USER CONTEXT is missing, skip that tailoring — don't invent stats or history.
 
 {multi_module_instruction}
 
@@ -855,6 +883,8 @@ class ScheduleService:
         maxx_tmpl = await asyncio.to_thread(
             resolve_prompt, PromptKey.MAXX_SCHEDULE, MAXX_SCHEDULE_PROMPT
         )
+        user_history_context = await self._build_maxx_history_context(db, user_id, maxx_id)
+
         prompt = maxx_tmpl.format(
             maxx_label=guideline["label"],
             protocol_section=protocol_section,
@@ -865,6 +895,7 @@ class ScheduleService:
             selected_concern=concern,
             outside_today="Yes" if outside_today else "No",
             user_profile_context=user_profile_context,
+            user_history_context=user_history_context,
             num_days=num_days,
             multi_module_instruction=multi_module_instruction,
         )
@@ -2926,6 +2957,46 @@ class ScheduleService:
         return {"message": "Preferences updated"}
 
     # --- helpers ---
+
+    async def _build_maxx_history_context(self, db: AsyncSession, user_id: str, maxx_id: str) -> str:
+        """History context for a fresh MAXX schedule: prior inactive runs of the same maxx + their
+        completion ratios and user feedback. Returns an empty string when there's nothing useful —
+        so the prompt stays clean for first-time users.
+        """
+        user_uuid = UUID(user_id)
+        result = await db.execute(
+            select(UserSchedule)
+            .where(
+                (UserSchedule.user_id == user_uuid)
+                & (UserSchedule.maxx_id == maxx_id)
+                & (UserSchedule.is_active == False)
+            )
+            .order_by(UserSchedule.created_at.desc())
+            .limit(3)
+        )
+        past = result.scalars().all()
+        if not past:
+            return ""
+
+        lines: list[str] = []
+        feedback: list[str] = []
+        for sched in past:
+            stats = sched.completion_stats or {}
+            total = stats.get("total", 0)
+            completed = stats.get("completed", 0)
+            if total > 0:
+                pct = round(completed / total * 100)
+                lines.append(f"prior {maxx_id} run: {completed}/{total} tasks ({pct}%)")
+            for fb in (sched.user_feedback or [])[-3:]:
+                text = str((fb or {}).get("feedback", "")).strip()
+                if text:
+                    feedback.append(text)
+        if feedback:
+            lines.append("past feedback: " + "; ".join(feedback[:5]))
+
+        if not lines:
+            return ""
+        return "\n## USER HISTORY\n" + "\n".join(lines)
 
     async def _build_user_context(self, db: AsyncSession, user_id: str, course_id: str) -> str:
         lines: list[str] = []

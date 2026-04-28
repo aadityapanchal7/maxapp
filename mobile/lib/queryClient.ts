@@ -42,4 +42,7 @@ export const queryKeys = {
     forumV2Search: (q: string) => ['forumV2', 'search', q] as const,
     forumV2Notifications: (unreadOnly: boolean) => ['forumV2', 'notifications', unreadOnly ? 'unread' : 'all'] as const,
     chatHistory: ['chat', 'history'] as const,
+    chatHistoryByConv: (conversationId: string | null) =>
+        ['chat', 'history', conversationId ?? 'default'] as const,
+    chatConversations: ['chat', 'conversations'] as const,
 };

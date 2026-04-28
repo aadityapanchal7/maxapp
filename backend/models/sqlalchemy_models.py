@@ -254,12 +254,77 @@ class Leaderboard(Base):
     )
 
 
+class ChatConversation(Base):
+    """Named chat thread — one row per conversation the user can switch between.
+
+    Legacy chat_history rows (pre-multi-chat) are backfilled into a single
+    "Chat history" conversation per user via the startup migration, so the
+    new UI surfaces every existing message without losing any history.
+    """
+    __tablename__ = "chat_conversations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title = Column(Text, nullable=False, default="new chat")
+    channel = Column(String, nullable=False, default="app")
+    is_archived = Column(Boolean, nullable=False, default=False)
+    last_message_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_chat_conversations_user",
+            user_id,
+            is_archived,
+            last_message_at.desc(),
+        ),
+    )
+
+
+import contextvars
+
+# Per-request active conversation. process_chat_message() sets this so every
+# ChatHistory() constructed inside the request inherits conversation_id without
+# having to thread the argument through ~20 scattered call sites.
+active_conversation_id: contextvars.ContextVar = contextvars.ContextVar(
+    "active_chat_conversation_id", default=None
+)
+
+
 class ChatHistory(Base):
     """AI chat conversation history"""
     __tablename__ = "chat_history"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
+    # Nullable so legacy rows keep working; UI filters to the active thread.
+    # Backfill migration assigns every pre-existing row to a per-user
+    # "Chat history" conversation so nothing disappears from the UI.
+    conversation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_conversations.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+
+    def __init__(self, **kwargs):
+        # Auto-inject conversation_id from the request-scoped contextvar when
+        # the caller didn't specify one. Keeps the 20+ construction sites in
+        # api/chat.py unchanged while still writing the new FK.
+        if "conversation_id" not in kwargs:
+            cv = active_conversation_id.get()
+            if cv is not None:
+                kwargs["conversation_id"] = cv
+        super().__init__(**kwargs)
 
     role = Column(String, nullable=False)
     content = Column(Text, nullable=False)
@@ -276,6 +341,7 @@ class ChatHistory(Base):
 
     __table_args__ = (
         Index("idx_chat_user_id", user_id),
+        Index("idx_chat_history_conversation", conversation_id, created_at),
         Index("idx_chat_created_at", created_at.desc()),
     )
 
