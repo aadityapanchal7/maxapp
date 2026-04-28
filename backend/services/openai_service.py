@@ -1,15 +1,18 @@
 """
-OpenAI-backed LLM for Max chat (tools + vision) and triple face scans.
-Use when settings.llm_provider == \"openai\".
+LLM service for Max:
+  * `chat()` calls the Hugging Face Dedicated Inference Endpoint (model="tgi")
+    via the OpenAI SDK compatibility layer (HF_TOKEN, base_url=/v1).
+  * Vision methods (`analyze_triple_*`, `completion_vision`) keep using OpenAI
+    directly with OPENAI_API_KEY because the HF TGI text endpoint can't
+    accept image input.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from config import settings
 from models.scan import TripleFullScanResult, UmaxTripleScanResult
@@ -29,136 +32,6 @@ from services.gemini_service import (
 logger = logging.getLogger(__name__)
 
 
-def _max_chat_tools_openai() -> list[dict]:
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": "modify_schedule",
-                "description": "Modifies the user's active schedule from natural language. Only when they want calendar/task changes.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "feedback": {"type": "string", "description": "Natural language description of the change."},
-                    },
-                    "required": ["feedback"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "generate_maxx_schedule",
-                "description": "Generate a personalised maxx schedule after onboarding fields are collected.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "maxx_id": {"type": "string", "description": "skinmax, heightmax, hairmax, fitmax, bonemax"},
-                        "wake_time": {"type": "string"},
-                        "sleep_time": {"type": "string"},
-                        "outside_today": {"type": "boolean", "description": "Skinmax only; false for other modules"},
-                        "skin_concern": {"type": "string"},
-                        "age": {"type": "integer"},
-                        "sex": {"type": "string"},
-                        "gender": {"type": "string"},
-                        "height": {"type": "string"},
-                        "hair_type": {"type": "string"},
-                        "scalp_state": {"type": "string"},
-                        "daily_styling": {"type": "string"},
-                        "thinning": {"type": "string"},
-                        "hair_thinning": {"type": "string"},
-                        "workout_frequency": {"type": "string"},
-                        "tmj_history": {"type": "string"},
-                        "mastic_gum_regular": {"type": "string"},
-                        "heavy_screen_time": {"type": "string"},
-                    },
-                    "required": ["maxx_id", "wake_time", "sleep_time", "outside_today"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "stop_schedule",
-                "description": "Deactivate a module schedule when the user wants to stop it.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"maxx_id": {"type": "string"}},
-                    "required": ["maxx_id"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "update_schedule_context",
-                "description": "Store schedule habit context e.g. outside_today, wake_time.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "key": {"type": "string"},
-                        "value": {"type": "string"},
-                    },
-                    "required": ["key", "value"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "log_check_in",
-                "description": "Log check-in data the user reported.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "workout_done": {"type": "boolean"},
-                        "missed": {"type": "boolean"},
-                        "sleep_hours": {"type": "number"},
-                        "calories": {"type": "integer"},
-                        "mood": {"type": "string"},
-                        "injury_area": {"type": "string"},
-                        "injury_note": {"type": "string"},
-                    },
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "schedule_push_notification",
-                "description": (
-                    "Schedule a push notification to the user. Use when the user asks you to "
-                    "remind them, set a timer, nudge them later, or check back. Do not use for "
-                    "regular schedule reminders (the scheduler handles those)."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "delay_minutes": {
-                            "type": "integer",
-                            "description": "Minutes from now to fire the push. Between 1 and 1440 (24h).",
-                        },
-                        "message": {
-                            "type": "string",
-                            "description": "Push body text. Short, imperative, lowercase.",
-                        },
-                        "buttons": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Optional action buttons, max 2. e.g. ['yes, done','snooze 5m'].",
-                        },
-                        "category_id": {
-                            "type": "string",
-                            "description": "APNs category id for button rendering. Default 'coach_nudge'.",
-                        },
-                    },
-                    "required": ["delay_minutes", "message"],
-                },
-            },
-        },
-    ]
-
-
 def _strip_json_fences(text: str) -> str:
     t = (text or "").strip()
     if t.startswith("```"):
@@ -172,10 +45,26 @@ def _strip_json_fences(text: str) -> str:
 
 class OpenAIService:
     def __init__(self) -> None:
-        self._model = (settings.openai_model or "gpt-4o-mini").strip()
-        self._vision_model = (settings.openai_vision_model or self._model).strip()
+        # Vision still goes through real OpenAI -- HF TGI text endpoints
+        # don't accept image input.
+        self._vision_model = (settings.openai_vision_model or settings.openai_model or "gpt-4o").strip()
+        # Chat goes through the HF Dedicated Inference Endpoint via OpenAI compat.
+        self._chat_model = (settings.hf_model or "tgi").strip()
 
-    def _client(self):
+    def _chat_client(self):
+        """OpenAI SDK pointed at the Hugging Face dedicated endpoint /v1."""
+        from openai import OpenAI
+
+        key = (settings.hf_token or "").strip()
+        if not key:
+            raise ValueError("HF_TOKEN is not set")
+        base_url = (settings.hf_endpoint_url or "").strip()
+        if not base_url:
+            raise ValueError("HF_ENDPOINT_URL is not set")
+        return OpenAI(api_key=key, base_url=base_url)
+
+    def _vision_client(self):
+        """Real OpenAI client for face-scan vision calls."""
         from openai import OpenAI
 
         key = (settings.openai_api_key or "").strip()
@@ -185,10 +74,12 @@ class OpenAIService:
 
     async def completion_text(self, prompt: str) -> str:
         def _sync() -> str:
-            client = self._client()
+            client = self._chat_client()
             r = client.chat.completions.create(
-                model=self._model,
+                model=self._chat_model,
                 messages=[{"role": "user", "content": prompt}],
+                max_tokens=500,
+                temperature=0.7,
             )
             return (r.choices[0].message.content or "").strip()
 
@@ -204,7 +95,7 @@ class OpenAIService:
             user_content.append({"type": "image_url", "image_url": {"url": _b64_url(img)}})
 
         def _sync() -> str:
-            client = self._client()
+            client = self._vision_client()
             kwargs: dict = {
                 "model": self._vision_model,
                 "messages": [{"role": "user", "content": user_content}],
@@ -224,6 +115,9 @@ class OpenAIService:
         image_data: Optional[bytes] = None,
         delivery_channel: str = "app",
     ) -> dict:
+        # NOTE: image_data is accepted for backward compatibility but ignored
+        # on this path -- the HF dedicated endpoint is text-only. Image-bearing
+        # turns should go through the vision pipeline (face-scan endpoints).
         context_str = user_context.get("coaching_context", "") if user_context else ""
         if not context_str and user_context:
             if user_context.get("latest_scan"):
@@ -263,49 +157,19 @@ class OpenAIService:
             role = "user" if msg["role"] == "user" else "assistant"
             messages.append({"role": role, "content": msg.get("content") or ""})
 
-        user_content: Union[str, List[dict]]
-        if image_data:
-            b64 = base64.standard_b64encode(image_data).decode("ascii")
-            mime = _mime_for_image_bytes(image_data)
-            user_content = [
-                {"type": "text", "text": message if message else "Look at this image."},
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
-            ]
-        else:
-            user_content = message if message else ""
-
-        messages.append({"role": "user", "content": user_content})
-
-        tools = _max_chat_tools_openai()
-
-        max_tokens = 512 if delivery_channel == "sms" else 768
+        messages.append({"role": "user", "content": message if message else ""})
 
         def _sync() -> dict:
-            client = self._client()
+            client = self._chat_client()
             resp = client.chat.completions.create(
-                model=self._vision_model if image_data else self._model,
+                model=self._chat_model,
                 messages=messages,
-                tools=tools,
-                tool_choice="auto",
-                max_tokens=max_tokens,
+                max_tokens=500,
                 temperature=0.7,
                 timeout=20,
             )
-            choice = resp.choices[0].message
-            tool_calls_out: list[dict] = []
-            for tc in choice.tool_calls or []:
-                fn = tc.function
-                raw_args = fn.arguments or "{}"
-                try:
-                    args = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
-                except json.JSONDecodeError:
-                    args = {}
-                tool_calls_out.append({"name": fn.name, "args": args})
-            text = (choice.content or "").strip()
-            return {
-                "text": text or ("done. check your schedule." if tool_calls_out else ""),
-                "tool_calls": tool_calls_out,
-            }
+            text = (resp.choices[0].message.content or "").strip()
+            return {"text": text, "tool_calls": []}
 
         return await asyncio.wait_for(asyncio.to_thread(_sync), timeout=22.0)
 

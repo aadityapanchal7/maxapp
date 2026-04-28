@@ -4,9 +4,13 @@ LangChain LLM provider factory — single source of truth for ALL LLM access.
 No direct google.generativeai / openai / mistralai SDK imports anywhere else.
 Everything goes through these builders.
 
-Supports three providers via LLM_PROVIDER env var:
-  gemini   — Google Gemini (default)
-  openai   — OpenAI GPT
+Supports four providers via LLM_PROVIDER env var:
+  huggingface — Hugging Face Dedicated Inference Endpoint (default, model="tgi"
+                 via OpenAI compat layer — used for the fine-tuned Looksmaxxing
+                 chat model). No automatic fallback to other providers: the
+                 whole point of using a custom fine-tune is to USE it.
+  gemini   — Google Gemini (still used for vision / face scans)
+  openai   — OpenAI GPT (still used for vision / face scans)
   mistral  — Mistral AI
 
 Public API:
@@ -19,9 +23,10 @@ Public API:
   get_vision_llm()                          — multimodal LLM for image analysis (vision)
 
 Fallback priority (when keys are available):
-  primary=gemini   → openai → mistral
-  primary=openai   → gemini → mistral
-  primary=mistral  → gemini → openai
+  primary=huggingface → (none — fine-tuned custom model, no silent failover)
+  primary=gemini      → openai → mistral
+  primary=openai      → gemini → mistral
+  primary=mistral     → gemini → openai
 
 Timeout:
   LLM_TIMEOUT_SECONDS controls per-provider HTTP timeout. Default: 25 s.
@@ -170,6 +175,36 @@ def _build_openai_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatMode
     )
 
 
+def _build_hf_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatModel:
+    """Hugging Face Dedicated Inference Endpoint via OpenAI compat layer.
+
+    The endpoint exposes /v1/chat/completions with model name "tgi"; auth is
+    a bearer HF_TOKEN. We reuse ChatOpenAI by overriding base_url so all
+    LangChain orchestration (tool binding, structured output, fallbacks)
+    keeps working unchanged.
+    """
+    from langchain_openai import ChatOpenAI
+
+    key = (settings.hf_token or "").strip()
+    if not key:
+        raise ValueError("HF_TOKEN is not set")
+
+    base_url = (settings.hf_endpoint_url or "").strip()
+    if not base_url:
+        raise ValueError("HF_ENDPOINT_URL is not set")
+
+    model = (settings.hf_model or "tgi").strip()
+    return ChatOpenAI(
+        model=model,
+        api_key=key,
+        base_url=base_url,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        timeout=settings.llm_timeout_seconds,
+        max_retries=0,
+    )
+
+
 def _build_mistral_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatModel:
     from langchain_mistralai import ChatMistralAI
 
@@ -193,12 +228,15 @@ def _build_mistral_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatMod
 # ---------------------------------------------------------------------------
 
 _BUILDERS = {
-    "gemini":  _build_gemini_llm,
-    "openai":  _build_openai_llm,
-    "mistral": _build_mistral_llm,
+    "huggingface": _build_hf_llm,
+    "gemini":      _build_gemini_llm,
+    "openai":      _build_openai_llm,
+    "mistral":     _build_mistral_llm,
 }
 
 _FALLBACK_ORDER: dict[str, list[str]] = {
+    # Custom fine-tuned model: never silently fall back to a different model.
+    "huggingface": [],
     "gemini":  ["openai", "mistral"],
     "openai":  ["gemini", "mistral"],
     "mistral": ["gemini", "openai"],
@@ -313,6 +351,21 @@ def get_sync_json_llm(max_tokens: int = 4096) -> BaseChatModel:
     Call via asyncio.to_thread(lambda: get_sync_json_llm().invoke(prompt)).
     """
     provider = llm_provider()
+    if provider == "huggingface":
+        from langchain_openai import ChatOpenAI
+        key = (settings.hf_token or "").strip()
+        if not key:
+            raise ValueError("HF_TOKEN is not set")
+        return ChatOpenAI(
+            model=(settings.hf_model or "tgi").strip(),
+            api_key=key,
+            base_url=(settings.hf_endpoint_url or "").strip(),
+            max_tokens=max_tokens,
+            temperature=0.2,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=0,
+            model_kwargs={"response_format": {"type": "json_object"}},
+        )
     if provider == "openai":
         from langchain_openai import ChatOpenAI
         key = (settings.openai_api_key or "").strip()
@@ -370,12 +423,13 @@ def get_vision_llm(json_mode: bool = False) -> BaseChatModel:
     Return a multimodal LLM for image analysis.
 
     Gemini is preferred for vision; falls back to OpenAI gpt-4o if Gemini key
-    is missing. Mistral does not support vision — falls back to Gemini/OpenAI.
+    is missing. Mistral / huggingface (TGI text endpoint) do not support
+    vision — they fall back to Gemini/OpenAI.
     json_mode=True enables structured JSON output (for scan parsing).
     """
     provider = llm_provider()
 
-    if provider == "mistral":
+    if provider in ("mistral", "huggingface"):
         gemini_key = (settings.gemini_api_key or "").strip()
         if gemini_key:
             provider = "gemini"

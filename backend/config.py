@@ -48,19 +48,31 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = Field(default=1440)  # 24 hours
     jwt_refresh_token_expire_days: int = Field(default=300)      # ~10 months
     
-    # LLM provider: "gemini" (default), "openai", or "mistral"
-    llm_provider: str = Field(default="gemini")
-    # Google Gemini
+    # LLM provider: "huggingface" (default), "gemini", "openai", or "mistral".
+    # huggingface routes chat completions through a Hugging Face Dedicated
+    # Inference Endpoint via the OpenAI SDK compatibility layer (model="tgi").
+    llm_provider: str = Field(default="huggingface")
+    # Hugging Face Dedicated Inference Endpoint -- OpenAI-compatible /v1
+    hf_token: str = Field(default="", description="Hugging Face API token for the dedicated endpoint")
+    hf_endpoint_url: str = Field(
+        default="https://pr83qgnhfqomb51f.us-east-1.aws.endpoints.huggingface.cloud/v1",
+        description="HF dedicated endpoint base URL (must end in /v1 for OpenAI compat)",
+    )
+    hf_model: str = Field(
+        default="tgi",
+        description="HF TGI uses the literal string 'tgi' as the model name in chat completions",
+    )
+    # Google Gemini -- still required for face-scan vision (HF TGI text endpoint can't do images)
     gemini_api_key: str = Field(default="")
     gemini_model: str = Field(default="gemini-2.5-flash")
-    # OpenAI (when llm_provider=openai)
+    # OpenAI -- still required for face-scan vision fallback when Gemini key is missing
     openai_api_key: str = Field(default="")
     openai_model: str = Field(default="gpt-4o-mini")
     openai_vision_model: str = Field(
         default="",
         description="Vision-capable model for scans/chat images; defaults to openai_model if empty",
     )
-    # Mistral (when llm_provider=mistral)
+    # Mistral (legacy provider; kept for optional fallback only)
     mistral_api_key: str = Field(default="")
     mistral_model: str = Field(default="mistral-large-latest")
     # Per-provider HTTP timeout in seconds (applies to each individual API call).
