@@ -33,6 +33,10 @@ async def lifespan(app: FastAPI):
     from services.prompt_loader import refresh_prompt_cache
     await refresh_prompt_cache()
     await init_rds_db()
+    # Warm BM25 RAG indexes so the first KNOWLEDGE turn doesn't pay the
+    # cold-load round-trip (~150-300ms). Logged + swallowed on failure.
+    from services.rag_service import warm_indexes
+    await warm_indexes()
     # Start background scheduler for notifications
     from services.scheduler_job import start_scheduler, stop_scheduler
     from services.apns_service import apns_configured

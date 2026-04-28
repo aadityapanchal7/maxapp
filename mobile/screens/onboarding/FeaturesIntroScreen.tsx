@@ -1,10 +1,14 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import { useAuth } from '../../context/AuthContext';
+import OnairosConnectModal from '../../components/OnairosConnectModal';
+
+const ONAIROS_PROMPTED_KEY = 'onairos_onboarding_prompted_v1';
 
 const BENEFITS = [
     { icon: 'scan-outline' as const, label: 'AI-powered analysis' },
@@ -18,6 +22,39 @@ export default function FeaturesIntroScreen() {
     const { user, isPaid } = useAuth();
 
     const hasScan = user?.first_scan_completed;
+
+    const [onairosVisible, setOnairosVisible] = useState(false);
+    const onairosEnabled = !!(process.env.EXPO_PUBLIC_ONAIROS_API_KEY || '').trim();
+
+    // First-time-only Onairos prompt: shown on initial entry to this screen
+    // for users who haven't scanned yet. Skip if env key is missing or user
+    // already saw it. Errors in storage just suppress the prompt — never block.
+    useEffect(() => {
+        if (!onairosEnabled || hasScan) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const seen = await AsyncStorage.getItem(ONAIROS_PROMPTED_KEY);
+                if (!cancelled && !seen) {
+                    setOnairosVisible(true);
+                }
+            } catch {
+                // ignore — never block onboarding on a storage hiccup
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [onairosEnabled, hasScan]);
+
+    const dismissOnairos = async () => {
+        setOnairosVisible(false);
+        try {
+            await AsyncStorage.setItem(ONAIROS_PROMPTED_KEY, '1');
+        } catch {
+            // ignore
+        }
+    };
 
     return (
         <View style={s.container}>
@@ -79,6 +116,12 @@ export default function FeaturesIntroScreen() {
                     </TouchableOpacity>
                 )}
             </View>
+
+            <OnairosConnectModal
+                visible={onairosVisible}
+                onClose={dismissOnairos}
+                onConnected={dismissOnairos}
+            />
         </View>
     );
 }

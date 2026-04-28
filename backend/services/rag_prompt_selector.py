@@ -57,11 +57,17 @@ _LEXICONS: dict[str, dict[str, int]] = {
         "blemish": 2, "blemishes": 2, "pore": 2, "pores": 2,
         "pigmentation": 2, "dark spot": 2, "melasma": 3, "rosacea": 3,
         "redness": 2, "dermatitis": 3,
+        # debloat / puffy face concerns (high signal, often short queries)
+        "debloat": 3, "debloating": 3, "bloat": 3, "bloated": 3,
+        "puffy": 3, "puffiness": 3, "puffy face": 3, "face bloat": 3,
+        "water retention": 3, "lymphatic": 2, "gua sha": 3, "ice roller": 3,
         # routines
         "skincare": 3, "skin routine": 3, "am routine": 2, "pm routine": 2,
         "exfoliate": 2, "exfoliation": 2,
         "dermaroll": 3, "dermarolls": 3, "dermarolling": 3, "microneedling": 3,
         "hydration": 1, "double cleanse": 3,
+        # community slang
+        "skinmaxxing": 3, "glowmax": 2, "glow up": 2,
     },
     "fitmax": {
         # training — keep generic words (pull/push/reps) low-weight so stretch
@@ -79,30 +85,43 @@ _LEXICONS: dict[str, dict[str, int]] = {
         # body
         "body fat": 3, "bodyfat": 3, "lean": 2, "gains": 2, "gainz": 2,
         "gym": 2, "lift": 2, "lifts": 2, "lifting": 2,
+        # community
+        "fitmaxxing": 3, "leanmax": 3, "leanmaxxing": 3,
     },
     "hairmax": {
         # products / ingredients
-        "minoxidil": 3, "finasteride": 3, "finas": 3, "dutasteride": 3,
+        "minoxidil": 3, "finasteride": 3, "finas": 3, "fin": 1, "dutasteride": 3,
         "ketoconazole": 3, "nizoral": 3, "rogaine": 3, "propecia": 3,
         "dermaroller": 2, "hair dermaroll": 3, "microneedle scalp": 3,
         # concerns
         "hairline": 3, "receding": 3, "thinning": 3, "bald": 2, "balding": 3,
         "hair loss": 3, "shedding": 3, "hair shed": 3, "dht": 3, "alopecia": 3,
+        "norwood": 3, "nw1": 3, "nw2": 3, "nw3": 3, "nw4": 3, "nw5": 3,
         "crown": 1, "widow": 2, "hair density": 3, "hair growth": 3,
         # routines
         "wash day": 2, "scalp massage": 3, "shampoo": 2, "conditioner": 2,
         "scalp": 2, "hair": 1, "hair care": 3,
+        # community
+        "hairmaxxing": 3, "hairmaxx": 3,
     },
     "bonemax": {
         # practices
         "mewing": 3, "hard mewing": 3, "soft mewing": 3, "tongue posture": 3,
         "masseter": 3, "mastic": 3, "mastic gum": 3, "falim": 3,
         "chewing": 2, "jaw exercise": 3, "jaw exercises": 3,
+        # bonesmashing / community-named protocols (high signal — these queries
+        # were previously routing to "no module" because nothing matched)
+        "bonesmash": 3, "bonesmashing": 3, "bone smash": 3, "bone smashing": 3,
+        "bonemashing": 3, "skull smashing": 3, "looksmax": 3, "looksmaxx": 3,
+        "looksmaxxing": 3, "facemax": 3, "facemaxxing": 3, "bonemaxxing": 3,
+        "psl": 2, "mog": 1, "mogger": 1,
         # anatomy / concerns
-        "jaw": 2, "jawline": 3, "tmj": 3, "maxilla": 3, "palate": 3,
+        "jaw": 2, "jawline": 3, "tmj": 3, "maxilla": 3, "mandible": 3,
+        "palate": 3, "zygomatic": 3, "gonion": 3, "gonial": 3,
+        "bite force": 3, "bite": 1,
         "face width": 3, "facial symmetry": 3, "symmetry": 2,
         "nasal breathing": 3, "mouth breath": 3, "mouth breathing": 3,
-        "fascia": 3, "lymphatic": 3, "lymph drainage": 3, "neck training": 3,
+        "fascia": 3, "lymph drainage": 2, "neck training": 3,
         "chin tuck": 2, "chin tucks": 2,
     },
     "heightmax": {
@@ -117,6 +136,8 @@ _LEXICONS: dict[str, dict[str, int]] = {
         # height concerns
         "height": 3, "taller": 3, "grow taller": 3, "growth plate": 3,
         "epiphyseal": 3, "stretching": 1, "stretch routine": 2,
+        # community
+        "heightmaxxing": 3, "heightmax": 3, "heightmaxx": 3,
     },
 }
 
@@ -161,7 +182,16 @@ class SelectedRagPrompt:
     runner_up_score: int = 0
 
 
+def _protocol_reference_key(maxx: str) -> str:
+    """Preferred KNOWLEDGE-path reference: tells the LLM what's in scope and
+    what generic-wellness fluff to avoid. See prompt_constants.{MAXX}_PROTOCOL_REFERENCE."""
+    return f"{maxx}_protocol_reference"
+
+
 def _coaching_reference_key(maxx: str) -> str:
+    """Legacy reference key — contains NOTIFICATION TIMING rules, not protocol.
+    Kept as a fallback so the selector still attaches *something* when the new
+    protocol_reference rows haven't been seeded into Supabase yet."""
     return f"{maxx}_coaching_reference"
 
 
@@ -170,9 +200,13 @@ def _load_base_system() -> str:
 
 
 def _load_reference(maxx: str) -> Optional[str]:
-    key = _coaching_reference_key(maxx)
-    content = resolve_prompt(key, "")
-    return content or None
+    # Prefer the new protocol-reference (KNOWLEDGE-scoped). Fall through to
+    # the legacy coaching-reference (notification-timing) if not yet seeded.
+    protocol = resolve_prompt(_protocol_reference_key(maxx), "")
+    if protocol:
+        return protocol
+    coaching = resolve_prompt(_coaching_reference_key(maxx), "")
+    return coaching or None
 
 
 def select_rag_system_prompt(

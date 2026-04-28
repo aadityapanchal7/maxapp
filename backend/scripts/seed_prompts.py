@@ -41,7 +41,13 @@ from services.gemini_service import (
     FACE_ANALYSIS_SYSTEM_PROMPT,
 )
 from services.prompt_constants import (
+    BONEMAX_PROTOCOL_REFERENCE,
+    FITMAX_PROTOCOL_REFERENCE,
+    HAIRMAX_PROTOCOL_REFERENCE,
+    HEIGHTMAX_PROTOCOL_REFERENCE,
     MAX_CHAT_SYSTEM_PROMPT,
+    RAG_ANSWER_SYSTEM_PROMPT,
+    SKINMAX_PROTOCOL_REFERENCE,
     TRIPLE_FULL_SYSTEM_PROMPT,
     UMAX_TRIPLE_SYSTEM_PROMPT,
 )
@@ -78,6 +84,12 @@ _PROMPTS: dict[str, tuple[str, str]] = {
     "umax_triple_system":                     (UMAX_TRIPLE_SYSTEM_PROMPT,                     "UMax triple-module system prompt"),
     "triple_full_system":                     (TRIPLE_FULL_SYSTEM_PROMPT,                     "Full triple-module system prompt"),
     "max_chat_system":                        (MAX_CHAT_SYSTEM_PROMPT,                        "Primary Max coaching chat system prompt"),
+    "rag_answer_system":                      (RAG_ANSWER_SYSTEM_PROMPT,                      "KNOWLEDGE-path RAG answerer; module protocol reference is appended at runtime."),
+    "skinmax_protocol_reference":             (SKINMAX_PROTOCOL_REFERENCE,                    "KNOWLEDGE-path SkinMax scope + anti-fluff guardrails."),
+    "fitmax_protocol_reference":              (FITMAX_PROTOCOL_REFERENCE,                     "KNOWLEDGE-path FitMax scope + anti-fluff guardrails."),
+    "hairmax_protocol_reference":             (HAIRMAX_PROTOCOL_REFERENCE,                    "KNOWLEDGE-path HairMax scope + anti-fluff guardrails."),
+    "bonemax_protocol_reference":             (BONEMAX_PROTOCOL_REFERENCE,                    "KNOWLEDGE-path BoneMax scope + anti-fluff guardrails."),
+    "heightmax_protocol_reference":           (HEIGHTMAX_PROTOCOL_REFERENCE,                  "KNOWLEDGE-path HeightMax scope + anti-fluff guardrails."),
     "bonemax_new_schedule_system":            (BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT,            "BoneMax new schedule onboarding system prompt"),
     "schedule_generation":                    (SCHEDULE_GENERATION_PROMPT,                    "Schedule generation prompt"),
     "schedule_adaptation":                    (SCHEDULE_ADAPTATION_PROMPT,                    "Schedule adaptation/update prompt"),

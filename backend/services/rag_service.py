@@ -268,6 +268,21 @@ def reload_indexes() -> None:
     _INDEX.clear()
 
 
+async def warm_indexes() -> None:
+    """Pre-load every module's BM25 index into the cache.
+
+    Called on app startup so the very first KNOWLEDGE turn doesn't pay the
+    ~150-300ms cold-load DB round-trip. Failures are logged but never raise —
+    the cache will lazy-load on first query if warmup couldn't reach the DB.
+    """
+    for maxx in VALID_MAXX_IDS:
+        try:
+            await _get_index(maxx)
+        except Exception as e:
+            logger.warning("RAG warmup skipped for %s: %s", maxx, e)
+    logger.info("RAG: warmed %d indexes", len(_INDEX))
+
+
 async def retrieve_chunks(
     db: "AsyncSession",  # kept for API compatibility; unused
     maxx_id: str,
