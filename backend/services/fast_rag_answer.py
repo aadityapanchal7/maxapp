@@ -10,11 +10,41 @@ from typing import Optional
 from config import settings
 from services.chat_telemetry import log_prompt_budget
 from services.lc_providers import get_chat_llm_with_fallback
-from services.rag_prompt_selector import select_rag_system_prompt
+from services.rag_prompt_selector import _LEXICONS, select_rag_system_prompt
 from services.rag_service import retrieve_chunks
 from services.token_budget import count_tokens
 
 logger = logging.getLogger(__name__)
+
+
+# Per-module fallback expansion terms. Only the highest-weight (3) lexicon
+# entries — they push BM25 toward canonical doc content when the user's
+# unexpanded query produces zero hits. Stripped to single-word tokens; multi-
+# word phrases dilute the tokenizer with no extra recall.
+_EXPANSION_TERMS: dict[str, list[str]] = {
+    maxx: [t for t, w in lex.items() if w >= 3 and " " not in t]
+    for maxx, lex in _LEXICONS.items()
+}
+
+
+def _expand_query(query: str, maxx: str) -> str:
+    """Append module-anchor terms to a short query that needs help.
+
+    Only used as a SECOND-PASS retrieval fallback when the unexpanded query
+    returns nothing — running expansion on every query was empirically worse
+    (long-tail queries got dragged into the most-anchor-heavy doc, e.g. all
+    bonemax queries pulled toward the Bonesmashing doc).
+    """
+    if len(query.split()) >= 8:
+        return query
+    expansion = _EXPANSION_TERMS.get(maxx, [])
+    if not expansion:
+        return query
+    q_lower = query.lower()
+    extras = [t for t in expansion[:6] if t not in q_lower]
+    if not extras:
+        return query
+    return f"{query} {' '.join(extras)}"
 
 _CITATION_RE = re.compile(r"\[(?:source|sources):[^\]]+\]", re.IGNORECASE)
 
@@ -62,10 +92,26 @@ async def gather_rag_evidence(
     min_similarity = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35)
 
     async def _one(maxx: str) -> list[dict]:
+        # Pass 1: original query — this is what works for ~95% of turns.
         rows = await retrieve_chunks(
             None,
             maxx,
             message,
+            k=k_per_maxx,
+            min_similarity=min_similarity,
+        )
+        if rows:
+            return [{**row, "_maxx": maxx} for row in rows]
+        # Pass 2 (fallback): query expansion. Only fires when the original
+        # query produced zero hits — typical case is a 1-2 word slang query
+        # whose tokens don't match any indexed doc title verbatim.
+        expanded = _expand_query(message, maxx)
+        if expanded == message:
+            return []
+        rows = await retrieve_chunks(
+            None,
+            maxx,
+            expanded,
             k=k_per_maxx,
             min_similarity=min_similarity,
         )

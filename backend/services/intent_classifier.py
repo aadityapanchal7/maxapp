@@ -35,15 +35,25 @@ class IntentResult(TypedDict):
 _MAXX_KEYWORDS = [
     ("skinmax", {"skin", "acne", "pimple", "pore", "blackhead", "wrinkle", "sunscreen", "spf",
                  "retinol", "retinoid", "moisturizer", "sebum", "glycolic", "salicylic",
-                 "debloat", "puffy", "dark spot", "hyperpigment", "ice roller"}),
-    ("hairmax", {"hair", "bald", "receding", "thinning", "minoxidil", "finasteride",
-                 "dermaroll", "shampoo", "scalp", "dht", "alopecia"}),
-    ("bonemax", {"jaw", "mewing", "chin", "mastic", "bite", "tmj", "cheekbone", "skull",
-                 "jawline", "palate", "tongue posture"}),
+                 "debloat", "debloating", "bloat", "bloated", "puffy", "puffy face",
+                 "dark spot", "hyperpigment", "ice roller", "glowmax", "glow up",
+                 "skinmaxxing"}),
+    ("hairmax", {"hair", "bald", "balding", "receding", "thinning", "minoxidil", "finasteride",
+                 "dermaroll", "dermarolling", "shampoo", "scalp", "dht", "alopecia",
+                 "norwood", "nw1", "nw2", "nw3", "hair tape", "hair gain", "hairmaxxing",
+                 "hairline"}),
+    ("bonemax", {"jaw", "mewing", "chin", "mastic", "bite", "bite force", "tmj",
+                 "cheekbone", "zygomatic", "skull", "jawline", "palate", "tongue posture",
+                 "bonesmash", "bonesmashing", "bone smash", "bone smashing",
+                 "bonemashing", "gonion", "gonial", "maxilla", "mandible",
+                 "looksmax", "looksmaxxing", "looksmaxx", "psl", "facemax",
+                 "facemaxxing", "bonemaxxing"}),
     ("heightmax", {"height", "taller", "posture", "spine", "growth plate", "hgh",
-                   "slouch", "kyphosis"}),
+                   "slouch", "kyphosis", "lordosis", "decompression", "hanging",
+                   "heightmaxxing", "grow taller", "spinal"}),
     ("fitmax", {"workout", "lift", "muscle", "protein", "calorie", "deficit", "cut", "bulk",
-                "cardio", "squat", "deadlift", "bench", "cutting", "macro"}),
+                "cardio", "squat", "deadlift", "bench", "cutting", "macro", "macros",
+                "fitmaxxing", "leanmax", "gym", "hypertrophy", "recomp", "tdee"}),
 ]
 
 _KNOWLEDGE_MARKERS = (
@@ -165,6 +175,17 @@ def classify_turn(message: str, *, active_maxx: str | None = None) -> IntentResu
             maxx_hints=hints,
             skip_rag=False,
             confidence=conf,
+        )
+
+    # Topic-named queries without an explicit question marker (e.g.
+    # "bonesmashing routine", "debloating fast", "looksmaxxing protocol").
+    # If a module lexicon matched, treat as KNOWLEDGE so RAG fires.
+    if hints:
+        return IntentResult(
+            intent="KNOWLEDGE",
+            maxx_hints=hints,
+            skip_rag=False,
+            confidence="medium",
         )
 
     # Unknown — route to agent without RAG

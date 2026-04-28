@@ -15,15 +15,27 @@ from services.rag_prompt_selector import (
 
 @pytest.fixture(autouse=True)
 def _seed_cache():
-    """Seed the prompt cache with stub reference bodies so selector output is deterministic."""
+    """Seed the prompt cache with stub reference bodies so selector output is deterministic.
+
+    The selector prefers `{maxx}_protocol_reference` (KNOWLEDGE-path) and falls
+    back to `{maxx}_coaching_reference` (legacy notification-timing). We seed
+    both so tests can exercise either path."""
     prompt_loader.clear_prompt_cache()
     prompt_loader._CACHE.update({
         PromptKey.RAG_ANSWER_SYSTEM: "BASE RAG SYSTEM PROMPT.",
-        "skinmax_coaching_reference": "SKINMAX REFERENCE BODY",
-        "fitmax_coaching_reference": "FITMAX REFERENCE BODY",
-        "hairmax_coaching_reference": "HAIRMAX REFERENCE BODY",
-        "bonemax_coaching_reference": "BONEMAX REFERENCE BODY",
-        "heightmax_coaching_reference": "HEIGHTMAX REFERENCE BODY",
+        "skinmax_protocol_reference": "SKINMAX REFERENCE BODY",
+        "fitmax_protocol_reference": "FITMAX REFERENCE BODY",
+        "hairmax_protocol_reference": "HAIRMAX REFERENCE BODY",
+        "bonemax_protocol_reference": "BONEMAX REFERENCE BODY",
+        "heightmax_protocol_reference": "HEIGHTMAX REFERENCE BODY",
+        # Legacy fallback (selector uses these only if the protocol_reference
+        # row is empty/missing — we keep them seeded so the fallback test
+        # below can verify graceful degradation).
+        "skinmax_coaching_reference": "SKINMAX LEGACY",
+        "fitmax_coaching_reference": "FITMAX LEGACY",
+        "hairmax_coaching_reference": "HAIRMAX LEGACY",
+        "bonemax_coaching_reference": "BONEMAX LEGACY",
+        "heightmax_coaching_reference": "HEIGHTMAX LEGACY",
     })
     yield
     prompt_loader.clear_prompt_cache()
@@ -79,6 +91,7 @@ def test_no_hint_no_active_maxx_returns_generic_base():
 
 
 def test_missing_reference_in_cache_returns_base_and_reports():
+    prompt_loader._CACHE.pop("skinmax_protocol_reference", None)
     prompt_loader._CACHE.pop("skinmax_coaching_reference", None)
     result = select_rag_system_prompt(
         "what should i do for acne", maxx_hints=["skinmax"]
@@ -88,6 +101,27 @@ def test_missing_reference_in_cache_returns_base_and_reports():
     # Falls back to base only — no module reference body available
     assert "BASE RAG SYSTEM PROMPT." in result.system_prompt
     assert "SKINMAX REFERENCE BODY" not in result.system_prompt
+
+
+def test_protocol_reference_preferred_over_coaching_reference():
+    """When both rows exist, selector picks the protocol_reference (KNOWLEDGE
+    scope) over the legacy coaching_reference (notification timing)."""
+    result = select_rag_system_prompt(
+        "what should i do for acne", maxx_hints=["skinmax"]
+    )
+    assert "SKINMAX REFERENCE BODY" in result.system_prompt
+    assert "SKINMAX LEGACY" not in result.system_prompt
+
+
+def test_falls_back_to_legacy_coaching_reference_when_protocol_missing():
+    """If the protocol_reference row is missing in production, the selector
+    must still attach the legacy coaching_reference rather than going bare."""
+    prompt_loader._CACHE.pop("skinmax_protocol_reference", None)
+    result = select_rag_system_prompt(
+        "what should i do for acne", maxx_hints=["skinmax"]
+    )
+    assert result.chosen_maxx == "skinmax"
+    assert "SKINMAX LEGACY" in result.system_prompt
 
 
 def test_lexicon_is_comprehensive():
@@ -163,6 +197,16 @@ BACKTEST_CASES: list[tuple[str, str, list[str] | None]] = [
     ("growth plate fused can i still grow", "heightmax", None),
     ("best stretches for height", "heightmax", None),
     ("lordosis correction plan", "heightmax", None),
+
+    # community / slang vocab — was previously routing to None or wrong module
+    ("how do i bonesmash my zygomatic arch", "bonemax", None),
+    ("bonesmashing routine for jawline", "bonemax", None),
+    ("looksmaxxing protocol for psl gain", "bonemax", None),
+    ("debloating my puffy face fast", "skinmax", None),
+    ("how to debloat before a date", "skinmax", None),
+    ("water retention in my face this morning", "skinmax", None),
+    ("am i a nw2 or nw3 right now", "hairmax", None),
+    ("norwood scale how do i tell", "hairmax", None),
 ]
 
 

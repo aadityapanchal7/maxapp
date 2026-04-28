@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
+import { api } from '../../services/api';
 import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import type { LegalDocId } from '../legal/legalDocuments';
 import { LEGAL_SUPPORT_EMAIL } from '../legal/legalConstants';
@@ -65,10 +66,18 @@ function Row({
 
 /* ── Screen ──────────────────────────────────────────────────────── */
 
+type ResponseLength = 'concise' | 'medium' | 'detailed';
+
+const RESPONSE_LENGTH_OPTIONS: { value: ResponseLength; label: string; hint: string }[] = [
+    { value: 'concise', label: 'Concise', hint: '1 short sentence when possible' },
+    { value: 'medium', label: 'Medium', hint: '1–3 sentences (default)' },
+    { value: 'detailed', label: 'Detailed', hint: 'Longer answers with specifics' },
+];
+
 export default function SettingsScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
-    const { isPaid, logout, deleteAccount } = useAuth();
+    const { isPaid, logout, deleteAccount, user, refreshUser } = useAuth();
     const supportEmail =
         String((Constants.expoConfig?.extra as { supportEmail?: string } | undefined)?.supportEmail || '').trim() ||
         LEGAL_SUPPORT_EMAIL;
@@ -76,6 +85,35 @@ export default function SettingsScreen() {
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [deletePassword, setDeletePassword] = useState('');
     const [deleteBusy, setDeleteBusy] = useState(false);
+
+    const storedLength: ResponseLength = (user?.onboarding?.response_length ?? 'medium') as ResponseLength;
+    const [responseLength, setResponseLength] = useState<ResponseLength>(storedLength);
+    const [lengthPickerVisible, setLengthPickerVisible] = useState(false);
+    const [lengthBusy, setLengthBusy] = useState(false);
+
+    const currentLengthLabel =
+        RESPONSE_LENGTH_OPTIONS.find((o) => o.value === responseLength)?.label ?? 'Medium';
+
+    const applyResponseLength = async (next: ResponseLength) => {
+        if (next === responseLength) {
+            setLengthPickerVisible(false);
+            return;
+        }
+        setLengthBusy(true);
+        const previous = responseLength;
+        setResponseLength(next);
+        try {
+            await api.patchResponseLength(next);
+            await refreshUser().catch(() => undefined);
+            setLengthPickerVisible(false);
+        } catch (e: any) {
+            setResponseLength(previous);
+            const detail = e?.response?.data?.detail || e?.message || 'Could not update';
+            Alert.alert('Error', detail);
+        } finally {
+            setLengthBusy(false);
+        }
+    };
 
     const openDoc = (document: LegalDocId) => navigation.navigate('LegalDocument', { document });
 
@@ -150,6 +188,17 @@ export default function SettingsScreen() {
                         hint="Goals & habits for better recommendations"
                         onPress={() => navigation.navigate('EditPersonal')}
                     />
+                    <Row
+                        label="Response length"
+                        hint={`${currentLengthLabel} — Max chat verbosity`}
+                        onPress={() => setLengthPickerVisible(true)}
+                        disabled={lengthBusy}
+                        trailing={
+                            lengthBusy
+                                ? <ActivityIndicator size="small" color={colors.textMuted} />
+                                : undefined
+                        }
+                    />
                 </View>
 
                 {/* ── Profile ────────────────────────────────────────── */}
@@ -202,6 +251,44 @@ export default function SettingsScreen() {
 
                 <View style={{ height: Platform.OS === 'ios' ? 56 : 40 }} />
             </ScrollView>
+
+            {/* ── Response length picker ──────────────────────────────── */}
+            {lengthPickerVisible && (
+                <View style={st.overlay} pointerEvents="box-none">
+                    <Pressable
+                        style={StyleSheet.absoluteFill}
+                        onPress={() => setLengthPickerVisible(false)}
+                        accessibilityLabel="Close"
+                        accessibilityRole="button"
+                    />
+                    <View style={st.modal}>
+                        <Text style={st.modalTitle}>Response length</Text>
+                        <Text style={st.modalBody}>
+                            Controls how verbose Max's chat replies are.
+                        </Text>
+                        {RESPONSE_LENGTH_OPTIONS.map((opt) => {
+                            const selected = opt.value === responseLength;
+                            return (
+                                <TouchableOpacity
+                                    key={opt.value}
+                                    style={[st.row, selected ? { opacity: 1 } : undefined]}
+                                    activeOpacity={0.6}
+                                    onPress={() => applyResponseLength(opt.value)}
+                                    disabled={lengthBusy}
+                                >
+                                    <View style={st.rowBody}>
+                                        <Text style={st.rowLabel}>{opt.label}</Text>
+                                        <Text style={st.rowHint}>{opt.hint}</Text>
+                                    </View>
+                                    {selected ? (
+                                        <Ionicons name="checkmark" size={18} color={colors.foreground} />
+                                    ) : null}
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
+                </View>
+            )}
 
             {/* ── Delete modal ────────────────────────────────────────── */}
             {deleteModalVisible && (
