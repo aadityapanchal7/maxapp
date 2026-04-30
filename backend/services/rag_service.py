@@ -97,6 +97,8 @@ class _Bm25Index:
         return scores
 
     def top_k(self, query: str, k: int, min_score: float) -> list[dict]:
+        if not self.chunks or k <= 0:
+            return []
         q_toks = _tokenize(query)
         if not q_toks:
             return []
