@@ -42,3 +42,5 @@ venv/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+*docs/
+*rag_info/

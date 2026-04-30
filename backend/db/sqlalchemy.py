@@ -332,6 +332,18 @@ async def _run_column_migrations():
     except Exception as e:
         print(f"[INFO] rag_documents embedding migration note: {e}")
 
+    # Ensure rag_documents.id auto-generates UUIDs for ingest inserts that omit id.
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("SET lock_timeout = '5s'"))
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgcrypto"))
+            await conn.execute(text(
+                "ALTER TABLE rag_documents ALTER COLUMN id SET DEFAULT gen_random_uuid()"
+            ))
+        print("[OK] rag_documents.id default UUID ensured")
+    except Exception as e:
+        print(f"[INFO] rag_documents id default migration note: {e}")
+
 async def close_db():
     """Close database connections"""
     try:
