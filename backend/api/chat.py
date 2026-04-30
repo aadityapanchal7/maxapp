@@ -1418,6 +1418,31 @@ def _user_requests_schedule_change(text: str) -> bool:
     return False
 
 
+def _looks_like_schedule_mutation_request(text: str) -> bool:
+    """True when the user asks to change schedule/tasks (even if details are vague)."""
+    if not text:
+        return False
+    t = text.lower().strip()
+    if len(t) < 6:
+        return False
+    schedule_objs = ("schedule", "task", "tasks", "routine", "today")
+    mutation_ops = (
+        "update",
+        "change",
+        "modify",
+        "edit",
+        "move",
+        "shift",
+        "reschedule",
+        "complete",
+        "uncomplete",
+        "delete",
+        "remove",
+        "mark",
+    )
+    return any(obj in t for obj in schedule_objs) and any(op in t for op in mutation_ops)
+
+
 def _looks_like_task_operation_request(text: str) -> bool:
     """True when the user is asking to operate on schedule tasks (not ask knowledge)."""
     if not text or len(text.strip()) < 3:
@@ -2963,6 +2988,8 @@ Ask ONE question at a time. Your very first response must ask the concern questi
 
     # --- Safety net: if user clearly requested a schedule change but agent missed it ---
     # --- If user asked to change schedule times but the model didn't call modify_schedule, adapt anyway ---
+    requested_schedule_mutation = _looks_like_schedule_mutation_request(message_text)
+    forced_schedule_adapted = False
     if (
         active_schedule
         and not modify_schedule_ran
@@ -2979,8 +3006,20 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             summ = adapt_result.get("changes_summary", "").strip()
             if summ:
                 response_text = (response_text + "\n\n" + summ).strip() if response_text else summ
+            modify_schedule_ran = True
+            forced_schedule_adapted = True
         except Exception as e:
             logger.exception("Forced schedule adaptation failed: %s", e)
+
+    # Never claim "updated" when no mutation actually ran.
+    if requested_schedule_mutation and not modify_schedule_ran:
+        response_text = (
+            "i can update your schedule, but i need the exact change. "
+            "tell me what to change (for example: wake 08:00, move workout to 18:30, "
+            "or mark today's fitmax post-workout task complete)."
+        )
+        if forced_schedule_adapted:
+            logger.warning("schedule mutation guard overridden despite forced adaptation flag")
 
 
     # --- Enforce lowercase on all AI responses ---
