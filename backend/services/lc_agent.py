@@ -96,6 +96,37 @@ def _normalize_clock_hhmm(raw: Optional[str]) -> Optional[str]:
     return s[:32]
 
 
+def _extract_wake_sleep_from_feedback(feedback: str) -> dict[str, Optional[str]]:
+    """Extract likely wake/sleep times from natural-language schedule feedback."""
+    result: dict[str, Optional[str]] = {"wake": None, "sleep": None}
+    text = str(feedback or "").strip().lower()
+    if not text:
+        return result
+
+    wake_patterns = (
+        r"(?:wake|waking|wake up|wakeup)(?:\s+(?:at|around|by|to))?\s*(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?)",
+        r"(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?)\s*(?:wake|wakeup)",
+    )
+    sleep_patterns = (
+        r"(?:sleep|sleeping|bedtime|go to bed|bed)(?:\s+(?:at|around|by|to))?\s*(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?)",
+        r"(\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?|am|pm)?)\s*(?:sleep|bedtime|bed)",
+    )
+
+    for pattern in wake_patterns:
+        m = re.search(pattern, text, flags=re.I)
+        if m:
+            result["wake"] = _normalize_clock_hhmm(m.group(1))
+            break
+
+    for pattern in sleep_patterns:
+        m = re.search(pattern, text, flags=re.I)
+        if m:
+            result["sleep"] = _normalize_clock_hhmm(m.group(1))
+            break
+
+    return result
+
+
 def _safe_int_age(val) -> Optional[int]:
     if val is None:
         return None
@@ -358,19 +389,28 @@ def make_chat_tools(
     async def modify_schedule(feedback: str) -> str:
         """
         Modify the user's active schedule from natural language feedback.
-        Only call when the user explicitly requests calendar or task changes.
+        Call when user asks to change wake/sleep, task times, or schedule tasks.
         """
         cur = schedule_state.get("active")
         if not cur:
             return "no active schedule to modify"
         try:
             async with db_mutation_lock:
+                extracted = _extract_wake_sleep_from_feedback(feedback)
+                if extracted["wake"] or extracted["sleep"]:
+                    await _persist_user_wake_sleep(
+                        user,
+                        db,
+                        extracted["wake"],
+                        extracted["sleep"],
+                    )
                 result = await schedule_service.adapt_schedule(
                     user_id=user_id,
                     schedule_id=cur["id"],
                     db=db,
                     feedback=feedback,
                 )
+            schedule_state["active"] = result
             coaching_service.invalidate_context_cache(user_id)
             return result.get("changes_summary", "schedule updated")
         except Exception as e:

@@ -27,6 +27,18 @@ def sync_llm_json_response(prompt: str, max_tokens: int = 8192) -> str:
     return result or "{}"
 
 
+async def async_llm_json_response(prompt: str, max_tokens: int = 8192) -> str:
+    """
+    Return raw JSON string from configured provider using async invoke.
+    Use inside async request paths to avoid thread offloading.
+    """
+    from services.lc_providers import get_sync_json_llm
+
+    llm = get_sync_json_llm(max_tokens=max_tokens)
+    result = await (llm | StrOutputParser()).ainvoke(prompt)
+    return result or "{}"
+
+
 def sync_llm_plain_text(prompt: str) -> str:
     """
     Return plain text from the configured provider.

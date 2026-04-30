@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
-from services.llm_sync import sync_llm_json_response
+from services.llm_sync import async_llm_json_response
 from services.prompt_loader import PromptKey, resolve_prompt
 from services.guideline_service import (
     get_maxx_guideline_async,
@@ -136,6 +136,11 @@ Return ONLY valid JSON matching this structure (no markdown fences):
 """
 
 SCHEDULE_ADAPTATION_PROMPT = """You are an expert fitness coach. A user wants to ADAPT their existing schedule.
+
+## CURRENT PREFERENCES
+Wake time: {wake_time}
+Sleep time: {sleep_time}
+Module: {maxx_id}
 
 ## CURRENT SCHEDULE
 {current_schedule_json}
@@ -2741,6 +2746,21 @@ class ScheduleService:
             raise ValueError("Schedule not found")
 
         old_days_snapshot = copy.deepcopy(schedule.days or [])
+        user = await db.get(User, UUID(user_id))
+        onboarding = dict(getattr(user, "onboarding", {}) or {})
+        schedule_prefs = dict(getattr(user, "schedule_preferences", {}) or {})
+        wake_time = (
+            onboarding.get("wake_time")
+            or schedule_prefs.get("wake_time")
+            or (schedule.preferences or {}).get("wake_time")
+            or "unknown"
+        )
+        sleep_time = (
+            onboarding.get("sleep_time")
+            or schedule_prefs.get("sleep_time")
+            or (schedule.preferences or {}).get("sleep_time")
+            or "unknown"
+        )
 
         stats = schedule.completion_stats or {}
         total = stats.get("total", 1)
@@ -2767,6 +2787,9 @@ class ScheduleService:
         adapted: Optional[Dict[str, Any]] = None
         for attempt in range(2):
             prompt = adapt_tmpl.format(
+                wake_time=wake_time,
+                sleep_time=sleep_time,
+                maxx_id=schedule.maxx_id or "general",
                 current_schedule_json=json.dumps({"days": window_days}, separators=(",", ":")),
                 completed_count=completed,
                 total_count=total,
@@ -2777,9 +2800,7 @@ class ScheduleService:
             if attempt > 0:
                 prompt = prompt + _SCHEDULE_ADAPT_COMPACT_RETRY_SUFFIX
             try:
-                raw = await asyncio.to_thread(
-                    lambda p=prompt, t=max_out: sync_llm_json_response(p, max_tokens=t)
-                )
+                raw = await async_llm_json_response(prompt, max_tokens=max_out)
                 adapted = json.loads(raw)
                 if attempt > 0:
                     logger.warning(
@@ -2807,6 +2828,8 @@ class ScheduleService:
                 raise ValueError(f"Failed to adapt schedule: {e}") from e
 
         assert adapted is not None
+        if not isinstance(adapted, dict):
+            raise ValueError("Failed to adapt schedule: model returned invalid json object")
 
         adapted_days = adapted.get("days", schedule.days)
         if not isinstance(adapted_days, list):
@@ -2822,6 +2845,12 @@ class ScheduleService:
             changes_summary = self._fallback_adapt_changes_summary(
                 old_days_snapshot, adapted_days, feedback
             )
+        if adapted_days == old_days_snapshot:
+            if not changes_summary:
+                changes_summary = "no changes needed based on the feedback."
+            result = self._schedule_to_dict(schedule)
+            result["changes_summary"] = changes_summary
+            return result
 
         # Reset notification_sent so reminders fire for updated tasks
         for day in adapted_days:
