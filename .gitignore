@@ -23,3 +23,7 @@ Thumbs.db
 
 # Backend local env file (Windows path)
 backend/.env
+
+# Local content dumps
+docs/
+rag_info/

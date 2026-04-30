@@ -494,7 +494,7 @@ async def answer_from_chunks(
         (response_length or "medium"),
     )
 
-    max_tokens = 120 if length_key == "concise" else 640 if length_key == "detailed" else 420
+    max_tokens = 160 if length_key == "concise" else 900 if length_key == "detailed" else 560
     llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.2)
     from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -520,15 +520,24 @@ async def answer_from_chunks(
         total_tokens=system_tokens + user_tokens + chunk_tokens + count_tokens(user_context_str or ""),
     )
     try:
-        resp = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
-        text = getattr(resp, "content", resp)
-        if isinstance(text, list):
-            text = "\n".join(str(x) for x in text)
-        cleaned = _clean_citations(str(text or "").strip(), retrieved)
-        # Defensive: strip any "no protocol on file" / "standard template"
-        # leakage even on the evidence path. The LLM occasionally inherits
-        # those phrases from earlier prompt versions cached in its weights.
-        return _scrub_leakage(cleaned)
+        async def _invoke_once(_llm, _human: str) -> str:
+            resp = await _llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=_human)])
+            text = getattr(resp, "content", resp)
+            if isinstance(text, list):
+                text = "\n".join(str(x) for x in text)
+            cleaned = _clean_citations(str(text or "").strip(), retrieved)
+            return _scrub_leakage(cleaned)
+
+        out = await _invoke_once(llm, human)
+        if _looks_truncated_output(out):
+            logger.info("[fast_rag] detected truncated answer; retrying with larger token budget")
+            retry_tokens = min(max_tokens * 2, 1400)
+            retry_llm = get_chat_llm_with_fallback(max_tokens=retry_tokens, temperature=0.15)
+            retry_human = human + "\n\nMake sure the final answer is complete and ends cleanly."
+            retry_out = await _invoke_once(retry_llm, retry_human)
+            if retry_out:
+                out = retry_out
+        return out
     except Exception as e:
         logger.warning("fast rag answer failed: %s", e)
         return ""
@@ -564,6 +573,22 @@ def _looks_like_template_response(text: str) -> bool:
     # answer like "use cerave AM" isn't truncated, just terse.
     stripped = text.rstrip()
     if len(stripped) > 50 and not re.search(r"[.!?\"\)\]]\s*$", stripped):
+        return True
+    return False
+
+
+def _looks_truncated_output(text: str) -> bool:
+    """Detect likely cut-off answers, including short clipped endings."""
+    if not text:
+        return False
+    stripped = text.rstrip()
+    if len(stripped) < 16:
+        return False
+    if re.search(r"[-–—]\s*$", stripped):
+        return True
+    if re.search(r"\b(and|or|with|for|to|of|in|on|at)\s*$", stripped, re.IGNORECASE):
+        return True
+    if len(stripped) >= 28 and not re.search(r"[.!?\"\)\]]\s*$", stripped):
         return True
     return False
 
