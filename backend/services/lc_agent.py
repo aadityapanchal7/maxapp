@@ -416,6 +416,13 @@ def make_chat_tools(
         except Exception as e:
             await _safe_rollback()
             logger.exception("modify_schedule tool failed: %s", e)
+            err = str(e).lower()
+            if "timeout" in err or "timed out" in err:
+                return (
+                    "schedule update timed out while adapting your plan. "
+                    "try a shorter single change (for example: move workout to 18:30), "
+                    "or retry in a moment."
+                )
             return f"could not update schedule: {e}"
 
     # ------------------------------------------------------------------ #

@@ -2737,8 +2737,17 @@ class ScheduleService:
             return True
         if type(exc).__name__ == "LengthFinishReasonError":
             return True
+        if isinstance(exc, (asyncio.TimeoutError, TimeoutError)):
+            return True
         msg = str(exc).lower()
-        return "length limit" in msg or "length_finish_reason" in msg
+        return (
+            "length limit" in msg
+            or "length_finish_reason" in msg
+            or "timed out" in msg
+            or "timeout" in msg
+            or "readtimeout" in msg
+            or "apitimeouterror" in msg
+        )
 
     async def adapt_schedule(self, user_id: str, schedule_id: str, db: AsyncSession, feedback: str) -> dict:
         schedule = await self._load_schedule(schedule_id, user_id, db)
@@ -2777,6 +2786,11 @@ class ScheduleService:
             resolve_prompt, PromptKey.SCHEDULE_ADAPTATION, SCHEDULE_ADAPTATION_PROMPT
         )
         max_out = max(1024, int(settings.schedule_adapt_max_output_tokens or 16384))
+        adapt_timeout_s = float(
+            getattr(settings, "schedule_adapt_timeout_seconds", 0) or 0
+        )
+        if adapt_timeout_s <= 0:
+            adapt_timeout_s = float(getattr(settings, "llm_timeout_seconds", 25) or 25) * 3.0
         # Adaptation always starts from the full current plan. On retry after
         # truncation/invalid JSON, we can shrink to a 7-day window to reduce
         # token load, while preserving the untouched tail days.
@@ -2786,6 +2800,7 @@ class ScheduleService:
 
         adapted: Optional[Dict[str, Any]] = None
         for attempt in range(2):
+            attempt_max_out = max_out if attempt == 0 else max(768, min(max_out // 2, 4096))
             prompt = adapt_tmpl.format(
                 wake_time=wake_time,
                 sleep_time=sleep_time,
@@ -2800,29 +2815,38 @@ class ScheduleService:
             if attempt > 0:
                 prompt = prompt + _SCHEDULE_ADAPT_COMPACT_RETRY_SUFFIX
             try:
-                raw = await async_llm_json_response(prompt, max_tokens=max_out)
+                raw = await asyncio.wait_for(
+                    async_llm_json_response(prompt, max_tokens=attempt_max_out),
+                    timeout=adapt_timeout_s,
+                )
                 adapted = json.loads(raw)
                 if attempt > 0:
                     logger.warning(
-                        "schedule adaptation retry succeeded user=%s schedule=%s window_days=%s max_out=%s",
+                        "schedule adaptation retry succeeded user=%s schedule=%s window_days=%s max_out=%s timeout_s=%.1f",
                         user_id,
                         schedule_id,
                         len(window_days),
-                        max_out,
+                        attempt_max_out,
+                        adapt_timeout_s,
                     )
                 break
             except Exception as e:
                 if attempt == 0 and self._adapt_llm_recoverable(e):
                     logger.warning(
-                        "schedule adaptation will retry user=%s schedule=%s err=%s window_days=%s",
+                        "schedule adaptation will retry user=%s schedule=%s err=%s window_days=%s max_out=%s timeout_s=%.1f",
                         user_id,
                         schedule_id,
                         e,
                         len(window_days),
+                        attempt_max_out,
+                        adapt_timeout_s,
                     )
                     if len(window_days) > 7:
                         window_days = future_days[:7]
                         tail_days = future_days[7:]
+                    elif len(window_days) > 3:
+                        window_days = future_days[:3]
+                        tail_days = future_days[3:]
                     continue
                 logger.error("Schedule adaptation failed: %s", e)
                 raise ValueError(f"Failed to adapt schedule: {e}") from e
