@@ -1418,6 +1418,51 @@ def _user_requests_schedule_change(text: str) -> bool:
     return False
 
 
+def _looks_like_task_operation_request(text: str) -> bool:
+    """True when the user is asking to operate on schedule tasks (not ask knowledge)."""
+    if not text or len(text.strip()) < 3:
+        return False
+    t = text.lower().strip()
+    # Strong task-operation verbs + objects.
+    op_words = (
+        "complete",
+        "completed",
+        "mark",
+        "uncomplete",
+        "undo",
+        "revert",
+        "pending",
+        "delete",
+        "remove",
+        "edit",
+        "update",
+        "change",
+        "move",
+        "shift",
+        "reschedule",
+    )
+    task_words = ("task", "tasks", "today", "schedule", "nutrition", "workout", "routine")
+    has_op = any(w in t for w in op_words)
+    has_task_obj = any(w in t for w in task_words)
+    if has_op and has_task_obj:
+        return True
+    # Natural command variants seen in chat.
+    phrases = (
+        "mark all",
+        "mark today's",
+        "mark todays",
+        "mark other as",
+        "mark others as",
+        "set as completed",
+        "set as pending",
+        "set to pending",
+        "only completed",
+        "except these",
+        "undo these",
+    )
+    return any(p in t for p in phrases)
+
+
 def _yes_no_answered(val) -> bool:
     """True if user gave an explicit yes/no answer (for hairmax daily_styling / thinning)."""
     if val is None:
@@ -1812,7 +1857,11 @@ async def process_chat_message(
             logger.info("[FAST_BRANDS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
             return _finalize_assistant_message(brand_response), []
 
-    if turn_intent.get("intent") == "KNOWLEDGE" and (turn_intent.get("maxx_hints") or active_hint):
+    if (
+        turn_intent.get("intent") == "KNOWLEDGE"
+        and (turn_intent.get("maxx_hints") or active_hint)
+        and not _looks_like_task_operation_request(message_text)
+    ):
         fast_response, fast_chunks = await answer_from_rag(
             message=message_text,
             maxx_hints=turn_intent.get("maxx_hints") or [],
@@ -2729,6 +2778,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         and not image_data
         and turn_intent.get("intent") == "KNOWLEDGE"
         and (turn_intent.get("maxx_hints") or active_hint)
+        and not _looks_like_task_operation_request(message_text)
     ):
         fast_response, fast_chunks = await answer_from_rag(
             message=message_text,
