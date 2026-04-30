@@ -667,6 +667,222 @@ def make_chat_tools(
             return f"could not stop {maxx_id}: {e}"
 
     # ------------------------------------------------------------------ #
+    #  schedule CRUD / status tools                                       #
+    # ------------------------------------------------------------------ #
+    @tool
+    async def get_current_schedule(
+        course_id: Optional[str] = None,
+        module_number: Optional[int] = None,
+    ) -> str:
+        """Fetch the user's current active schedule, optionally filtered by course/module."""
+        try:
+            sch = await schedule_service.get_current_schedule(
+                user_id,
+                db=db,
+                course_id=course_id,
+                module_number=module_number,
+            )
+            if not sch:
+                return "no active schedule found"
+            schedule_state["active"] = sch
+            return _summarise_schedule(sch)
+        except Exception as e:
+            logger.exception("get_current_schedule tool failed: %s", e)
+            return "could not load current schedule"
+
+    @tool
+    async def get_schedule_by_id(schedule_id: str) -> str:
+        """Fetch one schedule by schedule_id."""
+        try:
+            sch = await schedule_service.get_schedule_by_id(schedule_id, user_id, db=db)
+            if not sch:
+                return "schedule not found"
+            return _summarise_schedule(sch)
+        except Exception as e:
+            logger.exception("get_schedule_by_id tool failed: %s", e)
+            return "could not load schedule"
+
+    @tool
+    async def get_maxx_schedule(maxx_id: str) -> str:
+        """Fetch active schedule for a specific module (skinmax/hairmax/fitmax/bonemax/heightmax)."""
+        try:
+            mid = str(maxx_id or "").strip().lower()
+            sch = await schedule_service.get_maxx_schedule(user_id, mid, db=db)
+            if not sch:
+                return f"no active {mid} schedule found"
+            schedule_state["active"] = sch
+            return _summarise_schedule(sch)
+        except Exception as e:
+            logger.exception("get_maxx_schedule tool failed: %s", e)
+            return "could not load module schedule"
+
+    @tool
+    async def deactivate_schedule_by_id(schedule_id: str) -> str:
+        """Deactivate a schedule by its schedule_id."""
+        if channel == "sms":
+            return "stopping schedules can only be done in the app"
+        try:
+            result = await schedule_service.deactivate_schedule(user_id, schedule_id, db)
+            coaching_service.invalidate_context_cache(user_id)
+            cur = schedule_state.get("active")
+            if cur and str(cur.get("id")) == str(schedule_id):
+                schedule_state["active"] = None
+            return str(result.get("message") or "schedule stopped")
+        except Exception as e:
+            logger.exception("deactivate_schedule_by_id tool failed: %s", e)
+            return f"could not deactivate schedule: {e}"
+
+    @tool
+    async def complete_schedule_task(
+        schedule_id: str,
+        task_id: str,
+        feedback: Optional[str] = None,
+    ) -> str:
+        """Mark one task as completed in a schedule."""
+        try:
+            result = await schedule_service.complete_task(
+                user_id=user_id,
+                schedule_id=schedule_id,
+                task_id=task_id,
+                db=db,
+                feedback=feedback,
+            )
+            coaching_service.invalidate_context_cache(user_id)
+            return f"task marked complete ({result.get('status', 'ok')})"
+        except Exception as e:
+            logger.exception("complete_schedule_task tool failed: %s", e)
+            return f"could not complete task: {e}"
+
+    @tool
+    async def uncomplete_schedule_task(schedule_id: str, task_id: str) -> str:
+        """Mark a completed task back to pending."""
+        try:
+            result = await schedule_service.uncomplete_task(
+                user_id=user_id,
+                schedule_id=schedule_id,
+                task_id=task_id,
+                db=db,
+            )
+            coaching_service.invalidate_context_cache(user_id)
+            return f"task set to pending ({result.get('status', 'ok')})"
+        except Exception as e:
+            logger.exception("uncomplete_schedule_task tool failed: %s", e)
+            return f"could not uncomplete task: {e}"
+
+    @tool
+    async def edit_schedule_task(
+        schedule_id: str,
+        task_id: str,
+        time: Optional[str] = None,
+        title: Optional[str] = None,
+        description: Optional[str] = None,
+        duration_minutes: Optional[int] = None,
+    ) -> str:
+        """Edit a schedule task's fields (time/title/description/duration)."""
+        try:
+            updates: dict = {}
+            if time is not None:
+                updates["time"] = time
+            if title is not None:
+                updates["title"] = title
+            if description is not None:
+                updates["description"] = description
+            if duration_minutes is not None:
+                updates["duration_minutes"] = duration_minutes
+            if not updates:
+                return "no task updates provided"
+            await schedule_service.edit_task(
+                user_id=user_id,
+                schedule_id=schedule_id,
+                task_id=task_id,
+                db=db,
+                updates=updates,
+            )
+            coaching_service.invalidate_context_cache(user_id)
+            return "task updated"
+        except Exception as e:
+            logger.exception("edit_schedule_task tool failed: %s", e)
+            return f"could not edit task: {e}"
+
+    @tool
+    async def delete_schedule_task(schedule_id: str, task_id: str) -> str:
+        """Delete a task from a schedule."""
+        try:
+            await schedule_service.delete_task(
+                user_id=user_id,
+                schedule_id=schedule_id,
+                task_id=task_id,
+                db=db,
+            )
+            coaching_service.invalidate_context_cache(user_id)
+            return "task deleted"
+        except Exception as e:
+            logger.exception("delete_schedule_task tool failed: %s", e)
+            return f"could not delete task: {e}"
+
+    @tool
+    async def update_schedule_preferences(
+        wake_time: Optional[str] = None,
+        sleep_time: Optional[str] = None,
+        notifications_enabled: Optional[bool] = None,
+        notification_minutes_before: Optional[int] = None,
+    ) -> str:
+        """Update user schedule preferences used by schedule generation/reminders."""
+        try:
+            prefs = dict(getattr(user, "schedule_preferences", {}) or {})
+            if wake_time is not None:
+                prefs["wake_time"] = wake_time
+            if sleep_time is not None:
+                prefs["sleep_time"] = sleep_time
+            if notifications_enabled is not None:
+                prefs["notifications_enabled"] = bool(notifications_enabled)
+            if notification_minutes_before is not None:
+                prefs["notification_minutes_before"] = int(notification_minutes_before)
+            if not prefs:
+                return "no preferences provided"
+            await schedule_service.update_preferences(user_id, prefs, db)
+            return "preferences updated"
+        except Exception as e:
+            logger.exception("update_schedule_preferences tool failed: %s", e)
+            return f"could not update preferences: {e}"
+
+    @tool
+    async def generate_course_schedule(
+        course_id: str,
+        module_number: int,
+        num_days: int = 30,
+    ) -> str:
+        """Generate a generic course/module schedule (non-maxx path)."""
+        try:
+            schedule = await schedule_service.generate_schedule(
+                user_id=user_id,
+                course_id=course_id,
+                module_number=int(module_number),
+                db=db,
+                rds_db=rds_db,
+                preferences=None,
+                num_days=int(num_days),
+                subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
+            )
+            schedule_state["active"] = {
+                "id": schedule.get("id"),
+                "maxx_id": schedule.get("maxx_id"),
+                "course_title": schedule.get("course_title"),
+                "days": schedule.get("days") or [],
+            }
+            coaching_service.invalidate_context_cache(user_id)
+            return _summarise_schedule(schedule)
+        except ScheduleLimitError as e:
+            names = ", ".join(e.active_labels)
+            return (
+                f"schedule limit reached: you already have {len(e.active_labels)} active modules ({names}). "
+                "stop one first."
+            )
+        except Exception as e:
+            logger.exception("generate_course_schedule tool failed: %s", e)
+            return "schedule generation failed — try again in a moment"
+
+    # ------------------------------------------------------------------ #
     #  update_schedule_context                                             #
     # ------------------------------------------------------------------ #
     @tool
@@ -919,6 +1135,16 @@ def make_chat_tools(
         modify_schedule,
         generate_maxx_schedule,
         stop_schedule,
+        get_current_schedule,
+        get_schedule_by_id,
+        get_maxx_schedule,
+        deactivate_schedule_by_id,
+        complete_schedule_task,
+        uncomplete_schedule_task,
+        edit_schedule_task,
+        delete_schedule_task,
+        update_schedule_preferences,
+        generate_course_schedule,
         update_schedule_context,
         log_check_in,
         set_coaching_mode,
@@ -1042,8 +1268,17 @@ async def run_chat_agent(
         response_len=len(response_text),
     )
 
-    schedule_mutated = bool(
-        tool_names_fired & {"generate_maxx_schedule", "modify_schedule", "stop_schedule"}
-    )
+    schedule_mutated = bool(tool_names_fired & {
+        "generate_maxx_schedule",
+        "modify_schedule",
+        "stop_schedule",
+        "deactivate_schedule_by_id",
+        "complete_schedule_task",
+        "uncomplete_schedule_task",
+        "edit_schedule_task",
+        "delete_schedule_task",
+        "generate_course_schedule",
+        "update_schedule_preferences",
+    })
 
     return response_text, schedule_mutated

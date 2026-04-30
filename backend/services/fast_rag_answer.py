@@ -142,28 +142,92 @@ def _expand_query(query: str, maxx: str) -> str:
 _CITATION_RE = re.compile(r"\[(?:source|sources):[^\]]+\]", re.IGNORECASE)
 
 
+def _pretty_citation_label(
+    *,
+    source: str,
+    section: str,
+    fallback_doc_title: str,
+) -> str:
+    """Convert internal source paths into user-facing citation labels."""
+    src = (source or "").strip()
+    sec = (section or "").strip()
+    title = (fallback_doc_title or "").strip()
+
+    # Internal source shape used by rag_service:
+    # rag_documents/<maxx>/<doc_title>
+    m = re.match(r"^rag_documents/[^/]+/(.+)$", src, flags=re.IGNORECASE)
+    if m:
+        doc = (m.group(1) or "").strip()
+        if doc:
+            src = doc
+
+    # Normalize file-like labels and noisy separators.
+    src = re.sub(r"\.(md|docx|pdf)$", "", src, flags=re.IGNORECASE)
+    src = src.replace("_", " ").strip(" /")
+    sec = sec.replace("_", " ").strip(" /")
+
+    if not src:
+        src = title or "course reference"
+    if not sec or sec.lower() == src.lower():
+        return src
+    return f"{src} > {sec}"
+
+
+def _normalize_inline_citations(text: str, retrieved: list[dict]) -> str:
+    """Normalize any model-emitted [source: ...] blocks to readable labels."""
+    if not text:
+        return ""
+    primary = retrieved[0] if retrieved else {}
+    meta = primary.get("metadata") or {}
+    fallback_doc = str(primary.get("doc_title") or "").strip()
+    section = str(meta.get("section") or fallback_doc or "section")
+
+    def _replace(m: re.Match) -> str:
+        raw = m.group(0)
+        inner = raw[raw.find(":") + 1 : -1].strip() if ":" in raw else ""
+        label = _pretty_citation_label(
+            source=inner or str(meta.get("source") or ""),
+            section=section,
+            fallback_doc_title=fallback_doc,
+        )
+        return f"[source: {label}]"
+
+    return _CITATION_RE.sub(_replace, text)
+
+
+def _effective_response_length(message: str, response_length: Optional[str]) -> str:
+    """Resolve turn-level brevity requests, including common typo variants."""
+    base = (response_length or "").strip().lower()
+    msg = (message or "").strip().lower()
+    if not msg:
+        return base
+    concise_markers = (
+        "in brief",
+        "briefly",
+        "be brief",
+        "short answer",
+        "keep it short",
+        "one line",
+        "tl;dr",
+        "tldr",
+        "breif",  # common typo
+    )
+    if any(marker in msg for marker in concise_markers):
+        return "concise"
+    return base
+
+
 def _clean_citations(text: str, retrieved: list[dict]) -> str:
     raw = (text or "").strip()
     if not raw:
         return ""
     cleaned = re.sub(r"\n{3,}", "\n\n", raw).strip()
-    matches = _CITATION_RE.findall(cleaned)
-    if matches:
-        seen: set[str] = set()
-        for match in matches:
-            key = match.lower()
-            if key in seen:
-                cleaned = cleaned.replace(match, "", 1)
-            else:
-                seen.add(key)
-        return re.sub(r"\s{2,}", " ", cleaned).strip()
-    if not retrieved:
-        return cleaned
-    chunk = retrieved[0]
-    meta = chunk.get("metadata") or {}
-    source = meta.get("source") or f"{chunk.get('_maxx')}/{chunk.get('doc_title')}.md"
-    section = meta.get("section") or chunk.get("doc_title") or "section"
-    return f"{cleaned} [source: {source} > {section}]".strip()
+    cleaned = _normalize_inline_citations(cleaned, retrieved)
+    # Product requirement: never expose citations to the user.
+    cleaned = _CITATION_RE.sub("", cleaned)
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 async def gather_rag_evidence(
@@ -346,7 +410,7 @@ async def _answer_without_evidence(
         maxx_hints, active_maxx, (message or "")[:120],
     )
 
-    length_key = (response_length or "").strip().lower()
+    length_key = _effective_response_length(message, response_length)
     # Generous budget — native answers naturally expand without citation tax.
     max_tokens = 180 if length_key == "concise" else 1000 if length_key == "detailed" else 700
     llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.3)
@@ -414,14 +478,22 @@ async def answer_from_chunks(
     selection = select_rag_system_prompt(
         message, maxx_hints=maxx_hints, active_maxx=active_maxx
     )
-    system_prompt = selection.system_prompt + _length_suffix(response_length)
+    length_key = _effective_response_length(message, response_length)
+    grounding_suffix = """
+
+## EVIDENCE-ONLY MODE (strict)
+- You must answer using only the provided Evidence from module docs.
+- If the evidence does not contain the requested detail, say you don't have that in the course material.
+- Do not use outside knowledge, assumptions, or speculation.
+- Do not include citations or source labels in the final answer.
+"""
+    system_prompt = selection.system_prompt + _length_suffix(length_key) + grounding_suffix
     logger.info(
         "[fast_rag] selector chosen_maxx=%s score=%d runner_up=%d reason=%s length=%s",
         selection.chosen_maxx, selection.score, selection.runner_up_score, selection.reason,
         (response_length or "medium"),
     )
 
-    length_key = (response_length or "").strip().lower()
     max_tokens = 120 if length_key == "concise" else 640 if length_key == "detailed" else 420
     llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.2)
     from langchain_core.messages import HumanMessage, SystemMessage
@@ -569,16 +641,9 @@ async def answer_from_rag(
             )
             return answer, broad
 
-    # Tier 3: nothing in any index — foundational-knowledge template.
+    # Tier 3: nothing in any index — strict evidence-only fallback.
     logger.info(
-        "[fast_rag] all retrieval exhausted; falling to standard-template (msg=%r)",
+        "[fast_rag] all retrieval exhausted; returning evidence-only miss (msg=%r)",
         (message or "")[:120],
     )
-    fallback = await _answer_without_evidence(
-        message=message,
-        maxx_hints=maxx_hints,
-        active_maxx=active_maxx,
-        user_context_str=user_context_str,
-        response_length=response_length,
-    )
-    return fallback, broad if broad else []
+    return "i don't have that in the course material yet.", broad if broad else []
