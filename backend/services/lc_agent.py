@@ -732,18 +732,140 @@ def make_chat_tools(
             logger.exception("deactivate_schedule_by_id tool failed: %s", e)
             return f"could not deactivate schedule: {e}"
 
+    async def _today_task_candidates(
+        *,
+        schedule_id: Optional[str] = None,
+        maxx_id: Optional[str] = None,
+    ) -> list[dict]:
+        """Return today's tasks with ids across active schedules."""
+        tz_name = (onboarding or {}).get("timezone") or "UTC"
+        try:
+            user_tz = ZoneInfo(tz_name)
+        except Exception:
+            user_tz = ZoneInfo("UTC")
+        today_iso = datetime.now(user_tz).date().isoformat()
+
+        out: list[dict] = []
+        target_sid = str(schedule_id or "").strip()
+        target_maxx = str(maxx_id or "").strip().lower()
+        schedules = await schedule_service.get_all_active_schedules(user_id, db)
+        for sch in schedules:
+            sid = str(sch.get("id") or "")
+            sm = str(sch.get("maxx_id") or "").strip().lower()
+            if target_sid and sid != target_sid:
+                continue
+            if target_maxx and sm != target_maxx:
+                continue
+            for day in sch.get("days") or []:
+                if day.get("date") != today_iso:
+                    continue
+                for task in day.get("tasks") or []:
+                    tid = str(task.get("task_id") or "").strip()
+                    if not tid:
+                        continue
+                    out.append({
+                        "schedule_id": sid,
+                        "task_id": tid,
+                        "maxx_id": sm,
+                        "time": str(task.get("time") or ""),
+                        "title": str(task.get("title") or ""),
+                        "description": str(task.get("description") or ""),
+                        "status": str(task.get("status") or "pending").lower(),
+                    })
+        return out
+
+    async def _resolve_today_task_target(
+        *,
+        action: str,
+        schedule_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_hint: Optional[str] = None,
+    ) -> tuple[Optional[str], Optional[str], str]:
+        """
+        Resolve (schedule_id, task_id) from explicit ids or today's tasks using a hint.
+        Returns (sid, tid, message_if_unresolved).
+        """
+        candidates = await _today_task_candidates(schedule_id=schedule_id)
+        if not candidates:
+            return None, None, "no tasks found for today"
+
+        # If task_id provided, trust it and infer schedule_id from today's candidates when omitted.
+        if task_id:
+            tid = str(task_id).strip()
+            sid = str(schedule_id or "").strip()
+            if sid:
+                return sid, tid, ""
+            for c in candidates:
+                if c["task_id"] == tid:
+                    return c["schedule_id"], tid, ""
+            return None, None, "task id not found in today's tasks"
+
+        # Action-aware status filtering.
+        if action == "complete":
+            candidates = [c for c in candidates if c["status"] != "completed"]
+        elif action == "uncomplete":
+            candidates = [c for c in candidates if c["status"] == "completed"]
+        if not candidates:
+            return None, None, "no matching tasks for this action today"
+
+        hint = str(task_hint or "").strip().lower()
+        if not hint:
+            if len(candidates) == 1:
+                c = candidates[0]
+                return c["schedule_id"], c["task_id"], ""
+            preview = "; ".join(f"{c['time']} {c['title']}" for c in candidates[:3])
+            return None, None, f"multiple tasks matched today. specify task_hint (e.g. time/title). examples: {preview}"
+
+        # Lightweight keyword+time matching.
+        module_hits = {"skinmax", "hairmax", "fitmax", "bonemax", "heightmax"}
+        hinted_maxx = next((m for m in module_hits if m in hint), "")
+        time_hits = set(re.findall(r"\b\d{1,2}:\d{2}\b", hint))
+        words = [w for w in re.findall(r"[a-z0-9]+", hint) if len(w) > 2]
+
+        scored: list[tuple[int, dict]] = []
+        for c in candidates:
+            hay = f"{c['title']} {c['description']} {c['time']} {c['maxx_id']}".lower()
+            score = 0
+            if hinted_maxx and c["maxx_id"] == hinted_maxx:
+                score += 4
+            if c["time"] in time_hits:
+                score += 4
+            for w in words:
+                if w in hay:
+                    score += 1
+            scored.append((score, c))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        best_score, best = scored[0]
+        if best_score <= 0:
+            return None, None, "could not map task_hint to today's tasks. include time or task title keywords"
+        if len(scored) > 1 and scored[1][0] == best_score and best_score > 0:
+            tied = [c for s, c in scored if s == best_score][:3]
+            preview = "; ".join(f"{c['time']} {c['title']}" for c in tied)
+            return None, None, f"task_hint is ambiguous. be more specific. candidates: {preview}"
+        return best["schedule_id"], best["task_id"], ""
+
     @tool
     async def complete_schedule_task(
-        schedule_id: str,
-        task_id: str,
+        schedule_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_hint: Optional[str] = None,
         feedback: Optional[str] = None,
     ) -> str:
-        """Mark one task as completed in a schedule."""
+        """Mark one task completed. If task_id is missing, auto-resolve from today's tasks via task_hint."""
         try:
-            result = await schedule_service.complete_task(
-                user_id=user_id,
+            sid, tid, err = await _resolve_today_task_target(
+                action="complete",
                 schedule_id=schedule_id,
                 task_id=task_id,
+                task_hint=task_hint,
+            )
+            if not sid or not tid:
+                return err or "could not resolve task to complete"
+            result = await schedule_service.complete_task(
+                user_id=user_id,
+                schedule_id=sid,
+                task_id=tid,
                 db=db,
                 feedback=feedback,
             )
@@ -754,13 +876,85 @@ def make_chat_tools(
             return f"could not complete task: {e}"
 
     @tool
-    async def uncomplete_schedule_task(schedule_id: str, task_id: str) -> str:
-        """Mark a completed task back to pending."""
+    async def complete_today_tasks(maxx_id: Optional[str] = None) -> str:
+        """
+        Mark all of today's pending tasks as completed.
+        Optionally limit to one module via maxx_id (skinmax/hairmax/fitmax/bonemax/heightmax).
+        """
         try:
-            result = await schedule_service.uncomplete_task(
-                user_id=user_id,
+            tz_name = (onboarding or {}).get("timezone") or "UTC"
+            try:
+                user_tz = ZoneInfo(tz_name)
+            except Exception:
+                user_tz = ZoneInfo("UTC")
+            today_iso = datetime.now(user_tz).date().isoformat()
+
+            target_maxx = str(maxx_id or "").strip().lower()
+            schedules = await schedule_service.get_all_active_schedules(user_id, db)
+            total = 0
+            done: list[str] = []
+
+            for sch in schedules:
+                sm = str(sch.get("maxx_id") or "").strip().lower()
+                if target_maxx and sm != target_maxx:
+                    continue
+                sid = str(sch.get("id") or "")
+                if not sid:
+                    continue
+                for day in sch.get("days") or []:
+                    if day.get("date") != today_iso:
+                        continue
+                    for task in day.get("tasks") or []:
+                        if str(task.get("status") or "").lower() == "completed":
+                            continue
+                        tid = str(task.get("task_id") or "")
+                        if not tid:
+                            continue
+                        try:
+                            await schedule_service.complete_task(
+                                user_id=user_id,
+                                schedule_id=sid,
+                                task_id=tid,
+                                db=db,
+                                feedback=None,
+                            )
+                            total += 1
+                            done.append(f"{task.get('time', '?')} {task.get('title', 'task')}")
+                        except Exception as one_err:
+                            logger.warning("complete_today_tasks skipped task sid=%s tid=%s err=%s", sid, tid, one_err)
+
+            if total:
+                coaching_service.invalidate_context_cache(user_id)
+                preview = "; ".join(done[:5])
+                more = f" (+{total - 5} more)" if total > 5 else ""
+                return f"marked {total} task(s) complete for today: {preview}{more}"
+            if target_maxx:
+                return f"no pending tasks found today for {target_maxx}"
+            return "no pending tasks found today"
+        except Exception as e:
+            logger.exception("complete_today_tasks tool failed: %s", e)
+            return f"could not complete today's tasks: {e}"
+
+    @tool
+    async def uncomplete_schedule_task(
+        schedule_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_hint: Optional[str] = None,
+    ) -> str:
+        """Mark a completed task back to pending. Auto-resolves from today's tasks when needed."""
+        try:
+            sid, tid, err = await _resolve_today_task_target(
+                action="uncomplete",
                 schedule_id=schedule_id,
                 task_id=task_id,
+                task_hint=task_hint,
+            )
+            if not sid or not tid:
+                return err or "could not resolve task to uncomplete"
+            result = await schedule_service.uncomplete_task(
+                user_id=user_id,
+                schedule_id=sid,
+                task_id=tid,
                 db=db,
             )
             coaching_service.invalidate_context_cache(user_id)
@@ -771,14 +965,15 @@ def make_chat_tools(
 
     @tool
     async def edit_schedule_task(
-        schedule_id: str,
-        task_id: str,
+        schedule_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_hint: Optional[str] = None,
         time: Optional[str] = None,
         title: Optional[str] = None,
         description: Optional[str] = None,
         duration_minutes: Optional[int] = None,
     ) -> str:
-        """Edit a schedule task's fields (time/title/description/duration)."""
+        """Edit a schedule task. If task_id is missing, auto-resolve from today's tasks via task_hint."""
         try:
             updates: dict = {}
             if time is not None:
@@ -791,10 +986,18 @@ def make_chat_tools(
                 updates["duration_minutes"] = duration_minutes
             if not updates:
                 return "no task updates provided"
-            await schedule_service.edit_task(
-                user_id=user_id,
+            sid, tid, err = await _resolve_today_task_target(
+                action="edit",
                 schedule_id=schedule_id,
                 task_id=task_id,
+                task_hint=task_hint,
+            )
+            if not sid or not tid:
+                return err or "could not resolve task to edit"
+            await schedule_service.edit_task(
+                user_id=user_id,
+                schedule_id=sid,
+                task_id=tid,
                 db=db,
                 updates=updates,
             )
@@ -805,13 +1008,25 @@ def make_chat_tools(
             return f"could not edit task: {e}"
 
     @tool
-    async def delete_schedule_task(schedule_id: str, task_id: str) -> str:
-        """Delete a task from a schedule."""
+    async def delete_schedule_task(
+        schedule_id: Optional[str] = None,
+        task_id: Optional[str] = None,
+        task_hint: Optional[str] = None,
+    ) -> str:
+        """Delete a task. If task_id is missing, auto-resolve from today's tasks via task_hint."""
         try:
-            await schedule_service.delete_task(
-                user_id=user_id,
+            sid, tid, err = await _resolve_today_task_target(
+                action="delete",
                 schedule_id=schedule_id,
                 task_id=task_id,
+                task_hint=task_hint,
+            )
+            if not sid or not tid:
+                return err or "could not resolve task to delete"
+            await schedule_service.delete_task(
+                user_id=user_id,
+                schedule_id=sid,
+                task_id=tid,
                 db=db,
             )
             coaching_service.invalidate_context_cache(user_id)
@@ -1014,7 +1229,7 @@ def make_chat_tools(
                     for t in day.get("tasks") or []:
                         tasks_out.append(
                             f"{t.get('time', '?')} {t.get('title', '?')} "
-                            f"[{t.get('status', 'pending')}] ({mod})"
+                            f"[{t.get('status', 'pending')}] ({mod}) id={t.get('task_id', 'n/a')}"
                         )
             brief = "; ".join(tasks_out[:12])
             if len(tasks_out) > 12:
@@ -1140,6 +1355,7 @@ def make_chat_tools(
         get_maxx_schedule,
         deactivate_schedule_by_id,
         complete_schedule_task,
+        complete_today_tasks,
         uncomplete_schedule_task,
         edit_schedule_task,
         delete_schedule_task,
@@ -1274,6 +1490,7 @@ async def run_chat_agent(
         "stop_schedule",
         "deactivate_schedule_by_id",
         "complete_schedule_task",
+        "complete_today_tasks",
         "uncomplete_schedule_task",
         "edit_schedule_task",
         "delete_schedule_task",
