@@ -3048,6 +3048,7 @@ async def send_message(
         conversation_id=data.conversation_id,
         channel="app",
     )
+    conv_id = str(conv.id)
 
     response_text, choices = await process_chat_message(
         user_id=current_user["id"],
@@ -3058,12 +3059,12 @@ async def send_message(
         chat_intent=data.chat_intent,
         attachment_url=data.attachment_url,
         attachment_type=data.attachment_type,
-        conversation_id=str(conv.id),
+        conversation_id=conv_id,
     )
     return ChatResponse(
         response=response_text,
         choices=choices,
-        conversation_id=str(conv.id),
+        conversation_id=conv_id,
     )
 
 
