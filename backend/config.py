@@ -286,8 +286,6 @@ class Settings(BaseSettings):
             errors.append("SUPABASE_DB_HOST is not set to a remote Supabase host")
         if not (self.supabase_db_password or "").strip():
             errors.append("SUPABASE_DB_PASSWORD is empty")
-        if (self.supabase_db_name or "").strip().lower() == "postgres":
-            errors.append("SUPABASE_DB_NAME is still default 'postgres'")
 
         if errors:
             raise RuntimeError(
