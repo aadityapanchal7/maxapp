@@ -340,6 +340,16 @@ def make_chat_tools(
     # Mutable: updated when generate_maxx_schedule creates a schedule so later
     # tools in the same agent turn see the new active schedule (not stale closure).
     schedule_state: dict = {"active": active_schedule}
+    # Agent tool calls can arrive in quick succession (and some providers can emit
+    # multiple tool calls in one turn). Serialize DB mutations so one AsyncSession
+    # never commits concurrently.
+    db_mutation_lock = asyncio.Lock()
+
+    async def _safe_rollback() -> None:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------ #
     #  modify_schedule                                                     #
@@ -354,15 +364,17 @@ def make_chat_tools(
         if not cur:
             return "no active schedule to modify"
         try:
-            result = await schedule_service.adapt_schedule(
-                user_id=user_id,
-                schedule_id=cur["id"],
-                db=db,
-                feedback=feedback,
-            )
+            async with db_mutation_lock:
+                result = await schedule_service.adapt_schedule(
+                    user_id=user_id,
+                    schedule_id=cur["id"],
+                    db=db,
+                    feedback=feedback,
+                )
             coaching_service.invalidate_context_cache(user_id)
             return result.get("changes_summary", "schedule updated")
         except Exception as e:
+            await _safe_rollback()
             logger.exception("modify_schedule tool failed: %s", e)
             return f"could not update schedule: {e}"
 
@@ -588,26 +600,27 @@ def make_chat_tools(
                 if _scr_n is not None:
                     yesno_overrides["override_heavy_screen_time"] = _scr_n
 
-            schedule = await schedule_service.generate_maxx_schedule(
-                user_id=user_id,
-                maxx_id=req_maxx,
-                db=db,
-                rds_db=rds_db,
-                subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
-                wake_time=final_wake,
-                sleep_time=final_sleep,
-                skin_concern=resolved_concern,
-                outside_today=False
-                if req_maxx in ("fitmax", "hairmax", "heightmax", "bonemax")
-                else bool(outside_today),
-                override_age=_age,
-                override_sex=_sex,
-                override_height=str(height).strip() if height and str(height).strip() else None,
-                override_hair_type=(hair_type or onboarding.get("hair_type") or "").strip() or None,
-                override_scalp_state=(scalp_state or onboarding.get("scalp_state") or "").strip() or None,
-                override_workout_frequency=wf,
-                **yesno_overrides,
-            )
+            async with db_mutation_lock:
+                schedule = await schedule_service.generate_maxx_schedule(
+                    user_id=user_id,
+                    maxx_id=req_maxx,
+                    db=db,
+                    rds_db=rds_db,
+                    subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
+                    wake_time=final_wake,
+                    sleep_time=final_sleep,
+                    skin_concern=resolved_concern,
+                    outside_today=False
+                    if req_maxx in ("fitmax", "hairmax", "heightmax", "bonemax")
+                    else bool(outside_today),
+                    override_age=_age,
+                    override_sex=_sex,
+                    override_height=str(height).strip() if height and str(height).strip() else None,
+                    override_hair_type=(hair_type or onboarding.get("hair_type") or "").strip() or None,
+                    override_scalp_state=(scalp_state or onboarding.get("scalp_state") or "").strip() or None,
+                    override_workout_frequency=wf,
+                    **yesno_overrides,
+                )
             if req_maxx == "fitmax" and user:
                 from sqlalchemy.orm.attributes import flag_modified as _flag_plan
                 await db.refresh(user)
@@ -632,6 +645,7 @@ def make_chat_tools(
                 "stop one first."
             )
         except Exception as e:
+            await _safe_rollback()
             logger.exception("generate_maxx_schedule tool failed: %s", e)
             return f"schedule generation failed — try again in a moment"
 
@@ -648,7 +662,8 @@ def make_chat_tools(
             return "stopping modules can only be done in the app"
         try:
             mid = maxx_id.strip().lower()
-            result = await schedule_service.deactivate_schedule_by_maxx(user_id, mid, db)
+            async with db_mutation_lock:
+                result = await schedule_service.deactivate_schedule_by_maxx(user_id, mid, db)
             if result:
                 coaching_service.invalidate_context_cache(user_id)
                 cur = schedule_state.get("active")
@@ -663,6 +678,7 @@ def make_chat_tools(
                 return f"{maxx_id} schedule stopped"
             return f"no active {maxx_id} schedule found"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("stop_schedule tool failed: %s", e)
             return f"could not stop {maxx_id}: {e}"
 
@@ -722,13 +738,15 @@ def make_chat_tools(
         if channel == "sms":
             return "stopping schedules can only be done in the app"
         try:
-            result = await schedule_service.deactivate_schedule(user_id, schedule_id, db)
+            async with db_mutation_lock:
+                result = await schedule_service.deactivate_schedule(user_id, schedule_id, db)
             coaching_service.invalidate_context_cache(user_id)
             cur = schedule_state.get("active")
             if cur and str(cur.get("id")) == str(schedule_id):
                 schedule_state["active"] = None
             return str(result.get("message") or "schedule stopped")
         except Exception as e:
+            await _safe_rollback()
             logger.exception("deactivate_schedule_by_id tool failed: %s", e)
             return f"could not deactivate schedule: {e}"
 
@@ -862,16 +880,18 @@ def make_chat_tools(
             )
             if not sid or not tid:
                 return err or "could not resolve task to complete"
-            result = await schedule_service.complete_task(
-                user_id=user_id,
-                schedule_id=sid,
-                task_id=tid,
-                db=db,
-                feedback=feedback,
-            )
+            async with db_mutation_lock:
+                result = await schedule_service.complete_task(
+                    user_id=user_id,
+                    schedule_id=sid,
+                    task_id=tid,
+                    db=db,
+                    feedback=feedback,
+                )
             coaching_service.invalidate_context_cache(user_id)
             return f"task marked complete ({result.get('status', 'ok')})"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("complete_schedule_task tool failed: %s", e)
             return f"could not complete task: {e}"
 
@@ -911,13 +931,14 @@ def make_chat_tools(
                         if not tid:
                             continue
                         try:
-                            await schedule_service.complete_task(
-                                user_id=user_id,
-                                schedule_id=sid,
-                                task_id=tid,
-                                db=db,
-                                feedback=None,
-                            )
+                            async with db_mutation_lock:
+                                await schedule_service.complete_task(
+                                    user_id=user_id,
+                                    schedule_id=sid,
+                                    task_id=tid,
+                                    db=db,
+                                    feedback=None,
+                                )
                             total += 1
                             done.append(f"{task.get('time', '?')} {task.get('title', 'task')}")
                         except Exception as one_err:
@@ -932,6 +953,7 @@ def make_chat_tools(
                 return f"no pending tasks found today for {target_maxx}"
             return "no pending tasks found today"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("complete_today_tasks tool failed: %s", e)
             return f"could not complete today's tasks: {e}"
 
@@ -951,15 +973,17 @@ def make_chat_tools(
             )
             if not sid or not tid:
                 return err or "could not resolve task to uncomplete"
-            result = await schedule_service.uncomplete_task(
-                user_id=user_id,
-                schedule_id=sid,
-                task_id=tid,
-                db=db,
-            )
+            async with db_mutation_lock:
+                result = await schedule_service.uncomplete_task(
+                    user_id=user_id,
+                    schedule_id=sid,
+                    task_id=tid,
+                    db=db,
+                )
             coaching_service.invalidate_context_cache(user_id)
             return f"task set to pending ({result.get('status', 'ok')})"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("uncomplete_schedule_task tool failed: %s", e)
             return f"could not uncomplete task: {e}"
 
@@ -994,16 +1018,18 @@ def make_chat_tools(
             )
             if not sid or not tid:
                 return err or "could not resolve task to edit"
-            await schedule_service.edit_task(
-                user_id=user_id,
-                schedule_id=sid,
-                task_id=tid,
-                db=db,
-                updates=updates,
-            )
+            async with db_mutation_lock:
+                await schedule_service.edit_task(
+                    user_id=user_id,
+                    schedule_id=sid,
+                    task_id=tid,
+                    db=db,
+                    updates=updates,
+                )
             coaching_service.invalidate_context_cache(user_id)
             return "task updated"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("edit_schedule_task tool failed: %s", e)
             return f"could not edit task: {e}"
 
@@ -1023,15 +1049,17 @@ def make_chat_tools(
             )
             if not sid or not tid:
                 return err or "could not resolve task to delete"
-            await schedule_service.delete_task(
-                user_id=user_id,
-                schedule_id=sid,
-                task_id=tid,
-                db=db,
-            )
+            async with db_mutation_lock:
+                await schedule_service.delete_task(
+                    user_id=user_id,
+                    schedule_id=sid,
+                    task_id=tid,
+                    db=db,
+                )
             coaching_service.invalidate_context_cache(user_id)
             return "task deleted"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("delete_schedule_task tool failed: %s", e)
             return f"could not delete task: {e}"
 
@@ -1055,9 +1083,11 @@ def make_chat_tools(
                 prefs["notification_minutes_before"] = int(notification_minutes_before)
             if not prefs:
                 return "no preferences provided"
-            await schedule_service.update_preferences(user_id, prefs, db)
+            async with db_mutation_lock:
+                await schedule_service.update_preferences(user_id, prefs, db)
             return "preferences updated"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("update_schedule_preferences tool failed: %s", e)
             return f"could not update preferences: {e}"
 
@@ -1069,16 +1099,17 @@ def make_chat_tools(
     ) -> str:
         """Generate a generic course/module schedule (non-maxx path)."""
         try:
-            schedule = await schedule_service.generate_schedule(
-                user_id=user_id,
-                course_id=course_id,
-                module_number=int(module_number),
-                db=db,
-                rds_db=rds_db,
-                preferences=None,
-                num_days=int(num_days),
-                subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
-            )
+            async with db_mutation_lock:
+                schedule = await schedule_service.generate_schedule(
+                    user_id=user_id,
+                    course_id=course_id,
+                    module_number=int(module_number),
+                    db=db,
+                    rds_db=rds_db,
+                    preferences=None,
+                    num_days=int(num_days),
+                    subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
+                )
             schedule_state["active"] = {
                 "id": schedule.get("id"),
                 "maxx_id": schedule.get("maxx_id"),
@@ -1094,6 +1125,7 @@ def make_chat_tools(
                 "stop one first."
             )
         except Exception as e:
+            await _safe_rollback()
             logger.exception("generate_course_schedule tool failed: %s", e)
             return "schedule generation failed — try again in a moment"
 
@@ -1110,17 +1142,20 @@ def make_chat_tools(
             if lk in ("wake_time", "sleep_time", "preferred_wake_time", "preferred_sleep_time"):
                 wk = value if "wake" in lk else None
                 sk = value if "sleep" in lk else None
-                await _persist_user_wake_sleep(user, db, wk, sk)
+                async with db_mutation_lock:
+                    await _persist_user_wake_sleep(user, db, wk, sk)
             cur = schedule_state.get("active")
             if cur and key:
-                await schedule_service.update_schedule_context(
-                    user_id=user_id,
-                    schedule_id=cur["id"],
-                    db=db,
-                    context_updates={key: value},
-                )
+                async with db_mutation_lock:
+                    await schedule_service.update_schedule_context(
+                        user_id=user_id,
+                        schedule_id=cur["id"],
+                        db=db,
+                        context_updates={key: value},
+                    )
             return f"{key}={value} saved"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("update_schedule_context tool failed: %s", e)
             return f"context update failed: {e}"
 
@@ -1167,9 +1202,11 @@ def make_chat_tools(
                 }
                 parts.append(f"injury={injury_area}")
             if check_in_data:
-                await coaching_service.process_check_in(user_id, db, check_in_data)
+                async with db_mutation_lock:
+                    await coaching_service.process_check_in(user_id, db, check_in_data)
             return "check-in logged: " + (", ".join(parts) or "data saved")
         except Exception as e:
+            await _safe_rollback()
             logger.exception("log_check_in tool failed: %s", e)
             return f"check-in failed: {e}"
 
@@ -1195,10 +1232,12 @@ def make_chat_tools(
                 user.profile = prof
                 _flag_modified(user, "profile")
                 user.updated_at = datetime.utcnow()
-                await db.flush()
+                async with db_mutation_lock:
+                    await db.flush()
                 coaching_service.invalidate_context_cache(user_id)
             return f"coaching mode set to {mode_clean}"
         except Exception as e:
+            await _safe_rollback()
             logger.exception("set_coaching_mode tool failed: %s", e)
             return f"could not set coaching mode: {e}"
 
