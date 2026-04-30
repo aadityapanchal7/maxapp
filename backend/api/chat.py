@@ -1440,11 +1440,43 @@ def _looks_like_task_operation_request(text: str) -> bool:
         "move",
         "shift",
         "reschedule",
+        "check off",
+        "finish",
+        "finished",
+        "cancel",
+        "skip",
+        "done with",
+        "finished with",
     )
     task_words = ("task", "tasks", "today", "schedule", "nutrition", "workout", "routine")
     has_op = any(w in t for w in op_words)
     has_task_obj = any(w in t for w in task_words)
     if has_op and has_task_obj:
+        return True
+    # Schedule-view requests should route to tools (get_today_tasks), not fast RAG.
+    schedule_view_phrases = (
+        "what's on my schedule",
+        "whats on my schedule",
+        "what is on my schedule",
+        "show my schedule",
+        "show schedule",
+        "what do i have today",
+        "what are my tasks",
+        "what tasks do i have",
+        "today tasks",
+        "today's tasks",
+        "todays tasks",
+        "what's on my plate",
+        "whats on my plate",
+        "what do i have tomorrow",
+        "what are my tasks tomorrow",
+        "tomorrow tasks",
+        "tomorrow's tasks",
+        "tomorrows tasks",
+        "upcoming tasks",
+        "my tasks for tomorrow",
+    )
+    if any(p in t for p in schedule_view_phrases):
         return True
     # Natural command variants seen in chat.
     phrases = (
@@ -1858,6 +1890,9 @@ async def process_chat_message(
             return _finalize_assistant_message(brand_response), []
 
     if (
+        not explicit_schedule_start
+        and not image_data
+        and
         turn_intent.get("intent") == "KNOWLEDGE"
         and (turn_intent.get("maxx_hints") or active_hint)
         and not _looks_like_task_operation_request(message_text)

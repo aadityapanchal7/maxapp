@@ -247,7 +247,8 @@ def _try_build(provider: str, max_tokens: int, temperature: float = 0.7) -> Opti
     """Attempt to build a provider LLM; return None if the key is missing."""
     try:
         return _BUILDERS[provider](max_tokens, temperature=temperature)
-    except Exception:
+    except Exception as e:
+        logger.warning("[lc_providers] build failed for provider=%s: %s", provider, e)
         return None
 
 
@@ -272,9 +273,19 @@ def get_primary_llm(max_tokens: int = 768, temperature: float = 0.7) -> BaseChat
     provider = llm_provider()
     llm = _try_build(provider, max_tokens, temperature=temperature)
     if llm is None:
+        if provider == "huggingface":
+            hint = "Set HF_TOKEN and HF_ENDPOINT_URL in your .env."
+        elif provider == "openai":
+            hint = "Set OPENAI_API_KEY in your .env."
+        elif provider == "gemini":
+            hint = "Set GEMINI_API_KEY in your .env."
+        elif provider == "mistral":
+            hint = "Set MISTRAL_API_KEY in your .env."
+        else:
+            hint = f"Set credentials for provider {provider!r} in your .env."
         raise ValueError(
             f"LLM_PROVIDER={provider!r} but the corresponding API key is not set. "
-            f"Set {provider.upper()}_API_KEY in your .env."
+            f"{hint}"
         )
     return llm
 

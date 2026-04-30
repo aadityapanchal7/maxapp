@@ -9,6 +9,7 @@ from typing import List, Optional
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+import os
 
 _BACKEND_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _BACKEND_DIR.parent
@@ -270,6 +271,29 @@ class Settings(BaseSettings):
             f"postgresql+asyncpg://{self.aws_rds_user}:{self.aws_rds_password}"
             f"@{self.aws_rds_host}:{self.aws_rds_port}/{self.aws_rds_database}"
         )
+
+    def validate_production_config(self) -> None:
+        """Fail fast when critical Supabase DB env vars are missing in production."""
+        app_env = (self.app_env or "").strip().lower()
+        is_production = app_env == "production" or bool(
+            os.getenv("RENDER") or os.getenv("PRODUCTION")
+        )
+        if not is_production:
+            return
+
+        errors: list[str] = []
+        if (self.supabase_db_host or "").strip().lower() in {"", "localhost", "127.0.0.1"}:
+            errors.append("SUPABASE_DB_HOST is not set to a remote Supabase host")
+        if not (self.supabase_db_password or "").strip():
+            errors.append("SUPABASE_DB_PASSWORD is empty")
+        if (self.supabase_db_name or "").strip().lower() == "postgres":
+            errors.append("SUPABASE_DB_NAME is still default 'postgres'")
+
+        if errors:
+            raise RuntimeError(
+                "Production database configuration is invalid: "
+                + "; ".join(errors)
+            )
     
     class Config:
         # Search both repo-root and backend-local .env so WSL / dev / container

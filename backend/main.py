@@ -29,6 +29,7 @@ from api import (
 async def lifespan(app: FastAPI):
     """Application lifespan events"""
     # Startup
+    settings.validate_production_config()
     await init_db()
     from services.prompt_loader import refresh_prompt_cache
     await refresh_prompt_cache()

@@ -102,7 +102,10 @@ async def _broad_fanout_retrieval(
         except Exception:
             return []
 
-    gathered = await asyncio.gather(*[_one(m) for m in VALID_MAXX_IDS])
+    # Skip explicit "general" pass here because each non-general retrieve_chunks
+    # call already merges general docs; querying general again creates duplicates.
+    fanout_modules = [m for m in VALID_MAXX_IDS if m != "general"]
+    gathered = await asyncio.gather(*[_one(m) for m in fanout_modules])
     flat = [row for rows in gathered for row in rows]
     flat.sort(key=lambda c: c.get("similarity", 0.0), reverse=True)
     top = flat[:k_total]
@@ -389,13 +392,10 @@ async def _answer_without_evidence(
     user_context_str: Optional[str],
     response_length: Optional[str],
 ) -> str:
-    """LLM call when retrieval returned zero chunks across every index.
+    """DEPRECATED: legacy no-evidence LLM fallback, retained for backward compatibility.
 
-    Uses the full Max chat persona prompt (max_chat_system from Supabase)
-    plus a NATIVE KNOWLEDGE MODE suffix that tells the LLM to answer
-    natively without surfacing the retrieval system. Any leaked template-
-    marker phrases get scrubbed at the edge by `_scrub_leakage` so the user
-    never sees a "no protocol on file" message.
+    Current product behavior is strict evidence-only mode in `answer_from_rag`,
+    which returns a fixed miss message when retrieval is empty.
     """
     # Use the Max persona prompt (Supabase-loaded with in-code fallback) so
     # the no-evidence answer feels native to the bot, not like a separate
@@ -609,8 +609,8 @@ async def answer_from_rag(
       2. If targeted retrieval is empty: broad fan-out across ALL maxx
          indexes. This catches multi-topic queries ("acne and aging") and
          queries where the classifier picked the wrong module.
-      3. Only if broad retrieval is ALSO empty: foundational-knowledge
-         template fallback. This is now the last resort, not the first.
+      3. Only if broad retrieval is ALSO empty: strict evidence-only miss
+         message ("i don't have that in the course material yet.").
 
     Plus a quality-recovery layer: if the LLM's first answer looks like a
     no-evidence template response (truncated, "no protocol on file", etc.)
@@ -644,7 +644,7 @@ async def answer_from_rag(
         )
 
     # Tier 2: broad fan-out — re-retrieve across every module before
-    # giving up to the foundational-knowledge template.
+    # giving up to the evidence-only miss message.
     broad = await _broad_fanout_retrieval(message, k_total=int(max_chunks or 5))
     if broad:
         # Use chunk-origin maxx as the selector hint so the system prompt

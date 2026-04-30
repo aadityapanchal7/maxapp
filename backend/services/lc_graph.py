@@ -175,6 +175,8 @@ async def knowledge_answer_node(state: ChatState) -> ChatState:
         active_maxx=state.get("active_maxx"),
         response_length=length_pref,
     )
+    if not (state.get("response") or "").strip():
+        state["response"] = "i don't have that in the course material yet."
     state["schedule_mutated"] = False
     fast_path_snapshot("graph_knowledge")
     _time(state, "knowledge_answer", t0)

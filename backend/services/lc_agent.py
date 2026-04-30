@@ -552,7 +552,6 @@ def make_chat_tools(
                 user.profile = {**(user.profile or {}), "fitmax_profile": prof_m}
                 _flag_modified_fm(user, "profile")
                 _flag_modified_fm(user, "onboarding")
-                await db.flush()
                 plan_prev = fplan.fitmax_build_plan(merged_fm)
                 resolved_concern = (str(skin_concern or "").strip() or plan_prev["goal_label"])
 
@@ -571,9 +570,12 @@ def make_chat_tools(
                     ob["height"] = rh
                 user.onboarding = ob
                 _flag_modified(user, "onboarding")
-                await db.flush()
-
-            await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
+            async with db_mutation_lock:
+                if req_maxx == "fitmax":
+                    await db.flush()
+                if req_maxx == "heightmax" and user:
+                    await db.flush()
+                await _persist_user_wake_sleep(user, db, final_wake, final_sleep)
 
             yesno_overrides: dict = {}
             if req_maxx == "hairmax":
@@ -1535,6 +1537,9 @@ async def run_chat_agent(
         "delete_schedule_task",
         "generate_course_schedule",
         "update_schedule_preferences",
+        "update_schedule_context",
+        "log_check_in",
+        "set_coaching_mode",
     })
 
     return response_text, schedule_mutated

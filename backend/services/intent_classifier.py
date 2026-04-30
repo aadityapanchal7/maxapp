@@ -10,7 +10,7 @@ signals (multi-maxx fan-out, injection flags, etc.) travel alongside the intent.
 
 Contract:
     classify_turn(message) -> {
-        "intent": "KNOWLEDGE" | "CHECK_IN" | "SCHEDULE_CHANGE" |
+        "intent": "KNOWLEDGE" | "ACTION" | "CHECK_IN" | "SCHEDULE_CHANGE" |
                   "ONBOARDING" | "GREETING" | "OTHER",
         "maxx_hints": list[str],   # e.g. ["skinmax", "bonemax"]
         "skip_rag": bool,
@@ -80,6 +80,12 @@ _SCHEDULE_CHANGE_MARKERS = (
 _ONBOARDING_MARKERS = (
     "start ", "begin ", "set up", "new schedule", "onboard",
     "i want to try", "how do i begin", "get me started",
+)
+
+_ACTION_MARKERS = (
+    "do ", "make ", "create ", "generate ", "build ", "set up ",
+    "help me ", "help me with", "can you ", "could you ",
+    "please ", "i need ", "i want ",
 )
 
 _GREETING_PATTERNS = (
@@ -162,6 +168,15 @@ def classify_turn(message: str, *, active_maxx: str | None = None) -> IntentResu
     if any(marker in m for marker in _CHECK_IN_MARKERS):
         return IntentResult(
             intent="CHECK_IN",
+            maxx_hints=hints,
+            skip_rag=True,
+            confidence="medium",
+        )
+
+    # Imperative action requests that should run through agent tools/workflows.
+    if any(marker in m for marker in _ACTION_MARKERS):
+        return IntentResult(
+            intent="ACTION",
             maxx_hints=hints,
             skip_rag=True,
             confidence="medium",
