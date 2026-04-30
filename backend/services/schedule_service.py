@@ -2757,6 +2757,12 @@ class ScheduleService:
             resolve_prompt, PromptKey.SCHEDULE_ADAPTATION, SCHEDULE_ADAPTATION_PROMPT
         )
         max_out = max(1024, int(settings.schedule_adapt_max_output_tokens or 16384))
+        # Adaptation always starts from the full current plan. On retry after
+        # truncation/invalid JSON, we can shrink to a 7-day window to reduce
+        # token load, while preserving the untouched tail days.
+        future_days = copy.deepcopy(schedule.days or [])
+        window_days = future_days
+        tail_days: list[dict] = []
 
         adapted: Optional[Dict[str, Any]] = None
         for attempt in range(2):
@@ -2803,6 +2809,10 @@ class ScheduleService:
         assert adapted is not None
 
         adapted_days = adapted.get("days", schedule.days)
+        if not isinstance(adapted_days, list):
+            adapted_days = copy.deepcopy(schedule.days or [])
+        if tail_days:
+            adapted_days = adapted_days + tail_days
         changes_summary = (adapted.get("changes_summary") or "").strip()
         if changes_summary:
             # Keep concise: up to 4 lines, ~100 chars each, no rambling
