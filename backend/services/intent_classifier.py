@@ -84,7 +84,7 @@ _ONBOARDING_MARKERS = (
 
 _ACTION_MARKERS = (
     "do ", "make ", "create ", "generate ", "build ", "set up ",
-    "help me ", "help me with", "can you ", "could you ",
+    "can you ", "could you ",
     "please ", "i need ", "i want ",
 )
 

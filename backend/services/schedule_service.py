@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
-from services.llm_sync import async_llm_json_response
+from services.llm_sync import async_llm_json_response, sync_llm_json_response
 from services.prompt_loader import PromptKey, resolve_prompt
 from services.guideline_service import (
     get_maxx_guideline_async,

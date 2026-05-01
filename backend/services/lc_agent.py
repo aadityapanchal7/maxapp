@@ -919,7 +919,12 @@ def make_chat_tools(
         task_hint: Optional[str] = None,
         feedback: Optional[str] = None,
     ) -> str:
-        """Mark one task completed. If task_id is missing, auto-resolve from today's tasks via task_hint."""
+        """
+        Mark one task completed.
+        ONLY call when user explicitly asks to mark/check off/complete a task.
+        Do NOT call for "help/explain this task" questions.
+        If task_id is missing, auto-resolve from today's tasks via task_hint.
+        """
         try:
             sid, tid, err = await _resolve_today_task_target(
                 action="complete",
@@ -948,6 +953,8 @@ def make_chat_tools(
     async def complete_today_tasks(maxx_id: Optional[str] = None) -> str:
         """
         Mark all of today's pending tasks as completed.
+        ONLY call on explicit commands like "mark all complete".
+        Do NOT call for help/explanation requests.
         Optionally limit to one module via maxx_id (skinmax/hairmax/fitmax/bonemax/heightmax).
         """
         try:
@@ -1012,7 +1019,11 @@ def make_chat_tools(
         task_id: Optional[str] = None,
         task_hint: Optional[str] = None,
     ) -> str:
-        """Mark a completed task back to pending. Auto-resolves from today's tasks when needed."""
+        """
+        Mark a completed task back to pending.
+        ONLY call when user explicitly asks to undo/uncomplete/revert completion.
+        Auto-resolves from today's tasks when needed.
+        """
         try:
             sid, tid, err = await _resolve_today_task_target(
                 action="uncomplete",
@@ -1046,7 +1057,11 @@ def make_chat_tools(
         description: Optional[str] = None,
         duration_minutes: Optional[int] = None,
     ) -> str:
-        """Edit a schedule task. If task_id is missing, auto-resolve from today's tasks via task_hint."""
+        """
+        Edit a schedule task.
+        ONLY call when user explicitly asks to change task fields (time/title/description/duration).
+        If task_id is missing, auto-resolve from today's tasks via task_hint.
+        """
         try:
             updates: dict = {}
             if time is not None:
@@ -1088,7 +1103,11 @@ def make_chat_tools(
         task_id: Optional[str] = None,
         task_hint: Optional[str] = None,
     ) -> str:
-        """Delete a task. If task_id is missing, auto-resolve from today's tasks via task_hint."""
+        """
+        Delete a task.
+        ONLY call when user explicitly asks to remove/delete a task.
+        If task_id is missing, auto-resolve from today's tasks via task_hint.
+        """
         try:
             sid, tid, err = await _resolve_today_task_target(
                 action="delete",

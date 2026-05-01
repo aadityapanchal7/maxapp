@@ -1558,7 +1558,13 @@ def _looks_like_schedule_mutation_request(text: str) -> bool:
         "remove",
         "mark",
     )
-    return any(obj in t for obj in schedule_objs) and any(op in t for op in mutation_ops)
+    if any(obj in t for obj in schedule_objs) and any(op in t for op in mutation_ops):
+        return True
+    # Also treat direct wake/sleep time corrections as mutation requests, even
+    # when the user doesn't explicitly mention the word "schedule".
+    if _user_requests_schedule_change(t):
+        return True
+    return False
 
 
 def _looks_like_task_operation_request(text: str) -> bool:
@@ -3300,7 +3306,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
 
     # --- Safety net: if user clearly requested a schedule change but agent missed it ---
     # --- If user asked to change schedule times but the model didn't call modify_schedule, adapt anyway ---
-    requested_schedule_mutation = _looks_like_schedule_mutation_request(message_text)
+    requested_schedule_mutation = (
+        _looks_like_schedule_mutation_request(message_text)
+        or _user_requests_schedule_change(message_text)
+    )
     forced_schedule_adapted = False
     if (
         active_schedule
