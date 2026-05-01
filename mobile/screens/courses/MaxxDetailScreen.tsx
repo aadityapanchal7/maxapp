@@ -145,7 +145,8 @@ export default function MaxxDetailScreen() {
     const activeLabels = activeSummaryQuery.data?.labels ?? [];
 
     const loading = !!maxxId && maxxQuery.isPending && !maxxQuery.data;
-    const atLimit = !activeSchedule && activeCount >= 2;
+    const maxActiveModules = isPremium ? 3 : 2;
+    const atLimit = !activeSchedule && activeCount >= maxActiveModules;
 
     const [loadingFitmaxExtras, setLoadingFitmaxExtras] = useState(isFitmax);
     const [macroSnapshot, setMacroSnapshot] = useState({
@@ -328,7 +329,7 @@ export default function MaxxDetailScreen() {
                             <View style={styles.limitBanner}>
                                 <Ionicons name="alert-circle-outline" size={18} color={colors.textSecondary} />
                                 <Text style={styles.limitBannerText}>
-                                    You have 2 active modules ({activeLabels.join(', ')}). Stop one to start this.
+                                    You have {maxActiveModules} active modules ({activeLabels.join(', ')}). Stop one to start this.
                                 </Text>
                             </View>
                         ) : (

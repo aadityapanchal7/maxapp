@@ -11,6 +11,7 @@ the Supabase dashboard to rebuild the cache.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 VALID_MAXX_IDS = frozenset({"skinmax", "fitmax", "hairmax", "heightmax", "bonemax", "general"})
 
 _INDEX: dict[str, "_Bm25Index"] = {}
+_EMBEDDING_CLIENT = None
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOP = frozenset({
@@ -292,16 +294,39 @@ async def retrieve_chunks(
     k: int = 4,
     min_similarity: float = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35),
 ) -> list[dict]:
-    """Return top-k BM25-scored chunks for the requested module.
+    """Return top-k chunks for the requested module.
 
-    Also searches the 'general' index (cross-cutting knowledge like sleep,
-    debloat, eyes, stress) and merges results so every answer can draw on
-    both module-specific and general content.
+    Hybrid mode (BM25 + vector + RRF) is used when enabled and available.
+    Falls back to BM25-only retrieval if embeddings/vector search are disabled
+    or unavailable for this environment.
     """
     if not query or not query.strip():
         return []
     if maxx_id not in VALID_MAXX_IDS:
         return []
+    if bool(getattr(settings, "rag_hybrid_enabled", True)):
+        try:
+            return await hybrid_retrieve(
+                db=db,
+                maxx_id=maxx_id,
+                query=query,
+                k=k,
+                min_similarity=min_similarity,
+            )
+        except Exception as e:
+            logger.warning("RAG hybrid retrieve failed (maxx=%s): %s; falling back to BM25", maxx_id, e)
+
+    return await _bm25_retrieve_chunks(maxx_id=maxx_id, query=query, k=k, min_similarity=min_similarity)
+
+
+async def _bm25_retrieve_chunks(
+    *,
+    maxx_id: str,
+    query: str,
+    k: int,
+    min_similarity: float,
+) -> list[dict]:
+    """BM25-only retrieval (legacy path, still used as hybrid component)."""
     t0 = time.perf_counter()
     try:
         idx = await _get_index(maxx_id)
@@ -330,11 +355,175 @@ async def retrieve_chunks(
         return []
 
 
-def embed_text(*_args, **_kwargs):  # pragma: no cover
-    raise RuntimeError(
-        "embed_text is no longer used — DB-backed RAG reads from rag_documents table."
+async def embed_text(text: str) -> list[float]:
+    """Generate query/document embeddings for hybrid retrieval."""
+    global _EMBEDDING_CLIENT
+    body = (text or "").strip()
+    if not body:
+        raise ValueError("Cannot embed empty text")
+    api_key = (getattr(settings, "openai_api_key", "") or "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is required for hybrid RAG embeddings")
+    if _EMBEDDING_CLIENT is None:
+        from openai import AsyncOpenAI
+
+        _EMBEDDING_CLIENT = AsyncOpenAI(api_key=api_key)
+    model = getattr(settings, "rag_embedding_model", "text-embedding-3-small") or "text-embedding-3-small"
+    dim = int(getattr(settings, "rag_embedding_dimensions", 1536) or 1536)
+    response = await _EMBEDDING_CLIENT.embeddings.create(
+        model=model,
+        input=body,
+        dimensions=dim,
     )
+    return list(response.data[0].embedding)
 
 
-def _vec_to_pg_str(*_args, **_kwargs):  # pragma: no cover
-    raise RuntimeError("pgvector helpers are gone — DB-backed RAG doesn't use vectors.")
+async def embed_batch(texts: list[str], batch_size: int = 96) -> list[list[float]]:
+    """Batch embedding helper for ingest/backfills."""
+    cleaned = [str(t or "").strip() for t in (texts or [])]
+    cleaned = [t for t in cleaned if t]
+    if not cleaned:
+        return []
+    out: list[list[float]] = []
+    for i in range(0, len(cleaned), batch_size):
+        batch = cleaned[i : i + batch_size]
+        # Reuse the already-initialized client through embed_text initialization path.
+        if _EMBEDDING_CLIENT is None:
+            await embed_text(batch[0])
+        model = getattr(settings, "rag_embedding_model", "text-embedding-3-small") or "text-embedding-3-small"
+        dim = int(getattr(settings, "rag_embedding_dimensions", 1536) or 1536)
+        response = await _EMBEDDING_CLIENT.embeddings.create(
+            model=model,
+            input=batch,
+            dimensions=dim,
+        )
+        out.extend([list(row.embedding) for row in response.data])
+    return out
+
+
+def _vec_to_pg_str(vec: list[float]) -> str:
+    """Serialize Python vector into pgvector literal format."""
+    return "[" + ",".join(f"{float(v):.8f}" for v in vec) + "]"
+
+
+def reciprocal_rank_fusion(
+    ranked_lists: list[list[dict]],
+    *,
+    k: int = 60,
+) -> list[dict]:
+    """Fuse ranked lists using Reciprocal Rank Fusion."""
+    scores: dict[str, float] = {}
+    rows: dict[str, dict] = {}
+    for ranked in ranked_lists:
+        for rank, row in enumerate(ranked, start=1):
+            key = f"{row.get('id') or ''}|{row.get('doc_title') or ''}|{row.get('chunk_index') or 0}"
+            if key not in scores:
+                scores[key] = 0.0
+                rows[key] = dict(row)
+            scores[key] += 1.0 / float(k + rank)
+    ordered = sorted(scores.keys(), key=lambda x: scores[x], reverse=True)
+    fused: list[dict] = []
+    for key in ordered:
+        item = dict(rows[key])
+        item["similarity"] = round(float(scores[key]), 6)
+        item["rrf_score"] = item["similarity"]
+        fused.append(item)
+    return fused
+
+
+async def vector_search(
+    *,
+    maxx_id: str,
+    query_embedding: list[float],
+    k: int = 12,
+) -> list[dict]:
+    """Retrieve top-k chunks by vector similarity from rag_documents."""
+    from sqlalchemy import text
+    from db.sqlalchemy import AsyncSessionLocal
+
+    if not query_embedding or maxx_id not in VALID_MAXX_IDS:
+        return []
+    vec = _vec_to_pg_str(query_embedding)
+    sql = text(
+        """
+        SELECT id::text AS id, doc_title, chunk_index, content, metadata,
+               1 - (embedding <=> CAST(:qvec AS vector)) AS similarity
+        FROM rag_documents
+        WHERE maxx_id = :mid
+          AND embedding IS NOT NULL
+        ORDER BY embedding <=> CAST(:qvec AS vector)
+        LIMIT :k
+        """
+    )
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(sql, {"mid": maxx_id, "qvec": vec, "k": int(k)})
+            out: list[dict] = []
+            for row in result.fetchall():
+                out.append(
+                    {
+                        "id": row.id,
+                        "content": row.content,
+                        "doc_title": row.doc_title,
+                        "chunk_index": int(row.chunk_index or 0),
+                        "metadata": row.metadata or {},
+                        "similarity": round(float(row.similarity or 0.0), 6),
+                    }
+                )
+            return out
+    except Exception as e:
+        logger.warning("RAG vector search failed (maxx=%s): %s", maxx_id, e)
+        return []
+
+
+async def hybrid_retrieve(
+    *,
+    db: "AsyncSession" | None,
+    maxx_id: str,
+    query: str,
+    k: int = 4,
+    min_similarity: float = float(getattr(settings, "rag_score_threshold", 0.35) or 0.35),
+) -> list[dict]:
+    """Hybrid retrieval with parallel BM25 + vector search fused by RRF."""
+    if not query or not query.strip() or maxx_id not in VALID_MAXX_IDS:
+        return []
+    t0 = time.perf_counter()
+    query_embedding = await embed_text(query)
+    k_sparse = max(6, int(getattr(settings, "rag_bm25_k", 12) or 12))
+    k_dense = max(6, int(getattr(settings, "rag_vector_k", 12) or 12))
+    bm25_task = asyncio.create_task(
+        _bm25_retrieve_chunks(maxx_id=maxx_id, query=query, k=k_sparse, min_similarity=min_similarity)
+    )
+    vec_task = asyncio.create_task(vector_search(maxx_id=maxx_id, query_embedding=query_embedding, k=k_dense))
+    bm25_rows, vec_rows = await asyncio.gather(bm25_task, vec_task)
+
+    if maxx_id != "general":
+        gen_sparse_task = asyncio.create_task(
+            _bm25_retrieve_chunks(
+                maxx_id="general",
+                query=query,
+                k=max(2, k_sparse // 2),
+                min_similarity=min_similarity,
+            )
+        )
+        gen_vec_task = asyncio.create_task(
+            vector_search(
+                maxx_id="general",
+                query_embedding=query_embedding,
+                k=max(2, k_dense // 2),
+            )
+        )
+        gen_sparse, gen_vec = await asyncio.gather(gen_sparse_task, gen_vec_task)
+        bm25_rows.extend(gen_sparse)
+        vec_rows.extend(gen_vec)
+
+    fused = reciprocal_rank_fusion([bm25_rows, vec_rows], k=int(getattr(settings, "rag_rrf_k", 60) or 60))
+    out = fused[:k]
+    log_retrieval(
+        maxx_id=maxx_id,
+        elapsed_ms=(time.perf_counter() - t0) * 1000,
+        hits=len(out),
+        threshold=min_similarity,
+        query_tokens=len(_tokenize(query)),
+    )
+    return out

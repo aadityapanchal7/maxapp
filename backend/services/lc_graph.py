@@ -242,7 +242,13 @@ async def agent_node(state: ChatState) -> ChatState:
         state["schedule_mutated"] = mutated
     except Exception as e:
         logger.exception("agent_node failed: %s", e)
-        state["response"] = ""
+        msg = str(e).lower()
+        if "timeout" in msg or "timed out" in msg:
+            state["response"] = "the model took too long this turn. try again in a second."
+        elif "429" in msg or "rate limit" in msg or "quota" in msg:
+            state["response"] = "too many requests right now. give me a few seconds and retry."
+        else:
+            state["response"] = "hit an unexpected model error this turn. please retry."
         state["schedule_mutated"] = False
     _time(state, "agent", t0)
     return state

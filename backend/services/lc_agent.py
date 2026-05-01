@@ -1343,8 +1343,9 @@ def make_chat_tools(
 
             # --- RAG retrieval (primary path) ---
             try:
-                from services.rag_service import retrieve_chunks
-                chunks = await retrieve_chunks(db, maxx_id=mod, query=query, k=4)
+                from services.rag_service import hybrid_retrieve
+
+                chunks = await hybrid_retrieve(db=db, maxx_id=mod, query=query, k=4)
                 if chunks:
                     parts = [
                         f"[{c['doc_title']} — section {c['chunk_index'] + 1}]\n{c['content']}"
@@ -1384,6 +1385,40 @@ def make_chat_tools(
         except Exception as e:
             logger.exception("get_module_info tool failed: %s", e)
             return "could not load module info"
+
+    @tool
+    async def search_knowledge(query: str) -> str:
+        """
+        Search the knowledge base for factual answers when the user asks educational questions.
+        Use for broad info questions where module is unclear.
+        """
+        try:
+            q = str(query or "").strip()
+            if not q:
+                return "no query provided"
+            from services.intent_classifier import classify_turn
+            from services.rag_service import hybrid_retrieve
+
+            intent = classify_turn(q, active_maxx=None)
+            hints = [h for h in (intent.get("maxx_hints") or []) if h]
+            if not hints:
+                hints = ["general"]
+
+            rows: list[dict] = []
+            for hint in hints[:3]:
+                got = await hybrid_retrieve(db=db, maxx_id=hint, query=q, k=3)
+                rows.extend([{**r, "_maxx": hint} for r in got])
+            if not rows:
+                return "no relevant knowledge found"
+            rows.sort(key=lambda c: float(c.get("rrf_score", c.get("similarity", 0.0)) or 0.0), reverse=True)
+            parts = [
+                f"[{r.get('_maxx','general')}/{r.get('doc_title','reference')} — section {int(r.get('chunk_index', 0)) + 1}]\n{r.get('content','')}"
+                for r in rows[:5]
+            ]
+            return "\n\n---\n\n".join(parts)
+        except Exception as e:
+            logger.exception("search_knowledge tool failed: %s", e)
+            return "could not search knowledge base"
 
     # ------------------------------------------------------------------ #
     #  recommend_product                                                   #
@@ -1454,6 +1489,7 @@ def make_chat_tools(
         set_coaching_mode,
         get_today_tasks,
         get_module_info,
+        search_knowledge,
         recommend_product,
     ]
 
@@ -1473,13 +1509,13 @@ async def run_chat_agent(
     maxx_id: Optional[str] = None,
 ) -> tuple[str, bool]:
     """
-    Run the tool-calling AgentExecutor and return (response_text, schedule_mutated).
+    Run the tool-calling AgentExecutor and return (response_text, context_cache_invalidated).
 
-    schedule_mutated=True when any schedule-modifying tool (generate, modify, stop)
-    fired — used by chat.py for cache invalidation.
+    context_cache_invalidated=True when mutating/check-in tools fire, so chat.py
+    can invalidate cached coaching context.
 
     The agent handles the full reasoning → tool call → observe → respond loop.
-    max_iterations=4 allows: tool call → observe → (optional second tool) → final answer.
+    max_iterations=6 allows deeper multi-tool turns before failing closed.
     """
     system_prompt = await build_agent_system_prompt(user_context, delivery_channel)
 
@@ -1508,7 +1544,7 @@ async def run_chat_agent(
     executor = AgentExecutor(
         agent=agent,
         tools=tools,
-        max_iterations=4,
+        max_iterations=6,
         handle_parsing_errors=True,
         return_intermediate_steps=True,
         verbose=False,
@@ -1572,7 +1608,7 @@ async def run_chat_agent(
         response_len=len(response_text),
     )
 
-    schedule_mutated = bool(tool_names_fired & {
+    context_cache_invalidated = bool(tool_names_fired & {
         "generate_maxx_schedule",
         "modify_schedule",
         "stop_schedule",
@@ -1589,4 +1625,4 @@ async def run_chat_agent(
         "set_coaching_mode",
     })
 
-    return response_text, schedule_mutated
+    return response_text, context_cache_invalidated

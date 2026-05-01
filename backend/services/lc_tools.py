@@ -1,5 +1,5 @@
 """
-LangChain StructuredTool definitions — SCHEMA / REFERENCE ONLY for the 9 Max chat tools.
+LangChain StructuredTool definitions — SCHEMA / REFERENCE ONLY.
 
 WARNING: Do NOT import ``CHAT_TOOLS`` expecting runnable tools. The stub ``_stub``
 implementations return empty strings and are not wired to the chat pipeline.
@@ -7,9 +7,9 @@ implementations return empty strings and are not wired to the chat pipeline.
 The REAL tool implementations (async, DB-bound) live in
 ``services.lc_agent.make_chat_tools()`` and are passed to ``run_chat_agent()``.
 
-These ``StructuredTool`` entries replace duplicate JSON schemas that were
-previously maintained in openai_service.py and gemini_service.py. They may be
-used for documentation, schema export, or future LLM binding — not execution.
+These ``StructuredTool`` entries are a schema subset used for docs/export and
+are intentionally decoupled from runtime execution. The full live tool list is
+defined in ``services.lc_agent.make_chat_tools()``.
 """
 
 from __future__ import annotations
@@ -97,6 +97,10 @@ class GetModuleInfoInput(BaseModel):
     topic: Optional[str] = Field(default=None, description="Optional sub-topic, e.g. 'minoxidil', 'mewing'")
 
 
+class SearchKnowledgeInput(BaseModel):
+    query: str = Field(description="Knowledge search query")
+
+
 class RecommendProductInput(BaseModel):
     module: str = Field(description="skinmax, hairmax, fitmax, bonemax, heightmax")
     concern: str = Field(description="User's concern, e.g. 'acne', 'thinning', 'fat loss'")
@@ -111,7 +115,7 @@ def _stub(*args, **kwargs) -> str:
 
 
 # ---------------------------------------------------------------------------
-# CHAT_TOOLS — the single authoritative list of tool definitions
+# CHAT_TOOLS — reference schemas only (not authoritative runtime registry)
 # ---------------------------------------------------------------------------
 
 CHAT_TOOLS: list[StructuredTool] = [
@@ -178,6 +182,13 @@ CHAT_TOOLS: list[StructuredTool] = [
         name="get_module_info",
         description="Fetch protocol/coaching reference for a module. Use when user asks a detailed how-to or protocol question about a specific module.",
         args_schema=GetModuleInfoInput,
+        func=_stub,
+        coroutine=None,
+    ),
+    StructuredTool(
+        name="search_knowledge",
+        description="Search knowledge base for broad informational questions when module scope is unclear.",
+        args_schema=SearchKnowledgeInput,
         func=_stub,
         coroutine=None,
     ),

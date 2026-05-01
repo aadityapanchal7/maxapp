@@ -1,8 +1,11 @@
-"""Route chat and triple-scan vision to Gemini or OpenAI based on settings.
+"""Route triple-scan vision to Gemini or OpenAI based on settings.
 
 Includes automatic failover: if the primary provider fails (timeout, rate-limit,
 5xx, etc.), we transparently retry with the alternate provider so a single
-vendor outage doesn't take chat or scans down.
+vendor outage doesn't take scans down.
+
+Note: `llm_chat()` is retained for backward compatibility with older callers;
+the production chat path uses LangChain agent execution in `services.lc_agent`.
 """
 
 import logging

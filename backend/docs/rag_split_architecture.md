@@ -11,12 +11,17 @@ Knowledge turns do **not** build the full coaching context and do **not** enter 
 
 ## Retrieval
 
-The live retriever is file-based BM25 over:
+The live retriever is **DB-backed hybrid search** over `rag_documents` in Supabase:
 
-- `rag_docs/<maxx_id>` as the canonical source
-- `backend/rag_content/<maxx_id>` as legacy fallback content
+- sparse: in-memory BM25 over heading-aware chunks
+- dense: pgvector cosine search over `rag_documents.embedding`
+- fusion: Reciprocal Rank Fusion (RRF, default `k=60`)
 
-Each chunk now carries a stable file-based audit identifier, persisted into `chat_history.retrieved_chunk_ids` as JSON.
+`retrieve_chunks()` now prefers hybrid retrieval and falls back to BM25-only if
+vector search is unavailable.
+
+Each chunk carries a stable audit identifier, persisted into
+`chat_history.retrieved_chunk_ids` as JSON.
 
 ## Context Budgets
 

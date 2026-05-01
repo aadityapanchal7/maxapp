@@ -83,11 +83,35 @@ class Settings(BaseSettings):
     # truncation on dense schedules; cap is the model's own max (e.g. OpenAI completion limit).
     schedule_adapt_max_output_tokens: int = Field(default=16384)
 
-    # File-based RAG / prompt budgets
+    # DB-backed RAG / retrieval budgets
     rag_top_k: int = Field(default=4, description="How many chunks to retrieve per query")
     rag_score_threshold: float = Field(
         default=0.35,
         description="Min BM25 score to keep a retrieved chunk. Below this, retrieval is ignored.",
+    )
+    rag_hybrid_enabled: bool = Field(
+        default=True,
+        description="Enable hybrid retrieval (BM25 + vector + RRF).",
+    )
+    rag_embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="Embedding model used for hybrid RAG vector search.",
+    )
+    rag_embedding_dimensions: int = Field(
+        default=1536,
+        description="Embedding vector dimensions for rag_documents.embedding.",
+    )
+    rag_bm25_k: int = Field(
+        default=12,
+        description="BM25 candidate pool size before RRF fusion.",
+    )
+    rag_vector_k: int = Field(
+        default=12,
+        description="Vector candidate pool size before RRF fusion.",
+    )
+    rag_rrf_k: int = Field(
+        default=60,
+        description="RRF smoothing constant for hybrid rank fusion.",
     )
 
     # LangGraph chat orchestration -- when true, chat uses services/lc_graph.py
@@ -162,6 +186,9 @@ class Settings(BaseSettings):
     # When true (default), FitMax and HairMax use fixed question scripts in chat.py before schedule creation.
     # When false, those modules use the LangChain agent only (LLM-written replies + tools), like Skinmax/Heightmax.
     chat_scripted_fitmax_hairmax_onboarding: bool = Field(default=True)
+    # When true (default), BoneMax uses a deterministic intake flow (workout/TMJ/gum/screen)
+    # before schedule creation to avoid off-topic LLM drift and re-ask loops.
+    chat_scripted_bonemax_onboarding: bool = Field(default=True)
 
     # UTC cutoff: accounts created before this see the main-app tour as already completed.
     # Set to the ISO-8601 deploy moment so existing subscribers are not surprised by a tour.

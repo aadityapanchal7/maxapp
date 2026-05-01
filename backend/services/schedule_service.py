@@ -410,11 +410,12 @@ class ScheduleService:
                 (UserSchedule.user_id == user_uuid) & (UserSchedule.maxx_id == maxx_id) & (UserSchedule.is_active == True)
             )
         )
-        schedule = result.scalar_one_or_none()
-        if not schedule:
+        schedules = result.scalars().all()
+        if not schedules:
             return None
-        schedule.is_active = False
-        schedule.updated_at = datetime.utcnow()
+        for schedule in schedules:
+            schedule.is_active = False
+            schedule.updated_at = datetime.utcnow()
         await db.commit()
         return {"status": "stopped", "maxx_id": maxx_id}
 
@@ -2568,13 +2569,20 @@ class ScheduleService:
         return {"days": days}
 
     async def get_current_schedule(
-        self, user_id: str, db: AsyncSession, course_id: str = None, module_number: int = None
+        self,
+        user_id: str,
+        db: AsyncSession,
+        course_id: str = None,
+        module_number: int = None,
+        maxx_id: str | None = None,
     ) -> Optional[dict]:
         """Get the user's current active schedule(s)."""
         user_uuid = UUID(user_id)
         query = select(UserSchedule).where(
             (UserSchedule.user_id == user_uuid) & (UserSchedule.is_active == True)
         )
+        if maxx_id:
+            query = query.where(UserSchedule.maxx_id == str(maxx_id).strip().lower())
         if course_id:
             try:
                 course_uuid = UUID(course_id)
@@ -2607,10 +2615,15 @@ class ScheduleService:
             raise ValueError("Schedule not found")
 
         updated = False
+        already_completed = False
         days = schedule.days or []
         for day in days:
             for task in day.get("tasks", []):
                 if task.get("task_id") == task_id:
+                    if task.get("status") == "completed":
+                        already_completed = True
+                        updated = True
+                        break
                     task["status"] = "completed"
                     task["completed_at"] = datetime.utcnow().isoformat()
                     updated = True
@@ -2621,15 +2634,19 @@ class ScheduleService:
         if not updated:
             raise ValueError("Task not found in schedule")
 
-        stats = schedule.completion_stats or {"completed": 0, "total": 0, "skipped": 0}
-        stats["completed"] = stats.get("completed", 0) + 1
-        stats["total"] = sum(len(d.get("tasks", [])) for d in days)
+        if already_completed:
+            stats = self._recalc_completion_stats_from_days(days)
+        else:
+            stats = schedule.completion_stats or {"completed": 0, "total": 0, "skipped": 0}
+            stats["completed"] = stats.get("completed", 0) + 1
+            stats["total"] = sum(len(d.get("tasks", [])) for d in days)
 
-        schedule.days = days
-        flag_modified(schedule, "days")
-        schedule.completion_stats = stats
-        schedule.updated_at = datetime.utcnow()
+            schedule.days = days
+            flag_modified(schedule, "days")
+            schedule.completion_stats = stats
+            schedule.updated_at = datetime.utcnow()
 
+        feedback_logged = False
         if feedback:
             user_feedback = schedule.user_feedback or []
             user_feedback.append({
@@ -2638,8 +2655,10 @@ class ScheduleService:
                 "timestamp": datetime.utcnow().isoformat(),
             })
             schedule.user_feedback = user_feedback
+            feedback_logged = True
 
-        await db.commit()
+        if not already_completed or feedback_logged:
+            await db.commit()
 
         user_uuid = UUID(user_id)
         user_row = await db.get(User, user_uuid)

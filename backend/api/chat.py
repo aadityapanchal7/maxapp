@@ -443,6 +443,76 @@ HAIRMAX_QUESTION_MAP: dict[str, tuple[str, list[str]]] = {
 }
 
 
+BONEMAX_REQUIRED_FIELDS = [
+    "workout_frequency",
+    "tmj_history",
+    "mastic_gum_regular",
+    "heavy_screen_time",
+]
+
+
+def _bonemax_missing_fields(profile: dict) -> list[str]:
+    missing: list[str] = []
+    wf = _coerce_to_choice(str(profile.get("workout_frequency") or ""), ["0", "1-2", "3-4", "5+"])
+    if not wf:
+        missing.append("workout_frequency")
+    if not _yes_no_answered(profile.get("tmj_history")):
+        missing.append("tmj_history")
+    if not _yes_no_answered(profile.get("mastic_gum_regular")):
+        missing.append("mastic_gum_regular")
+    if not _yes_no_answered(profile.get("heavy_screen_time")):
+        missing.append("heavy_screen_time")
+    return missing
+
+
+BONEMAX_QUESTION_MAP: dict[str, tuple[str, list[str]]] = {
+    "workout_frequency": (
+        "how many days per week do you usually work out?",
+        ["0", "1-2", "3-4", "5+"],
+    ),
+    "tmj_history": (
+        "have you ever had tmj, jaw pain, or clicking?",
+        ["yes", "no"],
+    ),
+    "mastic_gum_regular": (
+        "do you already chew mastic or hard gum regularly?",
+        ["yes", "no"],
+    ),
+    "heavy_screen_time": (
+        "do you spend many hours a day on a computer or phone?",
+        ["yes", "no"],
+    ),
+}
+
+
+def _bonemax_next_question(profile: dict) -> str:
+    missing = _bonemax_missing_fields(profile)
+    if not missing:
+        return ""
+    return BONEMAX_QUESTION_MAP[missing[0]][0]
+
+
+def _bonemax_next_choices(profile: dict) -> list[str]:
+    missing = _bonemax_missing_fields(profile)
+    if not missing:
+        return []
+    return list(BONEMAX_QUESTION_MAP[missing[0]][1])
+
+
+def _extract_bonemax_updates(message: str, current: dict) -> dict:
+    updates: dict = {}
+    missing = _bonemax_missing_fields(current)
+    if not missing:
+        return updates
+    nxt = missing[0]
+    _, choices = BONEMAX_QUESTION_MAP.get(nxt, ("", []))
+    if choices:
+        coerced = _coerce_to_choice(message, choices)
+        if coerced is not None:
+            updates[nxt] = coerced
+    return updates
+
+
 def _hairmax_next_question(profile: dict) -> str:
     missing = _hairmax_missing_fields(profile)
     if not missing:
@@ -529,6 +599,23 @@ def _hairmax_seed_profile_from_onboarding(profile: dict, ob: dict) -> dict:
     return out
 
 
+def _bonemax_seed_profile_from_onboarding(profile: dict, ob: dict) -> dict:
+    """Pre-fill BoneMax scripted intake from onboarding answers."""
+    out = dict(profile or {})
+    ob = ob or {}
+    if out.get("workout_frequency") in (None, "", []):
+        wf = _coerce_to_choice(str(ob.get("bonemax_workout_frequency") or ""), ["0", "1-2", "3-4", "5+"])
+        if wf:
+            out["workout_frequency"] = wf
+    for key in ("tmj_history", "mastic_gum_regular", "heavy_screen_time"):
+        if out.get(key) not in (None, "", []):
+            continue
+        val = _normalize_hair_yes_no(ob.get(f"bonemax_{key}"))
+        if val:
+            out[key] = val
+    return out
+
+
 def _hairmax_setup_stale(profile: dict, hours: float = 24) -> bool:
     at = (profile or {}).get("hairmax_chat_setup_at")
     if not at:
@@ -596,6 +683,37 @@ def _assistant_last_turn_is_fitmax_onboarding(history: list) -> bool:
             "session length can you commit",
             "outside the gym, what's your daily activity",
             "dietary restrictions",
+        )
+        return any(n in c for n in needles)
+    return False
+
+
+def _bonemax_setup_stale(profile: dict, hours: float = 24) -> bool:
+    at = (profile or {}).get("bonemax_chat_setup_at")
+    if not at:
+        return False
+    try:
+        at_s = str(at).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(at_s)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - parsed > timedelta(hours=hours)
+    except Exception:
+        return True
+
+
+def _assistant_last_turn_is_bonemax_onboarding(history: list) -> bool:
+    """True if latest assistant turn looks like scripted BoneMax intake."""
+    for h in reversed(history or []):
+        if h.get("role") != "assistant":
+            continue
+        c = (h.get("content") or "").lower()
+        needles = (
+            "setting up your bonemax schedule",
+            "how many days per week do you usually work out",
+            "tmj, jaw pain, or clicking",
+            "mastic or hard gum regularly",
+            "many hours a day on a computer or phone",
         )
         return any(n in c for n in needles)
     return False
@@ -1676,6 +1794,7 @@ async def process_chat_message(
 
     fitmax_schedule_active = None
     hairmax_schedule_active = None
+    bonemax_schedule_active = None
 
     # --- Resolve the active conversation for this turn ---------------------
     # SMS stays untracked (channel != app → no persistence, no thread). For
@@ -1706,6 +1825,12 @@ async def process_chat_message(
         except Exception as e:
             logger.warning("[chat] could not resolve conversation for user=%s: %s",
                            str(user_id)[:8], e)
+            return (
+                _finalize_assistant_message(
+                    "i hit a temporary chat-thread error. retry once and i should be back."
+                ),
+                [],
+            )
 
     # SMS is not persisted; use in-app thread as read-only context for the model.
     history_channel_for_load = "app" if channel == "sms" else channel
@@ -1765,6 +1890,10 @@ async def process_chat_message(
             hairmax_schedule_active = await schedule_service.get_maxx_schedule(user_id, "hairmax", db=db)
         except Exception:
             hairmax_schedule_active = None
+        try:
+            bonemax_schedule_active = await schedule_service.get_maxx_schedule(user_id, "bonemax", db=db)
+        except Exception:
+            bonemax_schedule_active = None
 
         def _clear_setup_flags(prefix: str) -> None:
             nonlocal profile_dirty
@@ -1781,6 +1910,10 @@ async def process_chat_message(
             _clear_setup_flags("fitmax")
         elif profile.get("fitmax_chat_setup") and _fitmax_setup_stale(profile):
             _clear_setup_flags("fitmax")
+        if bonemax_schedule_active and profile.get("bonemax_chat_setup"):
+            _clear_setup_flags("bonemax")
+        elif profile.get("bonemax_chat_setup") and _bonemax_setup_stale(profile):
+            _clear_setup_flags("bonemax")
 
         if profile_dirty:
             user.profile = profile
@@ -1819,7 +1952,7 @@ async def process_chat_message(
     explicit_chat_intent = _coerce_chat_intent(chat_intent)
     explicit_schedule_start = explicit_chat_intent == "start_schedule"
     active_hint = str((active_schedule or {}).get("maxx_id") or "").strip() or None
-    turn_intent = classify_turn(message_text, active_maxx=active_hint)
+    # Reuse the first intent classification to keep routing deterministic.
 
     # If the frontend sent start_schedule but the user typed an informational
     # question (not a schedule kickoff), treat it as a normal message so the
@@ -1841,6 +1974,20 @@ async def process_chat_message(
         else:
             hints = turn_intent.get("maxx_hints") or []
             maxx_id = hints[0] if hints else active_hint
+
+    if maxx_id:
+        try:
+            scoped_schedule = await schedule_service.get_current_schedule(
+                user_id,
+                db=db,
+                maxx_id=maxx_id,
+            )
+            if scoped_schedule:
+                active_schedule = scoped_schedule
+                active_hint = str((active_schedule or {}).get("maxx_id") or "").strip() or active_hint
+                user_context["active_schedule"] = active_schedule
+        except Exception as sched_err:
+            logger.warning("scoped active schedule lookup failed for %s: %s", maxx_id, sched_err)
 
     image_data = None
     if attachment_url and attachment_type == "image":
@@ -1985,7 +2132,19 @@ async def process_chat_message(
             await db.commit()
             profile = prof
 
+    if maxx_id and maxx_id != "bonemax" and user:
+        prof = dict(user.profile or {})
+        if prof.get("bonemax_chat_setup"):
+            prof.pop("bonemax_chat_setup", None)
+            prof.pop("bonemax_chat_setup_at", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = prof
+
     scripted_mx = settings.chat_scripted_fitmax_hairmax_onboarding
+    scripted_bonemax = settings.chat_scripted_bonemax_onboarding
 
     if scripted_mx and explicit_schedule_start and start_schedule_maxx == "fitmax" and user and not fitmax_schedule_active:
         prof = dict(profile or {})
@@ -2003,6 +2162,17 @@ async def process_chat_message(
         if not prof.get("hairmax_chat_setup"):
             prof["hairmax_chat_setup"] = True
             prof["hairmax_chat_setup_at"] = datetime.now(timezone.utc).isoformat()
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+
+    if scripted_bonemax and explicit_schedule_start and start_schedule_maxx == "bonemax" and user and not bonemax_schedule_active:
+        prof = dict(profile or {})
+        if not prof.get("bonemax_chat_setup"):
+            prof["bonemax_chat_setup"] = True
+            prof["bonemax_chat_setup_at"] = datetime.now(timezone.utc).isoformat()
             user.profile = prof
             flag_modified(user, "profile")
             user.updated_at = datetime.utcnow()
@@ -2039,6 +2209,20 @@ async def process_chat_message(
                 hairmax_chat_setup
                 and not _hairmax_setup_stale(profile)
                 and _assistant_last_turn_is_hairmax_onboarding(history)
+            )
+        )
+    )
+    bonemax_chat_setup = bool(scripted_bonemax and profile.get("bonemax_chat_setup"))
+    run_bonemax_onboarding = bool(
+        scripted_bonemax
+        and user
+        and not bonemax_schedule_active
+        and (
+            (explicit_schedule_start and start_schedule_maxx == "bonemax")
+            or (
+                bonemax_chat_setup
+                and not _bonemax_setup_stale(profile)
+                and (channel == "sms" or _assistant_last_turn_is_bonemax_onboarding(history))
             )
         )
     )
@@ -2377,6 +2561,138 @@ async def process_chat_message(
             await db.commit()
             return _finalize_assistant_message(response_text), []
 
+    # --- Bonemax chat onboarding (deterministic, mirrors fit/hair pattern) ---
+    if run_bonemax_onboarding:
+        bonemax_profile = dict(profile.get("bonemax_profile") or {})
+        seeded = _bonemax_seed_profile_from_onboarding(bonemax_profile, onboarding)
+        if seeded != bonemax_profile:
+            bonemax_profile = seeded
+            profile["bonemax_profile"] = bonemax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+
+        updates = _extract_bonemax_updates(message_text, bonemax_profile)
+        missing_next = _bonemax_missing_fields(bonemax_profile)
+        if missing_next:
+            nxt = missing_next[0]
+            if nxt not in updates:
+                _, choices = BONEMAX_QUESTION_MAP.get(nxt, ("", []))
+                if choices:
+                    coerced = _coerce_to_choice(message_text, choices)
+                    if coerced is not None:
+                        updates[nxt] = coerced
+
+        if updates:
+            bonemax_profile.update(updates)
+            profile["bonemax_profile"] = bonemax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+
+        missing = _bonemax_missing_fields(bonemax_profile)
+        if not bonemax_schedule_active and missing:
+            if not any(bonemax_profile.values()):
+                response_text = (
+                    "hey, setting up your bonemax schedule. just need a few quick answers. "
+                    + _bonemax_next_question(bonemax_profile)
+                )
+            else:
+                response_text = _bonemax_next_question(bonemax_profile)
+            choices_for_step = _bonemax_next_choices(bonemax_profile)
+
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            return _finalize_assistant_message(response_text), choices_for_step
+
+        if not bonemax_schedule_active and not missing:
+            profile.pop("bonemax_chat_setup", None)
+            profile.pop("bonemax_chat_setup_at", None)
+            profile["bonemax_profile"] = bonemax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+
+            wake = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
+            sleep = _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
+            wf = _coerce_to_choice(str(bonemax_profile.get("workout_frequency") or ""), ["0", "1-2", "3-4", "5+"])
+            tmj = _normalize_hair_yes_no(bonemax_profile.get("tmj_history")) or "no"
+            gum = _normalize_hair_yes_no(bonemax_profile.get("mastic_gum_regular")) or "no"
+            screen = _normalize_hair_yes_no(bonemax_profile.get("heavy_screen_time")) or "no"
+
+            # Persist canonical BoneMax fields so future schedule refreshes skip intake.
+            merged_onboarding = dict(onboarding or {})
+            merged_onboarding["bonemax_workout_frequency"] = wf
+            merged_onboarding["bonemax_tmj_history"] = tmj
+            merged_onboarding["bonemax_mastic_gum_regular"] = gum
+            merged_onboarding["bonemax_heavy_screen_time"] = screen
+            user.onboarding = merged_onboarding
+            flag_modified(user, "onboarding")
+            onboarding = merged_onboarding
+
+            try:
+                schedule = await schedule_service.generate_maxx_schedule(
+                    user_id=user_id,
+                    maxx_id="bonemax",
+                    db=db,
+                    rds_db=rds_db if rds_db else None,
+                    subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
+                    wake_time=str(wake),
+                    sleep_time=str(sleep),
+                    skin_concern=None,
+                    outside_today=False,
+                    override_workout_frequency=wf,
+                    override_tmj_history=tmj,
+                    override_mastic_gum_regular=gum,
+                    override_heavy_screen_time=screen,
+                )
+                user_context["active_maxx_schedule"] = schedule
+                response_text = _summarise_schedule(schedule)
+            except ScheduleLimitError as e:
+                names = ", ".join(e.active_labels)
+                response_text = (
+                    f"your bonemax profile is saved, but you already have {len(e.active_labels)} active modules ({names}). "
+                    "stop one of them first and then come back to start bonemax."
+                )
+
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            return _finalize_assistant_message(response_text), []
+
     # --- Fitmax meal logging from natural language (average macro lookup) ---
     if user:
         is_fitmax_context = (
@@ -2430,6 +2746,8 @@ async def process_chat_message(
             existing_maxx = fitmax_schedule_active
         elif maxx_id == "hairmax":
             existing_maxx = hairmax_schedule_active
+        elif maxx_id == "bonemax":
+            existing_maxx = bonemax_schedule_active
         else:
             try:
                 existing_maxx = await schedule_service.get_maxx_schedule(user_id, maxx_id, db=db)
@@ -2832,48 +3150,6 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             logger.info("[FAST_LINKS] user=%s maxx=%s", str(user_id)[:8], link_maxx[0])
             return _finalize_assistant_message(link_response), []
 
-    # --- Fast knowledge path: direct RAG answer, no agent/tool overhead ---
-    if (
-        not explicit_schedule_start
-        and not image_data
-        and turn_intent.get("intent") == "KNOWLEDGE"
-        and (turn_intent.get("maxx_hints") or active_hint)
-        and not _looks_like_task_operation_request(message_text)
-    ):
-        fast_response, fast_chunks = await answer_from_rag(
-            message=message_text,
-            maxx_hints=turn_intent.get("maxx_hints") or [],
-            active_maxx=active_hint,
-            response_length=str(onboarding.get("response_length") or "").strip().lower() or None,
-        )
-        if fast_response:
-            if _persist_chat_history(channel):
-                user_message = ChatHistory(
-                    user_id=user_uuid,
-                    role="user",
-                    content=message_text,
-                    channel=channel,
-                    created_at=datetime.utcnow(),
-                )
-                assistant_message = ChatHistory(
-                    user_id=user_uuid,
-                    role="assistant",
-                    content=fast_response,
-                    channel=channel,
-                    created_at=datetime.utcnow(),
-                )
-                db.add(user_message)
-                db.add(assistant_message)
-            await db.commit()
-            logger.info(
-                "[FAST_RAG] user=%s intent=%s hints=%s chunks=%d",
-                str(user_id)[:8],
-                turn_intent.get("intent"),
-                turn_intent.get("maxx_hints"),
-                len(fast_chunks),
-            )
-            return _finalize_assistant_message(fast_response), []
-
     # --- RAG retrieval (legacy agent path only; fast knowledge turns return earlier) ---
     # retrieve_chunks returns [] on any failure, so chat degrades gracefully.
     retrieved_chunks: list[dict] = []
@@ -2944,6 +3220,20 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             channel=channel,
         )
 
+    user_turn_persisted = False
+    if _persist_chat_history(channel):
+        db.add(
+            ChatHistory(
+                user_id=user_uuid,
+                role="user",
+                content=message_text,
+                channel=channel,
+                created_at=datetime.utcnow(),
+            )
+        )
+        await db.commit()
+        user_turn_persisted = True
+
     if getattr(settings, "chat_use_langgraph", False):
         from services.lc_graph import run_graph_chat
 
@@ -2967,6 +3257,17 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                 retrieved_chunks = graph_result["retrieved"]
         except Exception as llm_err:
             logger.exception("lc_graph failed for user %s: %s", user_id, llm_err)
+            if _persist_chat_history(channel):
+                db.add(
+                    ChatHistory(
+                        user_id=user_uuid,
+                        role="assistant",
+                        content=_friendly_llm_error_message(llm_err),
+                        channel=channel,
+                        created_at=datetime.utcnow(),
+                    )
+                )
+                await db.commit()
             return _finalize_assistant_message(_friendly_llm_error_message(llm_err)), []
     else:
         tools = _mk_tools()
@@ -2984,6 +3285,17 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             )
         except Exception as llm_err:
             logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)
+            if _persist_chat_history(channel):
+                db.add(
+                    ChatHistory(
+                        user_id=user_uuid,
+                        role="assistant",
+                        content=_friendly_llm_error_message(llm_err),
+                        channel=channel,
+                        created_at=datetime.utcnow(),
+                    )
+                )
+                await db.commit()
             return _finalize_assistant_message(_friendly_llm_error_message(llm_err)), []
 
     # --- Safety net: if user clearly requested a schedule change but agent missed it ---
@@ -3027,13 +3339,6 @@ Ask ONE question at a time. Your very first response must ask the concern questi
 
     # --- Save messages (app only; SMS is not stored) ---
     if _persist_chat_history(channel):
-        user_message = ChatHistory(
-            user_id=user_uuid,
-            role="user",
-            content=message_text,
-            channel=channel,
-            created_at=datetime.utcnow(),
-        )
         assistant_message = ChatHistory(
             user_id=user_uuid,
             role="assistant",
@@ -3043,7 +3348,14 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             retrieved_chunk_ids=_chunk_audit_refs(retrieved_chunks),
             partner_rule_ids=partner_rule_ids or None,
         )
-        db.add(user_message)
+        if not user_turn_persisted:
+            db.add(ChatHistory(
+                user_id=user_uuid,
+                role="user",
+                content=message_text,
+                channel=channel,
+                created_at=datetime.utcnow(),
+            ))
         db.add(assistant_message)
         await db.commit()
 
@@ -3079,16 +3391,6 @@ async def send_message(
     """Send message to Max AI (in-app)"""
     from services import chat_conversations_service as _conv
 
-    # Resolve the conversation up-front so we can echo the id back even if
-    # process_chat_message takes a fast path that wouldn't otherwise expose it.
-    conv = await _conv.resolve_active_conversation(
-        db,
-        user_id=current_user["id"],
-        conversation_id=data.conversation_id,
-        channel="app",
-    )
-    conv_id = str(conv.id)
-
     response_text, choices = await process_chat_message(
         user_id=current_user["id"],
         message_text=data.message,
@@ -3098,8 +3400,17 @@ async def send_message(
         chat_intent=data.chat_intent,
         attachment_url=data.attachment_url,
         attachment_type=data.attachment_type,
-        conversation_id=conv_id,
+        conversation_id=data.conversation_id,
     )
+    conv_id = data.conversation_id
+    if not conv_id:
+        conv = await _conv.resolve_active_conversation(
+            db,
+            user_id=current_user["id"],
+            conversation_id=None,
+            channel="app",
+        )
+        conv_id = str(conv.id)
     return ChatResponse(
         response=response_text,
         choices=choices,

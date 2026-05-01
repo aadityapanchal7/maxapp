@@ -8,6 +8,11 @@ pycache/
 venv/
 .venv/
 env/
+*venv/
+backend/venv/
+backend/.venv/
+**/site-packages/
+pip-wheel-metadata/
 
 # Local duplicate app folder
 cannonapp/

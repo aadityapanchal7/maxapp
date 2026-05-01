@@ -6,11 +6,12 @@ Folder mapping:
     rag_info/fit_info/**     -> fitmax
     rag_info/general_info/** -> general   (cross-cutting knowledge, searched alongside any module)
     rag_info/hair_info/**    -> hairmax
+    rag_info/height_info/**  -> heightmax
     rag_info/skin_info/**    -> skinmax
 
 The script is fully idempotent: for each (maxx_id, doc_title) pair it deletes
-existing rows before inserting fresh ones.  No embeddings are generated -- the
-runtime RAG pipeline uses BM25 text search.
+existing rows before inserting fresh ones. Embeddings are generated when
+OPENAI_API_KEY is configured; otherwise rows are inserted with NULL embedding.
 
 Usage (from the backend/ directory):
     python scripts/ingest_rag_info.py              # full ingest
@@ -45,6 +46,7 @@ FOLDER_TO_MAXX: dict[str, str] = {
     "fit_info":     "fitmax",
     "general_info": "general",
     "hair_info":    "hairmax",
+    "height_info":  "heightmax",
     "skin_info":    "skinmax",
 }
 
@@ -159,24 +161,39 @@ async def upsert_document(
     from sqlalchemy import text
     import json
     from datetime import datetime
+    from services.rag_service import embed_batch
 
     await session.execute(
         text("DELETE FROM rag_documents WHERE maxx_id = :mid AND doc_title = :dt"),
         {"mid": maxx_id, "dt": doc_title},
     )
 
+    embeddings: list[list[float]] = []
+    can_embed = bool((os.getenv("OPENAI_API_KEY") or "").strip())
+    if can_embed and chunks:
+        try:
+            embeddings = await embed_batch(chunks)
+        except Exception as e:
+            print(f"[WARN] embedding generation failed for {maxx_id}/{doc_title}: {e}")
+            embeddings = []
+
     now = datetime.utcnow().isoformat()
     for i, chunk in enumerate(chunks):
+        emb_lit = None
+        if i < len(embeddings) and embeddings[i]:
+            emb = ",".join(f"{float(v):.8f}" for v in embeddings[i])
+            emb_lit = f"[{emb}]"
         await session.execute(
             text(
-                "INSERT INTO rag_documents (maxx_id, doc_title, chunk_index, content, metadata) "
-                "VALUES (:maxx_id, :doc_title, :chunk_index, :content, CAST(:metadata AS jsonb))"
+                "INSERT INTO rag_documents (maxx_id, doc_title, chunk_index, content, metadata, embedding) "
+                "VALUES (:maxx_id, :doc_title, :chunk_index, :content, CAST(:metadata AS jsonb), CAST(:embedding AS vector))"
             ),
             {
                 "maxx_id": maxx_id,
                 "doc_title": doc_title,
                 "chunk_index": i,
                 "content": chunk,
+                "embedding": emb_lit,
                 "metadata": json.dumps({
                     "source_file": os.path.basename(source_file),
                     "ingested_at": now,
