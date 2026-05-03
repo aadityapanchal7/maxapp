@@ -23,7 +23,7 @@ import logging
 import os
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 from zoneinfo import ZoneInfo
 
 if TYPE_CHECKING:
@@ -395,6 +395,7 @@ def make_chat_tools(
         if not cur:
             return "no active schedule to modify"
         try:
+            from services.schedule_runtime import adapt_and_persist
             async with db_mutation_lock:
                 extracted = _extract_wake_sleep_from_feedback(feedback)
                 if extracted["wake"] or extracted["sleep"]:
@@ -404,7 +405,7 @@ def make_chat_tools(
                         extracted["wake"],
                         extracted["sleep"],
                     )
-                result = await schedule_service.adapt_schedule(
+                result = await adapt_and_persist(
                     user_id=user_id,
                     schedule_id=cur["id"],
                     db=db,
@@ -461,6 +462,79 @@ def make_chat_tools(
         maxx_id must be one of: skinmax, heightmax, hairmax, fitmax, bonemax.
         Returns a summary of day 1 tasks or an error message listing what is missing.
         """
+        # ---- New doc-driven path -------------------------------------------------
+        # If a max-doc exists for this maxx_id, route to the new generator.
+        # All required-field validation, prompt assembly, task picking, validation
+        # and persistence live there. No more per-max hardcoded logic here.
+        try:
+            from services.task_catalog_service import get_doc as _doc_get
+            from services.schedule_runtime import generate_and_persist, ScheduleLimitError
+        except Exception:
+            _doc_get = None  # type: ignore
+        req_maxx_early = str(maxx_id or "").strip().lower()
+        if _doc_get is not None and _doc_get(req_maxx_early) is not None:
+            try:
+                # Merge tool args into onboarding overlay so required-field
+                # validation in the generator sees them. Only set keys that were
+                # actually provided by the model (skip the defaults).
+                ob_overlay = dict(onboarding or {})
+                _sex_local = sex or gender
+                for k, v in (
+                    ("skin_concern", skin_concern),
+                    ("age", _safe_int_age(age)),
+                    ("sex", _sex_local),
+                    ("gender", gender),
+                    ("height", height),
+                    ("hair_type", hair_type),
+                    ("scalp_state", scalp_state),
+                    ("daily_styling", daily_styling),
+                    ("hair_thinning", hair_thinning if hair_thinning is not None else thinning),
+                    ("workout_frequency", workout_frequency),
+                    ("tmj_history", tmj_history),
+                    ("mastic_gum_regular", mastic_gum_regular),
+                    ("heavy_screen_time", heavy_screen_time),
+                ):
+                    if v is not None and str(v).strip() != "":
+                        ob_overlay[k] = v
+                final_wake_n = _normalize_clock_hhmm(wake_time) or _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"
+                final_sleep_n = _normalize_clock_hhmm(sleep_time) or _normalize_clock_hhmm(onboarding.get("sleep_time")) or "23:00"
+                async with db_mutation_lock:
+                    await _persist_user_wake_sleep(user, db, final_wake_n, final_sleep_n)
+                    result = await generate_and_persist(
+                        user_id=user_id,
+                        maxx_id=req_maxx_early,
+                        db=db,
+                        onboarding=ob_overlay,
+                        wake_time=final_wake_n,
+                        sleep_time=final_sleep_n,
+                        subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
+                    )
+                schedule_state["active"] = {
+                    "id": result.get("id"),
+                    "maxx_id": result.get("maxx_id"),
+                    "course_title": result.get("course_title"),
+                    "days": result.get("days") or [],
+                }
+                coaching_service.invalidate_context_cache(user_id)
+                return result.get("summary") or _summarise_schedule(result)
+            except ScheduleLimitError as e:
+                names = ", ".join(e.active_labels)
+                return (
+                    f"schedule limit reached: you already have {len(e.active_labels)} active modules ({names}). "
+                    "stop one first."
+                )
+            except ValueError as e:
+                msg = str(e)
+                if "missing required fields" in msg.lower() or "missing required" in msg.lower():
+                    return msg
+                logger.exception("new generator failed for %s: %s", req_maxx_early, e)
+                return f"schedule generation failed: {msg}"
+            except Exception as e:
+                await _safe_rollback()
+                logger.exception("new generator unexpected error for %s: %s", req_maxx_early, e)
+                return "schedule generation failed — try again in a moment"
+
+        # ---- Legacy path (no max-doc available — kept for migration window) -----
         try:
             req_maxx = str(maxx_id or "skinmax").strip().lower()
             _age = _safe_int_age(age)
@@ -1203,25 +1277,38 @@ def make_chat_tools(
     @tool
     async def update_schedule_context(key: str, value: str) -> str:
         """
-        Store a schedule habit context value, e.g. outside_today, wake_time, sleep_time.
+        Save persistent context the bot learned from chat that should influence
+        future schedule generations and tweaks. Examples of keys:
+          - product_preferences (object), product_dislikes (list)
+          - morning_friction ("high"|"low"), explicit_avoidances (list)
+          - equipment_owned (list), timing_preferences (object)
+          - wake_time, sleep_time (also persisted to user profile)
         """
         try:
-            lk = key.lower().replace("-", "_")
+            from services.user_context_service import merge_context, append_to_list
+            lk = (key or "").lower().replace("-", "_")
             if lk in ("wake_time", "sleep_time", "preferred_wake_time", "preferred_sleep_time"):
                 wk = value if "wake" in lk else None
                 sk = value if "sleep" in lk else None
                 async with db_mutation_lock:
                     await _persist_user_wake_sleep(user, db, wk, sk)
-            cur = schedule_state.get("active")
-            if cur and key:
-                async with db_mutation_lock:
-                    await schedule_service.update_schedule_context(
-                        user_id=user_id,
-                        schedule_id=cur["id"],
-                        db=db,
-                        context_updates={key: value},
-                    )
-            return f"{key}={value} saved"
+            # Coerce value: if it looks like a JSON literal, parse; else store raw.
+            parsed_val: Any = value
+            try:
+                import json as _json
+                stripped = (value or "").strip()
+                if stripped.startswith(("{", "[", '"')) or stripped in ("true", "false", "null"):
+                    parsed_val = _json.loads(stripped)
+            except Exception:
+                pass
+            list_keys = {"product_dislikes", "explicit_avoidances", "equipment_owned",
+                         "skipped_repeatedly", "reported_issues"}
+            async with db_mutation_lock:
+                if lk in list_keys and not isinstance(parsed_val, list):
+                    await append_to_list(user_id, lk, parsed_val, db)
+                else:
+                    await merge_context(user_id, {lk: parsed_val}, db)
+            return f"{lk}={parsed_val} saved"
         except Exception as e:
             await _safe_rollback()
             logger.exception("update_schedule_context tool failed: %s", e)

@@ -37,7 +37,10 @@ async def lifespan(app: FastAPI):
     # Warm BM25 RAG indexes so the first KNOWLEDGE turn doesn't pay the
     # cold-load round-trip (~150-300ms). Logged + swallowed on failure.
     from services.rag_service import warm_indexes
-    await warm_indexes()
+    from services.task_catalog_service import warm_catalog
+    # Warm in parallel — both are independent disk/DB reads.
+    import asyncio as _asyncio
+    await _asyncio.gather(warm_indexes(), warm_catalog(), return_exceptions=True)
     # Start background scheduler for notifications
     from services.scheduler_job import start_scheduler, stop_scheduler
     from services.apns_service import apns_configured
