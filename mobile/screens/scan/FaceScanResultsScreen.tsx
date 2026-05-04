@@ -763,7 +763,7 @@ export default function FaceScanResultsScreen() {
 
     const onSaveScanPhoto = async () => {
         if (Platform.OS === 'web') {
-            Alert.alert('Save on web', 'Use your browser screenshot tool, or open Max on your phone to save your rating card to Photos.');
+            Alert.alert('Save on web', 'Use your browser screenshot tool, or open Agartha on your phone to save your rating card to Photos.');
             return;
         }
         if (frontUri && !shareImageReady) {
@@ -795,13 +795,13 @@ export default function FaceScanResultsScreen() {
     const onShareRating = async () => {
         const tierLine = pslTier ? ` · Tier: ${pslTier}` : '';
         const r = ratingDisplay != null ? ratingDisplay.toFixed(1) : '—';
-        const msg = `My facial rating on Max: ${r}/10 · Potential: ${potentialDisplay.toFixed(1)}/10${tierLine}`;
+        const msg = `My facial rating on Agartha: ${r}/10 · Potential: ${potentialDisplay.toFixed(1)}/10${tierLine}`;
 
         if (Platform.OS === 'web') {
             try {
                 const nav = typeof globalThis !== 'undefined' ? (globalThis as any).navigator : undefined;
                 if (nav?.share) {
-                    await nav.share({ title: 'My Max rating', text: msg });
+                    await nav.share({ title: 'My Agartha rating', text: msg });
                     return;
                 }
                 if (nav?.clipboard?.writeText) {
@@ -812,7 +812,7 @@ export default function FaceScanResultsScreen() {
             } catch {
                 /* fall through */
             }
-            Alert.alert('My Max rating', msg);
+            Alert.alert('My Agartha rating', msg);
             return;
         }
 
@@ -825,18 +825,18 @@ export default function FaceScanResultsScreen() {
         try {
             const pngUri = await captureRatingCardToPng(shareCardRef);
             if (!pngUri) {
-                await Share.share({ message: msg, title: 'My Max rating' });
+                await Share.share({ message: msg, title: 'My Agartha rating' });
                 return;
             }
             const canShareFiles = await Sharing.isAvailableAsync();
             if (canShareFiles) {
                 await Sharing.shareAsync(pngUri, {
                     mimeType: 'image/png',
-                    dialogTitle: 'Share your Max rating',
+                    dialogTitle: 'Share your Agartha rating',
                 });
             } else {
                 await Share.share({
-                    title: 'My Max rating',
+                    title: 'My Agartha rating',
                     message: msg,
                     url: pngUri,
                 } as any);
@@ -844,7 +844,7 @@ export default function FaceScanResultsScreen() {
         } catch (e: any) {
             if (e?.message !== 'User did not share') console.error(e);
             try {
-                await Share.share({ message: msg, title: 'My Max rating' });
+                await Share.share({ message: msg, title: 'My Agartha rating' });
             } catch (e2: any) {
                 if (e2?.message !== 'User did not share') console.error(e2);
             }

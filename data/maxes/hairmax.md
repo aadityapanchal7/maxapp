@@ -11,6 +11,88 @@ schedule_design:
   intensity_ramp:
     week_1: [0.0, 0.6]
     week_2: [0.4, 1.0]
+  skeleton:
+    blocks:
+      # Wash cadence depends on hair_type: curly 1×/wk + co-wash, others 2×/wk.
+      - id: wash_curly
+        slot: am_active
+        cadence: n_per_week=1
+        if: "hair_type == curly"
+        tasks: [hair.shampoo_wash]
+      - id: cowash_curly
+        slot: am_active
+        cadence: n_per_week=1
+        if: "hair_type == curly"
+        tasks: [hair.cowash_curly]
+      - id: wash_default
+        slot: am_active
+        cadence: n_per_week=2
+        if: "hair_type in [straight, wavy]"
+        tasks: [hair.shampoo_wash]
+      # Hydration / leave-in only for wavy/curly or dry scalp.
+      - id: leavein
+        slot: am_active
+        cadence: n_per_week=2
+        if: "hair_type in [wavy, curly] or scalp_state == dry"
+        tasks: [hair.leavein]
+      # Daily styling track.
+      - id: style_daily
+        slot: am_active
+        cadence: daily
+        if: "daily_styling == true"
+        tasks: [hair.style_product]
+      - id: heat_protect
+        slot: am_active
+        cadence: daily
+        if: "heat_styling == true"
+        tasks: [hair.heat_protect]
+      - id: product_rinse
+        slot: pm_close
+        cadence: n_per_week=2
+        if: "daily_styling == true"
+        tasks: [hair.product_rinse_pm]
+      # Always-on circulation.
+      - id: scalp_massage
+        slot: am_open
+        cadence: n_per_week=5
+        tasks: [hair.scalp_massage]
+      # Loss-prevention track. Active = both AM+PM minox; observing/family = none.
+      - id: minox_am
+        slot: am_open
+        cadence: daily
+        if: "hair_loss_signs in [yes_active, yes_observing] and minoxidil_using != false"
+        tasks: [hair.minoxidil_am]
+      - id: minox_pm
+        slot: pm_close
+        cadence: daily
+        if: "hair_loss_signs == yes_active and minoxidil_using != false"
+        tasks: [hair.minoxidil_pm]
+      # Microneedle ONCE per week, on a day with no minox (handled by scheduler).
+      - id: microneedle
+        slot: pm_active
+        cadence: n_per_week=1
+        if: "hair_loss_signs in [yes_active, yes_observing] and dermaroller_owned == true and scalp_state != sensitive"
+        not_with_same_day: [hair.minoxidil_am, hair.minoxidil_pm]
+        tasks: [hair.microneedle_pm]
+      - id: finasteride
+        slot: flexible
+        cadence: daily
+        if: "finasteride_using == true"
+        tasks: [hair.finasteride_reminder]
+      - id: scalp_check
+        slot: flexible
+        cadence: every_n_days=14
+        if: "hair_loss_signs in [yes_observing, no_but_family]"
+        tasks: [hair.scalp_check]
+      - id: beard_trim
+        slot: am_active
+        cadence: n_per_week=2
+        if: "facial_hair_growing == true"
+        tasks: [hair.beard_trim]
+      - id: haircut_book
+        slot: flexible
+        cadence: every_n_days=28
+        tasks: [hair.haircut_book]
 
 required_fields:
   - id: hair_type
@@ -29,7 +111,7 @@ required_fields:
     options:
       yes_active: "Yes — and I want to act on it"
       yes_observing: "Maybe — I'm not sure yet"
-      no: "No"
+      "no": "No"
       no_but_family: "No, but it runs in my family"
     required: true
     why: "Determines whether the loss-prevention track activates (minoxidil/microneedle/finasteride reminders)."

@@ -76,20 +76,62 @@ OUTPUT JSON shape:
   "context_updates": { "<key>": <value>, ... }
 }
 
-CONTEXT UPDATES — extract any persistent facts the user revealed (use these keys):
+DAY MAPPING (CRITICAL when the user names weekdays):
+  The CURRENT SCHEDULE block lists each day with its `day_index` AND the
+  weekday it lands on. When the user names a weekday — "tuesdays",
+  "weekends", "fridays" — they ALWAYS mean a recurring rule, not just
+  one day. The schedule covers ~14 days, so each weekday appears TWICE.
+  YOU MUST EMIT ONE OP PER MATCHING TASK PER MATCHING DAY. Walk EVERY
+  day in the snapshot, check its weekday, and emit ops for EVERY match.
+
+  Concrete: "cancel gym on tuesdays" with a schedule containing 2
+  Tuesdays and 3 gym tasks each → emit 6 remove ops, not 1, not 3.
+
+  Common groupings:
+    "gym"            → height.face_pulls, height.glute_bridge,
+                       height.dead_hang, height.foam_roll_back, all
+                       fitmax.* exercise tasks
+    "skincare"       → all skin.* catalog ids
+    "actives"        → skin.retinoid_pm, skin.dermastamp_pm,
+                       skin.azelaic_am, skin.centella_am
+    "weekends"       → Saturday + Sunday day_indices
+  Examples:
+    "cancel gym on tuesdays"       → emit `remove` for every face_pulls /
+                                      glute_bridge / dead_hang task whose
+                                      day_index has weekday=Tuesday
+    "no skincare on weekends"      → remove skin.* tasks where weekday
+                                      ∈ {Saturday, Sunday}
+    "move tret to mondays only"    → emit `remove` for tret on non-Monday
+                                      days; tret on Mondays stays
+    "skip everything tomorrow"     → remove all tasks for day_index=1
+
+PERSISTENT-PREFERENCE EXTRACTION:
+  When a user expresses an ongoing rule (not a one-off), ALSO emit
+  context_updates so future regenerations honor it:
+    "no gym on tuesdays"           → context_updates.timing_preferences =
+                                      {"no_gym_weekdays": ["tuesday"]}
+    "i'm allergic to fragrance"    → context_updates.product_dislikes
+                                      ["fragrance"]
+    "stop suggesting mewing"       → context_updates.explicit_avoidances
+                                      ["mewing"]
+
+CONTEXT UPDATES — keys to use:
   product_preferences   {"<role>": "<brand>"}        e.g. user said "i use cerave foaming"
   product_dislikes      ["..."]                       e.g. "the ordinary niacinamide breaks me out"
   morning_friction      "high" | "low"                e.g. "i hate mornings"
   equipment_owned       ["dermastamp"]                e.g. "i just got a dermastamp"
   explicit_avoidances   ["mewing"]                    e.g. "no mewing please"
-  timing_preferences    {"workout": "evening"}        e.g. "i can only train at night"
+  timing_preferences    {"workout": "evening", "no_gym_weekdays": ["tuesday"]}
 
 RULES:
-- Use only existing task_ids for move/remove/swap. Use only catalog_ids from ELIGIBLE for swap/add.
+- Use ONLY existing task_ids for move/remove/swap. Use ONLY catalog_ids from ELIGIBLE for swap/add.
 - Don't add more than 3 tasks total in one adapt call.
+- If the user mentions a weekday or "weekends", ALWAYS expand it to every
+  matching day_index — never to just one day.
 - If feedback is "too hard", prefer removing high-intensity tasks first.
-- If feedback names a task, ONLY touch that task and its replacements — leave everything else alone.
-- Empty ops list is valid if feedback is just informational.
+- If feedback names a specific task, ONLY touch that task and its replacements.
+- Empty ops list is valid if feedback is purely informational ("i like the plan").
+- Lower-cased summary, no markdown headings.
 """
 
 
@@ -147,6 +189,12 @@ async def adapt_schedule(
     summary = str(parsed.get("summary") or "schedule updated").strip()[:400]
     context_updates = parsed.get("context_updates") or {}
 
+    # Post-process: when the user named a weekday or "weekends", expand
+    # each remove op to ALL matching weekday days. The LLM regularly
+    # under-emits here (e.g. emits 1 op for "cancel X on tuesdays" when
+    # the schedule has 2 Tuesdays). This pass guarantees full coverage
+    # without requiring perfect LLM output.
+    ops = _expand_recurring_weekday_ops(ops=ops, days=days, feedback=feedback)
     new_days, applied = _apply_ops(days=days, ops=ops, maxx_id=maxx_id)
 
     # Validate the result. Soft fixes only — adapter failures don't retry; we
@@ -187,12 +235,29 @@ def _build_adapt_prompt(
     wake: str,
     sleep: str,
 ) -> str:
-    # Compact view of current schedule.
-    lines = []
+    # Compact view of current schedule. Stamp weekday on each day so the
+    # LLM can resolve "tuesdays", "weekends", "tomorrow" → day_index.
+    from datetime import date as _date, timedelta as _td
+    lines: list[str] = []
+    today_is_first = True   # day 0 is "today" (set during generation)
+    anchor_date = _date.today()
     for di, day in enumerate(days):
+        # Prefer the date stored on the day itself; fallback to anchor+offset.
+        d_iso = day.get("date") or (anchor_date + _td(days=di)).isoformat()
+        try:
+            d_obj = _date.fromisoformat(d_iso)
+            weekday = d_obj.strftime("%A")
+            d_label = f"{weekday} {d_iso}"
+        except Exception:
+            d_label = d_iso
+        # One header line per day so the LLM can see "d2 = Tuesday".
+        lines.append(f"  -- d{di}  {d_label} --")
         for t in day.get("tasks") or []:
+            # IMPORTANT: pass the FULL task_id, not truncated. The adapter's
+            # _apply_ops matches on the full string; a truncation here means
+            # every remove/move op the LLM emits will be unfindable.
             lines.append(
-                f"  d{di} {t.get('time','??:??')}  task_id={t.get('task_id','?')[:8]}  "
+                f"     {t.get('time','??:??')}  task_id={t.get('task_id','?')}  "
                 f"catalog={t.get('catalog_id','?')}  \"{t.get('title','')}\""
             )
     sched_block = "\n".join(lines) if lines else "  (empty)"
@@ -202,18 +267,104 @@ def _build_adapt_prompt(
         for t in eligible
     )
 
-    state_block = "\n".join(f"  {k}: {v}" for k, v in user_state.items() if v not in (None, "", [], {}))
+    state_block = "\n".join(f"  {k}: {v}" for k, v in user_state.items() if v not in (None, "", [], {}) and not k.startswith("_"))
+
+    # Long-term user facts (diet/allergies/etc.) — same source the chat
+    # agent uses. Inject into the adapter so e.g. "swap tret for something
+    # vegan-friendly" honors stored facts.
+    facts_block = ""
+    try:
+        from services.user_facts_service import format_facts_for_prompt
+        facts_block = format_facts_for_prompt(user_state.get("user_facts") or {})
+    except Exception:
+        pass
 
     return (
         f"{ADAPT_SYSTEM_PROMPT}\n\n"
         f"## MAX: {doc.maxx_id}\n"
         f"## WAKE/SLEEP: {wake} / {sleep}\n\n"
         f"## USER STATE\n{state_block or '  (empty)'}\n\n"
-        f"## CURRENT SCHEDULE ({len(days)} days)\n{sched_block}\n\n"
+        + (f"{facts_block}\n\n" if facts_block else "")
+        + f"## CURRENT SCHEDULE ({len(days)} days)\n{sched_block}\n\n"
         f"## ELIGIBLE TASKS (for swap/add)\n{elig_block}\n\n"
         f"## USER FEEDBACK\n\"{feedback}\"\n\n"
         f"Return the JSON object now."
     )
+
+
+def _expand_recurring_weekday_ops(
+    *, ops: list[dict], days: list[dict], feedback: str,
+) -> list[dict]:
+    """If the user mentioned weekdays / "weekends" / "every" in their
+    request, expand each `remove` op to ALL matching tasks across the
+    relevant days. Conservative: only expands when the feedback clearly
+    signals a recurring pattern. Idempotent — running twice is safe."""
+    from datetime import date as _date
+    if not ops:
+        return ops
+    fb = (feedback or "").lower()
+    weekday_names = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+    targeted: set[str] = {w for w in weekday_names if w in fb or (w + "s") in fb}
+    if "weekends" in fb or "weekend" in fb:
+        targeted.update({"saturday", "sunday"})
+    if "weekdays" in fb:
+        targeted.update({"monday", "tuesday", "wednesday", "thursday", "friday"})
+    if not targeted and "every" not in fb:
+        return ops
+
+    # Build day_index → weekday map.
+    di_to_wd: dict[int, str] = {}
+    for di, day in enumerate(days):
+        d_iso = day.get("date")
+        if not d_iso:
+            continue
+        try:
+            di_to_wd[di] = _date.fromisoformat(d_iso).strftime("%A").lower()
+        except Exception:
+            continue
+
+    # Collect catalog_ids the LLM wanted removed.
+    remove_cids: set[str] = set()
+    keep_ops: list[dict] = []
+    for op in ops:
+        if not isinstance(op, dict):
+            continue
+        if op.get("action") == "remove" and op.get("task_id"):
+            # Find the catalog_id for this task to expand the rule.
+            tid = str(op["task_id"])
+            for day in days:
+                for t in (day.get("tasks") or []):
+                    if t.get("task_id") == tid:
+                        cid = t.get("catalog_id")
+                        if cid:
+                            remove_cids.add(cid)
+                        break
+            keep_ops.append(op)
+        else:
+            keep_ops.append(op)
+
+    if not remove_cids or not targeted:
+        return ops
+
+    # For every task in the schedule whose catalog_id is in remove_cids
+    # AND whose weekday is targeted, ensure there's a remove op.
+    existing_targets: set[str] = {
+        str(o.get("task_id")) for o in ops
+        if isinstance(o, dict) and o.get("action") == "remove" and o.get("task_id")
+    }
+    extra_ops: list[dict] = []
+    for di, day in enumerate(days):
+        wd = di_to_wd.get(di)
+        if not wd or wd not in targeted:
+            continue
+        for t in (day.get("tasks") or []):
+            cid = t.get("catalog_id")
+            tid = t.get("task_id")
+            if cid in remove_cids and tid and tid not in existing_targets:
+                extra_ops.append({"action": "remove", "task_id": tid})
+                existing_targets.add(tid)
+
+    return keep_ops + extra_ops
 
 
 def _apply_ops(*, days: list[dict], ops: list[dict], maxx_id: str) -> tuple[list[dict], list[dict]]:

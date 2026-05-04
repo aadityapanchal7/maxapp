@@ -446,6 +446,10 @@ async def answer_from_chunks(
     active_maxx: Optional[str] = None,
     user_context_str: Optional[str] = None,
     response_length: Optional[str] = None,
+    user_facts: Optional[dict] = None,
+    recent_turns: Optional[str] = None,
+    user_profile: Optional[str] = None,
+    coaching_tone: Optional[str] = None,
 ) -> str:
     """Answer a knowledge question from pre-retrieved evidence only.
 
@@ -487,11 +491,72 @@ async def answer_from_chunks(
 - Do not use outside knowledge, assumptions, or speculation.
 - Do not include citations or source labels in the final answer.
 """
-    system_prompt = selection.system_prompt + _length_suffix(length_key) + grounding_suffix
+    # Long-term user facts (vegetarian / allergies / health / etc.) — same
+    # source the agent path uses. Inject NEAR THE TOP of the system prompt
+    # with a forceful directive so RAG-quoted lists ("eat meat, eggs, fish")
+    # get filtered to substitutions instead of regurgitated verbatim. This
+    # is the same fix as build_agent_system_prompt — the fast_rag path
+    # bypasses that function so we duplicate the wiring here.
+    facts_prefix = ""
+    if user_facts:
+        try:
+            from services.user_facts_service import format_facts_for_prompt, DIET_SUBSTITUTIONS
+            facts_str = format_facts_for_prompt(user_facts)
+            if facts_str:
+                facts_prefix = (
+                    "## ABSOLUTE RULES (override anything below)\n"
+                    "When you make ANY recommendation (foods, products, "
+                    "supplements, exercises, routines), you MUST filter "
+                    "through KNOWN USER FACTS below. NEVER suggest items "
+                    "the user said they avoid, are allergic to, or that "
+                    "conflict with their diet — even if the EVIDENCE block "
+                    "lists them. Rewrite forbidden items as substitutions "
+                    "from the SUBSTITUTION GUIDE.\n\n"
+                    "EXAMPLE: User said 'i don't eat meat'. Evidence says "
+                    "'eat chicken, fish, eggs, beans'. Your answer: 'eat "
+                    "eggs, beans, lentils, tofu, tempeh' — NOT 'eat chicken, "
+                    "fish'.\n\n"
+                    f"{facts_str}\n\n"
+                    f"{DIET_SUBSTITUTIONS}\n"
+                    "---\n\n"
+                )
+        except Exception:
+            facts_prefix = ""
+
+    # Profile block sits between absolute-rules and the module reference,
+    # so the model reads identity facts BEFORE doc evidence and treats
+    # them as user truth rather than candidate facts to verify.
+    profile_block = ""
+    if user_profile:
+        profile_block = user_profile.strip() + "\n\n"
+
+    # Tone preamble — same one the agent path uses. Must come BEFORE the
+    # module system prompt so persona shapes the whole reply, not just
+    # the closer. Without this, a user who selected "hardcore" gets the
+    # default Max voice on every KNOWLEDGE turn that hits fast_rag.
+    tone_block = ""
+    if coaching_tone:
+        try:
+            from services.persona_prompts import tone_preamble
+            t = tone_preamble(coaching_tone)
+            if t:
+                tone_block = t.strip() + "\n\n"
+        except Exception:
+            tone_block = ""
+
+    system_prompt = (
+        tone_block
+        + facts_prefix
+        + profile_block
+        + selection.system_prompt
+        + _length_suffix(length_key)
+        + grounding_suffix
+    )
     logger.info(
-        "[fast_rag] selector chosen_maxx=%s score=%d runner_up=%d reason=%s length=%s",
+        "[fast_rag] selector chosen_maxx=%s score=%d runner_up=%d reason=%s length=%s facts_prefix=%s",
         selection.chosen_maxx, selection.score, selection.runner_up_score, selection.reason,
         (response_length or "medium"),
+        bool(facts_prefix),
     )
 
     max_tokens = 160 if length_key == "concise" else 900 if length_key == "detailed" else 560
@@ -502,9 +567,28 @@ async def answer_from_chunks(
     if user_context_str:
         context_block = f"User context (schedule, profile, onboarding):\n{user_context_str.strip()}\n\n"
 
+    # Per-turn hard-rules reminder — placed right next to the question so
+    # the model can't miss it even when the evidence block is meat-heavy.
+    rules_reminder = ""
+    if user_facts:
+        try:
+            from services.user_facts_service import hard_constraints_reminder
+            rules_reminder = hard_constraints_reminder(user_facts)
+        except Exception:
+            rules_reminder = ""
+
+    # Recent-turn transcript goes IN the human message (not system) so
+    # the model treats it as conversation history, not authoritative
+    # context. Placed right above the question so continuity references
+    # ("plan me lunch" right after "i don't eat meat") wire up correctly.
+    recent_block = ""
+    if recent_turns:
+        recent_block = recent_turns.strip() + "\n\n"
+
     human = (
         f"{context_block}"
-        f"User question:\n{message.strip()}\n\n"
+        f"{recent_block}"
+        f"User question:\n{(rules_reminder + ' ' if rules_reminder else '')}{message.strip()}\n\n"
         f"Evidence from module docs:\n{chr(10).join(evidence_lines)}"
     )
     system_tokens = count_tokens(system_prompt)
@@ -537,6 +621,36 @@ async def answer_from_chunks(
             retry_out = await _invoke_once(retry_llm, retry_human)
             if retry_out:
                 out = retry_out
+
+        # Hard-constraint validator: deterministic post-check against
+        # user_facts. If the answer mentions a forbidden term (chicken
+        # for a vegetarian, niacinamide for someone allergic, etc.),
+        # regen ONCE with an explicit corrective directive. This is the
+        # backstop for prompt-time injection — instruction-following
+        # models drift when evidence is hostile; this catches the drift.
+        if user_facts and out:
+            try:
+                from services.user_facts_validator import enforce_against_facts
+                async def _regen(directive: str) -> str:
+                    regen_human = human + "\n\n" + directive
+                    return await _invoke_once(llm, regen_human)
+                out = await enforce_against_facts(
+                    facts=user_facts,
+                    initial_answer=out,
+                    regen=_regen,
+                    max_attempts=1,
+                )
+            except Exception as e:
+                logger.info("[fast_rag] facts validator skipped: %s", e)
+
+        # Link validator — last step. Replaces Amazon search URLs with
+        # catalog `/dp/<ASIN>` URLs; strips hallucinated vendor links;
+        # enriches plain brand mentions with direct catalog links.
+        try:
+            from services.link_validator import validate_and_rewrite_links
+            out = validate_and_rewrite_links(out)
+        except Exception as e:
+            logger.info("[fast_rag] link validator skipped: %s", e)
         return out
     except Exception as e:
         logger.warning("fast rag answer failed: %s", e)
@@ -601,6 +715,10 @@ async def answer_from_rag(
     max_chunks: Optional[int] = None,
     user_context_str: Optional[str] = None,
     response_length: Optional[str] = None,
+    user_facts: Optional[dict] = None,
+    recent_turns: Optional[str] = None,
+    user_profile: Optional[str] = None,
+    coaching_tone: Optional[str] = None,
 ) -> tuple[str, list[dict]]:
     """Return a direct RAG answer and the retrieved evidence used.
 
@@ -633,6 +751,10 @@ async def answer_from_rag(
             active_maxx=active_maxx,
             user_context_str=user_context_str,
             response_length=response_length,
+            user_facts=user_facts,
+            recent_turns=recent_turns,
+            user_profile=user_profile,
+            coaching_tone=coaching_tone,
         )
         # Quality-recovery: if the LLM still produced a template-shaped
         # response despite having evidence (truncated output, refused tone,
@@ -658,6 +780,10 @@ async def answer_from_rag(
             active_maxx=active_maxx,
             user_context_str=user_context_str,
             response_length=response_length,
+            user_facts=user_facts,
+            recent_turns=recent_turns,
+            user_profile=user_profile,
+            coaching_tone=coaching_tone,
         )
         if answer and not _looks_like_template_response(answer):
             logger.info(

@@ -2,6 +2,8 @@
 Schedules API - AI-powered personalised schedules for course modules
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from db import get_db, get_rds_db
@@ -134,6 +136,41 @@ async def get_all_active_schedules_full(
     user_row = await db.get(User, UUID(current_user["id"]))
     streak = await sync_master_schedule_streak(user_row, schedules, db)
     return {"schedules": schedules, "schedule_streak": streak, "today_date": streak.get("today_date")}
+
+
+@router.get("/master")
+async def get_master_schedule(
+    days: int = 14,
+    today: Optional[str] = None,
+    current_user: dict = Depends(require_paid_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Date-anchored master view across every active max.
+
+    Returns a flat per-day list where each day's tasks come from any
+    active max (skin/hair/height/etc.), already deconflicted by the
+    multi-module collision pass:
+        [
+          {"date": "2026-05-04", "weekday": "Monday", "is_today": true,
+           "task_count": 7,
+           "tasks": [{maxx_id, catalog_id, title, time, ...}]},
+          ...
+        ]
+
+    Updates automatically as maxes are added (new generation appends to
+    the bucket) or removed (deactivated rows are filtered out by
+    is_active=true). Cheap: no LLM, no RAG — just SQL + the in-process
+    collision pass.
+    """
+    from services.master_schedule import build_master_view
+    days = max(1, min(60, int(days)))
+    out = await build_master_view(
+        user_id=current_user["id"],
+        db=db,
+        days=days,
+        today_iso=today,
+    )
+    return {"days": out, "window_days": days}
 
 
 @router.get("/{schedule_id}")

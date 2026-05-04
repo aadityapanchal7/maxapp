@@ -1,0 +1,485 @@
+# Authoritative product catalog.
+#
+# Every product the bot can recommend lives here. Each entry must have a
+# DIRECT product URL (not a search). The catalog is the only source for
+# LLM recommendations — the agent's `recommend_product` tool reads from
+# here, the link rewriter resolves brand mentions against here, and the
+# link validator (downstream) rejects URLs not in the catalog.
+#
+# Adding a product:
+#   1. Verify it aligns with the module's coaching docs (rag_content/).
+#   2. Pick a stable direct URL (Amazon /dp/<ASIN>/ is preferred — the
+#      brand site is acceptable when ASIN can't be confirmed).
+#   3. Tag fact-flags accurately. The catalog filter trusts these to
+#      drop products the user's facts say to avoid.
+#   4. Cite the doc(s) that endorse the type of product in `references`.
+#
+# Schema (all strings unless noted):
+#   id            stable kebab-case slug, unique
+#   name          display name shown to user
+#   brand         brand the user knows
+#   module        skinmax | hairmax | fitmax | heightmax | bonemax | general
+#   concerns      [str]  the conditions / goals this addresses (e.g. acne,
+#                        dryness, hair_loss, protein, posture)
+#   url           DIRECT product page URL (NEVER a search query)
+#   price_tier    budget | mid | premium
+#   tags          dict of fact-flags (true/false/null=unknown):
+#                   vegetarian / vegan / fragrance_free / sulfate_free
+#                   gluten_free / dairy_free / cruelty_free
+#   rationale     one short sentence on why it's recommended (≤120 chars)
+#   references    [str] paths under rag_content/ that endorse it
+
+products:
+  # =====================================================================
+  # SKINMAX
+  # =====================================================================
+  - id: cerave-hydrating-cleanser
+    name: CeraVe Hydrating Facial Cleanser
+    brand: CeraVe
+    module: skinmax
+    concerns: [dryness, sensitive, gentle_cleansing, beginner]
+    url: https://www.amazon.com/dp/B01N7T7JKJ
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: false       # contains ceramides derived sources, brand not vegan-certified
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: Ceramide-based, fragrance-free, non-stripping — pairs with any active.
+    references: [skinmax/cleanser.md, skinmax/acne.md]
+
+  - id: cerave-foaming-cleanser
+    name: CeraVe Foaming Facial Cleanser
+    brand: CeraVe
+    module: skinmax
+    concerns: [oily, acne, gentle_cleansing]
+    url: https://www.amazon.com/dp/B01N1LL62W
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: false
+      fragrance_free: true
+      sulfate_free: false
+      cruelty_free: false
+    rationale: Foaming yet non-stripping — for oily/acne-prone skin types.
+    references: [skinmax/cleanser.md, skinmax/acne.md]
+
+  - id: cerave-pm-lotion
+    name: CeraVe PM Facial Moisturizing Lotion
+    brand: CeraVe
+    module: skinmax
+    concerns: [dryness, barrier, all_skin_types]
+    url: https://www.amazon.com/dp/B003UF8H6S
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: false
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: Lightweight ceramide + niacinamide moisturizer for nightly use.
+    references: [skinmax/moisturizer.md]
+
+  - id: cerave-moisturizing-cream
+    name: CeraVe Moisturizing Cream (Tub)
+    brand: CeraVe
+    module: skinmax
+    concerns: [dryness, eczema, barrier]
+    url: https://www.amazon.com/dp/B00TTD9BRC
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: false
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: Heavy occlusive cream — good for very dry / eczema-prone skin.
+    references: [skinmax/moisturizer.md]
+
+  - id: paulas-choice-2-bha
+    name: Paula's Choice Skin Perfecting 2% BHA Liquid Exfoliant
+    brand: Paula's Choice
+    module: skinmax
+    concerns: [acne, blackheads, oily, exfoliation]
+    url: https://www.amazon.com/dp/B00949CTQQ
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Salicylic acid leave-on exfoliant, gold standard for oily/acne skin.
+    references: [skinmax/acne.md, skinmax/exfoliation.md]
+
+  - id: eltamd-uv-clear
+    name: EltaMD UV Clear Broad-Spectrum SPF 46
+    brand: EltaMD
+    module: skinmax
+    concerns: [sun_protection, acne, sensitive, daily_spf]
+    url: https://www.amazon.com/dp/B002MSN3QQ
+    price_tier: premium
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Niacinamide + zinc oxide chemical/physical hybrid — non-comedogenic.
+    references: [skinmax/spf.md, skinmax/acne.md]
+
+  - id: la-roche-posay-toleriane-cleanser
+    name: La Roche-Posay Toleriane Hydrating Gentle Cleanser
+    brand: La Roche-Posay
+    module: skinmax
+    concerns: [sensitive, dryness, gentle_cleansing]
+    url: https://www.amazon.com/dp/B01N9SPQHQ
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: false
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: Niacinamide + ceramide cleanser for reactive skin.
+    references: [skinmax/cleanser.md]
+
+  - id: la-roche-posay-anthelios-spf-50
+    name: La Roche-Posay Anthelios Melt-in Milk SPF 50+
+    brand: La Roche-Posay
+    module: skinmax
+    concerns: [sun_protection, daily_spf]
+    url: https://www.amazon.com/dp/B077TJVRQX
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: false
+      sulfate_free: true
+      cruelty_free: false
+    rationale: High-protection broad-spectrum SPF 50 with cosmetic-elegant feel.
+    references: [skinmax/spf.md]
+
+  - id: ordinary-niacinamide
+    name: The Ordinary Niacinamide 10% + Zinc 1%
+    brand: The Ordinary
+    module: skinmax
+    concerns: [oily, blemish_control, pores, sebum]
+    url: https://www.amazon.com/dp/B06VSX2B1S
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: 10% niacinamide for sebum control and pore appearance.
+    references: [skinmax/niacinamide.md, skinmax/acne.md]
+
+  - id: ordinary-hyaluronic-acid
+    name: The Ordinary Hyaluronic Acid 2% + B5
+    brand: The Ordinary
+    module: skinmax
+    concerns: [dryness, hydration, plumping]
+    url: https://www.amazon.com/dp/B01MDTVZTZ
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Triple-weight HA + B5 — apply to damp skin under moisturizer.
+    references: [skinmax/hydration.md]
+
+  - id: ordinary-azelaic-acid
+    name: The Ordinary Azelaic Acid Suspension 10%
+    brand: The Ordinary
+    module: skinmax
+    concerns: [redness, post_inflammatory_hyperpigmentation, rosacea, acne]
+    url: https://www.amazon.com/dp/B07JRDV9MN
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Azelaic acid for redness, PIH, and mild rosacea — pregnancy-safe.
+    references: [skinmax/azelaic.md, skinmax/redness.md]
+
+  - id: ordinary-glycolic-acid
+    name: The Ordinary Glycolic Acid 7% Toning Solution
+    brand: The Ordinary
+    module: skinmax
+    concerns: [exfoliation, texture, dullness]
+    url: https://www.amazon.com/dp/B01MDTVZTW
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: false
+      sulfate_free: true
+      cruelty_free: true
+    rationale: 7% glycolic AHA toner — start 2x/week, do not combine with retinol.
+    references: [skinmax/exfoliation.md]
+
+  - id: differin-adapalene
+    name: Differin Adapalene Gel 0.1%
+    brand: Differin
+    module: skinmax
+    concerns: [acne, retinoid, comedonal]
+    url: https://www.amazon.com/dp/B07L1PHSY9
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: OTC retinoid (adapalene 0.1%) — first-line for comedonal acne.
+    references: [skinmax/acne.md, skinmax/retinoid.md]
+
+  - id: skinceuticals-ce-ferulic
+    name: SkinCeuticals C E Ferulic
+    brand: SkinCeuticals
+    module: skinmax
+    concerns: [antioxidant, brightening, anti_aging]
+    url: https://www.amazon.com/dp/B0017T2MWW
+    price_tier: premium
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: 15% l-ascorbic acid + ferulic — gold-standard morning antioxidant.
+    references: [skinmax/vitamin_c.md, skinmax/anti_aging.md]
+
+  - id: la-roche-posay-cicaplast-b5
+    name: La Roche-Posay Cicaplast Baume B5
+    brand: La Roche-Posay
+    module: skinmax
+    concerns: [barrier_repair, irritation, post_treatment]
+    url: https://www.amazon.com/dp/B00IDYY5ZO
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: false
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: Healing balm with panthenol + madecassoside for compromised barrier.
+    references: [skinmax/barrier.md]
+
+  # =====================================================================
+  # HAIRMAX
+  # =====================================================================
+  - id: rogaine-5-foam
+    name: Men's Rogaine 5% Minoxidil Foam (3-month)
+    brand: Rogaine
+    module: hairmax
+    concerns: [hair_loss, regrowth, minoxidil]
+    url: https://www.amazon.com/dp/B07R8H1F94
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: false
+      fragrance_free: false
+      sulfate_free: true
+      cruelty_free: false
+    rationale: 5% minoxidil foam — first-line OTC for AGA per coaching doc.
+    references: [hairmax/minoxidil.md]
+
+  - id: kirkland-minoxidil-5
+    name: Kirkland Signature 5% Minoxidil Solution (6-month)
+    brand: Kirkland
+    module: hairmax
+    concerns: [hair_loss, regrowth, minoxidil, budget]
+    url: https://www.amazon.com/dp/B005G7Z2J6
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: Generic 5% minoxidil liquid — same active as Rogaine, lower cost.
+    references: [hairmax/minoxidil.md]
+
+  - id: nizoral-shampoo
+    name: Nizoral A-D Anti-Dandruff Shampoo (Ketoconazole 1%)
+    brand: Nizoral
+    module: hairmax
+    concerns: [scalp_health, dandruff, dht_inhibition]
+    url: https://www.amazon.com/dp/B01M65JQOR
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: false
+      fragrance_free: false
+      sulfate_free: false
+      cruelty_free: false
+    rationale: Ketoconazole 1% — anti-fungal, mild adjunct for AGA per doc.
+    references: [hairmax/ketoconazole.md, hairmax/scalp.md]
+
+  - id: ordinary-multi-peptide-hair
+    name: The Ordinary Multi-Peptide Serum for Hair Density
+    brand: The Ordinary
+    module: hairmax
+    concerns: [hair_loss, density, peptides]
+    url: https://www.amazon.com/dp/B07VVPZG7Z
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: false
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Peptide serum — adjunct, not a replacement for minoxidil/finasteride.
+    references: [hairmax/adjuncts.md]
+
+  - id: dermaroller-0-5mm
+    name: Dermaroller 0.5mm Titanium Microneedling Roller
+    brand: Generic
+    module: hairmax
+    concerns: [microneedling, scalp_stimulation, dermarolling]
+    url: https://www.amazon.com/dp/B07GPXBZ3X
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: 0.5mm scalp roller — used 1x/week to boost minoxidil per protocol.
+    references: [hairmax/dermarolling.md]
+
+  # =====================================================================
+  # FITMAX (lifting / nutrition)
+  # =====================================================================
+  - id: optimum-nutrition-whey
+    name: Optimum Nutrition Gold Standard 100% Whey Protein
+    brand: Optimum Nutrition
+    module: fitmax
+    concerns: [protein, muscle_gain, post_workout]
+    url: https://www.amazon.com/dp/B000GIPJ0M
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: false           # whey from milk
+      dairy_free: false
+      gluten_free: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: false
+    rationale: 24g whey isolate per scoop — third-party tested, low-cost per gram.
+    references: [fitmax/protein.md]
+
+  - id: orgain-vegan-protein
+    name: Orgain Organic Plant-Based Protein Powder
+    brand: Orgain
+    module: fitmax
+    concerns: [protein, muscle_gain, vegan, plant_protein]
+    url: https://www.amazon.com/dp/B00JEKYNZA
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: true
+      dairy_free: true
+      gluten_free: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: 21g plant protein (pea/brown rice) — for vegan / dairy-free users.
+    references: [fitmax/protein.md]
+
+  - id: now-creatine-monohydrate
+    name: NOW Sports Creatine Monohydrate Powder (1 lb)
+    brand: NOW
+    module: fitmax
+    concerns: [creatine, strength, muscle_gain]
+    url: https://www.amazon.com/dp/B0019LRY8A
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      dairy_free: true
+      gluten_free: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Pure creatine monohydrate — 5g/day, single most evidence-backed supp.
+    references: [fitmax/creatine.md, fitmax/supplements.md]
+
+  # =====================================================================
+  # HEIGHTMAX (posture)
+  # =====================================================================
+  - id: trigger-point-foam-roller
+    name: TriggerPoint GRID Foam Roller
+    brand: TriggerPoint
+    module: heightmax
+    concerns: [posture, mobility, thoracic_extension]
+    url: https://www.amazon.com/dp/B0040EGNIU
+    price_tier: mid
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Firm foam roller for thoracic mobility / decompression drills.
+    references: [heightmax/posture.md]
+
+  - id: iron-gym-pull-up-bar
+    name: Iron Gym Total Upper Body Workout Bar
+    brand: Iron Gym
+    module: heightmax
+    concerns: [posture, decompression, hangs]
+    url: https://www.amazon.com/dp/B001EYFQ28
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Door-frame bar for daily dead-hangs (decompression protocol).
+    references: [heightmax/decompression.md]
+
+  # =====================================================================
+  # BONEMAX (jaw / mewing)
+  # =====================================================================
+  - id: jawzrsize-pro
+    name: Jawzrsize Pro Jaw Exerciser
+    brand: Jawzrsize
+    module: bonemax
+    concerns: [jaw_training, masseter, jawline]
+    url: https://www.amazon.com/dp/B07X6CKFV6
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      cruelty_free: true
+    rationale: Resistance jaw exerciser — supplement to mewing, not substitute.
+    references: [bonemax/jaw_training.md]
+
+  - id: falim-gum-sugarfree
+    name: Falim Sugarfree Mastic Chewing Gum (200ct)
+    brand: Falim
+    module: bonemax
+    concerns: [jaw_training, masseter, mastic]
+    url: https://www.amazon.com/dp/B07L4XJX2D
+    price_tier: budget
+    tags:
+      vegetarian: true
+      vegan: true
+      fragrance_free: true
+      sulfate_free: true
+      gluten_free: true
+      cruelty_free: true
+    rationale: Hard sugar-free gum — widely used for masseter activation.
+    references: [bonemax/mastic_gum.md]

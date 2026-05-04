@@ -13,6 +13,8 @@ import { ChatTypingIndicator, ChatTypingMode } from '../../components/ChatTyping
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { CachedImage } from '../../components/CachedImage';
 import ChatConversationsDrawer from '../../components/ChatConversationsDrawer';
+import ChatSliderInput, { SliderSpec } from '../../components/ChatSliderInput';
+import { renderRichText } from '../../utils/chatMarkdown';
 
 const PENDING_CHAT_KEY = '@max_pending_chat_v1';
 
@@ -38,6 +40,10 @@ export default function MaxChatScreen() {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [serverChoices, setServerChoices] = useState<string[]>([]);
+    // Optional structured input widget (slider) returned by the backend for
+    // numeric questions. Mutually-exclusive UI: when this is non-null we
+    // render <ChatSliderInput /> in place of the quick-reply chip row.
+    const [inputWidget, setInputWidget] = useState<SliderSpec | null>(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const flatListRef = useRef<FlashListRef<Message>>(null);
     const initScheduleHandled = useRef(false);
@@ -100,13 +106,14 @@ export default function MaxChatScreen() {
         if (!msg.trim() || loading) return;
         setLoading(true);
         setServerChoices([]);
+        setInputWidget(null);
         setMessages((prev) => [
             ...prev,
             { role: 'user', content: msg },
             { role: 'assistant', content: '', isTyping: true, typingMode: initContext ? 'schedule' : 'default' },
         ]);
         try {
-            const { response, choices, conversation_id } = await api.sendChatMessage(
+            const { response, choices, input_widget, conversation_id } = await api.sendChatMessage(
                 msg,
                 undefined,
                 undefined,
@@ -124,6 +131,7 @@ export default function MaxChatScreen() {
                 { role: 'assistant', content: response },
             ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
+            setInputWidget(input_widget && input_widget.type === 'slider' ? input_widget as SliderSpec : null);
             // Invalidate the conversations list so the sidebar reorders + renames.
             queryClient.invalidateQueries({ queryKey: queryKeys.chatConversations });
             queryClient.invalidateQueries({
@@ -176,6 +184,7 @@ export default function MaxChatScreen() {
         if (!userContent || loading) return;
         setLoading(true);
         setServerChoices([]);
+        setInputWidget(null);
         if (!fromPreset) setInput('');
         setMessages(prev => [
             ...prev,
@@ -183,7 +192,7 @@ export default function MaxChatScreen() {
             { role: 'assistant', content: '', isTyping: true, typingMode: 'default' },
         ]);
         try {
-            const { response, choices } = await api.sendChatMessage(
+            const { response, choices, input_widget } = await api.sendChatMessage(
                 userContent,
                 undefined,
                 undefined,
@@ -193,6 +202,7 @@ export default function MaxChatScreen() {
                 { role: 'assistant', content: response },
             ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
+            setInputWidget(input_widget && input_widget.type === 'slider' ? input_widget as SliderSpec : null);
             queryClient.setQueryData<Message[]>(queryKeys.chatHistory, (prev = []) => [
                 ...prev,
                 { role: 'user', content: userContent },
@@ -249,33 +259,10 @@ export default function MaxChatScreen() {
     }, []);
 
     const renderLinkedText = useCallback((text: string, baseStyle: any) => {
-        const splitRe = /(\[[^\]]+\]\(https?:\/\/[^\s)]+\)|https?:\/\/[^\s)]+)/g;
-        const parts = text.split(splitRe);
-        if (parts.length <= 1) return <Text style={baseStyle}>{text}</Text>;
-        const mdLinkRe = /^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/;
-        const bareUrlRe = /^https?:\/\//;
-        return (
-            <Text style={baseStyle}>
-                {parts.map((part, i) => {
-                    const mdMatch = mdLinkRe.exec(part);
-                    if (mdMatch) {
-                        return (
-                            <Text key={i} style={styles.linkText} onPress={() => openUrl(mdMatch[2])}>
-                                {mdMatch[1]}
-                            </Text>
-                        );
-                    }
-                    if (bareUrlRe.test(part)) {
-                        return (
-                            <Text key={i} style={styles.linkText} onPress={() => openUrl(part)}>
-                                {part}
-                            </Text>
-                        );
-                    }
-                    return <Text key={i}>{part}</Text>;
-                })}
-            </Text>
-        );
+        // Delegate to the shared markdown renderer so **bold**, ### headings,
+        // bullets, and links all get proper React Native styling instead of
+        // showing raw asterisks / hashes in the bubble.
+        return renderRichText(text, { baseStyle, onLinkPress: openUrl });
     }, [openUrl]);
 
     const renderMessage = ({ item }: { item: Message }) => {
@@ -325,7 +312,7 @@ export default function MaxChatScreen() {
     const ListEmpty = () => (
         <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>Start a conversation</Text>
-            <Text style={styles.emptySubtitle}>Ask Max about lookmaxxing, routines, or anything else.</Text>
+            <Text style={styles.emptySubtitle}>Ask Agartha about lookmaxxing, routines, or anything else.</Text>
         </View>
     );
 
@@ -347,7 +334,7 @@ export default function MaxChatScreen() {
                         <Ionicons name="menu" size={22} color={colors.foreground} />
                     </TouchableOpacity>
                     <Text style={styles.headerEyebrow}>Coach</Text>
-                    <Text style={styles.title}>Max</Text>
+                    <Text style={styles.title}>Agartha</Text>
                     <Text style={styles.subtitle}>Your lookmaxxing coach</Text>
                 </View>
 
@@ -363,6 +350,7 @@ export default function MaxChatScreen() {
                         setSeededForConversation(null);
                         setMessages([]);
                         setServerChoices([]);
+                        setInputWidget(null);
                         queryClient.invalidateQueries({
                             predicate: (q) =>
                                 q.queryKey[0] === 'chat' && q.queryKey[1] === 'history',
@@ -373,6 +361,7 @@ export default function MaxChatScreen() {
                         setSeededForConversation(null);
                         setMessages([]);
                         setServerChoices([]);
+                        setInputWidget(null);
                     }}
                 />
 
@@ -396,7 +385,18 @@ export default function MaxChatScreen() {
                 )}
 
                 <View style={[styles.outerInputContainer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-                    {!loading && quickReplies.length > 0 && (
+                    {/* Numeric question → slider widget. Mutually exclusive with
+                        the quick-reply chip row below: when the backend asks
+                        for a number it sends `input_widget`, not `choices`. */}
+                    {!loading && inputWidget && inputWidget.type === 'slider' && (
+                        <View style={styles.quickReplyRow}>
+                            <ChatSliderInput
+                                spec={inputWidget}
+                                onSubmit={(v) => sendMessage(String(v))}
+                            />
+                        </View>
+                    )}
+                    {!loading && !inputWidget && quickReplies.length > 0 && (
                         <View style={styles.quickReplyRow}>
                             {quickReplies.map((choice) => (
                                 <TouchableOpacity
@@ -413,7 +413,7 @@ export default function MaxChatScreen() {
                     <View style={styles.inputContainer}>
                         <TextInput
                             style={styles.input}
-                            placeholder="Ask Max anything..."
+                            placeholder="Ask Agartha anything..."
                             placeholderTextColor={colors.textMuted}
                             value={input}
                             onChangeText={setInput}

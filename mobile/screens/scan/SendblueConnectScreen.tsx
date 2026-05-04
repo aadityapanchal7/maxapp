@@ -66,10 +66,10 @@ export default function SendblueConnectScreen() {
     const next: 'ModuleSelect' | 'Main' = route.params?.next === 'Main' ? 'Main' : 'ModuleSelect';
 
     const openSms = () => {
-        const body = encodeURIComponent('Hey Max');
+        const body = encodeURIComponent('Hey Agartha');
         const url = Platform.OS === 'ios' ? `sms:${smsE164}&body=${body}` : `sms:${smsE164}?body=${body}`;
         Linking.openURL(url).catch(() => {
-            Alert.alert('Messages', 'Open Messages and text our Max line from the phone number on your account.');
+            Alert.alert('Messages', 'Open Messages and text our Agartha line from the phone number on your account.');
         });
     };
 
@@ -80,7 +80,7 @@ export default function SendblueConnectScreen() {
     const onSkipSms = () => {
         Alert.alert(
             'Skip SMS permanently?',
-            'SMS coaching from Max (schedule reminders, check-ins, motivation texts) will never be available on this account.\n\nTo get SMS later, you would need to delete your account and create a new one.\n\nAre you sure you want to skip?',
+            'SMS coaching from Agartha (schedule reminders, check-ins, motivation texts) will never be available on this account.\n\nTo get SMS later, you would need to delete your account and create a new one.\n\nAre you sure you want to skip?',
             [
                 { text: 'Go back', style: 'cancel' },
                 {
@@ -140,7 +140,7 @@ export default function SendblueConnectScreen() {
                 </TouchableOpacity>
 
                 <Text style={styles.kicker}>One more step</Text>
-                <Text style={styles.title}>Text Max to connect</Text>
+                <Text style={styles.title}>Text Agartha to connect</Text>
                 <Text style={styles.lead}>
                     Send any message to link your phone to your account.
                 </Text>

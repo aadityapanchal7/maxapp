@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Max",
+    "name": "Agartha",
     "slug": "cannon-mobile",
     "version": "1.0.7",
     "orientation": "portrait",
@@ -23,8 +23,8 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSPhotoLibraryUsageDescription": "Max uses your photo library to attach images in community channels, chat, and profile or progress photos.",
-        "NSPhotoLibraryAddUsageDescription": "Max saves your face scan from results to your photo library when you choose Save to photos.",
+        "NSPhotoLibraryUsageDescription": "Agartha uses your photo library to attach images in community channels, chat, and profile or progress photos.",
+        "NSPhotoLibraryAddUsageDescription": "Agartha saves your face scan from results to your photo library when you choose Save to photos.",
         "UIBackgroundModes": [
           "remote-notification"
         ]

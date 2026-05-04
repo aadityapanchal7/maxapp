@@ -162,6 +162,44 @@ async def generate_schedule(
     modifiers = applicable_modifiers(maxx_id, user_state)
     examples = few_shot_for(maxx_id, user_state)
 
+    # ---- Skeleton-first path (LLM-free) ---------------------------------- #
+    # Every doc-driven max ships a `skeleton.blocks` definition. We expand
+    # that deterministically against `user_state`, then validate. Generation
+    # drops from ~60s LLM call to <100ms pure-Python pass.
+    try:
+        from services.schedule_skeleton import expand_skeleton, has_skeleton
+        if has_skeleton(maxx_id):
+            days = expand_skeleton(
+                maxx_id=maxx_id,
+                user_state=user_state,
+                wake=wake_str,
+                sleep=sleep_str,
+                cadence_days=cadence_days,
+            )
+            _, errors, fixed_days = validate_and_fix(
+                maxx_id=maxx_id,
+                days=days,
+                wake_time=wake_str,
+                sleep_time=sleep_str,
+                user_ctx=user_state,
+                expected_day_count=cadence_days,
+                daily_task_budget=(min_tasks, max_tasks),
+            )
+            summary = _skeleton_summary(doc, fixed_days, modifiers)
+            elapsed = int((time.perf_counter() - t0) * 1000)
+            return GenerationResult(
+                ok=True,
+                days=fixed_days,
+                summary=summary,
+                errors=[],
+                missing_fields=[],
+                elapsed_ms=elapsed,
+                validator_retries=0,
+            )
+    except Exception as e:
+        logger.warning("skeleton expansion failed for %s: %s — falling back to LLM", maxx_id, e)
+
+    # ---- Fallback: LLM path (legacy, slow, kept for maxes without skeleton)
     rag_context = await _retrieve_rag_context(maxx_id, user_state)
 
     prompt = _build_prompt(
@@ -199,6 +237,20 @@ async def generate_schedule(
         elapsed_ms=elapsed,
         validator_retries=retries,
     )
+
+
+def _skeleton_summary(doc, days: list[dict], modifiers: list[str]) -> str:
+    """Concise human-readable summary of a skeleton-built schedule.
+    Replaces the LLM-written `summary` field with a deterministic one
+    so we don't need a model round-trip."""
+    n_days = len(days)
+    day_counts = [len(d.get("tasks") or []) for d in days]
+    avg = round(sum(day_counts) / max(1, len(day_counts)), 1)
+    name = doc.display_name.lower() if doc and doc.display_name else "your"
+    parts = [f"{name} schedule built — {n_days} days, ~{avg} tasks/day."]
+    if modifiers:
+        parts.append("active rules: " + "; ".join(m.split(".")[0].lower() for m in modifiers[:3]))
+    return " ".join(parts)[:400]
 
 
 async def _retrieve_rag_context(maxx_id: str, user_state: dict) -> str:

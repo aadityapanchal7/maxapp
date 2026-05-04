@@ -686,8 +686,19 @@ class ApiService {
     }
 
     async getLatestScan() {
-        const response = await this.client.get('scans/latest');
-        return response.data;
+        // Treat 404/204/null as "no scan yet" (a normal state for fresh users)
+        // so screens can render an empty/CTA state instead of getting wedged
+        // on a perpetual loading spinner.
+        try {
+            const response = await this.client.get('scans/latest');
+            if (response.status === 204 || response.data === '' || response.data === null) {
+                return null;
+            }
+            return response.data;
+        } catch (e: any) {
+            if (e?.response?.status === 404) return null;
+            throw e;
+        }
     }
 
     async dismissPostSubscriptionOnboarding() {
@@ -904,7 +915,24 @@ class ApiService {
         initContext?: string,
         chatIntent?: string,
         conversationId?: string | null,
-    ): Promise<{ response: string; choices?: string[]; conversation_id?: string | null }> {
+    ): Promise<{
+        response: string;
+        choices?: string[];
+        // Optional structured input widget. When the backend wants the user
+        // to provide a numeric value, it returns a slider spec instead of
+        // (or alongside) text input. Mobile renders ChatSliderInput for it.
+        //   { type: "slider", min, max, step, default, label, unit }
+        input_widget?: {
+            type: 'slider';
+            min: number;
+            max: number;
+            step: number;
+            default: number;
+            label: string;
+            unit?: string;
+        } | null;
+        conversation_id?: string | null;
+    }> {
         const body: any = {
             message,
             attachment_url: attachmentUrl,

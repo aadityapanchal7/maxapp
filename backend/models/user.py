@@ -243,6 +243,10 @@ class UserResponse(BaseModel):
         default=False,
         description="True if an APNs device token is stored (iOS push can be delivered).",
     )
+    coaching_tone: Optional[str] = Field(
+        default="default",
+        description="Bot tone preference. One of: default | hardcore | gentle | influencer.",
+    )
 
     class Config:
         from_attributes = True

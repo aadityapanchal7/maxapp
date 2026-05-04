@@ -50,7 +50,7 @@ export default function AdminUserChatScreen({ route, navigation }: any) {
                     </TouchableOpacity>
                     <View style={styles.headerInfo}>
                         <Text style={styles.title} numberOfLines={1}>{userEmail}</Text>
-                        <Text style={styles.subtitle}>Replying as Max</Text>
+                        <Text style={styles.subtitle}>Replying as Agartha</Text>
                     </View>
                 </View>
 
@@ -65,7 +65,7 @@ export default function AdminUserChatScreen({ route, navigation }: any) {
                 )}
 
                 <View style={styles.inputContainer}>
-                    <TextInput style={styles.input} placeholder="Reply as Max..." placeholderTextColor={colors.textMuted} value={input} onChangeText={setInput} multiline editable={!loading} />
+                    <TextInput style={styles.input} placeholder="Reply as Agartha..." placeholderTextColor={colors.textMuted} value={input} onChangeText={setInput} multiline editable={!loading} />
                     <TouchableOpacity style={[styles.sendButton, !input.trim() && styles.disabledButton]} onPress={sendMessage} disabled={!input.trim() || loading}>
                         {loading ? <ActivityIndicator size="small" color={colors.buttonText} /> : <Ionicons name="send" size={18} color={colors.buttonText} />}
                     </TouchableOpacity>

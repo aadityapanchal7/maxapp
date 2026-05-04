@@ -11,6 +11,84 @@ schedule_design:
   intensity_ramp:
     week_1: [0.0, 0.6]
     week_2: [0.4, 1.0]
+  skeleton:
+    blocks:
+      # Daily mobility / decompression — universal.
+      - id: am_mobility
+        slot: am_open
+        cadence: daily
+        tasks: [height.am_mobility]
+      - id: pm_decompression
+        slot: pm_close
+        cadence: daily
+        tasks: [height.pm_decompression]
+      - id: sleep_window
+        slot: pm_close
+        cadence: daily
+        tasks: [height.sleep_extend]
+      # Posture-specific (desk users).
+      - id: wall_posture
+        slot: am_open
+        cadence: daily
+        if: "posture_issues == true"
+        tasks: [height.wall_posture]
+      - id: desk_reset
+        slot: midday
+        cadence: daily
+        if: "posture_issues == true"
+        tasks: [height.desk_reset_midday]
+      - id: chin_tucks
+        slot: midday
+        cadence: daily
+        if: "posture_issues == true"
+        tasks: [height.chin_tucks]
+      # Decompression hang (skip if spine_pain).
+      - id: dead_hang
+        slot: pm_active
+        cadence: n_per_week=4
+        if: "!spine_pain"
+        tasks: [height.dead_hang]
+      # Strength / posture — only if user trains.
+      - id: face_pulls
+        slot: pm_active
+        cadence: n_per_week=3
+        if: "training_status in [yes_regular, yes_some]"
+        tasks: [height.face_pulls]
+      - id: glute_bridge
+        slot: am_active
+        cadence: n_per_week=4
+        tasks: [height.glute_bridge]
+      - id: foam_roll
+        slot: pm_active
+        cadence: n_per_week=3
+        tasks: [height.foam_roll_back]
+      # Teen-only growth foundations.
+      - id: protein_check
+        slot: midday
+        cadence: daily
+        if: "age < 22"
+        tasks: [height.protein_check]
+      - id: sunlight_am
+        slot: am_open
+        cadence: daily
+        if: "age < 22"
+        tasks: [height.sunlight_am]
+      # Perceived-height track.
+      - id: outfit_check
+        slot: am_active
+        cadence: n_per_week=3
+        if: "heightmax_focus in [perceived, all]"
+        tasks: [height.outfit_check]
+      - id: shoe_audit
+        slot: am_open
+        cadence: n_per_week=3
+        if: "heightmax_focus in [perceived, all]"
+        tasks: [height.shoe_audit]
+      - id: posing_practice
+        slot: flexible
+        cadence: n_per_week=2
+        if: "heightmax_focus in [perceived, all]"
+        tasks: [height.posing_practice]
 
 required_fields:
   - id: age
@@ -43,7 +121,7 @@ required_fields:
     options:
       yes_regular: "Yes, 3+ times a week"
       yes_some: "Sometimes, 1–2 times a week"
-      no: "No"
+      "no": "No"
     required: true
     why: "Strength training builds the frame that holds posture. Gates frame-building tasks."
 

@@ -1,6 +1,6 @@
 /**
  * OnairosConnectModal — popup that lets the user enable cross-platform data
- * connections via the Onairos SDK (@onairos/react-native) so Max can pull in
+ * connections via the Onairos SDK (@onairos/react-native) so Agartha can pull in
  * richer personalization signals from apps they already use.
  *
  * The Onairos SDK handles the in-app consent UI itself. We just trigger it
@@ -53,12 +53,12 @@ function loadOnairosSdk(): OnairosSdkModule | null {
 const REQUEST_DATA = {
     personality_traits: {
         name: 'Personality & Traits',
-        description: 'Lets Max tailor coaching tone + priorities to who you are.',
+        description: 'Lets Agartha tailor coaching tone + priorities to who you are.',
         reward: 'Personalized routine out of the gate.',
     },
     sentiment_analysis: {
         name: 'Sentiment',
-        description: 'Helps Max read the room — less nag when you\u2019re burnt out.',
+        description: 'Helps Agartha read the room — less nag when you\u2019re burnt out.',
         reward: 'Smarter check-ins.',
     },
 } as const;
@@ -154,7 +154,7 @@ export default function OnairosConnectModal({
                     <Text style={styles.title}>Connect your other apps</Text>
                     <Text style={styles.subtitle}>
                         Pull in personality, preferences, and habits from apps you already use so
-                        Max can tailor coaching without another 20 onboarding questions. You
+                        Agartha can tailor coaching without another 20 onboarding questions. You
                         approve each category; revoke any time.
                     </Text>
 
@@ -182,8 +182,8 @@ export default function OnairosConnectModal({
                     {canRender && !initializing && !initError && OnairosButton && (
                         <View style={styles.buttonWrap}>
                             <OnairosButton
-                                AppName="Max"
-                                webpageName="maxapp"
+                                AppName="Agartha"
+                                webpageName="agartha"
                                 requestData={REQUEST_DATA}
                                 onResolved={handleResolved}
                                 autoFetch={false}
@@ -204,7 +204,7 @@ export default function OnairosConnectModal({
 
                     {success && (
                         <Text style={styles.success}>
-                            Connected. Max will start using this on your next chat.
+                            Connected. Agartha will start using this on your next chat.
                         </Text>
                     )}
 

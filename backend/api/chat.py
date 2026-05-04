@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Tuple
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,7 +20,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from db import get_db, get_rds_db_optional
 from middleware.auth_middleware import require_paid_user
 from models.leaderboard import ChatRequest, ChatResponse
-from models.sqlalchemy_models import ChatHistory, Scan, User
+from models.sqlalchemy_models import ChatHistory, Scan, User, UserSchedule
 from services.coaching_service import coaching_service
 from services.chat_telemetry import fast_path_snapshot, note_chat_turn
 from services.lc_agent import make_chat_tools, run_chat_agent
@@ -1927,10 +1927,25 @@ async def process_chat_message(
             user.updated_at = datetime.utcnow()
             await db.commit()
 
+    # Pull persistent context (preferences + user_facts) so the agent
+    # respects long-term memory (vegetarian, allergic-to, lives-in, etc.)
+    # on every turn — not just when the user says it explicitly.
+    persistent_ctx: dict = {}
+    user_facts: dict = {}
+    try:
+        from services.user_context_service import get_context as _get_ctx
+        from services.user_facts_service import FACTS_KEY as _FACTS_KEY
+        persistent_ctx = await _get_ctx(user_id, db)
+        user_facts = persistent_ctx.get(_FACTS_KEY) or {}
+    except Exception:
+        pass
+
     user_context = {
         "coaching_context": "",
         "active_schedule": active_schedule,
         "onboarding": onboarding,
+        "persistent_context": persistent_ctx,
+        "user_facts": user_facts,
     }
 
     if user and _looks_like_completed_tasks_question(message_text):
@@ -2075,13 +2090,85 @@ async def process_chat_message(
         and (turn_intent.get("maxx_hints") or active_hint)
         and not _looks_like_task_operation_request(message_text)
     ):
+        # Reuse the already-fetched user_facts (saves a DB roundtrip vs
+        # the previous re-fetch). `user_facts` was populated from
+        # persistent_ctx earlier in this turn.
+        _facts_blob: dict = user_facts or {}
+
+        # Personal-data short-circuit: "what is my age?" / "how old am i?" /
+        # "what's my gender?" must NEVER hit doc-RAG. Answer from onboarding
+        # + user_facts, or admit we don't know and ASK — instead of returning
+        # the canned "i don't see enough in the docs" line.
+        if _looks_like_personal_data_question(message_text):
+            answer = await _answer_personal_data_question(message_text, onboarding, _facts_blob)
+            if answer:
+                if _persist_chat_history(channel):
+                    db.add(ChatHistory(user_id=user_uuid, role="user", content=message_text, channel=channel, created_at=datetime.utcnow()))
+                    db.add(ChatHistory(user_id=user_uuid, role="assistant", content=answer, channel=channel, created_at=datetime.utcnow()))
+                await db.commit()
+                return _finalize_assistant_message(answer), []
+
+        # Two-layer memory: recent turns + stable user profile. Both
+        # paths (fast_rag and agent) consume the SAME builder so behavior
+        # is consistent across routing decisions. The agent path already
+        # gets a structured chat-history list; we additionally pass the
+        # formatted strings here for the fast_rag path which previously
+        # had zero conversational memory.
+        try:
+            from services.conversation_memory import build_memory_context
+            _memctx = build_memory_context(
+                history=history,
+                user_facts=_facts_blob,
+                onboarding=onboarding,
+                persistent_ctx=persistent_ctx,
+            )
+        except Exception as _memerr:  # never block the turn on memory bugs
+            logger.info("[chat] memory builder skipped: %s", _memerr)
+            _memctx = None
+
         fast_response, fast_chunks = await answer_from_rag(
             message=message_text,
             maxx_hints=turn_intent.get("maxx_hints") or [],
             active_maxx=active_hint,
             response_length=str(onboarding.get("response_length") or "").strip().lower() or None,
+            user_facts=_facts_blob,
+            recent_turns=(_memctx.recent_turns if _memctx else None),
+            user_profile=(_memctx.user_profile if _memctx else None),
+            coaching_tone=(getattr(user, "coaching_tone", None) if user else None),
         )
         if fast_response:
+            # Web-search safety net for fast-RAG too. When the doc-grounded
+            # answer is "i don't see enough in the docs", try the web before
+            # we ship it. Cheaper than always running the agent — fast_rag
+            # is supposed to be fast.
+            if _looks_like_doc_refusal(fast_response) and not _question_is_personal(message_text):
+                try:
+                    from services.web_search import search as _ws_search
+                    q = _compress_query_for_search(message_text)
+                    web_snips = await _ws_search(q, max_results=3)
+                    if web_snips and "(no web results" not in web_snips and "(web search" not in web_snips:
+                        import asyncio as _asyncio
+                        from services.llm_sync import sync_llm_plain_text
+                        prompt = (
+                            "Answer the user's question concisely (3-6 sentences) using ONLY "
+                            "the web snippets below as your source. Plain text, no markdown "
+                            "headings. If snippets disagree, pick the most authoritative.\n\n"
+                            f"USER QUESTION: {message_text}\n\n"
+                            f"WEB SNIPPETS:\n{web_snips}\n\n"
+                            "Answer:"
+                        )
+                        try:
+                            web_answer = await _asyncio.wait_for(
+                                _asyncio.to_thread(sync_llm_plain_text, prompt),
+                                timeout=30.0,
+                            )
+                            if web_answer and len(web_answer) > 30:
+                                fast_response = web_answer.strip()
+                                logger.info("[FAST_RAG] web fallback used (doc refusal recovered)")
+                        except Exception:
+                            pass
+                except Exception as _e:
+                    logger.info("fast_rag web safety net failed: %s", _e)
             if _persist_chat_history(channel):
                 db.add(ChatHistory(
                     user_id=user_uuid,
@@ -3224,6 +3311,7 @@ Ask ONE question at a time. Your very first response must ask the concern questi
             onboarding=onboarding,
             active_schedule=active_schedule,
             channel=channel,
+            user_context=user_context,
         )
 
     user_turn_persisted = False
@@ -3289,6 +3377,46 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                 db=db,
                 maxx_id=maxx_id,
             )
+            # Web-search safety net: the agent sometimes ignores its own
+            # web_search tool and falls back to "i don't see enough in the
+            # docs" even though the question is web-answerable. Detect that
+            # specific refusal pattern and re-run with explicit grounding.
+            logger.info("[web safety net] refusal=%s personal=%s text_preview=%r",
+                        _looks_like_doc_refusal(response_text),
+                        _question_is_personal(message_text),
+                        (response_text or "")[:100])
+            if _looks_like_doc_refusal(response_text) and not _question_is_personal(message_text):
+                try:
+                    from services.web_search import search as _ws_search
+                    q = _compress_query_for_search(message_text)
+                    logger.info("[web safety net] firing search q=%r", q)
+                    web_snips = await _ws_search(q, max_results=3)
+                    logger.info("[web safety net] got %d chars of snippets", len(web_snips or ""))
+                    if web_snips and "(no web results" not in web_snips and "(web search" not in web_snips:
+                        # Re-prompt the agent with the web results as
+                        # explicit context. This is a single LLM call —
+                        # cheap, and produces a real answer instead of a
+                        # canned refusal.
+                        forced_msg = (
+                            f"{message_text}\n\n"
+                            "(internal: doc-RAG returned nothing useful. here are 3 fresh web "
+                            "results — answer the user's question grounded in these, no preamble):\n\n"
+                            f"{web_snips}"
+                        )
+                        response_text2, _ = await run_chat_agent(
+                            message=forced_msg,
+                            lc_history=lc_history,
+                            user_context=user_context,
+                            image_data=image_data,
+                            delivery_channel=channel,
+                            tools=tools,
+                            db=db,
+                            maxx_id=maxx_id,
+                        )
+                        if response_text2 and not _looks_like_doc_refusal(response_text2):
+                            response_text = response_text2
+                except Exception as _e:
+                    logger.info("web search safety net failed (non-fatal): %s", _e)
         except Exception as llm_err:
             logger.exception("run_chat_agent failed for user %s: %s", user_id, llm_err)
             if _persist_chat_history(channel):
@@ -3390,9 +3518,528 @@ Ask ONE question at a time. Your very first response must ask the concern questi
     return response_text, choices_out
 
 
+async def _handle_context_change(
+    user_id: str,
+    message_text: str,
+    db: AsyncSession,
+) -> Optional[Tuple[str, list[str], Optional[dict]]]:
+    """Detect schedule-impacting changes the user volunteers in chat and
+    apply them deterministically — runs BEFORE the agent so the agent
+    doesn't have to recognize the intent (it often won't).
+
+    Three modes:
+      A) Specific time mention → apply + regenerate active schedules
+         e.g. "i wake up at 10", "going to bed at midnight"
+      B) Vague timing change → store pending intent + emit slider
+         e.g. "im going to wake up later", "sleeping in more"
+      C) Other context (training/posture/equipment/outdoor) → merge_context
+         (which itself triggers regen via the hook in the context service)
+
+    If a previous turn left a `_pending_intent` in user_schedule_context
+    and the current message looks like an answer (a number or HH:MM),
+    we apply the pending intent here instead of re-detecting.
+
+    Returns (text, choices, input_widget) when handled, or None to fall
+    through.
+    """
+    try:
+        from services.chat_intent_detector import detect_intent, get_pending_intent, hour_to_hhmm, PENDING_KEY
+        from services.schedule_runtime import regenerate_active_schedules
+        from services.user_context_service import get_context, merge_context, merged_user_state
+        from services.lc_agent import _persist_user_wake_sleep
+    except Exception as _e:  # pragma: no cover
+        logger.exception("context-change import failed: %s", _e)
+        return None
+
+    user_uuid = UUID(user_id)
+    user = await db.get(User, user_uuid)
+    if user is None:
+        return None
+    onb = dict(getattr(user, "onboarding", {}) or {})
+    persistent = await get_context(user_id, db)
+    state = merged_user_state(onb, persistent)
+
+    msg = (message_text or "").strip()
+
+    # 0) Pending intent? If the user is answering a slider question we asked.
+    pending = get_pending_intent(state)
+    if pending:
+        kind = pending.get("kind")
+        # Try to parse as a number (slider answer) or HH:MM.
+        m = re.match(r"^\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$", msg, re.IGNORECASE)
+        if m:
+            h = int(m.group(1))
+            mm = int(m.group(2)) if m.group(2) else 0
+            suf = (m.group(3) or "").lower()
+            if suf == "pm" and h < 12:
+                h += 12
+            elif suf == "am" and h == 12:
+                h = 0
+            elif kind == "wake_time" and h <= 11 and not suf:
+                pass   # natural reading
+            elif kind == "sleep_time" and h <= 11 and not suf and h >= 9:
+                h += 12   # bedtime hours typically PM
+            value = f"{h:02d}:{mm:02d}"
+            await merge_context(user_id, {PENDING_KEY: None}, db)
+            if kind == "wake_time":
+                await _persist_user_wake_sleep(user, db, value, None)
+            elif kind == "sleep_time":
+                await _persist_user_wake_sleep(user, db, None, value)
+            await db.commit()
+            return (
+                f"got it — {kind.replace('_',' ')} now {value}. retimed your active schedules.",
+                [], None,
+            )
+        # Otherwise fall through and treat as new turn (cancel pending).
+        await merge_context(user_id, {PENDING_KEY: None}, db)
+
+    intent = detect_intent(msg, state)
+    if intent is None:
+        return None
+
+    kind = intent["kind"]
+
+    # B) Vague — emit slider.
+    if intent.get("vague"):
+        await merge_context(user_id, {PENDING_KEY: {"kind": kind}}, db)
+        return (intent.get("hint") or "what time?", [], intent.get("slider"))
+
+    value = intent.get("value")
+
+    # A) Wake/sleep specific.
+    if kind in ("wake_time", "sleep_time"):
+        if kind == "wake_time":
+            await _persist_user_wake_sleep(user, db, value, None)
+        else:
+            await _persist_user_wake_sleep(user, db, None, value)
+        await db.commit()
+        return (
+            f"got it — {kind.replace('_',' ')} now {value}. retimed your active schedules.",
+            [], None,
+        )
+
+    # C) Other context (training, posture, equipment, outdoor) — merging
+    #    fires the regen hook in update_schedule_context's path; here we
+    #    call regenerate_active_schedules explicitly since we bypass the tool.
+    await merge_context(user_id, {kind: value}, db)
+    try:
+        await regenerate_active_schedules(user_id=user_id, db=db, reason=f"chat:{kind}")
+    except Exception as _e:
+        logger.warning("regen after chat intent failed (non-fatal): %s", _e)
+    await db.commit()
+    pretty_kind = kind.replace("_", " ")
+    return (f"got it — saved {pretty_kind} = {value}. updated your active schedules.", [], None)
+
+
+# (Old _handle_context_change body removed — replaced by the chat_intent_detector
+#  -based version above. See services/chat_intent_detector.py for the patterns.)
+
+
+# --------------------------------------------------------------------------- #
+#  Tier 3 — generic schedule modification fallback                            #
+#                                                                             #
+#  When the user's message looks like an ad-hoc schedule change ("cancel gym  #
+#  on tuesdays", "skip everything tomorrow", "move tret to mondays") that     #
+#  doesn't match our regex intent patterns, we route to the diff-format LLM   #
+#  adapter (services.schedule_adapter). The adapter is built for exactly      #
+#  these one-shot edits — it knows day-of-week semantics now.                 #
+# --------------------------------------------------------------------------- #
+
+_SCHEDULE_MOD_VERBS = (
+    "cancel", "skip", "remove", "drop", "stop", "delete", "kill",
+    "add", "include", "schedule",
+    "move", "shift", "push", "swap", "replace", "change",
+    "no ", "not on", "don't ", "dont ",
+    "less ", "more ", "fewer ", "extra ",
+)
+_SCHEDULE_MOD_TOKENS = (
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "weekday", "weekend", "today", "tomorrow", "this week", "next week",
+    "morning", "afternoon", "evening", "night", "tonight",
+    "task", "schedule", "routine",
+)
+
+
+def _looks_like_schedule_modification(message: str) -> bool:
+    if not message:
+        return False
+    low = message.lower().strip()
+    if "?" in low and any(low.startswith(q) for q in ("what", "when", "how", "why", "should i", "is")):
+        # Question about the schedule, not a modification request.
+        return False
+    has_verb = any(v in low for v in _SCHEDULE_MOD_VERBS)
+    has_token = any(t in low for t in _SCHEDULE_MOD_TOKENS)
+    return has_verb and has_token
+
+
+async def _handle_generic_schedule_modification(
+    user_id: str,
+    message_text: str,
+    db: AsyncSession,
+) -> Optional[Tuple[str, list[str], Optional[dict]]]:
+    """If the message reads like an ad-hoc schedule edit, run it through
+    the diff-format adapter. Returns the adapter's summary as the chat
+    reply and persists any context_updates so future regenerations honor
+    the user's standing rules ("no gym tuesdays")."""
+    if not _looks_like_schedule_modification(message_text):
+        return None
+
+    user_uuid = UUID(user_id)
+    res = await db.execute(
+        select(UserSchedule).where(
+            (UserSchedule.user_id == user_uuid)
+            & (UserSchedule.is_active.is_(True))
+        ).order_by(UserSchedule.updated_at.desc())
+    )
+    actives = list(res.scalars().all())
+    if not actives:
+        return None  # nothing to modify; fall through to agent (may answer informationally)
+
+    # If the user named a max ("cancel gym" implies fitmax/heightmax;
+    # "skip skin" implies skinmax) prefer that one. Otherwise touch all
+    # actives so e.g. "no skincare on weekends" applies broadly.
+    targets = _filter_actives_by_name(actives, message_text)
+    if not targets:
+        targets = actives
+
+    try:
+        from services.schedule_runtime import adapt_and_persist
+    except Exception as _e:
+        logger.exception("adapter import failed: %s", _e)
+        return None
+
+    summaries: list[str] = []
+    op_count = 0
+    for sched in targets:
+        try:
+            res = await adapt_and_persist(
+                user_id=user_id,
+                schedule_id=str(sched.id),
+                db=db,
+                feedback=message_text,
+            )
+            if res.get("ops_applied"):
+                op_count += len(res["ops_applied"])
+            summaries.append(f"{sched.maxx_id}: {res.get('summary') or 'updated'}")
+        except Exception as e:
+            logger.warning("adapter failed for max=%s: %s", sched.maxx_id, e)
+            summaries.append(f"{sched.maxx_id}: couldn't apply ({e})")
+    await db.commit()
+
+    if op_count == 0:
+        # Adapter understood the message but produced no ops — usually
+        # means the LLM thinks the request is already satisfied. Don't
+        # gaslight the user; let the chat agent fall through with a
+        # natural reply instead.
+        return None
+
+    body = "; ".join(summaries)
+    return (f"updated — {body}.", [], None)
+
+
+def _filter_actives_by_name(actives: list, message_text: str) -> list:
+    """Pick active schedules whose maxx_id is name-mentioned in the
+    message. e.g. "cancel gym tuesdays" → fitmax + heightmax (since
+    'gym' is workout-coded); "skip skincare" → skinmax."""
+    low = (message_text or "").lower()
+    names: dict[str, tuple[str, ...]] = {
+        "skinmax":   ("skin", "skinmax", "skincare", "cleanse", "tret", "retinoid", "spf", "dermastamp"),
+        "hairmax":   ("hair", "hairmax", "scalp", "minox", "shampoo", "haircut", "beard"),
+        "heightmax": ("height", "heightmax", "posture", "stretch", "decompress", "mobility", "wall", "decompression"),
+        "bonemax":   ("bone", "bonemax", "mew", "jaw", "chew", "masseter", "gum"),
+        "fitmax":    ("fit", "fitmax", "gym", "lift", "workout", "training", "cardio", "press", "squat"),
+    }
+    hit: list = []
+    for sched in actives:
+        mid = (sched.maxx_id or "").lower()
+        keywords = names.get(mid, ())
+        if any(kw in low for kw in keywords):
+            hit.append(sched)
+    return hit
+
+
+async def _run_onboarding_questioner(
+    user_id: str,
+    message_text: str,
+    db: AsyncSession,
+) -> Optional[Tuple[str, list[str], Optional[dict]]]:
+    """If the user is mid-onboarding for a doc-driven max, drive the next
+    question deterministically using onboarding_questioner. Returns
+    (text, choices, input_widget) if the driver handled the turn, or None
+    to fall through to the legacy/agent path.
+    """
+    try:
+        from services.onboarding_questioner import (
+            get_pending,
+            make_pending,
+            clear_pending,
+            peek_next_question,
+            field_to_question_payload,
+            coerce_answer,
+            detect_max_start_intent,
+        )
+        from services.task_catalog_service import warm_catalog, is_loaded, get_doc
+        from services.user_context_service import get_context, merge_context, merged_user_state
+    except Exception as _e:  # pragma: no cover
+        logger.exception("question driver import failed: %s", _e)
+        return None
+
+    if not is_loaded():
+        await warm_catalog()
+
+    user_uuid = UUID(user_id)
+    user = await db.get(User, user_uuid)
+    onboarding = dict(getattr(user, "onboarding", {}) or {})
+    persistent = await get_context(user_id, db)
+    state = merged_user_state(onboarding, persistent)
+    pending = get_pending(state)
+    msg = (message_text or "").strip()
+
+    # 1) New start-intent → kick off onboarding for that max.
+    if not pending:
+        new_max = detect_max_start_intent(msg)
+        if not new_max:
+            return None
+        next_field = peek_next_question(new_max, state)
+        if next_field is None:
+            # All required fields already known — let the agent handle it
+            # (it'll trigger generation directly).
+            return None
+        # Persist the pending state, render first question.
+        await merge_context(user_id, {**clear_pending(), **{"_onboarding_pending": make_pending(new_max, next_field["id"])}}, db)
+        payload = field_to_question_payload(next_field)
+        # Friendly preface so the chat reads like a conversation, not a quiz.
+        prefix = f"let's get your {get_doc(new_max).display_name.lower()} schedule going. "
+        text = prefix + payload["text"].lower() if not payload["text"].endswith("?") else prefix + payload["text"].lower()
+        return _finish_onboarding_turn(text, payload)
+
+    # 2) Pending → coerce the user's answer, persist, advance.
+    maxx_id = pending["max"]
+    last_qid = pending["last_question"]
+    doc = get_doc(maxx_id)
+    if doc is None:
+        # Doc disappeared (unlikely) → bail to legacy path.
+        await merge_context(user_id, clear_pending(), db)
+        return None
+
+    last_field = next((f for f in doc.required_fields if f.get("id") == last_qid), None)
+    if last_field is None:
+        await merge_context(user_id, clear_pending(), db)
+        return None
+
+    coerced = coerce_answer(last_field, msg)
+    if coerced is None:
+        # Re-ask, but keep state as-is.
+        payload = field_to_question_payload(last_field)
+        return _finish_onboarding_turn(
+            "didn't quite catch that — " + payload["text"].lower(),
+            payload,
+        )
+
+    # Save the answer to persistent context (also lives in onboarding overlay
+    # for the generator).
+    update = {last_qid: coerced}
+    next_state = {**state, **update}
+    next_field = peek_next_question(maxx_id, next_state)
+    if next_field is not None:
+        # More to ask. Update pending pointer + persist answer.
+        new_pending = make_pending(maxx_id, next_field["id"])
+        await merge_context(user_id, {**update, "_onboarding_pending": new_pending}, db)
+        payload = field_to_question_payload(next_field)
+        return _finish_onboarding_turn(
+            "got it. " + payload["text"].lower(),
+            payload,
+        )
+
+    # All required fields collected → clear pending and generate.
+    await merge_context(user_id, {**update, **clear_pending()}, db)
+    try:
+        from services.schedule_runtime import generate_and_persist
+        result = await generate_and_persist(
+            user_id=user_id,
+            maxx_id=maxx_id,
+            db=db,
+            onboarding={**onboarding, **persistent, **update},
+            wake_time=str(state.get("wake_time") or "07:00"),
+            sleep_time=str(state.get("sleep_time") or "23:00"),
+            subscription_tier=getattr(user, "subscription_tier", None),
+        )
+        await db.commit()
+        n_days = len(result.get("days") or [])
+        text = f"perfect. your {doc.display_name.lower()} schedule is live — {n_days} days, day 1 starts now. tap schedule to see today."
+        return text, [], None
+    except Exception as e:
+        logger.exception("onboarding completion → generate failed: %s", e)
+        return f"i collected everything but generation hit a snag: {e}. retry?", [], None
+
+
+def _finish_onboarding_turn(text: str, payload: dict) -> Tuple[str, list[str], Optional[dict]]:
+    """Pack a question payload into the chat-response 3-tuple."""
+    choices = list(payload.get("choices") or [])
+    iw = payload.get("input_widget")
+    return text, choices, iw
+
+
+# --------------------------------------------------------------------------- #
+#  Personal-data Q&A short-circuit                                            #
+#                                                                             #
+#  Questions like "what is my age" / "what gender am i" / "how old am i"      #
+#  must NEVER go to doc-RAG (the docs don't know the user). Pull the answer   #
+#  from user.onboarding + user_schedule_context.user_facts and reply directly #
+#  — or admit we don't know and ask, instead of "i don't see enough in docs". #
+# --------------------------------------------------------------------------- #
+
+_PERSONAL_Q_RE = re.compile(
+    r"\bwhat(?:'?s| is)?\s+(?:my|i'?m my)\s+(name|age|gender|sex|height|weight|"
+    r"body fat|diet|allergies|skin type|hair type|skin concern|wake time|"
+    r"sleep time|bedtime)\b"
+    r"|\bhow\s+old\s+am\s+i\b"
+    r"|\b(?:what|which)\s+gender\s+am\s+i\b"
+    r"|\bhow\s+(?:tall|much do i weigh)\s+am\s+i\b"
+    r"|\bdo\s+you\s+(?:know|remember)\s+(?:my|what|how)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_personal_data_question(text: str) -> bool:
+    if not text:
+        return False
+    return bool(_PERSONAL_Q_RE.search(text))
+
+
+async def _answer_personal_data_question(
+    message: str, onboarding: dict, user_facts: dict
+) -> Optional[str]:
+    """If the question maps to a known user attribute, answer from onboarding /
+    user_facts. If not, return a friendly 'don't have that, mind sharing?' line
+    — NEVER the canned doc-RAG refusal."""
+    if not message:
+        return None
+    low = message.lower()
+
+    # Map question keywords → field lookups.
+    facts_body = (user_facts or {}).get("body") or {}
+
+    def _say_or_ask(value, attr_label: str, friendly_ask: str) -> str:
+        if value not in (None, "", []):
+            if isinstance(value, list):
+                return f"based on what you've told me, your {attr_label} is {', '.join(str(v) for v in value)}."
+            return f"based on what you've told me, your {attr_label} is {value}."
+        return f"i don't have that — {friendly_ask}"
+
+    if "age" in low or "old am i" in low:
+        v = onboarding.get("age") or facts_body.get("age")
+        return _say_or_ask(v, "age", "how old are you?")
+    if re.search(r"\b(gender|sex)\b", low):
+        v = onboarding.get("gender") or onboarding.get("sex")
+        return _say_or_ask(v, "gender", "what's your gender?")
+    if "height" in low or re.search(r"how tall am i", low):
+        v = onboarding.get("height") or facts_body.get("height")
+        return _say_or_ask(v, "height", "how tall are you?")
+    if "weight" in low or "weigh" in low:
+        v = onboarding.get("weight") or facts_body.get("weight")
+        return _say_or_ask(v, "weight", "how much do you weigh?")
+    if "body fat" in low:
+        v = onboarding.get("body_fat") or facts_body.get("body_fat_pct")
+        return _say_or_ask(v, "body fat", "what's your body fat estimate?")
+    if "diet" in low:
+        v = (user_facts or {}).get("diet") or onboarding.get("diet")
+        return _say_or_ask(v, "diet", "what's your diet?")
+    if "allergies" in low or re.search(r"\ballergic", low):
+        v = (user_facts or {}).get("allergies")
+        return _say_or_ask(v, "allergies", "any allergies i should know about?")
+    if "skin type" in low:
+        v = onboarding.get("skin_type")
+        return _say_or_ask(v, "skin type", "what's your skin type — oily, dry, combo, normal?")
+    if "hair type" in low:
+        v = onboarding.get("hair_type")
+        return _say_or_ask(v, "hair type", "what's your hair type — straight, wavy, curly?")
+    if "skin concern" in low:
+        v = onboarding.get("primary_skin_concern") or onboarding.get("skin_concern")
+        return _say_or_ask(v, "main skin concern", "what's your main skin concern?")
+    if "wake" in low:
+        v = onboarding.get("wake_time")
+        return _say_or_ask(v, "wake time", "what time do you wake up?")
+    if "sleep" in low or "bedtime" in low:
+        v = onboarding.get("sleep_time")
+        return _say_or_ask(v, "bedtime", "what time do you go to bed?")
+    if "name" in low:
+        v = onboarding.get("first_name") or onboarding.get("name")
+        return _say_or_ask(v, "name", "what should i call you?")
+
+    return None
+
+
+_DOC_REFUSAL_PATTERNS = re.compile(
+    r"(don'?t see enough in the (current )?docs?"
+    r"|don'?t have enough (info|information) in the docs?"
+    r"|i don'?t have (info|information|details) (about|on) (this|that|it)"
+    r"|not (mentioned|covered|in) the docs?"
+    r"|the docs? don'?t (cover|mention|specify))",
+    re.IGNORECASE,
+)
+
+# Personal-data heuristic — if the user is asking about THEIR own
+# schedule / progress / data, web search won't help. Skip the safety net.
+_PERSONAL_RE = re.compile(
+    r"\b(my|i'?m|i am|i've|i have|me|mine|myself|today's|tomorrow|tonight)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_doc_refusal(text: str) -> bool:
+    if not text or len(text) < 20:
+        return False
+    return bool(_DOC_REFUSAL_PATTERNS.search(text))
+
+
+def _question_is_personal(message: str) -> bool:
+    """If the user is asking about their own data, web search won't help."""
+    if not message:
+        return False
+    # Strong signals — schedule operations, completion stats, etc.
+    if re.search(r"\b(my schedule|my routine|my plan|today's tasks|what should i do today)\b", message, re.IGNORECASE):
+        return True
+    return False
+
+
+def _compress_query_for_search(message: str) -> str:
+    """Condense a chat message into a 3-10 word search query."""
+    if not message:
+        return ""
+    # Strip pronouns / question chrome that hurts SEO retrieval.
+    text = re.sub(r"\b(i|me|my|mine|myself|you|your|please|could|would|can|should|tell me|do you know|what is|what are|how do i|how do you)\b",
+                  " ", message, flags=re.IGNORECASE)
+    text = re.sub(r"[?.!,]", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    # Cap length.
+    return text[:120]
+
+
+async def _extract_facts_bg(user_id: str, user_msg: str, assistant_response: str) -> None:
+    """Background-safe fact extractor. Opens its own AsyncSession since the
+    request session is already closed by the time this fires. Never raises."""
+    try:
+        from db.sqlalchemy import AsyncSessionLocal
+        from services.user_facts_async_extractor import extract_and_merge
+        async with AsyncSessionLocal() as bg_session:
+            try:
+                await extract_and_merge(
+                    user_id=user_id,
+                    user_message=user_msg,
+                    assistant_response=assistant_response,
+                    db=bg_session,
+                )
+            except Exception as e:
+                logger.info("bg fact extract failed (non-fatal): %s", e)
+    except Exception as e:
+        logger.info("bg fact extract setup failed (non-fatal): %s", e)
+
+
 @router.post("/message", response_model=ChatResponse)
 async def send_message(
     data: ChatRequest,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(require_paid_user),
     db: AsyncSession = Depends(get_db),
     rds_db: AsyncSession | None = Depends(get_rds_db_optional),
@@ -3400,29 +4047,135 @@ async def send_message(
     """Send message to Max AI (in-app)"""
     from services import chat_conversations_service as _conv
 
-    response_text, choices = await process_chat_message(
-        user_id=current_user["id"],
+    user_id = current_user["id"]
+
+    # Tier 0 — passive fact extraction. Catches vegetarian/allergic-to/lives-in/
+    # weighs-X/has-eczema/etc. and merges into user_schedule_context.user_facts.
+    # Pure regex, ~1ms, never blocks or returns a reply — just builds the
+    # long-term user profile so every downstream LLM call sees it.
+    try:
+        from services.user_facts_service import (
+            extract_facts_from_message, merge_facts, FACTS_KEY,
+        )
+        from services.user_context_service import get_context, merge_context
+        new_facts = extract_facts_from_message(data.message)
+        if new_facts:
+            existing_ctx = await get_context(user_id, db)
+            merged_facts = merge_facts(existing_ctx.get(FACTS_KEY) or {}, new_facts)
+            await merge_context(user_id, {FACTS_KEY: merged_facts}, db)
+    except Exception as _e:
+        logger.warning("fact extractor failed (non-fatal): %s", _e)
+
+    # Context-change hook (runs FIRST — before the questioner / agent).
+    # When the user volunteers a wake/sleep change mid-conversation, we
+    # retime every active schedule and reply with a confirmation in one
+    # turn. Without this the agent verbally acknowledges but persisted
+    # schedules stay on the old times.
+    iw: Optional[dict] = None
+    ctx_out = await _handle_context_change(
+        user_id=user_id,
         message_text=data.message,
         db=db,
-        rds_db=rds_db,
-        init_context=data.init_context,
-        chat_intent=data.chat_intent,
-        attachment_url=data.attachment_url,
-        attachment_type=data.attachment_type,
-        conversation_id=data.conversation_id,
     )
+    if ctx_out is not None:
+        response_text, choices, iw = ctx_out
+        try:
+            user_uuid = UUID(user_id)
+            db.add(ChatHistory(user_id=user_uuid, role="user", content=data.message, channel="app"))
+            db.add(ChatHistory(user_id=user_uuid, role="assistant", content=response_text, channel="app"))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+        conv_id = data.conversation_id
+        if not conv_id:
+            conv = await _conv.resolve_active_conversation(
+                db, user_id=user_id, conversation_id=None, channel="app",
+            )
+            conv_id = str(conv.id)
+        return ChatResponse(
+            response=response_text,
+            choices=choices,
+            input_widget=iw,
+            conversation_id=conv_id,
+        )
+
+    # NEW: deterministic onboarding questioner. Owns the conversation when
+    # the user is collecting required fields for a doc-driven max schedule.
+    # Returns None to fall through to the legacy/agent path.
+    driver_out = await _run_onboarding_questioner(
+        user_id=user_id,
+        message_text=data.message,
+        db=db,
+    )
+    if driver_out is not None:
+        response_text, choices, iw = driver_out
+        # Persist the user message + assistant reply to ChatHistory so the
+        # transcript matches what the user sees (the agent path does this
+        # internally; we have to do it explicitly when bypassing).
+        try:
+            user_uuid = UUID(user_id)
+            db.add(ChatHistory(user_id=user_uuid, role="user", content=data.message, channel="app"))
+            db.add(ChatHistory(user_id=user_uuid, role="assistant", content=response_text, channel="app"))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+    else:
+        # Tier 3 — generic schedule-modification fallback. Catches ad-hoc
+        # edits the regex detector won't ("cancel gym on tuesdays",
+        # "skip everything tomorrow", "move tret to mondays only") by
+        # routing to the diff-format LLM adapter.
+        mod_out = await _handle_generic_schedule_modification(
+            user_id=user_id, message_text=data.message, db=db,
+        )
+        if mod_out is not None:
+            response_text, choices, iw = mod_out
+            try:
+                user_uuid = UUID(user_id)
+                db.add(ChatHistory(user_id=user_uuid, role="user", content=data.message, channel="app"))
+                db.add(ChatHistory(user_id=user_uuid, role="assistant", content=response_text, channel="app"))
+                await db.commit()
+            except Exception:
+                await db.rollback()
+        else:
+            response_text, choices = await process_chat_message(
+                user_id=user_id,
+                message_text=data.message,
+                db=db,
+                rds_db=rds_db,
+                init_context=data.init_context,
+                chat_intent=data.chat_intent,
+                attachment_url=data.attachment_url,
+                attachment_type=data.attachment_type,
+                conversation_id=data.conversation_id,
+            )
+
     conv_id = data.conversation_id
     if not conv_id:
         conv = await _conv.resolve_active_conversation(
             db,
-            user_id=current_user["id"],
+            user_id=user_id,
             conversation_id=None,
             channel="app",
         )
         conv_id = str(conv.id)
+
+    # Background fact extraction. Fires after the response is returned, so
+    # zero added latency for the user. Catches any phrasing the regex
+    # extractor missed; facts will be visible on the NEXT turn.
+    try:
+        background_tasks.add_task(
+            _extract_facts_bg,
+            user_id=user_id,
+            user_msg=data.message or "",
+            assistant_response=response_text or "",
+        )
+    except Exception as _e:
+        logger.warning("could not schedule bg fact extractor: %s", _e)
+
     return ChatResponse(
         response=response_text,
         choices=choices,
+        input_widget=iw,
         conversation_id=conv_id,
     )
 

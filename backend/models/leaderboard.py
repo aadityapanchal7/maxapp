@@ -73,6 +73,12 @@ class ChatResponse(BaseModel):
     """Chat response"""
     response: str
     choices: list[str] = Field(default_factory=list)
+    # Optional structured input widget the mobile client renders inline below
+    # the assistant bubble. Currently used for numeric questions:
+    #   {"type":"slider","min":13,"max":50,"step":1,"default":18,"label":"How old are you?"}
+    # Mobile client interprets `type` and renders a slider + Submit button that
+    # sends the chosen value back as the next user message.
+    input_widget: Optional[dict] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # Echo back the conversation the message landed in — lets the mobile client
     # discover the server-assigned id on first message without a separate call.

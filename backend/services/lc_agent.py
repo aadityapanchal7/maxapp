@@ -1,5 +1,5 @@
 """
-LangChain Tool-Calling Agent for Max Chat.
+LangChain Tool-Calling Agent for Agartha Chat.
 
 Replaces the manual two-pass (pass-1 tool-detect → dispatch in chat.py → pass-2 synthesise)
 with a proper AgentExecutor loop:
@@ -259,6 +259,17 @@ async def _persist_user_wake_sleep(user, db, wake_time, sleep_time) -> None:
     flag_modified(user, "schedule_preferences")
     await db.flush()
 
+    # Re-expand every active doc-driven schedule so AM/PM task times shift
+    # to the new wake/sleep. Skeleton expand is <1ms — cheap to do eagerly.
+    # Skipped silently for users with no active doc-driven schedules.
+    try:
+        from services.schedule_runtime import regenerate_active_schedules
+        await regenerate_active_schedules(
+            user_id=str(user.id), db=db, reason="wake_sleep_change",
+        )
+    except Exception as _e:
+        logger.warning("regen after wake/sleep change failed (non-fatal): %s", _e)
+
 
 # ---------------------------------------------------------------------------
 # System prompt builder
@@ -297,6 +308,70 @@ async def build_agent_system_prompt(
             ms = user_context["active_maxx_schedule"]
             context_str += f"\nActive {ms.get('maxx_id')} schedule exists."
 
+    # Long-term user facts (vegetarian, allergic-to, eczema, lives-in, etc.)
+    # come from user_schedule_context.user_facts — extracted from chat passively
+    # by services.user_facts_service. Inject NEAR THE TOP of the system prompt
+    # with a forceful directive so RAG-retrieved content gets filtered through
+    # them, not regurgitated verbatim.
+    try:
+        if user_context:
+            facts_blob = (user_context.get("user_facts")
+                          or (user_context.get("persistent_context") or {}).get("user_facts"))
+            if facts_blob:
+                from services.user_facts_service import format_facts_for_prompt
+                facts_str = format_facts_for_prompt(facts_blob)
+                if facts_str:
+                    # Placement matters for instruction-following. Anchor at top.
+                    from services.user_facts_service import DIET_SUBSTITUTIONS
+                    chat_prompt = (
+                        "## ABSOLUTE RULES (override anything below)\n"
+                        "When you make ANY recommendation (foods, products, "
+                        "supplements, exercises, routines), you MUST filter "
+                        "through KNOWN USER FACTS below. NEVER suggest items "
+                        "the user said they avoid, are allergic to, or that "
+                        "conflict with their diet — even if a retrieved doc "
+                        "lists them. Rewrite forbidden items as substitutions "
+                        "from the SUBSTITUTION GUIDE.\n\n"
+                        "EXAMPLE: User is vegetarian. Doc says 'eat meat, "
+                        "fish, eggs, beans'. Your answer: 'eat eggs, beans, "
+                        "lentils, tofu, tempeh' — NOT 'eat meat, fish, eggs, "
+                        "beans'.\n\n"
+                        f"{facts_str}\n\n"
+                        f"{DIET_SUBSTITUTIONS}\n"
+                        "---\n\n"
+                    ) + chat_prompt
+    except Exception:
+        pass
+
+    # Web-search fallback policy — appended to whichever prompt we ended
+    # up with. Tells the agent when to escalate beyond the doc layer.
+    chat_prompt += (
+        "\n\n## PRODUCT RECOMMENDATIONS\n"
+        "When the user asks for product recommendations, ALWAYS call "
+        "`recommend_product(module, concern)` first. The tool returns "
+        "a CATALOG-VETTED PRODUCTS block with direct product URLs. "
+        "Quote those URLs VERBATIM in your answer — do NOT invent, "
+        "modify, or replace them with search links. If the tool returns "
+        "no catalog match, recommend by ingredient/category WITHOUT "
+        "fabricating URLs. NEVER write 'amazon.com/s?k=...' or any "
+        "other search URL — the catalog has direct product pages."
+    )
+    chat_prompt += (
+        "\n\n## WEB SEARCH FALLBACK\n"
+        "If the user asks a factual / how-to / current-info question and "
+        "your doc-grounded knowledge (or search_knowledge tool) doesn't "
+        "cover it, call the `web_search` tool with a short 3-8 word "
+        "query. NEVER say 'i don't see enough in the docs' without "
+        "trying web_search first when the question is one a search "
+        "engine could answer (ingredient lookups, exercise form, "
+        "product comparisons, brand info, dosing references, etc.).\n"
+        "After web_search returns, ground your answer in the snippets — "
+        "don't make up details. Keep the answer concise and cite at "
+        "most one source URL inline if it's helpful. Don't call "
+        "web_search for: anything about THIS user's data, schedule "
+        "operations, small talk, or restating something you just said.\n"
+    )
+
     if context_str:
         bounded_context = trim_context_blob(
             context_str,
@@ -322,7 +397,7 @@ async def build_agent_system_prompt(
     elif length_pref == "detailed":
         chat_prompt += (
             "\n\n## USER RESPONSE LENGTH PREFERENCE: DETAILED  (overrides all other length rules)\n"
-            "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Max's voice — length is not license to pad.\n"
+            "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Agartha's voice — length is not license to pad.\n"
             "- Every expansion must add real info: mechanisms, exact protocols, numbers, evidence. If you catch yourself restating, stop.\n"
             "- Structure: direct answer → specifics (ingredient + %, time, reps, macros) → one sentence on why. No intros, no end-summaries."
         )
@@ -356,6 +431,7 @@ def make_chat_tools(
     onboarding: dict,
     active_schedule: Optional[dict],
     channel: str,
+    user_context: Optional[dict] = None,
 ) -> list:
     """
     Create real async tool implementations as closures that capture the
@@ -1308,6 +1384,22 @@ def make_chat_tools(
                     await append_to_list(user_id, lk, parsed_val, db)
                 else:
                     await merge_context(user_id, {lk: parsed_val}, db)
+            # If the saved key is one the skeleton consults (required field
+            # answers, optional context like dermastamp_owned / training_status
+            # / heat_styling, etc.), re-expand active schedules so the user
+            # sees task changes immediately. We use a permissive whitelist —
+            # bookkeeping keys (_onboarding_pending) are skipped via the
+            # `_` prefix check.
+            try:
+                if lk and not lk.startswith("_") and lk not in ("wake_time", "sleep_time"):
+                    # wake/sleep already triggered via _persist_user_wake_sleep above.
+                    from services.schedule_runtime import regenerate_active_schedules
+                    async with db_mutation_lock:
+                        await regenerate_active_schedules(
+                            user_id=user_id, db=db, reason=f"context:{lk}",
+                        )
+            except Exception as _e:
+                logger.warning("regen after context update failed (non-fatal): %s", _e)
             return f"{lk}={parsed_val} saved"
         except Exception as e:
             await _safe_rollback()
@@ -1535,45 +1627,123 @@ def make_chat_tools(
         Get product/ingredient recommendations for a module and concern.
         Use when user asks what to buy or what products to use.
         module: skinmax, hairmax, fitmax, bonemax, heightmax.
+
+        Returns BOTH:
+          1. CATALOG-VETTED PRODUCTS — direct product links filtered
+             through the user's facts (vegan, allergies, etc.). Quote
+             the URLs verbatim — DO NOT invent or modify them.
+          2. Coaching reference — protocol notes from the doc layer.
         """
         try:
             mod = str(module).lower().strip()
             con = str(concern).lower().strip()
+
+            # ---- 1. Catalog lookup (direct URLs, fact-filtered) ------ #
+            catalog_block = ""
+            try:
+                from services.product_catalog import (
+                    find_products, format_for_prompt,
+                )
+                facts_blob = (
+                    (user_context or {}).get("user_facts")
+                    or ((user_context or {}).get("persistent_context") or {}).get("user_facts")
+                    or {}
+                )
+                # Treat the concern string as a single concern; catalog
+                # also matches partial overlaps so "acne and oily" is OK.
+                concern_tokens = [c for c in re.split(r"[,/&\s]+", con) if c]
+                products = find_products(
+                    module=mod,
+                    concerns=concern_tokens or None,
+                    user_facts=facts_blob,
+                    limit=3,
+                )
+                catalog_block = format_for_prompt(products)
+                if catalog_block:
+                    logger.info(
+                        "[recommend_product] catalog matched %d products for %s/%s",
+                        len(products), mod, con,
+                    )
+                else:
+                    logger.info(
+                        "[recommend_product] no catalog match for %s/%s (facts=%s)",
+                        mod, con, list((facts_blob or {}).keys()),
+                    )
+            except Exception as e:
+                logger.warning("[recommend_product] catalog lookup failed: %s", e)
+                catalog_block = ""
+
+            # ---- 2. Doc-derived coaching notes ------------------------ #
+            ref_block = ""
             ref_path = os.path.normpath(
                 os.path.join(
                     os.path.dirname(__file__),
                     f"{mod}_notification_engine_reference.md",
                 )
             )
-            if not mod or not os.path.exists(ref_path):
-                return f"no product reference found for {mod}"
-            with open(ref_path, "r", encoding="utf-8") as f:
-                content = f.read()
-            lines = content.split("\n")
-            prod_lines: list[str] = []
-            in_section = not bool(con)
-            for line in lines:
-                if con and con in line.lower():
-                    in_section = True
-                if in_section:
-                    stripped = line.strip()
-                    if not stripped or stripped.startswith("---"):
-                        continue
-                    if stripped.startswith("#") and len(stripped) < 80:
-                        continue
-                    is_bullet = bool(
-                        re.match(r"^[-*•]\s+", stripped) or re.match(r"^\d+[\).]\s+", stripped)
-                    )
-                    if stripped and (is_bullet or ":" in stripped or len(stripped) > 40):
-                        prod_lines.append(stripped)
-                    if len(prod_lines) >= 12:
-                        break
-            joined = "\n".join(prod_lines[:12])
-            result = (joined[:400] if joined else content[:400])
-            return f"[{mod}/{con} products]\n{result}"
+            if mod and os.path.exists(ref_path):
+                try:
+                    with open(ref_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    lines = content.split("\n")
+                    prod_lines: list[str] = []
+                    in_section = not bool(con)
+                    for line in lines:
+                        if con and con in line.lower():
+                            in_section = True
+                        if in_section:
+                            stripped = line.strip()
+                            if not stripped or stripped.startswith("---"):
+                                continue
+                            if stripped.startswith("#") and len(stripped) < 80:
+                                continue
+                            is_bullet = bool(
+                                re.match(r"^[-*•]\s+", stripped) or re.match(r"^\d+[\).]\s+", stripped)
+                            )
+                            if stripped and (is_bullet or ":" in stripped or len(stripped) > 40):
+                                prod_lines.append(stripped)
+                            if len(prod_lines) >= 8:
+                                break
+                    joined = "\n".join(prod_lines[:8])
+                    ref_block = (joined[:300] if joined else content[:300])
+                except Exception as e:
+                    logger.warning("[recommend_product] ref read failed: %s", e)
+
+            # ---- 3. Compose ------------------------------------------ #
+            sections: list[str] = []
+            if catalog_block:
+                sections.append(catalog_block)
+            if ref_block:
+                sections.append(f"## COACHING NOTES ({mod}/{con})\n{ref_block}")
+            if not sections:
+                return f"no product recommendations available for {mod}/{con}"
+            return "\n\n".join(sections)
         except Exception as e:
             logger.exception("recommend_product tool failed: %s", e)
             return "could not load product recommendations"
+
+    # Web search fallback. Only call when the doc-grounded retrieval
+    # (search_knowledge) returns nothing useful — see system prompt
+    # directive in build_agent_system_prompt.
+    @tool
+    async def web_search(query: str) -> str:
+        """Search the public web for an answer.
+
+        Use ONLY when:
+          1. search_knowledge / RAG didn't find what the user asked, AND
+          2. the question is factual / how-to / current-events.
+        Don't use for: schedule operations, anything personal about THIS
+        user, or tasks better handled by other tools.
+
+        Pass a tight 3-8 word query — not the user's full message.
+        Returns a numbered block of up to 3 results: title · snippet · url.
+        """
+        try:
+            from services.web_search import search as _ws
+            return await _ws(query, max_results=3)
+        except Exception as e:
+            logger.info("web_search tool failed: %s", e)
+            return f"(web search unavailable: {e.__class__.__name__})"
 
     return [
         modify_schedule,
@@ -1597,6 +1767,7 @@ def make_chat_tools(
         get_module_info,
         search_knowledge,
         recommend_product,
+        web_search,
     ]
 
 
@@ -1625,6 +1796,22 @@ async def run_chat_agent(
     """
     system_prompt = await build_agent_system_prompt(user_context, delivery_channel)
 
+    # Per-turn hard-rules reminder. Even with the system prompt directive
+    # near the top, gpt-4o-mini occasionally regurgitates RAG content
+    # verbatim and slips a meat/fish into a vegetarian's answer. Appending
+    # the rules to the user message at request time forces the model to
+    # re-read them right next to the question — much harder to ignore.
+    rules_reminder = ""
+    try:
+        if user_context:
+            facts_blob = (user_context.get("user_facts")
+                          or (user_context.get("persistent_context") or {}).get("user_facts"))
+            if facts_blob:
+                from services.user_facts_service import hard_constraints_reminder
+                rules_reminder = hard_constraints_reminder(facts_blob)
+    except Exception:
+        pass
+
     # Image: inject as multimodal content part in the human message
     if image_data:
         import base64
@@ -1632,11 +1819,11 @@ async def run_chat_agent(
         mime = _detect_image_mime(image_data)
         b64 = base64.b64encode(image_data).decode()
         input_content: str | list = [
-            {"type": "text", "text": message or ""},
+            {"type": "text", "text": ((rules_reminder + " " if rules_reminder else "") + (message or ""))},
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
         ]
     else:
-        input_content = message or ""
+        input_content = (rules_reminder + " " if rules_reminder else "") + (message or "")
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "{system_prompt}"),
@@ -1695,6 +1882,85 @@ async def run_chat_agent(
         ) from None
 
     response_text = (result.get("output") or "").strip()
+
+    # Hard-constraint validator: post-check the agent's final answer
+    # against user_facts. If the agent recommended chicken to a
+    # vegetarian (or any other constraint violation), regen ONCE with a
+    # corrective directive routed back through the same LLM. This is the
+    # last line of defense after prompt-time injection + per-turn rules
+    # reminder — instruction-following can still drift, especially when
+    # tool output (RAG, web_search) is loaded with forbidden terms.
+    try:
+        facts_blob = (
+            (user_context or {}).get("user_facts")
+            or ((user_context or {}).get("persistent_context") or {}).get("user_facts")
+        )
+        if facts_blob and response_text:
+            from services.user_facts_validator import (
+                enforce_against_facts, find_violations,
+            )
+            initial_violations = find_violations(response_text, facts_blob)
+            if initial_violations:
+                logger.info(
+                    "[AGENT] facts-validator caught violations=%s; regenerating",
+                    [t for t, _ in initial_violations],
+                )
+                from langchain_core.messages import HumanMessage, SystemMessage
+                from services.lc_providers import get_chat_llm_with_fallback as _gcllm
+
+                async def _regen(directive: str) -> str:
+                    # Re-issue the answer through a plain LLM call (no
+                    # tools). The directive names the violated terms and
+                    # demands a clean rewrite.
+                    sys_msg = (
+                        "You are rewriting a previous answer. The user has "
+                        "long-term constraints that the prior draft "
+                        "violated. Produce ONLY the corrected answer — "
+                        "no apologies, no meta-commentary."
+                    )
+                    facts_str = ""
+                    try:
+                        from services.user_facts_service import (
+                            format_facts_for_prompt, DIET_SUBSTITUTIONS,
+                        )
+                        facts_str = (
+                            f"{format_facts_for_prompt(facts_blob)}\n\n"
+                            f"{DIET_SUBSTITUTIONS}\n"
+                        )
+                    except Exception:
+                        pass
+                    human = (
+                        f"USER QUESTION:\n{message}\n\n"
+                        f"PREVIOUS ANSWER (do not repeat verbatim):\n{response_text}\n\n"
+                        f"{facts_str}"
+                        f"{directive}"
+                    )
+                    rl = _gcllm(max_tokens=700, temperature=0.15)
+                    resp = await rl.ainvoke([
+                        SystemMessage(content=sys_msg),
+                        HumanMessage(content=human),
+                    ])
+                    out = getattr(resp, "content", resp)
+                    if isinstance(out, list):
+                        out = "\n".join(str(x) for x in out)
+                    return str(out or "").strip()
+
+                response_text = await enforce_against_facts(
+                    facts=facts_blob,
+                    initial_answer=response_text,
+                    regen=_regen,
+                    max_attempts=1,
+                )
+    except Exception as e:
+        logger.info("[AGENT] facts validator skipped: %s", e)
+
+    # Link validator — same as fast_rag. Last line of defense against
+    # search-URL leaks and hallucinated product pages.
+    try:
+        from services.link_validator import validate_and_rewrite_links
+        response_text = validate_and_rewrite_links(response_text)
+    except Exception as e:
+        logger.info("[AGENT] link validator skipped: %s", e)
 
     # Track which tools fired
     tool_names_fired: set[str] = set()

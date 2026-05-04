@@ -91,6 +91,12 @@ async def generate_and_persist(
 
     # Multi-module collision pass against any other ACTIVE schedule the user has.
     days = result.days
+    # Stamp ISO dates on each day so the master view + UI calendars work.
+    # Day 0 = today, day N = today + N days.
+    from datetime import date as _date, timedelta as _td
+    today = _date.today()
+    for i, d in enumerate(days):
+        d["date"] = (today + _td(days=i)).isoformat()
     other_actives = await _load_other_active_days(user_uuid, db, except_maxx=maxx_id)
     if other_actives:
         bundle = {**other_actives, maxx_id: days}
@@ -153,6 +159,162 @@ async def generate_and_persist(
         "days": days,
         "summary": result.summary,
     }
+
+
+async def regenerate_active_schedules(
+    *,
+    user_id: str,
+    db: AsyncSession,
+    only_max: Optional[str] = None,
+    reason: str = "context_change",
+) -> list[dict]:
+    """Re-expand every active doc-driven schedule for the user against
+    their current onboarding + persistent context.
+
+    Triggered any time the user's wake/sleep, required-field answers, or
+    optional context changes — so the schedule reflects the new state
+    without the user having to manually regenerate.
+
+    Strategy:
+      - For each active UserSchedule whose maxx_id has a doc-driven
+        skeleton, expand a fresh `days` array.
+      - Diff against the existing days POSITIONALLY by `(day_index,
+        catalog_id)`: matching tasks keep their `task_id` and `status`
+        (so completed checkmarks survive). New tasks get fresh ids.
+        Tasks no longer in the skeleton drop out.
+      - Update the row in-place (do NOT deactivate + re-create) so all
+        downstream references (notifications, completion logs) stay
+        valid.
+      - Skip silently for maxes without a skeleton (legacy path).
+
+    Returns a list of `{maxx_id, schedule_id, changed}` summaries.
+    """
+    from datetime import date as _date, timedelta as _td
+    from services.task_catalog_service import get_doc, is_loaded, warm_catalog
+    from services.schedule_skeleton import expand_skeleton, has_skeleton
+    from services.schedule_validator import validate_and_fix
+    from services.user_context_service import get_context, merged_user_state
+
+    if not is_loaded():
+        await warm_catalog()
+
+    user_uuid = UUID(user_id)
+    user = await db.get(User, user_uuid)
+    if user is None:
+        return []
+    onboarding = dict(getattr(user, "onboarding", {}) or {})
+    persistent = await get_context(user_id, db)
+    state = merged_user_state(onboarding, persistent)
+    wake = str(state.get("wake_time") or "07:00")
+    sleep = str(state.get("sleep_time") or "23:00")
+
+    res = await db.execute(
+        select(UserSchedule).where(
+            (UserSchedule.user_id == user_uuid) & (UserSchedule.is_active.is_(True))
+        )
+    )
+    actives = list(res.scalars().all())
+
+    out: list[dict] = []
+    today = _date.today()
+    for sched in actives:
+        mid = sched.maxx_id or ""
+        if only_max and mid != only_max:
+            continue
+        if not has_skeleton(mid):
+            continue
+        doc = get_doc(mid)
+        if doc is None:
+            continue
+        sd = doc.schedule_design or {}
+        cadence_days = int(sd.get("cadence_days", 14))
+        budget = sd.get("daily_task_budget") or [2, 6]
+
+        try:
+            new_days = expand_skeleton(
+                maxx_id=mid, user_state=state, wake=wake, sleep=sleep,
+                cadence_days=cadence_days,
+            )
+            _, _errs, fixed_new = validate_and_fix(
+                maxx_id=mid, days=new_days,
+                wake_time=wake, sleep_time=sleep,
+                user_ctx=state, expected_day_count=cadence_days,
+                daily_task_budget=tuple(budget),
+            )
+        except Exception as e:
+            logger.warning("regen failed for max=%s user=%s: %s", mid, user_id, e)
+            continue
+
+        # Stamp dates so master view + UI calendars stay correct.
+        for i, d in enumerate(fixed_new):
+            d["date"] = (today + _td(days=i)).isoformat()
+
+        merged = _merge_preserving_status(old_days=list(sched.days or []), new_days=fixed_new)
+        # Only update if anything actually changed (cheap to compare via
+        # the fingerprints we already build; here we just compare lengths
+        # + first day's task tuple).
+        changed = _days_differ(list(sched.days or []), merged)
+        if changed:
+            sched.days = merged
+            sched.updated_at = datetime.utcnow()
+            sched.schedule_context = {
+                **(sched.schedule_context or {}),
+                "last_regen_reason": reason,
+                "last_regen_at": datetime.utcnow().isoformat(),
+            }
+        out.append({
+            "maxx_id": mid,
+            "schedule_id": str(sched.id),
+            "changed": changed,
+        })
+    if any(s["changed"] for s in out):
+        await db.flush()
+    return out
+
+
+def _merge_preserving_status(*, old_days: list[dict], new_days: list[dict]) -> list[dict]:
+    """Positional merge: for each day, keep the matching old task's
+    `task_id` and `status` when its `catalog_id` is still present in the
+    new skeleton expansion. New tasks get fresh ids. Removed tasks drop."""
+    merged: list[dict] = []
+    for di, nd in enumerate(new_days):
+        od = old_days[di] if di < len(old_days) else {}
+        old_by_cid: dict[str, dict] = {}
+        for ot in (od.get("tasks") or []):
+            cid = ot.get("catalog_id")
+            if cid and cid not in old_by_cid:
+                old_by_cid[cid] = ot
+        new_tasks: list[dict] = []
+        for nt in (nd.get("tasks") or []):
+            cid = nt.get("catalog_id")
+            ot = old_by_cid.get(cid)
+            if ot:
+                # Preserve identity so notifications + completion stats survive.
+                nt["task_id"] = ot.get("task_id") or nt.get("task_id")
+                # Preserve user-touched status (completed / skipped). Default
+                # to pending for tasks the user never touched.
+                ot_status = (ot.get("status") or "pending").lower()
+                if ot_status in ("completed", "skipped"):
+                    nt["status"] = ot_status
+                else:
+                    nt["status"] = "pending"
+            new_tasks.append(nt)
+        merged.append({**nd, "tasks": new_tasks})
+    return merged
+
+
+def _days_differ(a: list[dict], b: list[dict]) -> bool:
+    """Cheap structural diff — used to skip a no-op write when state
+    didn't actually change anything (e.g. a context merge that didn't
+    touch any field the skeleton consults)."""
+    if len(a) != len(b):
+        return True
+    for da, db_ in zip(a, b):
+        ta = [(t.get("catalog_id"), t.get("time")) for t in (da.get("tasks") or [])]
+        tb = [(t.get("catalog_id"), t.get("time")) for t in (db_.get("tasks") or [])]
+        if ta != tb:
+            return True
+    return False
 
 
 async def adapt_and_persist(

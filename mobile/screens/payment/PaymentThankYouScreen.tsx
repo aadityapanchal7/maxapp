@@ -9,7 +9,7 @@ const UNLOCKED = [
     'All courses & Maxx programs',
     'AI schedules + SMS reminders',
     'Scans, progress, and community',
-    'Max coach in-app & SMS',
+    'Agartha coach in-app & SMS',
 ];
 
 const POLL_MAX = 20;
@@ -95,7 +95,7 @@ export default function PaymentThankYouScreen() {
                 <Text style={styles.title}>{paid ? 'You’re in' : 'Thanks — almost there'}</Text>
                 <Text style={styles.subtitle}>
                     {paid
-                        ? 'Your subscription is active. Everything in Max is unlocked for you.'
+                        ? 'Your subscription is active. Everything in Agartha is unlocked for you.'
                         : 'If you just paid, Stripe may need a moment to tell us. Tap refresh below, or wait a few seconds and try again.'}
                 </Text>
 
@@ -119,7 +119,7 @@ export default function PaymentThankYouScreen() {
                         <ActivityIndicator color={colors.background} />
                     ) : (
                         <>
-                            <Text style={styles.buttonText}>Enter Max</Text>
+                            <Text style={styles.buttonText}>Enter Agartha</Text>
                             <Ionicons name="arrow-forward" size={20} color={colors.background} />
                         </>
                     )}

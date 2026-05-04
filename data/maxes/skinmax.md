@@ -11,6 +11,66 @@ schedule_design:
   intensity_ramp:
     week_1: [0.0, 0.5]
     week_2: [0.3, 1.0]
+  # Deterministic skeleton — schedule_skeleton.py expands this against the
+  # user's required_field answers without an LLM call. Block order = render
+  # order; each block is independently filtered by `if`. `replaces` lets a
+  # phase override a default block (e.g. REPAIR replaces pm_active).
+  skeleton:
+    blocks:
+      - id: am_foundation
+        slot: am_open
+        cadence: daily
+        tasks: [skin.cleanse_am, skin.moisturize_am, skin.spf]
+      - id: am_active
+        slot: am_active
+        cadence: daily
+        # Picker walks `pick_from` and emits at most one task per day.
+        # First eligible item with remaining quota wins.
+        pick_from:
+          - { id: skin.azelaic_am,  days_per_week: 7, requires: ["skin_concern in [acne, rosacea, pigmentation]", "barrier_state != damaged"] }
+          - { id: skin.centella_am, days_per_week: 7, requires: ["skin_concern == rosacea or barrier_state == damaged"] }
+      - id: midday_check
+        slot: midday
+        cadence: daily
+        tasks: [skin.hydration_water]
+      - id: midday_spf_reapply
+        slot: midday
+        cadence: daily
+        if: "outdoor_lifestyle == true"
+        tasks: [skin.spf_reapply]
+      - id: pm_foundation
+        slot: pm_close
+        cadence: daily
+        tasks: [skin.cleanse_pm, skin.moisturize_pm]
+      - id: pm_active
+        slot: pm_active
+        cadence: dynamic
+        pick_from:
+          # Ordered by priority. Conflicts (`not_with`) are enforced day-by-day.
+          - { id: skin.retinoid_pm,    days_per_week: 4, requires: ["skin_concern in [acne, pigmentation, texture, maintenance]", "barrier_state != damaged"], not_with: [skin.dermastamp_pm] }
+          - { id: skin.dermastamp_pm,  days_per_week: 2, requires: ["skin_concern in [pigmentation, texture]", "barrier_state == stable", "dermastamp_owned == true"], not_with: [skin.retinoid_pm] }
+      - id: pm_circulation
+        slot: pm_close
+        cadence: n_per_week=5
+        tasks: [skin.facial_massage]
+      - id: internal_zinc
+        slot: am_open
+        cadence: daily
+        if: "skin_concern in [acne, pigmentation]"
+        tasks: [skin.zinc_supp]
+      - id: internal_diet
+        slot: flexible
+        cadence: n_per_week=5
+        if: "skin_concern in [rosacea, acne, pigmentation] and diet_inflammation_open == true"
+        tasks: [skin.diet_anti_inflammatory]
+      # Phase override: damaged barrier → strip all actives + force pause day.
+      # `replaces` removes other blocks by id before placement.
+      - id: phase_repair_lock
+        slot: pm_active
+        cadence: daily
+        if: "barrier_state == damaged"
+        replaces: [pm_active, am_active]
+        tasks: [skin.barrier_pause]
 
 required_fields:
   - id: skin_concern

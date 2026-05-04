@@ -34,7 +34,7 @@ type NextRoute = 'ModuleSelect' | 'Main';
 type RouteParams = {
     nextAfterSendblue?: NextRoute;
     continueTo?: 'SendblueConnect' | 'back';
-    /** Pre-fill from `user.phone_number` (e.g. edit from Text Max screen). */
+    /** Pre-fill from `user.phone_number` (e.g. edit from Text Agartha screen). */
     prefillFromAccount?: boolean;
 };
 
@@ -106,8 +106,8 @@ export default function SmsSetupScreen() {
                     <View style={styles.formCard}>
                         <Text style={styles.lead}>
                             {prefillFromAccount
-                                ? 'Use the number you will text Max from on the next screen. Open Messages from that device or line.'
-                                : "We'll use this for SMS coaching and to verify it's you when you text Max."}
+                                ? 'Use the number you will text Agartha from on the next screen. Open Messages from that device or line.'
+                                : "We'll use this for SMS coaching and to verify it's you when you text Agartha."}
                         </Text>
 
                         <Text style={styles.label}>PHONE NUMBER</Text>

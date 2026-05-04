@@ -4,13 +4,18 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { useMaxxQuery, useMaxxScheduleQuery, useActiveSchedulesSummaryQuery } from '../../hooks/useAppQueries';
 import { queryKeys } from '../../lib/queryClient';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 import { useAuth } from '../../context/AuthContext';
 import { defaultFitmaxMacroSummary, deriveCalorieLogFromMessages } from '../../features/fitmax/fitmax';
 import { buildModuleReaderContent, modulePreviewFromContent, isFitmaxCourseShape } from '../../utils/maxxModuleReader';
+import CourseTOC from '../../components/CourseTOC';
+import CourseReader from '../../components/CourseReader';
+import { getCourseForMaxx } from '../../data/courseContent';
+import ModuleHero from '../../components/ModuleHero';
+import SectionLabel from '../../components/SectionLabel';
 
 const SCHEDULE_CAPABLE_MAXXES = ['skinmax', 'heightmax', 'hairmax', 'fitmax', 'bonemax'];
 
@@ -147,6 +152,11 @@ export default function MaxxDetailScreen() {
     const loading = !!maxxId && maxxQuery.isPending && !maxxQuery.data;
     const maxActiveModules = isPremium ? 3 : 2;
     const atLimit = !activeSchedule && activeCount >= maxActiveModules;
+
+    /* Course reader (full-screen modal pager). null = closed. */
+    const [readerOpenSection, setReaderOpenSection] = useState<string | null>(null);
+    const openReaderAt = useCallback((sectionId: string) => setReaderOpenSection(sectionId), []);
+    const closeReader = useCallback(() => setReaderOpenSection(null), []);
 
     const [loadingFitmaxExtras, setLoadingFitmaxExtras] = useState(isFitmax);
     const [macroSnapshot, setMacroSnapshot] = useState({
@@ -285,9 +295,37 @@ export default function MaxxDetailScreen() {
     const previewPills = tagLabels.slice(0, MAX_PILLS);
     const morePillCount = tagLabels.length - previewPills.length;
 
+    const courseDef = getCourseForMaxx(maxxId);
+    const useAccentTheme = !!courseDef; // currently only skinmax has a course → accent treatment
+    const accent = courseDef?.accent ?? colors.foreground;
+    const accentSoft = courseDef?.accentSoft ?? colors.surface;
+
     return (
         <View style={styles.container}>
-            {isFitmax ? (
+            {useAccentTheme ? (
+                <ModuleHero
+                    title={getMaxxDisplayLabel(maxx)}
+                    accent={accent}
+                    accentSoft={accentSoft}
+                    iconName={maxx.icon || 'sparkles-outline'}
+                    description={getMaxxDisplayDescription(maxx) ?? maxx.description}
+                    onBack={() => navigation.goBack()}
+                    stats={
+                        courseDef
+                            ? [
+                                  { number: courseDef.chapters.length, label: 'chapters' },
+                                  {
+                                      number: courseDef.chapters.reduce(
+                                          (n, c) => n + c.sections.length,
+                                          0
+                                      ),
+                                      label: 'lessons',
+                                  },
+                              ]
+                            : undefined
+                    }
+                />
+            ) : isFitmax ? (
                 <View style={styles.headerWrapFitmax}>
                     <TouchableOpacity
                         onPress={() => navigation.goBack()}
@@ -321,9 +359,57 @@ export default function MaxxDetailScreen() {
             )}
 
             <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-                <Text style={styles.description}>{getMaxxDisplayDescription(maxx) ?? maxx.description}</Text>
+                {!useAccentTheme && (
+                    <Text style={styles.description}>{getMaxxDisplayDescription(maxx) ?? maxx.description}</Text>
+                )}
 
-                {canSchedule && (
+                {canSchedule && useAccentTheme && (
+                    <View style={styles.actionGroup}>
+                        {atLimit ? (
+                            <View style={styles.limitBanner}>
+                                <Ionicons name="alert-circle-outline" size={16} color={colors.textSecondary} />
+                                <Text style={styles.limitBannerText}>
+                                    You have {maxActiveModules} active modules ({activeLabels.join(', ')}). Stop one to start this.
+                                </Text>
+                            </View>
+                        ) : (
+                            // Ghost button — hairline border, no fill,
+                            // accent text + arrow. Sits quietly under the
+                            // hero gradient without competing.
+                            <TouchableOpacity
+                                style={[styles.ghostBtn, { borderColor: accent }]}
+                                activeOpacity={0.7}
+                                onPress={() => {
+                                    navigation.navigate('Main', {
+                                        screen: 'Chat',
+                                        params: { initSchedule: maxxId },
+                                    });
+                                }}
+                            >
+                                <Text style={[styles.ghostBtnText, { color: accent }]}>
+                                    {activeSchedule ? 'Update schedule' : 'Start schedule'}
+                                </Text>
+                                <Ionicons name="arrow-forward" size={15} color={accent} />
+                            </TouchableOpacity>
+                        )}
+                        {activeSchedule && (
+                            <View style={styles.linkRow}>
+                                <TouchableOpacity
+                                    activeOpacity={0.6}
+                                    onPress={() => navigation.navigate('Schedule', { scheduleId: activeSchedule.id })}
+                                >
+                                    <Text style={[styles.linkText, { color: accent }]}>View schedule</Text>
+                                </TouchableOpacity>
+                                <View style={styles.linkSep} />
+                                <TouchableOpacity activeOpacity={0.6} onPress={handleStopSchedule}>
+                                    <Text style={styles.linkTextMuted}>Stop schedule</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                    </View>
+                )}
+
+                {canSchedule && !useAccentTheme && (
                     <View style={styles.scheduleActions}>
                         {atLimit ? (
                             <View style={styles.limitBanner}>
@@ -374,9 +460,21 @@ export default function MaxxDetailScreen() {
                     </View>
                 )}
 
-                <Text style={styles.sectionLabel}>MODULES</Text>
+                {courseDef ? (
+                    <CourseTOC course={courseDef} onOpenSection={openReaderAt} />
+                ) : null}
 
-                {modules.length === 0 && previewPills.length > 0 && (
+                {/* Legacy MODULES list — only render for maxxes that
+                    don't yet have a curated `courseDef`. Once a course is
+                    authored (skinmax today; rest soon), the TOC + Reader
+                    fully replace this section. */}
+                {!courseDef && (useAccentTheme ? (
+                    <SectionLabel label="Modules" accent={accent} />
+                ) : (
+                    <Text style={styles.sectionLabel}>MODULES</Text>
+                ))}
+
+                {!courseDef && modules.length === 0 && previewPills.length > 0 && (
                     <View style={styles.pillWrap}>
                         {previewPills.map((label, i) => (
                             <View key={`pill-${maxx.id}-${i}`} style={styles.pillSmall}>
@@ -389,7 +487,7 @@ export default function MaxxDetailScreen() {
                     </View>
                 )}
 
-                {modules.map((mod: any, idx: number) => {
+                {!courseDef && modules.map((mod: any, idx: number) => {
                     const premium = isModulePremium(maxxId, mod);
                     const lockedPremium = premium && !isPremium;
                     const fitShape = isFitmaxCourseShape(mod);
@@ -466,6 +564,18 @@ export default function MaxxDetailScreen() {
                     );
                 })}
             </ScrollView>
+
+            {/* Full-screen reader. One slide per section across the entire
+                course; swipe / arrow controls flow across chapter boundaries.
+                Mounted at root so it overlays everything in the screen. */}
+            {courseDef ? (
+                <CourseReader
+                    visible={readerOpenSection !== null}
+                    course={courseDef}
+                    initialSectionId={readerOpenSection}
+                    onClose={closeReader}
+                />
+            ) : null}
         </View>
     );
 }
@@ -650,6 +760,74 @@ const styles = StyleSheet.create({
         marginBottom: spacing.xl,
         gap: spacing.md,
     },
+    scheduleActionsGlass: {
+        marginTop: spacing.lg,
+        marginBottom: spacing.xl,
+    },
+    /* ── Editorial schedule actions (accent path) ─────────────────── */
+    actionGroup: {
+        marginTop: spacing.xs,
+        marginBottom: spacing.lg,
+        gap: 14,
+    },
+    /* Ghost button — hairline accent border, no fill, accent text + arrow. */
+    ghostBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 18,
+        paddingVertical: 12,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        gap: 10,
+    },
+    ghostBtnText: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13,
+        letterSpacing: 0.4,
+    },
+
+    /* Legacy primaryPill styles kept for non-accent path (currently unused). */
+    primaryPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 22,
+        paddingVertical: 14,
+        borderRadius: borderRadius.full,
+    },
+    primaryPillText: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13,
+        letterSpacing: 0.4,
+        color: colors.buttonText,
+    },
+    linkRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 4,
+    },
+    linkText: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 12.5,
+        letterSpacing: 0.3,
+    },
+    linkTextMuted: {
+        fontFamily: fonts.sansMedium,
+        fontSize: 12.5,
+        letterSpacing: 0.3,
+        color: colors.textMuted,
+    },
+    linkSep: {
+        width: 3,
+        height: 3,
+        borderRadius: 2,
+        backgroundColor: colors.textMuted,
+        marginHorizontal: 12,
+        opacity: 0.6,
+    },
+
+    /* ── Legacy schedule buttons (non-accent path) ────────────────── */
     scheduleButton: {
         flexDirection: 'row',
         alignItems: 'center',

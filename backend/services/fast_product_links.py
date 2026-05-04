@@ -222,6 +222,21 @@ def _module_products(maxx_id: str) -> list[str]:
 
 
 def _amazon_search_url(name: str) -> str:
+    """Resolve a product name to a URL.
+
+    Prefers a DIRECT product page from the curated `product_catalog.yaml`
+    (Amazon /dp/<ASIN>) when one matches. Falls back to a generic Amazon
+    search URL for products that aren't in the catalog yet — but every
+    new recommendation should be added to the catalog so this fallback
+    eventually goes unused.
+    """
+    try:
+        from services.product_catalog import lookup_by_name
+        hit = lookup_by_name(name)
+        if hit:
+            return hit.url
+    except Exception:
+        pass
     return f"https://www.amazon.com/s?k={quote_plus(name)}"
 
 

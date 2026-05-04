@@ -74,6 +74,8 @@ interface User {
     first_scan_completed: boolean;
     is_admin: boolean;
     is_scan_user: boolean;
+    /** Bot tone preference. Drawer surfaces this as hardcore/mediumcore/softcore. */
+    coaching_tone?: 'default' | 'hardcore' | 'gentle' | 'influencer';
     /** Server has an APNs token on file (iOS push). */
     has_apns_token?: boolean;
 }

@@ -397,7 +397,11 @@ async def get_latest_scan(
     )
     scan = result.scalar_one_or_none()
     if not scan:
-        raise HTTPException(status_code=404, detail="No scans found")
+        # 200 + null body. 404 here was historical and confused the mobile app:
+        # any client that didn't catch the AxiosError stayed wedged on the
+        # home loading state when a fresh user (faux-skip-signup) had no scans.
+        # "No latest scan" is a normal data state, not a missing route.
+        return None
 
     is_paid = current_user.get("is_paid", False)
     is_scan_user = current_user.get("is_scan_user", False)

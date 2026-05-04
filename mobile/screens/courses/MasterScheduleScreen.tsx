@@ -308,7 +308,7 @@ export default function MasterScheduleScreen() {
             pendingKeys.add(key);
             pendingEntries[key] = {
               fireDate,
-              title: task.moduleLabel ? `Max (${task.moduleLabel})` : 'Max',
+              title: task.moduleLabel ? `Agartha (${task.moduleLabel})` : 'Agartha',
               body: task.description ? `${task.title}\n${task.description}` : task.title,
             };
           }
@@ -416,16 +416,21 @@ export default function MasterScheduleScreen() {
   const tasksForDay = selectedDate ? merged.byDate[selectedDate] || [] : [];
 
   const goToChatForTask = (task: MergedScheduleTask) => {
+    // Seed the chat with a directive question so the agent gives concrete,
+    // numbered steps for how to actually do the task — not generic explainer
+    // copy. The init_context tells the backend this is a "task help" request
+    // so it can pull the catalog evidence_section + relevant RAG chunks.
     const initQuestion =
-      `Can you help me with this task?` +
+      `Walk me through how to actually do this task — give me a short numbered list of the exact steps, what to use, and any common mistakes to avoid. Keep it practical, no fluff.` +
       `\n\nTask: ${task.title}` +
-      `\nProgram: ${task.moduleLabel}` +
-      `\nWhen: ${task.time}` +
-      `\nDetails: ${task.description}`;
+      (task.moduleLabel ? `\nProgram: ${task.moduleLabel}` : '') +
+      (task.time ? `\nWhen: ${task.time}` : '') +
+      (task.description ? `\nDetails: ${task.description}` : '');
+    const initContext = `task_help:${task.scheduleId}:${task.task_id}`;
     if (isTab) {
-      navigation.navigate('Chat', { initQuestion });
+      navigation.navigate('Chat', { initQuestion, initContext });
     } else {
-      navigation.navigate('Main', { screen: 'Chat', params: { initQuestion } });
+      navigation.navigate('Main', { screen: 'Chat', params: { initQuestion, initContext } });
     }
   };
 
@@ -688,10 +693,10 @@ export default function MasterScheduleScreen() {
                               onPress={(e) => { e.stopPropagation(); goToChatForTask(task); }}
                               activeOpacity={0.75}
                               accessibilityRole="button"
-                              accessibilityLabel={`Ask Max about ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
+                              accessibilityLabel={`Ask Agartha about ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
                             >
                               <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.textMuted} />
-                              <Text style={styles.askChatLabel}>Ask Max</Text>
+                              <Text style={styles.askChatLabel}>Ask Agartha</Text>
                             </TouchableOpacity>
                           </>
                         )}

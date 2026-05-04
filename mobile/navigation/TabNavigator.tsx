@@ -16,6 +16,7 @@ import api from '../services/api';
 import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
 import ForumsHomeV2Screen from '../screens/forums/ForumsHomeV2Screen';
+import ComingSoonOverlay from '../components/ComingSoonOverlay';
 import SubforumThreadsV2Screen from '../screens/forums/SubforumThreadsV2Screen';
 import ThreadV2Screen from '../screens/forums/ThreadV2Screen';
 import NewThreadV2Screen from '../screens/forums/NewThreadV2Screen';
@@ -27,10 +28,25 @@ const Stack = createNativeStackNavigator();
 
 function ScanPlaceholder() { return null; }
 
+// Forums are gated behind a "coming soon" screen until the feature ships.
+// The full forum stack (threads, posts, etc.) is preserved below — we just
+// don't expose it from the tab. When ready, swap `ForumsComingSoon` for
+// the original `ForumsHomeV2Screen` and the rest of the stack lights up.
+function ForumsComingSoon() {
+    return (
+        <ComingSoonOverlay
+            eyebrow="soon"
+            title="forums"
+            subtitle="we're cooking."
+            iconName="people-outline"
+        />
+    );
+}
+
 function ForumsStack() {
     return (
         <Stack.Navigator screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="ForumsHomeV2" component={ForumsHomeV2Screen} />
+            <Stack.Screen name="ForumsHomeV2" component={ForumsComingSoon} />
             <Stack.Screen name="SubforumThreadsV2" component={SubforumThreadsV2Screen} />
             <Stack.Screen name="ThreadV2" component={ThreadV2Screen} />
             <Stack.Screen name="NewThreadV2" component={NewThreadV2Screen} />

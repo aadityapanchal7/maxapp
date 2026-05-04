@@ -299,12 +299,17 @@ async def faux_signup_skip(db: AsyncSession = Depends(get_db)):
     email, username, password, phone = _new_demo_identity("skip")
 
     onboarding_data = _build_demo_onboarding()
-    # Mark every post-subscription onboarding gate as completed so RootNavigator
-    # routes straight to 'Main'.
-    onboarding_data["post_subscription_onboarding"] = True
+    # IMPORTANT: `post_subscription_onboarding=True` means "user is mid-flow,
+    # needs to finish the post-pay onboarding". HomeScreen redirects to
+    # FaceScanResults when it sees that flag truthy. For "skip → land on home",
+    # we want the flag FALSE (= no pending onboarding work).
+    # The remaining sub-gates are still set to True so any defensive check
+    # downstream sees them done.
+    onboarding_data["post_subscription_onboarding"] = False
     onboarding_data["sendblue_connect_completed"] = True
     onboarding_data["notification_channels_completed"] = True
     onboarding_data["module_select_completed"] = True
+    onboarding_data["main_app_tour_completed"] = True
 
     user = User(
         email=email,
@@ -611,4 +616,5 @@ async def get_current_user_info(current_user: dict = Depends(get_current_user)):
         subscription_tier=current_user.get("subscription_tier"),
         last_username_change=current_user.get("last_username_change"),
         has_apns_token=current_user.get("has_apns_token", False),
+        coaching_tone=current_user.get("coaching_tone") or "default",
     )

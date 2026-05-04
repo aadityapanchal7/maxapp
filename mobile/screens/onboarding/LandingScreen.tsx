@@ -36,7 +36,7 @@ const SLIDES = [
         type: 'coaching',
         label: 'HOW IT FEELS',
         title: 'Coaching that comes to you',
-        description: 'Max texts you personalized advice throughout the day. Onboard in the app, then get real guidance straight to your messages.',
+        description: 'Agartha texts you personalized advice throughout the day. Onboard in the app, then get real guidance straight to your messages.',
         chatPreview: [
             { from: 'max', text: 'Good morning. Time for your skincare routine — cleanser, vitamin C serum, then SPF 50. Don\'t skip the sunscreen.', time: '8:02 AM' },
             { from: 'user', text: 'Done. What about my hair?', time: '8:14 AM' },
@@ -74,12 +74,30 @@ export default function LandingScreen() {
     const handleSkip = async () => {
         if (skipLoading) return;
         setSkipLoading(true);
+        // eslint-disable-next-line no-console
+        console.log('[Skip] click → calling fauxSkipSignup…');
         try {
             await fauxSkipSignup();
+            // eslint-disable-next-line no-console
+            console.log('[Skip] fauxSkipSignup resolved — auth state should switch to Main; if it does not within 1.5s we hard-reload');
+            if (Platform.OS === 'web') {
+                // Belt-and-braces: if RootNavigator's reactive re-route doesn't kick in
+                // (stale stackKey, mid-transition focus), force a reload so the boot
+                // path picks up the now-stored tokens and routes to Main.
+                window.setTimeout(() => {
+                    if (typeof window !== 'undefined' && window.location?.pathname && !/\/(home|main)/i.test(window.location.pathname || '')) {
+                        // eslint-disable-next-line no-console
+                        console.log('[Skip] reactive re-route did not fire — reloading to /');
+                        window.location.replace('/');
+                    }
+                }, 1500);
+            }
         } catch (e: any) {
+            // eslint-disable-next-line no-console
+            console.error('[Skip] fauxSkipSignup failed:', e);
             const msg = e?.response?.data?.detail ?? e?.message ?? 'Something went wrong';
             if (Platform.OS === 'web') {
-                window.alert(msg);
+                window.alert(`Skip failed: ${msg}`);
             } else {
                 Alert.alert('Error', msg);
             }
