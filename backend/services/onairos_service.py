@@ -244,7 +244,7 @@ class OnairosService:
         if neg:
             parts.append("room to grow: " + ", ".join(neg))
 
-        # Surface top inference affinities so Max can tailor tone / topic (e.g. more or
+        # Surface top inference affinities so Agartha can tailor tone / topic (e.g. more or
         # less fitness-heavy framing) when the chat prompt says to quietly personalize.
         affinities_raw = inference.get("affinities") or inference.get("interests") or {}
         if isinstance(affinities_raw, dict) and affinities_raw:
@@ -259,8 +259,8 @@ class OnairosService:
     # --- deterministic trait → behavioral-frame sentences -------------------
     #
     # Keep narrow and literal. Each key matches the lowercased trait name from
-    # Onairos; the value is a one-line framing directive Max can lean on. We
-    # never cite the source and never list scores — the frame reads as Max's
+    # Onairos; the value is a one-line framing directive Agartha can lean on. We
+    # never cite the source and never list scores — the frame reads as Agartha's
     # own observation about the user.
     _STRENGTH_FRAMES: dict[str, str] = {
         "consistency": "Rides habit well — frame protocols as streaks, not novel stacks.",
@@ -279,7 +279,7 @@ class OnairosService:
 
     @staticmethod
     def format_behavioral_frame(traits_cached: dict[str, Any] | None) -> Optional[str]:
-        """Return a short multi-line frame Max can treat as facts-about-the-user.
+        """Return a short multi-line frame Agartha can treat as facts-about-the-user.
 
         Output is already labelled — callers append it directly to context.
         Never names the source. Never lists numeric scores. Returns None when

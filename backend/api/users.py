@@ -163,7 +163,7 @@ async def test_push_notification(
 
     ok, http_code = await send_apns_alert(
         token,
-        "Max",
+        "Agartha",
         "Push notifications are working! You're all set.",
         badge=1,
     )
@@ -375,7 +375,7 @@ async def complete_sendblue_connect(
     ):
         raise HTTPException(
             status_code=400,
-            detail="We have not received a message from your number yet. Text the Max line from the phone on your account, wait a few seconds, then try again.",
+            detail="We have not received a message from your number yet. Text the Agartha line from the phone on your account, wait a few seconds, then try again.",
         )
     # Dev-only escape hatch so local/dev builds can proceed without texting.
     if settings.debug and dev_skip:

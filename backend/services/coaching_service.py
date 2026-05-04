@@ -124,7 +124,7 @@ If check_in_type is one of:
 
 Return only the message text, no labels."""
 
-_COACHING_CHECK_IN_GENERAL_FALLBACK = """You are Max, a lookmaxxing coach. Generate a short check-in message for {name}.
+_COACHING_CHECK_IN_GENERAL_FALLBACK = """You are Agartha, a lookmaxxing coach. Generate a short check-in message for {name}.
 
 User context:
 {context_str}{multi_module_sms_hint}
@@ -136,7 +136,7 @@ Do not say you're texting, reaching out, or sending a reminder — jump straight
 
 Message:"""
 
-_COACHING_BEDTIME_FALLBACK = """You are Max — the user's lookmaxxing coach. Send ONE text before their bedtime.
+_COACHING_BEDTIME_FALLBACK = """You are Agartha — the user's lookmaxxing coach. Send ONE text before their bedtime.
 
 User first name or handle: {name}
 
@@ -227,7 +227,7 @@ def _format_memory_slots(
     # consented and we have a cached trait row — absence is the norm, not an error.
     # We emit two artifacts:
     #   1) One-line memory slot with trait scores (legacy, kept for existing prompts).
-    #   2) A first-person behavioral frame block Max treats as facts-about-the-user,
+    #   2) A first-person behavioral frame block Agartha treats as facts-about-the-user,
     #      producing more natural blending than score readouts.
     behavioral_frame: Optional[str] = None
     try:
@@ -1041,7 +1041,7 @@ class CoachingService:
         rds_db=None,
     ) -> str:
         """
-        Short SMS before bedtime: casual Max voice + explicit instruction to reply with a photo via MMS.
+        Short SMS before bedtime: casual Agartha voice + explicit instruction to reply with a photo via MMS.
         Use db=None from the scheduler so connections are not held during Gemini.
         """
         if db is not None:

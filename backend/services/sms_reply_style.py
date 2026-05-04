@@ -3,7 +3,7 @@ Shared copy rules for SMS / iMessage — keeps outbound text human and avoids
 meta lines ("I'm texting you…", "this is a reminder…").
 """
 
-# Appended to Max chat system prompt when the reply is delivered over SMS/iMessage.
+# Appended to Agartha chat system prompt when the reply is delivered over SMS/iMessage.
 SMS_CONVERSATION_APPENDIX = """
 
 ## TEXT MESSAGE OUTPUT (CRITICAL)

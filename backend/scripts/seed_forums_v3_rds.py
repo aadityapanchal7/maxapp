@@ -1,6 +1,6 @@
 """
 Seed forums v2 on RDS: Official (read-only), Influencers (premium, 3 boards),
-one community subforum per Max line, then merge legacy boards into canonical slugs.
+one community subforum per Agartha line, then merge legacy boards into canonical slugs.
 
 Run: python -m scripts.seed_forums_v3_rds  (from backend/)
 """
@@ -26,12 +26,12 @@ def _sub_slug(category_name: str, subforum_name: str) -> str:
     return _slugify(f"{category_name}-{subforum_name}")
 
 
-# One canonical board per Max category (name matches category for clarity).
+# One canonical board per Maxx category (name matches category for clarity).
 _MAX_CATEGORY_NAMES = ("SkinMax", "HairMax", "FitMax", "BoneMax", "HeightMax")
 
 
 async def _merge_duplicate_subforums_into_canonical(rds, cat_rows: dict[str, ForumCategory]) -> None:
-    """Move threads from extra subforums onto the single canonical board per Max category, then delete extras."""
+    """Move threads from extra subforums onto the single canonical board per Maxx category, then delete extras."""
     for name in _MAX_CATEGORY_NAMES:
         cat = cat_rows.get(name)
         if not cat:
@@ -252,7 +252,7 @@ async def seed_forums_v3_rds():
                 await rds.delete(c)
         await rds.commit()
 
-    print("seeded forum v2 categories/subforums on rds (Official, Influencers x3, one board per Max)")
+    print("seeded forum v2 categories/subforums on rds (Official, Influencers x3, one board per Maxx)")
 
 
 if __name__ == "__main__":

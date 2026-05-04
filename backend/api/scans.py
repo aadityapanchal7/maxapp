@@ -92,9 +92,9 @@ async def _maybe_notify_scan_whatsapp(user: Optional[User], overall_score: Optio
                 if overall_score is not None
                 else "ready"
             )
-            title = "Max"
+            title = "Agartha"
             body = (
-                f"Your scan results are in (~{score_txt}/10). Open Max for the full breakdown."
+                f"Your scan results are in (~{score_txt}/10). Open Agartha for the full breakdown."
             )
             tok = user.apns_device_token.strip()
 

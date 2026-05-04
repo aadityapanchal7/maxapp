@@ -1,4 +1,4 @@
-# Deploy Max (Render API + Vercel web)
+# Deploy Agartha (Render API + Vercel web)
 
 ## Why Render for the API
 
@@ -17,7 +17,7 @@ Use at least **Starter** on Render (or any paid/always-on tier) for production.
 
 The app collects **three still photos** (front, left profile, right profile). The API runs a **Gemini** vision model to produce an overall score plus **six metric rows** (UMax-style breakdown). Legacy **video** uploads and the external **Cannon** service are **not** used for new scans.
 
-- **Required for real ratings:** `GEMINI_API_KEY` (same key as Max chat). If missing, the API still completes the scan with neutral placeholder scores and a short message.
+- **Required for real ratings:** `GEMINI_API_KEY` (same key as Agartha chat). If missing, the API still completes the scan with neutral placeholder scores and a short message.
 - **Optional:** `GEMINI_MODEL` (see `backend/config.py`).
 - **Not needed** for this flow: `FACIAL_ANALYSIS_API_URL`.
 

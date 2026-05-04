@@ -52,15 +52,15 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Max to access your camera for face scans.",
-          "microphonePermission": "Allow Max to access your microphone for face scan video recording."
+          "cameraPermission": "Allow Agartha to access your camera for face scans.",
+          "microphonePermission": "Allow Agartha to access your microphone for face scan video recording."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow Max to access photos to save your scan from results.",
-          "savePhotosPermission": "Allow Max to save your face scan to your photo library.",
+          "photosPermission": "Allow Agartha to access photos to save your scan from results.",
+          "savePhotosPermission": "Allow Agartha to save your face scan to your photo library.",
           "isAccessMediaLocationEnabled": false
         }
       ],

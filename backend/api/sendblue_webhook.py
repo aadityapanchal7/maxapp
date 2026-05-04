@@ -1,5 +1,5 @@
 """
-Sendblue receive webhook — inbound iMessage/SMS routes through Max AI; images save as progress photos.
+Sendblue receive webhook — inbound iMessage/SMS routes through Agartha AI; images save as progress photos.
 Reply is sent via Sendblue outbound API (not TwiML).
 
 Sendblue requires a quick HTTP response to avoid duplicate webhook deliveries; AI + outbound send run in a background task.

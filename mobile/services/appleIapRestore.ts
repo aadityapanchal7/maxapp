@@ -13,7 +13,7 @@ function iosTransactionId(p: Purchase): string | null {
 }
 
 /**
- * Re-fetch StoreKit entitlements and verify each known Max subscription with the backend.
+ * Re-fetch StoreKit entitlements and verify each known Agartha subscription with the backend.
  * Used for Restore Purchases and after reinstall.
  */
 export async function syncApplePurchasesWithBackend(): Promise<{ verified: number; lastError?: string }> {

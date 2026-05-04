@@ -237,7 +237,7 @@ export default function EditPersonalScreen() {
       try {
         await api.saveOnboarding(onboardingData as any);
         await refreshUser();
-        Alert.alert('Success', 'Your Maxxes were updated.');
+        Alert.alert('Success', 'Your Agarthaxes were updated.');
         navigation.goBack();
       } catch (error: any) {
         Alert.alert('Error', error?.response?.data?.detail || 'Could not save changes.');
@@ -369,7 +369,7 @@ export default function EditPersonalScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{onlyGoals ? 'Your Maxxes' : 'Edit lifestyle'}</Text>
+        <Text style={styles.headerTitle}>{onlyGoals ? 'Your Agarthaxes' : 'Edit lifestyle'}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -388,7 +388,7 @@ export default function EditPersonalScreen() {
             <Text style={styles.lead}>Update what you shared at signup — one place, no quiz replay.</Text>
           ) : null}
 
-          {!onlyGoals ? <Text style={styles.sectionTitle}>Your Maxxes</Text> : null}
+          {!onlyGoals ? <Text style={styles.sectionTitle}>Your Agarthaxes</Text> : null}
           <Text style={styles.goalsLimitHint}>
             Up to {maxHomeMaxxesForUser(user)} on your home screen
             {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'

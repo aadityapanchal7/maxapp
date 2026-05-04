@@ -1,5 +1,5 @@
 """
-LLM service for Max:
+LLM service for Agartha:
   * `chat()` calls the Hugging Face Dedicated Inference Endpoint (model="tgi")
     via the OpenAI SDK compatibility layer (HF_TOKEN, base_url=/v1).
   * Vision methods (`analyze_triple_*`, `completion_vision`) keep using OpenAI

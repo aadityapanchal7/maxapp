@@ -178,7 +178,7 @@ def normalize_biological_sex(sex: Optional[str], gender: Optional[str]) -> Optio
 
 
 def seed_fitmax_profile_from_onboarding(profile: dict, ob: dict) -> dict:
-    """Pre-fill FitMax chat profile from global / FitMax questionnaire answers (same logic as chat.py)."""
+    """Pre-fill FitAgartha chat profile from global / FitMax questionnaire answers (same logic as chat.py)."""
     out = dict(profile or {})
     ob = ob or {}
 

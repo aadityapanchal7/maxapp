@@ -264,7 +264,7 @@ Use `task_type` **`checkpoint`** for weekly/biweekly/monthly items. Keep descrip
 11. Include brief motivational messages for each day.
 12. **IMPORTANT:** Every day MUST have at least the minimum number of tasks specified above. Read the NOTIFICATION ENGINE reference and include ALL mandatory daily tasks it lists. Short schedules with 1–2 tasks/day are wrong.
 13. Task descriptions should include specific product names, step-by-step instructions, or actionable copy from the notification engine reference — not vague one-liners.
-14. **SMS / push tone:** Titles and descriptions are used as the basis for text reminders. Write like a casual text from Max — not a dashboard. **Do not** use stiff patterns like `Category: Name — 2:22pm` or `Midday Tip: Hydration Goal` in titles. Prefer short titles (e.g. `water check`, `PM routine`, `sprint warm-up`) and put the real detail in **description** as plain, conversational sentences (lowercase ok). The app shows exact times; SMS copy should read like a normal reminder text (no explicit time prefix).
+14. **SMS / push tone:** Titles and descriptions are used as the basis for text reminders. Write like a casual text from Agartha — not a dashboard. **Do not** use stiff patterns like `Category: Name — 2:22pm` or `Midday Tip: Hydration Goal` in titles. Prefer short titles (e.g. `water check`, `PM routine`, `sprint warm-up`) and put the real detail in **description** as plain, conversational sentences (lowercase ok). The app shows exact times; SMS copy should read like a normal reminder text (no explicit time prefix).
 
 ## OUTPUT FORMAT
 Return ONLY valid JSON matching this structure (no markdown fences).

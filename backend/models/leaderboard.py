@@ -42,7 +42,7 @@ class LeaderboardInDB(BaseModel):
 
 
 class ChatMessage(BaseModel):
-    """Chat message for Max Chat"""
+    """Chat message for Agartha Chat"""
     role: str = Field(description="user or assistant")
     content: str
     attachment_url: Optional[str] = None
