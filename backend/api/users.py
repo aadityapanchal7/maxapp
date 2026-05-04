@@ -113,6 +113,7 @@ async def get_profile(current_user: dict = Depends(get_current_user)):
         is_scan_user=current_user.get("is_scan_user", False),
         phone_number=current_user.get("phone_number"),
         has_apns_token=current_user.get("has_apns_token", False),
+        coaching_tone=current_user.get("coaching_tone") or "default",
     )
 
 
