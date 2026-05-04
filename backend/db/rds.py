@@ -38,9 +38,19 @@ RDSSessionLocal = async_sessionmaker(
 
 async def get_rds_db() -> AsyncGenerator[AsyncSession, None]:
     """
-    Dependency injection for RDS database sessions
+    Dependency injection for RDS database sessions.
     Usage: rds_db: AsyncSession = Depends(get_rds_db)
+
+    Raises 503 (instead of the cryptic asyncpg "password authentication
+    failed" connection error) when RDS is not configured. Endpoints that
+    can degrade gracefully should use `get_rds_db_optional` instead.
     """
+    if not (settings.aws_rds_password or "").strip():
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=503,
+            detail="This feature requires the shared (RDS) database, which is not configured in this environment.",
+        )
     async with RDSSessionLocal() as session:
         yield session
 
@@ -62,7 +72,16 @@ async def get_rds_db_optional() -> AsyncGenerator["AsyncSession | None", None]:
 
 
 async def init_rds_db():
-    """Initialize RDS database tables"""
+    """Initialize RDS database tables.
+
+    No-op when RDS is not configured (no password) — the rest of the app
+    runs fine on Supabase alone, and `get_rds_db_optional` yields None
+    so any RDS-dependent endpoint gracefully skips. Avoids spamming
+    "password authentication failed" warnings on local dev.
+    """
+    if not (settings.aws_rds_password or "").strip():
+        print("[INFO] RDS not configured (no AWS_RDS_PASSWORD) — skipping RDS init.")
+        return
     try:
         from models.rds_models import Base
         async with rds_engine.begin() as conn:
