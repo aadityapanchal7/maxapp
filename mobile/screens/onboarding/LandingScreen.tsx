@@ -36,7 +36,7 @@ const SLIDES = [
         type: 'coaching',
         label: 'HOW IT FEELS',
         title: 'Coaching that comes to you',
-        description: 'Agartha texts you personalized advice throughout the day. Onboard in the app, then get real guidance straight to your messages.',
+        description: 'Max texts you personalized advice throughout the day. Onboard in the app, then get real guidance straight to your messages.',
         chatPreview: [
             { from: 'max', text: 'Good morning. Time for your skincare routine — cleanser, vitamin C serum, then SPF 50. Don\'t skip the sunscreen.', time: '8:02 AM' },
             { from: 'user', text: 'Done. What about my hair?', time: '8:14 AM' },

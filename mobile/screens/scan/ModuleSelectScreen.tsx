@@ -1,15 +1,38 @@
+/**
+ * Pick programs for the home dashboard.
+ *
+ * Editorial list — same vocabulary as the Course TOC:
+ *   - Tracked accent number for each row (01, 02, …)
+ *   - Playfair serif title
+ *   - Terse looksmaxx-coded description
+ *   - Hairline divider between rows
+ *   - Selected state: accent fill on the number badge + a thin accent dot
+ *
+ * No card chrome per row. The accent comes from the per-maxx brand color
+ * via resolveMaxxBrand(). Rest of the page uses neutral type + hairlines.
+ */
+
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import {
+    View,
+    Text,
+    StyleSheet,
+    TouchableOpacity,
+    ScrollView,
+    ActivityIndicator,
+    Alert,
+} from 'react-native';
 import { CommonActions, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useMaxxesQuery } from '../../hooks/useAppQueries';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
-import { resolveMaxxBrand, MAXX_ICON_FALLBACK } from '../../utils/maxxBrand';
+import { borderRadius, colors, fonts, spacing, typography } from '../../theme/dark';
+import { resolveMaxxBrand } from '../../utils/maxxBrand';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
-import { MaxxProgramRow } from '../../components/MaxxProgramRow';
 
 type MaxxCard = {
     id: string;
@@ -21,12 +44,12 @@ type MaxxCard = {
 
 export default function ModuleSelectScreen() {
     const navigation = useNavigation<any>();
+    const insets = useSafeAreaInsets();
     const { user, refreshUser } = useAuth();
     const maxxesQuery = useMaxxesQuery();
     const maxes = (maxxesQuery.data?.maxes ?? []) as MaxxCard[];
     const loading = (maxxesQuery.isPending || maxxesQuery.isFetching) && !maxxesQuery.data;
     const [finishing, setFinishing] = useState(false);
-    /** Lowercase maxx ids to show on Home (same as onboarding.goals). */
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     const maxSlots = maxHomeMaxxesForUser(user);
@@ -39,7 +62,7 @@ export default function ModuleSelectScreen() {
         }, [needsReload, maxxesQuery]),
     );
 
-    const toggleMaxx = (id: string) => {
+    const toggle = (id: string) => {
         const key = String(id || '').toLowerCase();
         if (!key) return;
         setSelectedIds((prev) => {
@@ -52,8 +75,8 @@ export default function ModuleSelectScreen() {
                 Alert.alert(
                     'Program limit',
                     maxSlots >= 3
-                        ? 'Premium includes up to 3 programs on your home. Deselect one to add another.'
-                        : 'Basic includes up to 2 programs on your home. Upgrade to Premium for 3, or deselect one to add another.',
+                        ? 'Premium fits 3 programs on home. Deselect one to swap.'
+                        : 'Basic fits 2 programs on home. Upgrade to Premium for 3, or swap one out.',
                 );
                 return prev;
             }
@@ -64,7 +87,7 @@ export default function ModuleSelectScreen() {
 
     const finish = async () => {
         if (selectedIds.size === 0) {
-            Alert.alert('Choose programs', 'Select at least one Maxx to show on your home. You can change this later in your profile.');
+            Alert.alert('Pick at least one', 'Select a program to show on your home. You can change this later in profile.');
             return;
         }
         try {
@@ -97,37 +120,30 @@ export default function ModuleSelectScreen() {
     if (loading) {
         return (
             <View style={[styles.root, styles.center]}>
-                <ActivityIndicator size="large" color={colors.foreground} />
+                <ActivityIndicator size="small" color={colors.textMuted} />
             </View>
         );
     }
 
     if (maxxesQuery.isError || maxes.length === 0) {
-        const message = maxxesQuery.isError
-            ? 'We could not load your programs yet. Pull them in again and this screen should populate.'
-            : 'Your programs are still loading after payment. Try again and they should appear.';
         return (
             <View style={styles.root}>
-                <View style={[styles.center, styles.emptyWrap]}>
-                    <View style={styles.emptyIcon}>
-                        <Ionicons name="grid-outline" size={28} color={colors.foreground} />
-                    </View>
+                <View style={[styles.center, { flex: 1, paddingHorizontal: spacing.xl }]}>
                     <Text style={styles.emptyTitle}>Programs are loading</Text>
-                    <Text style={styles.emptySubtitle}>{message}</Text>
+                    <Text style={styles.emptySubtitle}>
+                        {maxxesQuery.isError
+                            ? 'Could not load your programs. Pull them in again and this should populate.'
+                            : 'Programs still loading after payment. Try again and they should appear.'}
+                    </Text>
                     <TouchableOpacity
                         style={styles.retryBtn}
                         onPress={() => void maxxesQuery.refetch()}
                         activeOpacity={0.85}
-                        accessibilityRole="button"
-                        accessibilityLabel="Reload available programs"
                     >
                         {maxxesQuery.isFetching ? (
-                            <ActivityIndicator color={colors.background} />
+                            <ActivityIndicator size="small" color={colors.foreground} />
                         ) : (
-                            <>
-                                <Text style={styles.retryBtnText}>Reload programs</Text>
-                                <Ionicons name="refresh" size={18} color={colors.background} />
-                            </>
+                            <Text style={styles.retryBtnText}>Reload</Text>
                         )}
                     </TouchableOpacity>
                 </View>
@@ -137,64 +153,83 @@ export default function ModuleSelectScreen() {
 
     return (
         <View style={styles.root}>
-            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                <View style={styles.header}>
-                    <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconHit} hitSlop={12}>
-                        <Ionicons name="arrow-back" size={22} color={colors.foreground} />
-                    </TouchableOpacity>
-                    <Text style={styles.title}>Your programs</Text>
-                    <View style={styles.iconHit} />
-                </View>
+            <ScrollView
+                contentContainerStyle={[styles.scroll, { paddingTop: Math.max(insets.top, 12) + 18 }]}
+                showsVerticalScrollIndicator={false}
+            >
+                {/* ── Hero ─────────────────────────────────────────── */}
+                <TouchableOpacity
+                    onPress={() => navigation.goBack()}
+                    style={styles.backBtn}
+                    hitSlop={12}
+                >
+                    <Ionicons name="arrow-back" size={20} color={colors.foreground} />
+                </TouchableOpacity>
+
+                <Text style={styles.title}>Programs</Text>
+                <View style={styles.titleRule} />
 
                 <Text style={styles.lead}>
-                    Tap to select up to {maxSlots} program{maxSlots === 1 ? '' : 's'} for your home (
-                    {maxSlots >= 3 ? 'Premium' : 'Basic'}). Starting a schedule is separate — open any track from Home when you are
-                    ready.
+                    Pick up to {maxSlots} for your home.
                 </Text>
 
-                {maxes.map((m) => {
-                    const idKey = String(m.id || '').toLowerCase();
-                    const on = !!idKey && selectedIds.has(idKey);
-                    const brand = resolveMaxxBrand(m.id, m.color);
-                    const merged = { id: m.id, label: m.label, description: m.description };
-                    const label = getMaxxDisplayLabel(merged);
-                    const desc = getMaxxDisplayDescription(merged) ?? m.description;
-                    const iconName = (m.icon || MAXX_ICON_FALLBACK[idKey] || 'book-outline') as any;
-                    return (
-                        <MaxxProgramRow
-                            key={m.id}
-                            tintHex={brand}
-                            iconName={iconName}
-                            title={label}
-                            description={desc}
-                            onPress={() => toggleMaxx(m.id)}
-                            trailing={
-                                <View style={[styles.checkCircle, on && styles.checkCircleOn]}>
-                                    <Ionicons
-                                        name={on ? 'checkmark-circle' : 'ellipse-outline'}
-                                        size={22}
-                                        color={on ? colors.foreground : colors.textMuted}
-                                    />
+                {/* ── Editorial list ───────────────────────────────── */}
+                <View style={styles.list}>
+                    {maxes.map((m, i) => {
+                        const idKey = String(m.id || '').toLowerCase();
+                        const on = !!idKey && selectedIds.has(idKey);
+                        const accent = resolveMaxxBrand(m.id, m.color);
+                        const merged = { id: m.id, label: m.label, description: m.description };
+                        const label = getMaxxDisplayLabel(merged);
+                        const desc = getMaxxDisplayDescription(merged) ?? m.description ?? '';
+                        const num = String(i + 1).padStart(2, '0');
+                        return (
+                            <TouchableOpacity
+                                key={m.id}
+                                onPress={() => toggle(m.id)}
+                                activeOpacity={0.6}
+                                style={[
+                                    styles.row,
+                                    i !== 0 && styles.rowDivider,
+                                ]}
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: on }}
+                            >
+                                <Text style={[styles.numLabel, { color: accent }]}>{num}</Text>
+                                <View style={styles.rowCopy}>
+                                    <Text style={styles.rowTitle}>{label}</Text>
+                                    {!!desc && (
+                                        <Text style={styles.rowDesc} numberOfLines={1}>
+                                            {desc}
+                                        </Text>
+                                    )}
                                 </View>
-                            }
-                            selected={on}
-                            selectedVariant="uniform"
-                            accent="none"
-                            activeOpacity={0.9}
-                            accessibilityRole="checkbox"
-                            accessibilityState={{ checked: on }}
-                            style={styles.programRow}
-                        />
-                    );
-                })}
+                                <View
+                                    style={[
+                                        styles.dot,
+                                        on
+                                            ? { backgroundColor: accent, borderColor: accent }
+                                            : { borderColor: colors.border },
+                                    ]}
+                                />
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
 
-                <TouchableOpacity style={styles.cta} onPress={finish} disabled={finishing} activeOpacity={0.88}>
+                {/* ── CTA ──────────────────────────────────────────── */}
+                <TouchableOpacity
+                    style={[styles.cta, selectedIds.size === 0 && styles.ctaDisabled]}
+                    onPress={finish}
+                    disabled={finishing || selectedIds.size === 0}
+                    activeOpacity={0.85}
+                >
                     {finishing ? (
-                        <ActivityIndicator color={colors.background} />
+                        <ActivityIndicator size="small" color={colors.buttonText} />
                     ) : (
                         <>
-                            <Text style={styles.ctaText}>Add to home & continue</Text>
-                            <Ionicons name="arrow-forward" size={20} color={colors.background} />
+                            <Text style={styles.ctaText}>Continue</Text>
+                            <Ionicons name="arrow-forward" size={15} color={colors.buttonText} />
                         </>
                     )}
                 </TouchableOpacity>
@@ -206,78 +241,137 @@ export default function ModuleSelectScreen() {
 const styles = StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.background },
     center: { justifyContent: 'center', alignItems: 'center' },
-    scroll: { padding: spacing.xl, paddingTop: 56, paddingBottom: spacing.xxl },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.lg },
-    iconHit: { width: 40, height: 40, justifyContent: 'center' },
-    title: { ...typography.h2 },
-    lead: { fontSize: 15, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.xl + spacing.sm },
-    programRow: { marginBottom: spacing.sm },
-    checkCircle: {
-        width: 36,
-        height: 36,
-        borderRadius: borderRadius.md,
-        borderWidth: 1,
-        borderColor: colors.border,
-        alignItems: 'center',
+    scroll: {
+        paddingHorizontal: spacing.lg,
+        paddingBottom: spacing.xxl,
+    },
+
+    backBtn: {
+        width: 32,
+        height: 32,
+        alignItems: 'flex-start',
         justifyContent: 'center',
-        backgroundColor: colors.card,
+        marginLeft: -4,
+        marginBottom: spacing.lg,
     },
-    checkCircleOn: {
-        borderColor: colors.foreground,
-        backgroundColor: colors.surface,
+    title: {
+        fontFamily: fonts.serif,
+        fontSize: 36,
+        fontWeight: '400',
+        letterSpacing: -0.8,
+        color: colors.foreground,
     },
+    titleRule: {
+        width: 28,
+        height: 2,
+        borderRadius: 1,
+        backgroundColor: colors.foreground,
+        marginTop: 12,
+        marginBottom: spacing.md,
+    },
+    lead: {
+        fontFamily: fonts.sans,
+        fontSize: 14.5,
+        lineHeight: 21,
+        color: colors.textSecondary,
+        marginBottom: spacing.xl,
+    },
+
+    list: {
+        marginTop: spacing.sm,
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        paddingVertical: spacing.lg,
+    },
+    rowDivider: {
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: colors.border,
+    },
+    numLabel: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13,
+        letterSpacing: 1.6,
+        marginRight: 18,
+        marginTop: 5,
+        width: 26,
+    },
+    rowCopy: {
+        flex: 1,
+        paddingRight: spacing.sm,
+    },
+    rowTitle: {
+        fontFamily: fonts.serif,
+        fontSize: 22,
+        fontWeight: '400',
+        letterSpacing: -0.4,
+        lineHeight: 28,
+        color: colors.foreground,
+    },
+    rowDesc: {
+        ...typography.bodySmall,
+        color: colors.textSecondary,
+        marginTop: 4,
+        lineHeight: 19,
+    },
+    dot: {
+        width: 16,
+        height: 16,
+        borderRadius: 8,
+        borderWidth: 1.5,
+        marginTop: 8,
+        marginLeft: spacing.sm,
+    },
+
     cta: {
-        marginTop: spacing.xl + spacing.sm,
+        marginTop: spacing.xl,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: spacing.sm,
+        gap: 8,
         backgroundColor: colors.foreground,
-        paddingVertical: 12,
-        borderRadius: borderRadius.md,
-        borderWidth: 1,
-        borderColor: colors.foreground,
+        paddingVertical: 14,
+        borderRadius: borderRadius.full,
     },
-    ctaText: { ...typography.button, color: colors.background, fontSize: 16 },
-    emptyWrap: {
-        paddingHorizontal: spacing.xl,
+    ctaDisabled: {
+        backgroundColor: colors.border,
     },
-    emptyIcon: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: colors.surface,
-        marginBottom: spacing.lg,
+    ctaText: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13,
+        letterSpacing: 0.4,
+        color: colors.buttonText,
     },
+
+    /* empty / retry */
     emptyTitle: {
-        ...typography.h2,
+        fontFamily: fonts.serif,
+        fontSize: 26,
+        fontWeight: '400',
+        letterSpacing: -0.4,
+        color: colors.foreground,
         textAlign: 'center',
         marginBottom: spacing.sm,
     },
     emptySubtitle: {
-        fontSize: 15,
+        ...typography.bodySmall,
         color: colors.textSecondary,
-        lineHeight: 22,
         textAlign: 'center',
-        marginBottom: spacing.xl,
+        marginBottom: spacing.lg,
         maxWidth: 320,
     },
     retryBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: spacing.sm,
-        backgroundColor: colors.foreground,
-        paddingVertical: 12,
-        paddingHorizontal: spacing.xl,
-        borderRadius: borderRadius.md,
-        minWidth: 220,
+        paddingVertical: 10,
+        paddingHorizontal: spacing.lg,
+        borderRadius: borderRadius.full,
+        borderWidth: 1,
+        borderColor: colors.foreground,
     },
     retryBtnText: {
-        ...typography.button,
-        color: colors.background,
-        fontSize: 16,
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13,
+        letterSpacing: 0.4,
+        color: colors.foreground,
     },
 });

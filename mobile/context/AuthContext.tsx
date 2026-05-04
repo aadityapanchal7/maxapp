@@ -112,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // Physical devices cannot reach the host machine via 127.0.0.1 / localhost.
             if (Platform.OS !== 'web' && /127\.0\.0\.1|localhost/i.test(base)) {
                 console.warn(
-                    '[Agartha] EXPO_PUBLIC_API_BASE_URL points at loopback on a native build. ' +
+                    '[Max] EXPO_PUBLIC_API_BASE_URL points at loopback on a native build. ' +
                         'Use your computer’s LAN IP (e.g. http://10.x.x.x:8000/api/) and `npx expo start --lan`, ' +
                         'or use the hosted API URL from mobile/.env comments.',
                 );
@@ -122,12 +122,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 if (!healthy) {
                     const root = base.replace(/\/?api\/?$/i, '').replace(/\/+$/, '');
                     console.warn(
-                        `[Agartha] Backend unreachable at ${base} (${root}/health failed). ` +
+                        `[Max] Backend unreachable at ${base} (${root}/health failed). ` +
                             'Start uvicorn (maxapp/backend, port 8000), set EXPO_PUBLIC_API_BASE_URL in mobile/.env ' +
                             '(must end with /api/). On a phone, use your Mac LAN IP, not 127.0.0.1.',
                     );
                 } else {
-                    console.log(`[Agartha] API OK — ${base}`);
+                    console.log(`[Max] API OK — ${base}`);
                 }
             });
         }

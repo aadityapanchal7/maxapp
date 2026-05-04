@@ -138,8 +138,8 @@ const STEP_CONTENT: { title: string; body: string }[] = [
         body: 'Snap a photo to get AI-powered facial analysis and track improvements over time.',
     },
     {
-        title: 'Chat with Agartha',
-        body: 'Ask Agartha anything \u2014 coaching tips, schedule help, or questions about your programs.',
+        title: 'Chat with Max',
+        body: 'Ask Max anything \u2014 coaching tips, schedule help, or questions about your programs.',
     },
     {
         title: 'Forums',

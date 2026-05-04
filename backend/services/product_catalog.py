@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Iterable, Optional
@@ -56,18 +57,37 @@ class Product:
     brand: str
     module: str
     concerns: tuple[str, ...]
-    url: str
+    url: str             # canonical short form: https://www.amazon.com/dp/<ASIN>
+    slug: str            # title-case slug; "" when unknown
     price_tier: str
     tags: dict[str, Optional[bool]]
     rationale: str
     references: tuple[str, ...]
+
+    @property
+    def display_url(self) -> str:
+        """Render the long-form Amazon URL: `https://www.amazon.com/<Slug>/dp/<ASIN>`.
+
+        Long-form URLs are what Amazon serves on real search-result clicks
+        and what users expect to see; the shorter `/dp/<ASIN>` resolves to
+        the same page but reads as a tracker-y stub. We synthesize the
+        long form on render rather than storing it (keeps the YAML clean
+        and means slug edits don't break anything).
+        """
+        if not self.slug:
+            return self.url
+        m = re.search(r"/dp/([A-Z0-9]{8,})", self.url)
+        if not m:
+            return self.url
+        asin = m.group(1)
+        return f"https://www.amazon.com/{self.slug}/dp/{asin}"
 
     def to_markdown_bullet(self, max_rationale_chars: int = 100) -> str:
         rationale = self.rationale or ""
         if len(rationale) > max_rationale_chars:
             rationale = rationale[: max_rationale_chars - 1].rstrip() + "…"
         sep = " — " if rationale else ""
-        return f"- [{self.name}]({self.url}){sep}{rationale}"
+        return f"- [{self.name}]({self.display_url}){sep}{rationale}"
 
 
 # --------------------------------------------------------------------------- #
@@ -105,6 +125,7 @@ def load_catalog() -> tuple[Product, ...]:
                 module=str(entry.get("module") or "general").strip().lower(),
                 concerns=tuple(str(c).strip().lower() for c in (entry.get("concerns") or [])),
                 url=str(entry["url"]).strip(),
+                slug=str(entry.get("slug") or "").strip(),
                 price_tier=str(entry.get("price_tier") or "mid").strip().lower(),
                 tags={str(k): _coerce_tag(v) for k, v in (entry.get("tags") or {}).items()},
                 rationale=str(entry.get("rationale") or "").strip(),
@@ -264,8 +285,19 @@ def format_brief(products: list[Product]) -> str:
 # --------------------------------------------------------------------------- #
 
 def allowed_urls() -> set[str]:
-    """Set of URLs the link validator considers safe."""
-    return {p.url for p in load_catalog()}
+    """Set of URLs the link validator considers safe.
+
+    Includes BOTH the canonical short form (`/dp/<ASIN>`) and the
+    long-form rendered URL (`/<Slug>/dp/<ASIN>`) for every product.
+    The LLM is instructed to emit the long form, but old answers and
+    cached responses may still surface the short form — both should
+    pass validation."""
+    out: set[str] = set()
+    for p in load_catalog():
+        out.add(p.url)
+        if p.slug:
+            out.add(p.display_url)
+    return out
 
 
 def lookup_by_brand_and_name(brand: str, name_substr: str) -> Optional[Product]:

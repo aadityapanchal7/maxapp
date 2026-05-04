@@ -1,5 +1,5 @@
 """
-LangChain Tool-Calling Agent for Agartha Chat.
+LangChain Tool-Calling Agent for Max Chat.
 
 Replaces the manual two-pass (pass-1 tool-detect → dispatch in chat.py → pass-2 synthesise)
 with a proper AgentExecutor loop:
@@ -408,7 +408,7 @@ async def build_agent_system_prompt(
     elif length_pref == "detailed":
         chat_prompt += (
             "\n\n## USER RESPONSE LENGTH PREFERENCE: DETAILED  (overrides all other length rules)\n"
-            "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Agartha's voice — length is not license to pad.\n"
+            "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Max's voice — length is not license to pad.\n"
             "- Every expansion must add real info: mechanisms, exact protocols, numbers, evidence. If you catch yourself restating, stop.\n"
             "- Structure: direct answer → specifics (ingredient + %, time, reps, macros) → one sentence on why. No intros, no end-summaries."
         )

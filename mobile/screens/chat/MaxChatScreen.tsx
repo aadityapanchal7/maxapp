@@ -312,7 +312,7 @@ export default function MaxChatScreen() {
     const ListEmpty = () => (
         <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>Start a conversation</Text>
-            <Text style={styles.emptySubtitle}>Ask Agartha about lookmaxxing, routines, or anything else.</Text>
+            <Text style={styles.emptySubtitle}>Ask Max about lookmaxxing, routines, or anything else.</Text>
         </View>
     );
 
@@ -334,7 +334,7 @@ export default function MaxChatScreen() {
                         <Ionicons name="menu" size={22} color={colors.foreground} />
                     </TouchableOpacity>
                     <Text style={styles.headerEyebrow}>Coach</Text>
-                    <Text style={styles.title}>Agartha</Text>
+                    <Text style={styles.title}>Max</Text>
                     <Text style={styles.subtitle}>Your lookmaxxing coach</Text>
                 </View>
 
@@ -413,7 +413,7 @@ export default function MaxChatScreen() {
                     <View style={styles.inputContainer}>
                         <TextInput
                             style={styles.input}
-                            placeholder="Ask Agartha anything..."
+                            placeholder="Ask Max anything..."
                             placeholderTextColor={colors.textMuted}
                             value={input}
                             onChangeText={setInput}

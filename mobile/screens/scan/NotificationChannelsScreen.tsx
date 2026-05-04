@@ -112,13 +112,13 @@ export default function NotificationChannelsScreen() {
                             console.warn('registerPushToken', e);
                             Alert.alert(
                                 'Push setup',
-                                'Preferences saved. If alerts do not arrive, enable notifications for Agartha in Settings.',
+                                'Preferences saved. If alerts do not arrive, enable notifications for Max in Settings.',
                             );
                         }
                     } else {
                         Alert.alert(
                             'Notifications',
-                            'Turn on notifications for Agartha in Settings to get reminders on this iPhone.',
+                            'Turn on notifications for Max in Settings to get reminders on this iPhone.',
                         );
                     }
                 } else {
@@ -198,9 +198,9 @@ export default function NotificationChannelsScreen() {
                 </TouchableOpacity>
 
                 <Text style={styles.kicker}>Reminders</Text>
-                <Text style={styles.title}>How should Agartha reach you?</Text>
+                <Text style={styles.title}>How should Max reach you?</Text>
                 <Text style={styles.lead}>
-                    Choose how Agartha reaches you. Changeable anytime in Profile.
+                    Choose how Max reaches you. Changeable anytime in Profile.
                 </Text>
 
                 {isIos ? (

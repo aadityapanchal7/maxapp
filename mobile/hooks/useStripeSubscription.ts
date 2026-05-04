@@ -51,7 +51,7 @@ export function useStripeSubscription() {
                 const preview = await api.getBillingPreview(tier);
 
                 const weeklyAmount = tier === 'premium' ? '5.99' : '3.99';
-                const planLabel = tier === 'premium' ? 'Agartha Premium (weekly)' : 'Agartha Basic (weekly)';
+                const planLabel = tier === 'premium' ? 'Max Premium (weekly)' : 'Max Basic (weekly)';
 
                 // Stripe is only used on Android/web. iOS uses Apple IAP, and Apple
                 // Pay support is intentionally disabled to avoid linking PassKit
@@ -62,7 +62,7 @@ export function useStripeSubscription() {
                     customerId: preview.customer_id,
                     customerEphemeralKeySecret: preview.ephemeral_key_secret,
                     setupIntentClientSecret: preview.setup_intent_client_secret,
-                    merchantDisplayName: 'Agartha',
+                    merchantDisplayName: 'Max',
                     returnURL: 'cannon://stripe-redirect',
                     ...(Platform.OS === 'android'
                         ? {

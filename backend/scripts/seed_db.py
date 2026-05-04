@@ -121,7 +121,7 @@ async def seed_db():
             thread = {
                 "forum_id": str(result.inserted_id),
                 "user_id": user_ids[0],
-                "title": "Welcome to Agartha!",
+                "title": "Welcome to Max!",
                 "content": "Let's start our journey to better looks!",
                 "created_at": datetime.utcnow(),
                 "updated_at": datetime.utcnow(),

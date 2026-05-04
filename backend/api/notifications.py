@@ -45,7 +45,7 @@ async def send_test_message(
     """Send a test message to verify Sendblue is working."""
     success = await sendblue_service.send_whatsapp(
         request.phone,
-        "🧪 Test from Agartha — Sendblue iMessage/SMS is connected. ✅",
+        "🧪 Test from Max — Sendblue iMessage/SMS is connected. ✅",
     )
     if not success:
         raise HTTPException(

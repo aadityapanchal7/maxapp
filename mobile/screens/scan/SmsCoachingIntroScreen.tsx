@@ -1,5 +1,5 @@
 /**
- * Shown for paid users without a phone on file before the "Text Agartha" Sendblue screen.
+ * Shown for paid users without a phone on file before the "Text Max" Sendblue screen.
  * Explains SMS won't work without a number; they can add one or continue and set up later in Profile.
  */
 
@@ -58,14 +58,14 @@ export default function SmsCoachingIntroScreen() {
                     </View>
                     <Text style={styles.title}>Connect your phone</Text>
                     <Text style={styles.subtitle}>
-                        Add your number to text Agartha directly and get SMS reminders for your schedule.
+                        Add your number to text Max directly and get SMS reminders for your schedule.
                     </Text>
                 </View>
 
                 {/* Feature bullets */}
                 <View style={styles.features}>
                     {[
-                        { icon: 'chatbubble-ellipses-outline' as const, text: 'Text Agartha from Messages' },
+                        { icon: 'chatbubble-ellipses-outline' as const, text: 'Text Max from Messages' },
                         { icon: 'notifications-outline' as const, text: 'SMS schedule reminders' },
                         { icon: 'time-outline' as const, text: 'Set up anytime in Profile' },
                     ].map((item, i) => (

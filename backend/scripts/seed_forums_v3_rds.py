@@ -1,6 +1,6 @@
 """
 Seed forums v2 on RDS: Official (read-only), Influencers (premium, 3 boards),
-one community subforum per Agartha line, then merge legacy boards into canonical slugs.
+one community subforum per Max line, then merge legacy boards into canonical slugs.
 
 Run: python -m scripts.seed_forums_v3_rds  (from backend/)
 """

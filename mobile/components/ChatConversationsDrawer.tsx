@@ -3,7 +3,7 @@
  *
  * Layout:
  *   ┌──────────────────────┐
- *   │ Agartha            ✕ │   ← Playfair serif title
+ *   │ Max            ✕ │   ← Playfair serif title
  *   ├──────────────────────┤
  *   │ + New chat           │
  *   │ ─ Recent ─           │
@@ -284,7 +284,7 @@ export default function ChatConversationsDrawer({
             >
                 {/* ── Header ─────────────────────────────────────────── */}
                 <View style={s.header}>
-                    <Text style={s.title}>Agartha</Text>
+                    <Text style={s.title}>Max</Text>
                     <TouchableOpacity
                         onPress={onClose}
                         style={s.closeBtn}

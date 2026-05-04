@@ -71,7 +71,7 @@ function resolveApiBaseUrl(): string {
         if (devHost) {
             const next = replaceUrlHostname(fromEnv, devHost);
             if (__DEV__) {
-                console.log(`[Agartha] API base ${next} (dev host from Metro; .env used loopback)`);
+                console.log(`[Max] API base ${next} (dev host from Metro; .env used loopback)`);
             }
             return next;
         }
@@ -1233,7 +1233,7 @@ class ApiService {
         return response.data;
     }
 
-    // Admin: Chat as Agartha for a specific user
+    // Admin: Chat as Max for a specific user
     async getAdminUserChat(userId: string) {
         const response = await this.client.get(`admin/users/${userId}/chat`);
         return response.data;

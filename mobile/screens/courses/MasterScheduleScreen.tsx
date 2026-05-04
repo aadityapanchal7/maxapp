@@ -308,7 +308,7 @@ export default function MasterScheduleScreen() {
             pendingKeys.add(key);
             pendingEntries[key] = {
               fireDate,
-              title: task.moduleLabel ? `Agartha (${task.moduleLabel})` : 'Agartha',
+              title: task.moduleLabel ? `Max (${task.moduleLabel})` : 'Max',
               body: task.description ? `${task.title}\n${task.description}` : task.title,
             };
           }
@@ -693,10 +693,10 @@ export default function MasterScheduleScreen() {
                               onPress={(e) => { e.stopPropagation(); goToChatForTask(task); }}
                               activeOpacity={0.75}
                               accessibilityRole="button"
-                              accessibilityLabel={`Ask Agartha about ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
+                              accessibilityLabel={`Ask Max about ${stripDuplicateModulePrefix(task.title, task.moduleLabel)}`}
                             >
                               <Ionicons name="chatbubble-ellipses-outline" size={13} color={colors.textMuted} />
-                              <Text style={styles.askChatLabel}>Ask Agartha</Text>
+                              <Text style={styles.askChatLabel}>Ask Max</Text>
                             </TouchableOpacity>
                           </>
                         )}

@@ -1,5 +1,5 @@
 """
-Chat API - Agartha LLM Chat
+Chat API - Max LLM Chat
 Handles AI chat with tool-calling, coaching state, check-in parsing, and memory.
 The core logic lives in process_chat_message() so it can be reused by the SMS webhook.
 """
@@ -235,7 +235,7 @@ async def _reply_today_completed_tasks_summary(user_id: str, onboarding: dict, d
 
 
 def _finalize_assistant_message(text: str) -> str:
-    """User-facing chat: no markdown asterisks; lowercase Agartha voice."""
+    """User-facing chat: no markdown asterisks; lowercase Max voice."""
     if not text:
         return text
     return text.replace("*", "").lower()
@@ -581,7 +581,7 @@ def _extract_hairmax_updates(message: str, current: dict) -> dict:
 
 
 def _hairmax_seed_profile_from_onboarding(profile: dict, ob: dict) -> dict:
-    """Pre-fill HairAgartha chat profile from global onboarding answers."""
+    """Pre-fill HairMax chat profile from global onboarding answers."""
     out = dict(profile or {})
     ob = ob or {}
     for key in HAIRMAX_REQUIRED_FIELDS:
@@ -4044,7 +4044,7 @@ async def send_message(
     db: AsyncSession = Depends(get_db),
     rds_db: AsyncSession | None = Depends(get_rds_db_optional),
 ):
-    """Send message to Agartha AI (in-app)"""
+    """Send message to Max AI (in-app)"""
     from services import chat_conversations_service as _conv
 
     user_id = current_user["id"]

@@ -297,7 +297,7 @@ _RESPONSE_LENGTH_BLOCKS: dict[str, str] = {
     ),
     "detailed": (
         "\n\n## USER RESPONSE LENGTH PREFERENCE: DETAILED  (overrides any other length rule above)\n"
-        "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Agartha's voice — length is not license to pad.\n"
+        "- Up to ~8 sentences, or a tight bulleted structure. Still lowercase, still Max's voice — length is not license to pad.\n"
         "- Every specific you name (ingredient %, minutes, reps, macros) needs an inline citation.\n"
         "- Structure: direct answer → specifics with citations → one sentence on why. No intros, no end-summaries."
     ),
@@ -338,7 +338,7 @@ ANSWER QUALITY:
 - Specific numbers (sets x reps, %, mg, minutes, days/week) — give them.
 - Industry-accepted protocols only. If a topic has multiple valid
   approaches, pick the most evidence-backed one and commit.
-- Lowercase, direct, in Agartha's voice. No filler. No motivational closing.
+- Lowercase, direct, in Max's voice. No filler. No motivational closing.
 - Use any user context provided (their goals, preferences, schedule) to
   personalize the answer, just like you would for a doc-grounded reply."""
 
@@ -378,7 +378,7 @@ def _scrub_leakage(text: str) -> str:
     out = re.sub(r"[ \t]{2,}", " ", out)
     out = re.sub(r"\n{3,}", "\n\n", out)
     out = out.strip()
-    # Capitalize-first-word-after-strip is unwanted in Agartha's lowercase voice,
+    # Capitalize-first-word-after-strip is unwanted in Max's lowercase voice,
     # but if the strip leaves a stray dangling punctuation, clean it.
     out = re.sub(r"^[\s,;:\-—]+", "", out)
     return out
@@ -397,7 +397,7 @@ async def _answer_without_evidence(
     Current product behavior is strict evidence-only mode in `answer_from_rag`,
     which returns a fixed miss message when retrieval is empty.
     """
-    # Use the Agartha persona prompt (Supabase-loaded with in-code fallback) so
+    # Use the Max persona prompt (Supabase-loaded with in-code fallback) so
     # the no-evidence answer feels native to the bot, not like a separate
     # template-mode reply. The strict RAG_ANSWER_SYSTEM_PROMPT is for
     # evidence-grounded turns only — it's calibrated to refuse when docs
@@ -533,7 +533,7 @@ async def answer_from_chunks(
     # Tone preamble — same one the agent path uses. Must come BEFORE the
     # module system prompt so persona shapes the whole reply, not just
     # the closer. Without this, a user who selected "hardcore" gets the
-    # default Agartha voice on every KNOWLEDGE turn that hits fast_rag.
+    # default Max voice on every KNOWLEDGE turn that hits fast_rag.
     tone_block = ""
     if coaching_tone:
         try:

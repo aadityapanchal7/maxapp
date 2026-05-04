@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Agartha",
+    "name": "Max",
     "slug": "cannon-mobile",
     "version": "1.0.7",
     "orientation": "portrait",
@@ -23,8 +23,8 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSPhotoLibraryUsageDescription": "Agartha uses your photo library to attach images in community channels, chat, and profile or progress photos.",
-        "NSPhotoLibraryAddUsageDescription": "Agartha saves your face scan from results to your photo library when you choose Save to photos.",
+        "NSPhotoLibraryUsageDescription": "Max uses your photo library to attach images in community channels, chat, and profile or progress photos.",
+        "NSPhotoLibraryAddUsageDescription": "Max saves your face scan from results to your photo library when you choose Save to photos.",
         "UIBackgroundModes": [
           "remote-notification"
         ]
@@ -52,15 +52,15 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Agartha to access your camera for face scans.",
-          "microphonePermission": "Allow Agartha to access your microphone for face scan video recording."
+          "cameraPermission": "Allow Max to access your camera for face scans.",
+          "microphonePermission": "Allow Max to access your microphone for face scan video recording."
         }
       ],
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow Agartha to access photos to save your scan from results.",
-          "savePhotosPermission": "Allow Agartha to save your face scan to your photo library.",
+          "photosPermission": "Allow Max to access photos to save your scan from results.",
+          "savePhotosPermission": "Allow Max to save your face scan to your photo library.",
           "isAccessMediaLocationEnabled": false
         }
       ],

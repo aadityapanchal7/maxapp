@@ -1,5 +1,5 @@
 """
-LCEL (LangChain Expression Language) chains for the Agartha chat pipeline and coaching.
+LCEL (LangChain Expression Language) chains for the Max chat pipeline and coaching.
 
 Two-pass chat pipeline:
   Pass 1 — build_first_pass_chain(): LLM with tools bound; returns AIMessage.

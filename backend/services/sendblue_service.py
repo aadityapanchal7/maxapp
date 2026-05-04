@@ -303,7 +303,7 @@ class SendblueService:
     ) -> tuple[str, str]:
         """Title + body for APNs alert (same copy shape as SMS group)."""
         if not tasks:
-            return "Agartha", ""
+            return "Max", ""
         if len(tasks) == 1:
             task, ttime = tasks[0]
             body = self._format_schedule_reminder_sms(
@@ -311,7 +311,7 @@ class SendblueService:
                 task.get("description", ""),
                 ttime,
             )
-            return "Agartha", body
+            return "Max", body
         lines: list[str] = []
         for task, ttime in tasks:
             line = self._format_schedule_reminder_sms(
@@ -325,7 +325,7 @@ class SendblueService:
         body = intro + "\n\n" + "\n\n".join(lines)
         if len(body) > 900:
             body = body[:897] + "…"
-        return "Agartha", body
+        return "Max", body
 
     async def send_coaching_sms(self, phone: str, message: str) -> bool:
         return bool(await self.send_sms(phone, message))

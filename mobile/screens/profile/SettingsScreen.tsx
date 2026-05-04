@@ -118,7 +118,7 @@ export default function SettingsScreen() {
     const openDoc = (document: LegalDocId) => navigation.navigate('LegalDocument', { document });
 
     const openSupport = () => {
-        const q = `subject=${encodeURIComponent('Agartha support')}`;
+        const q = `subject=${encodeURIComponent('Max support')}`;
         void Linking.openURL(`mailto:${encodeURIComponent(supportEmail)}?${q}`);
     };
 
@@ -190,7 +190,7 @@ export default function SettingsScreen() {
                     />
                     <Row
                         label="Response length"
-                        hint={`${currentLengthLabel} — Agartha chat verbosity`}
+                        hint={`${currentLengthLabel} — Max chat verbosity`}
                         onPress={() => setLengthPickerVisible(true)}
                         disabled={lengthBusy}
                         trailing={
@@ -264,7 +264,7 @@ export default function SettingsScreen() {
                     <View style={st.modal}>
                         <Text style={st.modalTitle}>Response length</Text>
                         <Text style={st.modalBody}>
-                            Controls how verbose Agartha's chat replies are.
+                            Controls how verbose Max's chat replies are.
                         </Text>
                         {RESPONSE_LENGTH_OPTIONS.map((opt) => {
                             const selected = opt.value === responseLength;

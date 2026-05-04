@@ -5,18 +5,18 @@ import { APPLE_APP_REVIEW_BUSINESS, APPLE_APP_REVIEW_LEGAL, APPLE_APP_REVIEW_SAF
 export const privacyBlocks: LegalBlock[] = [
     {
         type: 'meta',
-        text: 'Effective March 23, 2026 · Last updated April 21, 2026 · App: Agartha (iOS/Android bundle: com.cannon.mobile)',
+        text: 'Effective March 23, 2026 · Last updated April 21, 2026 · App: Max (iOS/Android bundle: com.cannon.mobile)',
     },
     {
         type: 'p',
         text:
-            'This Privacy Policy describes how the operator of Agartha (“Agartha,” “we,” “us,” or “our”) collects, uses, discloses, stores, and protects personal information when you use our mobile applications, websites, APIs, and related services (collectively, the “Services”). By using the Services, you acknowledge this policy. If you do not agree, do not use the Services.',
+            'This Privacy Policy describes how the operator of Max (“Max,” “we,” “us,” or “our”) collects, uses, discloses, stores, and protects personal information when you use our mobile applications, websites, APIs, and related services (collectively, the “Services”). By using the Services, you acknowledge this policy. If you do not agree, do not use the Services.',
     },
     {
         type: 'callout',
         title: 'App Store alignment',
         text:
-            'This policy is published and linked inside the Agartha app and should match the Privacy Policy URL you provide in App Store Connect. If your app supports account creation, Agartha provides in-app account deletion (see Account deletion below).',
+            'This policy is published and linked inside the Max app and should match the Privacy Policy URL you provide in App Store Connect. If your app supports account creation, Max provides in-app account deletion (see Account deletion below).',
     },
     { type: 'external', label: 'App Review Guidelines — Legal (Apple)', url: APPLE_APP_REVIEW_LEGAL },
 
@@ -38,7 +38,7 @@ export const privacyBlocks: LegalBlock[] = [
     {
         type: 'bullets',
         items: [
-            'The Agartha mobile app (iOS and Android).',
+            'The Max mobile app (iOS and Android).',
             'Our websites and web-hosted legal or marketing pages.',
             'Backend services that power accounts, subscriptions, community features, coaching or AI-assisted features, uploads, and support.',
         ],
@@ -88,7 +88,7 @@ export const privacyBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'Agartha may process photos or wellness-related information you choose to provide. We do not use the app to provide regulated medical diagnosis or treatment. Do not submit information you consider highly sensitive if you are uncomfortable with processing described here and in the app’s permission prompts.',
+            'Max may process photos or wellness-related information you choose to provide. We do not use the app to provide regulated medical diagnosis or treatment. Do not submit information you consider highly sensitive if you are uncomfortable with processing described here and in the app’s permission prompts.',
     },
 
     { type: 'h2', text: '4. How we use information (purposes)' },
@@ -110,7 +110,7 @@ export const privacyBlocks: LegalBlock[] = [
         type: 'callout',
         title: 'Not medical advice',
         text:
-            'Outputs in Agartha are for general wellness and education only, not a substitute for professional medical advice, diagnosis, or treatment.',
+            'Outputs in Max are for general wellness and education only, not a substitute for professional medical advice, diagnosis, or treatment.',
     },
     { type: 'external', label: 'App Review Guidelines — Legal (Apple, health-related expectations)', url: APPLE_APP_REVIEW_LEGAL },
 
@@ -155,7 +155,7 @@ export const privacyBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'This section explains, in detail, how Agartha handles face data. It applies whenever you use the in-app face-scan feature (front, left, and right photos of your face) or otherwise upload facial images. It is intended to address Apple App Review Guideline 2.1 and 5.1.1 requirements for transparency about face data.',
+            'This section explains, in detail, how Max handles face data. It applies whenever you use the in-app face-scan feature (front, left, and right photos of your face) or otherwise upload facial images. It is intended to address Apple App Review Guideline 2.1 and 5.1.1 requirements for transparency about face data.',
     },
     { type: 'h3', text: '7.1 What face data we collect' },
     {
@@ -167,30 +167,30 @@ export const privacyBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'We use face photographs and the derived landmark and measurement data solely to generate the wellness, aesthetic, and coaching feedback you request inside Agartha — for example symmetry scores, proportion feedback, posture or facial-training suggestions, and AI-generated coaching content about your own scan. We do not use face data to identify, authenticate, track, or recognize you across services; we do not use it for advertising, marketing, or profiling; we do not sell it; and we do not use it to train general-purpose machine-learning models for third parties.',
+            'We use face photographs and the derived landmark and measurement data solely to generate the wellness, aesthetic, and coaching feedback you request inside Max — for example symmetry scores, proportion feedback, posture or facial-training suggestions, and AI-generated coaching content about your own scan. We do not use face data to identify, authenticate, track, or recognize you across services; we do not use it for advertising, marketing, or profiling; we do not sell it; and we do not use it to train general-purpose machine-learning models for third parties.',
     },
     { type: 'h3', text: '7.3 Third parties and where face data is stored' },
     {
         type: 'p',
         text:
-            'Face images are stored as private objects in Amazon Web Services S3 (Amazon S3) under our account, accessible only to Agartha backend services and authenticated administrative access. The derived landmark coordinates and measurement scores are stored alongside your user record in our primary application database (PostgreSQL, hosted with Supabase; some shared or forum data on AWS RDS). Face landmark detection runs server-side on our own infrastructure using the MediaPipe Face Landmarker model. To produce natural-language feedback about a scan, we may send the face image and/or its derived measurement values to a large language model provider (currently Google Gemini; where configured, OpenAI) strictly for per-request inference; those providers act as subprocessors under their published terms and do not receive the data for training general models on our behalf. Face data is not shared with any advertising network, data broker, or analytics provider.',
+            'Face images are stored as private objects in Amazon Web Services S3 (Amazon S3) under our account, accessible only to Max backend services and authenticated administrative access. The derived landmark coordinates and measurement scores are stored alongside your user record in our primary application database (PostgreSQL, hosted with Supabase; some shared or forum data on AWS RDS). Face landmark detection runs server-side on our own infrastructure using the MediaPipe Face Landmarker model. To produce natural-language feedback about a scan, we may send the face image and/or its derived measurement values to a large language model provider (currently Google Gemini; where configured, OpenAI) strictly for per-request inference; those providers act as subprocessors under their published terms and do not receive the data for training general models on our behalf. Face data is not shared with any advertising network, data broker, or analytics provider.',
     },
     { type: 'h3', text: '7.4 Retention of face data' },
     {
         type: 'p',
         text:
-            'Face images and the derived landmark and measurement data are retained only while your account is active and the scan remains in your history. You can delete an individual scan at any time from within the app; deletion removes the associated images from our storage and the scan record from our database (subject to limited backup retention described in section 8 Retention). When you delete your Agartha account, all face images, landmark data, and derived scan measurements associated with your account are deleted or anonymized, subject to the same limited backup and legal-retention exceptions.',
+            'Face images and the derived landmark and measurement data are retained only while your account is active and the scan remains in your history. You can delete an individual scan at any time from within the app; deletion removes the associated images from our storage and the scan record from our database (subject to limited backup retention described in section 8 Retention). When you delete your Max account, all face images, landmark data, and derived scan measurements associated with your account are deleted or anonymized, subject to the same limited backup and legal-retention exceptions.',
     },
     { type: 'h3', text: '7.5 Consent, disclosure, and user control' },
     {
         type: 'p',
         text:
-            'Before you take a face scan, Agartha requests camera permission with a clear on-device prompt that explains the data will be used for face analysis and wellness feedback, and the scan flow in the app shows what will be submitted. You can revoke camera access at any time in your device settings, delete individual scans from the app, and delete your account and all face data as described in section 9.1 Account deletion. We do not use HealthKit or Apple health APIs for the face-scan feature.',
+            'Before you take a face scan, Max requests camera permission with a clear on-device prompt that explains the data will be used for face analysis and wellness feedback, and the scan flow in the app shows what will be submitted. You can revoke camera access at any time in your device settings, delete individual scans from the app, and delete your account and all face data as described in section 9.1 Account deletion. We do not use HealthKit or Apple health APIs for the face-scan feature.',
     },
     {
         type: 'p',
         text:
-            'Agartha does not provide medical diagnosis or treatment. Outputs from face scans are general wellness and aesthetic feedback only and must not be relied on for medical purposes. Do not use the Services to obtain regulated medical measurements that the app does not support.',
+            'Max does not provide medical diagnosis or treatment. Outputs from face scans are general wellness and aesthetic feedback only and must not be relied on for medical purposes. Do not use the Services to obtain regulated medical measurements that the app does not support.',
     },
 
     { type: 'h2', text: '8. Retention' },
@@ -282,11 +282,11 @@ export const privacyBlocks: LegalBlock[] = [
 ];
 
 export const termsBlocks: LegalBlock[] = [
-    { type: 'meta', text: 'Effective March 23, 2026 · App: Agartha (com.cannon.mobile)' },
+    { type: 'meta', text: 'Effective March 23, 2026 · App: Max (com.cannon.mobile)' },
     {
         type: 'p',
         text:
-            'These Terms of Service (“Terms”) govern your access to and use of Agartha’s mobile applications, websites, and related services (the “Services”). By creating an account, accessing, or using the Services, you agree to these Terms. If you do not agree, do not use the Services.',
+            'These Terms of Service (“Terms”) govern your access to and use of Max’s mobile applications, websites, and related services (the “Services”). By creating an account, accessing, or using the Services, you agree to these Terms. If you do not agree, do not use the Services.',
     },
     {
         type: 'p',
@@ -296,7 +296,7 @@ export const termsBlocks: LegalBlock[] = [
         type: 'callout',
         title: 'Account controls',
         text:
-            'Agartha includes in-app controls for support, legal documents, and account deletion. If deletion is unavailable due to a temporary issue, email us using the address below.',
+            'Max includes in-app controls for support, legal documents, and account deletion. If deletion is unavailable due to a temporary issue, email us using the address below.',
     },
     { type: 'mailtoLine', before: '', after: '' },
 
@@ -319,37 +319,37 @@ export const termsBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'Agartha provides software, content, and community features aimed at general wellness, education, and engagement. We may modify, suspend, or discontinue features with reasonable notice where practicable.',
+            'Max provides software, content, and community features aimed at general wellness, education, and engagement. We may modify, suspend, or discontinue features with reasonable notice where practicable.',
     },
     {
         type: 'callout',
         title: 'Medical disclaimer',
         text:
-            'The Services are not medical devices and do not provide medical advice, diagnosis, or treatment. Always seek the advice of a qualified health provider with any questions about a medical condition. Never disregard professional advice because of something you read or see in Agartha.',
+            'The Services are not medical devices and do not provide medical advice, diagnosis, or treatment. Always seek the advice of a qualified health provider with any questions about a medical condition. Never disregard professional advice because of something you read or see in Max.',
     },
 
     { type: 'h2', text: '4. App Store and Play Store distribution' },
     {
         type: 'p',
         text:
-            'If you download Agartha from the Apple App Store, you acknowledge that these Terms are between you and Agartha, not Apple. Apple is not responsible for the Services or their content. Apple has no obligation to furnish maintenance or support for Agartha. To the maximum extent permitted by law, Apple has no warranty obligation regarding Agartha. Apple is not responsible for addressing claims by you or third parties relating to Agartha (including product liability, legal or regulatory failure, or consumer protection claims). In the event of a third-party claim that Agartha infringes intellectual property rights, Agartha (not Apple) is responsible for investigation, defense, settlement, and discharge of that claim. Apple and its subsidiaries are third-party beneficiaries of these Terms solely as they relate to your use of the iOS version obtained through the App Store, and Apple may enforce those provisions. You must also comply with applicable third-party terms when using the Services (for example store rules and payment terms).',
+            'If you download Max from the Apple App Store, you acknowledge that these Terms are between you and Max, not Apple. Apple is not responsible for the Services or their content. Apple has no obligation to furnish maintenance or support for Max. To the maximum extent permitted by law, Apple has no warranty obligation regarding Max. Apple is not responsible for addressing claims by you or third parties relating to Max (including product liability, legal or regulatory failure, or consumer protection claims). In the event of a third-party claim that Max infringes intellectual property rights, Max (not Apple) is responsible for investigation, defense, settlement, and discharge of that claim. Apple and its subsidiaries are third-party beneficiaries of these Terms solely as they relate to your use of the iOS version obtained through the App Store, and Apple may enforce those provisions. You must also comply with applicable third-party terms when using the Services (for example store rules and payment terms).',
     },
     {
         type: 'p',
         text:
-            'If you obtain Agartha from Google Play, Google may apply additional terms; where those terms address distribution, billing, or refunds through Google Play, they may govern those specific topics.',
+            'If you obtain Max from Google Play, Google may apply additional terms; where those terms address distribution, billing, or refunds through Google Play, they may govern those specific topics.',
     },
 
     { type: 'h2', text: '5. Subscriptions and payments' },
     {
         type: 'p',
         text:
-            'Some features may require a paid subscription or one-time purchase. Prices, billing cycles, and taxes are shown at checkout or in the app store. On iPhone, Agartha’s subscription is purchased through Apple’s In-App Purchase system; on Android, subscriptions may be billed through Stripe or Google Play depending on how you subscribe. Their terms also apply. Unless stated otherwise or required by law, fees are non-refundable. You may cancel or change subscriptions in your Apple ID Subscriptions (iOS), Google Play (Android), or through Stripe where that flow is offered.',
+            'Some features may require a paid subscription or one-time purchase. Prices, billing cycles, and taxes are shown at checkout or in the app store. On iPhone, Max’s subscription is purchased through Apple’s In-App Purchase system; on Android, subscriptions may be billed through Stripe or Google Play depending on how you subscribe. Their terms also apply. Unless stated otherwise or required by law, fees are non-refundable. You may cancel or change subscriptions in your Apple ID Subscriptions (iOS), Google Play (Android), or through Stripe where that flow is offered.',
     },
     {
         type: 'p',
         text:
-            'Auto-renewable subscriptions continue until you cancel in your Apple ID or Google Play account settings (or end a Stripe-billed plan where applicable). Before you subscribe, the app and store checkout should show what you receive each period, the price, and how to cancel. On iOS, if you reinstall Agartha or use a new device, use Restore Purchases where the app offers it to reconnect an existing App Store subscription to your Agartha account.',
+            'Auto-renewable subscriptions continue until you cancel in your Apple ID or Google Play account settings (or end a Stripe-billed plan where applicable). Before you subscribe, the app and store checkout should show what you receive each period, the price, and how to cancel. On iOS, if you reinstall Max or use a new device, use Restore Purchases where the app offers it to reconnect an existing App Store subscription to your Max account.',
     },
     { type: 'external', label: 'App Review Guidelines — Subscriptions (Apple)', url: APPLE_APP_REVIEW_BUSINESS },
 
@@ -357,7 +357,7 @@ export const termsBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'You retain rights to content you submit (“User Content”). You grant Agartha a worldwide, non-exclusive, royalty-free license to host, store, reproduce, display, and distribute User Content solely to operate, improve, promote, and secure the Services, including moderation and safety. You represent that you have the rights needed to grant this license.',
+            'You retain rights to content you submit (“User Content”). You grant Max a worldwide, non-exclusive, royalty-free license to host, store, reproduce, display, and distribute User Content solely to operate, improve, promote, and secure the Services, including moderation and safety. You represent that you have the rights needed to grant this license.',
     },
     {
         type: 'p',
@@ -390,7 +390,7 @@ export const termsBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'Agartha and its licensors own the Services, branding, and content we create, subject to the licenses we expressly grant you. Except as allowed by law or these Terms, you may not copy, modify, or distribute our proprietary materials without consent.',
+            'Max and its licensors own the Services, branding, and content we create, subject to the licenses we expressly grant you. Except as allowed by law or these Terms, you may not copy, modify, or distribute our proprietary materials without consent.',
     },
 
     { type: 'h2', text: '10. Copyright / DMCA' },
@@ -426,7 +426,7 @@ export const termsBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'You will defend and indemnify Agartha and its affiliates against claims, damages, losses, and expenses (including reasonable attorneys’ fees) arising from your User Content, your use of the Services, or your violation of these Terms or law.',
+            'You will defend and indemnify Max and its affiliates against claims, damages, losses, and expenses (including reasonable attorneys’ fees) arising from your User Content, your use of the Services, or your violation of these Terms or law.',
     },
 
     { type: 'h2', text: '15. Termination' },
@@ -455,17 +455,17 @@ export const termsBlocks: LegalBlock[] = [
 ];
 
 export const communityBlocks: LegalBlock[] = [
-    { type: 'meta', text: 'Effective March 23, 2026 · Channels, chat, and user-generated content in Agartha' },
+    { type: 'meta', text: 'Effective March 23, 2026 · Channels, chat, and user-generated content in Max' },
     {
         type: 'p',
         text:
-            'Agartha includes community areas where users can share text and media. These guidelines (“Guidelines”) work together with our Terms of Service and Privacy Policy. Violations may result in content removal, account restrictions, or termination.',
+            'Max includes community areas where users can share text and media. These guidelines (“Guidelines”) work together with our Terms of Service and Privacy Policy. Violations may result in content removal, account restrictions, or termination.',
     },
     {
         type: 'callout',
         title: 'Safety tools',
         text:
-            'Agartha provides mechanisms to report content, block abusive users, and contact support. We review reports and take action according to policy and law.',
+            'Max provides mechanisms to report content, block abusive users, and contact support. We review reports and take action according to policy and law.',
     },
     { type: 'external', label: 'App Review Guideline 1.2 — Safety (Apple)', url: APPLE_APP_REVIEW_SAFETY },
 
@@ -487,7 +487,7 @@ export const communityBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'Do not spam, run scams, impersonate Agartha staff or other users, artificially manipulate engagement, or distribute malware or phishing links.',
+            'Do not spam, run scams, impersonate Max staff or other users, artificially manipulate engagement, or distribute malware or phishing links.',
     },
 
     { type: 'h2', text: '4. Privacy of others' },
@@ -507,7 +507,7 @@ export const communityBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'Do not encourage eating disorders, self-harm, suicide, or misuse of drugs or supplements. Agartha is not a substitute for professional care; crisis resources should be sought through qualified services in your region.',
+            'Do not encourage eating disorders, self-harm, suicide, or misuse of drugs or supplements. Max is not a substitute for professional care; crisis resources should be sought through qualified services in your region.',
     },
 
     { type: 'h2', text: '7. Intellectual property' },
@@ -550,13 +550,13 @@ export const cookiesBlocks: LegalBlock[] = [
     {
         type: 'p',
         text:
-            'This notice describes how Agartha and our partners use cookies and similar technologies on websites and web properties we operate. Mobile app privacy and data handling are described in more detail in the Privacy Policy in this app.',
+            'This notice describes how Max and our partners use cookies and similar technologies on websites and web properties we operate. Mobile app privacy and data handling are described in more detail in the Privacy Policy in this app.',
     },
     {
         type: 'callout',
         title: 'Scope',
         text:
-            'This Cookie Notice is for Agartha websites and web pages. For App Store distribution, ensure App Privacy details (data types collected, linked to user, used for tracking) match what you actually collect—this notice, the Privacy Policy, and your product behavior should be consistent.',
+            'This Cookie Notice is for Max websites and web pages. For App Store distribution, ensure App Privacy details (data types collected, linked to user, used for tracking) match what you actually collect—this notice, the Privacy Policy, and your product behavior should be consistent.',
     },
 
     { type: 'h2', text: 'What are cookies?' },

@@ -1,5 +1,5 @@
 """
-Agartha - Configuration Management
+Max - Configuration Management
 Loads environment variables with validation using Pydantic Settings
 """
 
@@ -223,7 +223,7 @@ class Settings(BaseSettings):
     aws_s3_bucket: str = Field(default="cannon-app-uploads")
     aws_s3_region: str = Field(default="us-east-1")
     # Application
-    app_name: str = Field(default="Agartha")
+    app_name: str = Field(default="Max")
     app_env: str = Field(default="development")
     debug: bool = Field(default=True)
     # SQLAlchemy query echo -- off by default, independent of `debug`. Turning this
