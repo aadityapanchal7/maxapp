@@ -28,7 +28,16 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 # Markdown link `[text](url)` — text is non-greedy, URL stops at `)`.
+# Real links (must start with http(s)).
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+# Placeholder/garbage in the URL slot, e.g. `[CeraVe](link)` /
+# `[CeraVe](url)` / `[CeraVe](here)` / `[CeraVe](TBD)`. The LLM
+# sometimes emits these when it forgets to call recommend_product.
+# We detect any `[label](nonurl)` form and try to resolve the label
+# to the catalog; if we can't, we strip the link wrapper entirely.
+_MD_PLACEHOLDER_RE = re.compile(
+    r"\[([^\]]+)\]\(\s*((?!https?://)[^)\s][^)]*)\s*\)"
+)
 
 # Bare URL (not inside markdown brackets — best-effort).
 _BARE_URL_RE = re.compile(r"(?<![\(\[])\bhttps?://[^\s)\]\>]+")
@@ -160,6 +169,29 @@ def _rewrite_md_links(text: str) -> tuple[str, int, int]:
     return out, rewritten, stripped
 
 
+def _rewrite_placeholder_links(text: str) -> tuple[str, int, int]:
+    """Catch `[label](link)`, `[label](url)`, `[label](here)` and other
+    non-URL placeholder slots the LLM sometimes emits when it forgets
+    to call `recommend_product`. Try to resolve the label to a catalog
+    URL; if no match, strip the link wrapper so only the readable name
+    remains."""
+    rewritten = 0
+    stripped = 0
+
+    def repl(m: re.Match) -> str:
+        nonlocal rewritten, stripped
+        label = m.group(1)
+        upgraded = _resolve_to_catalog(label)
+        if upgraded:
+            rewritten += 1
+            return f"[{label}]({upgraded})"
+        stripped += 1
+        return label
+
+    out = _MD_PLACEHOLDER_RE.sub(repl, text)
+    return out, rewritten, stripped
+
+
 def _strip_bare_urls(text: str) -> tuple[str, int]:
     """Bare URLs (not in markdown links) — drop the bad ones outright.
     The catalog ones we leave alone."""
@@ -199,12 +231,15 @@ def validate_and_rewrite_links(text: str) -> str:
     original = text
 
     text, rewrote, stripped = _rewrite_md_links(text)
+    text, ph_rewrote, ph_stripped = _rewrite_placeholder_links(text)
     text, bare_stripped = _strip_bare_urls(text)
     text, enriched = _enrich_brand_mentions(text)
 
-    if rewrote or stripped or bare_stripped or enriched:
+    if rewrote or stripped or ph_rewrote or ph_stripped or bare_stripped or enriched:
         logger.info(
-            "[link-validator] md_rewrote=%d md_stripped=%d bare_stripped=%d enriched=%d",
-            rewrote, stripped, bare_stripped, enriched,
+            "[link-validator] md_rewrote=%d md_stripped=%d "
+            "placeholder_rewrote=%d placeholder_stripped=%d "
+            "bare_stripped=%d enriched=%d",
+            rewrote, stripped, ph_rewrote, ph_stripped, bare_stripped, enriched,
         )
     return text if text else original

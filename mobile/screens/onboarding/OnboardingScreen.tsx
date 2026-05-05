@@ -1,16 +1,24 @@
 /**
- * Onboarding — one question per page, slide transitions, editorial layout.
+ * Onboarding — minimalist, centered, one question per page.
+ *
+ * Layout principles:
+ *   - Content vertically centered in the viewport
+ *   - Max-width container (~380 px) so the content never sprawls
+ *   - One visual focus per page: title + input. No fluff.
+ *   - Tiny progress dots at top, sticky CTA at bottom
+ *   - Big Playfair serif for the question; sans for everything else
+ *   - Soft fade-in on each step (no slide), 220 ms
  *
  * Steps: gender → age → height → weight → priority ranking
  *
  * Data shape on save:
  *   gender:           'male' | 'female' | 'other' | 'prefer_not_to_say'
  *   age:              number (13–100)
- *   height (cm):      canonical, always cm in `height_cm`
- *   weight (kg):      canonical, always kg in `weight_kg`
+ *   height_cm:        canonical metric height
+ *   weight_kg:        canonical metric weight
  *   unit_system:      'metric' | 'imperial'
  *   priority_ranking: string[]   (max-id keys, ordered #1 → #5)
- *   goals:            top 3 of priority_ranking (for Home tiles)
+ *   goals:            top 3 of priority_ranking
  *   completed:        true
  */
 
@@ -46,18 +54,18 @@ const GENDERS: { id: Gender; label: string }[] = [
     { id: 'prefer_not_to_say', label: 'Prefer not to say' },
 ];
 
-const PRIORITIES: { id: PriorityKey; label: string; sub: string }[] = [
-    { id: 'bonemax',   label: 'Bone structure', sub: 'jaw, midface, structure' },
-    { id: 'skinmax',   label: 'Skin quality',   sub: 'skin, barrier, glow' },
-    { id: 'heightmax', label: 'Height',         sub: 'posture, decompression' },
-    { id: 'fitmax',    label: 'Physique',       sub: 'frame, leanness, v-taper' },
-    { id: 'hairmax',   label: 'Hair quality',   sub: 'hairline, density, scalp' },
+const PRIORITIES: { id: PriorityKey; label: string }[] = [
+    { id: 'bonemax',   label: 'Bone structure' },
+    { id: 'skinmax',   label: 'Skin quality' },
+    { id: 'heightmax', label: 'Height' },
+    { id: 'fitmax',    label: 'Physique' },
+    { id: 'hairmax',   label: 'Hair quality' },
 ];
 
 const STEP_TITLES = [
     'How do you identify?',
     'How old are you?',
-    "How tall are you?",
+    'How tall are you?',
     "What's your weight?",
     'What matters most?',
 ] as const;
@@ -81,15 +89,14 @@ export default function OnboardingScreen() {
     const insets = useSafeAreaInsets();
     const { refreshUser } = useAuth();
 
-    /* ── Form state ──────────────────────────────────────────────────── */
     const [step, setStep] = useState(0);
     const [submitting, setSubmitting] = useState(false);
 
     const [gender, setGender] = useState<Gender | null>(null);
     const [age, setAge] = useState(22);
     const [unit, setUnit] = useState<UnitSystem>('imperial');
-    const [heightCm, setHeightCm] = useState(178);  // ~5'10"
-    const [weightKg, setWeightKg] = useState(72);   // ~159 lb
+    const [heightCm, setHeightCm] = useState(178);
+    const [weightKg, setWeightKg] = useState(72);
     const [priority, setPriority] = useState<PriorityKey[]>([]);
 
     const valid: boolean[] = [
@@ -100,25 +107,27 @@ export default function OnboardingScreen() {
         priority.length === PRIORITIES.length,
     ];
 
-    /* ── Slide transition (fade + tiny x) ───────────────────────────── */
+    /* Soft fade between steps — no horizontal motion. Quieter than a slide,
+       reads as a gentle transition rather than navigation. */
     const fade = useRef(new Animated.Value(1)).current;
-    const slide = useRef(new Animated.Value(0)).current;
-
-    const animateOutThen = useCallback(
-        (dir: 1 | -1, after: () => void) => {
-            Animated.parallel([
-                Animated.timing(fade, { toValue: 0, duration: 140, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
-                Animated.timing(slide, { toValue: -24 * dir, duration: 140, useNativeDriver: true, easing: Easing.out(Easing.quad) }),
-            ]).start(() => {
+    const animate = useCallback(
+        (after: () => void) => {
+            Animated.timing(fade, {
+                toValue: 0,
+                duration: 130,
+                useNativeDriver: true,
+                easing: Easing.out(Easing.quad),
+            }).start(() => {
                 after();
-                slide.setValue(24 * dir);
-                Animated.parallel([
-                    Animated.timing(fade, { toValue: 1, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
-                    Animated.timing(slide, { toValue: 0, duration: 220, useNativeDriver: true, easing: Easing.out(Easing.cubic) }),
-                ]).start();
+                Animated.timing(fade, {
+                    toValue: 1,
+                    duration: 220,
+                    useNativeDriver: true,
+                    easing: Easing.out(Easing.cubic),
+                }).start();
             });
         },
-        [fade, slide]
+        [fade]
     );
 
     const goNext = useCallback(() => {
@@ -127,18 +136,17 @@ export default function OnboardingScreen() {
             void submit();
             return;
         }
-        animateOutThen(1, () => setStep((s) => s + 1));
-    }, [valid, step, animateOutThen]);  // eslint-disable-line react-hooks/exhaustive-deps
+        animate(() => setStep((s) => s + 1));
+    }, [valid, step, animate]);  // eslint-disable-line react-hooks/exhaustive-deps
 
     const goBack = useCallback(() => {
         if (step <= 0) {
             navigation.goBack();
             return;
         }
-        animateOutThen(-1, () => setStep((s) => s - 1));
-    }, [step, animateOutThen, navigation]);
+        animate(() => setStep((s) => s - 1));
+    }, [step, animate, navigation]);
 
-    /* ── Submit ─────────────────────────────────────────────────────── */
     const submit = async () => {
         if (submitting) return;
         try {
@@ -157,7 +165,6 @@ export default function OnboardingScreen() {
                 timezone:
                     typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC',
                 completed: true,
-                // Extra fields propagate via the JSONB onboarding column.
                 // @ts-expect-error — backend allows passthrough fields
                 priority_ranking: priority,
                 // @ts-expect-error
@@ -166,18 +173,13 @@ export default function OnboardingScreen() {
                 weight_kg: weightKg,
             });
             await refreshUser();
-            // Restore the original pre-pay flow:
-            //   Onboarding → FeaturesIntro → FaceScan → FaceScanResults → Payment.
-            // Only the *questions* on this screen were meant to change; the
-            // post-onboarding sequence stays intact.
             navigation.reset({ index: 0, routes: [{ name: 'FeaturesIntro' }] });
-        } catch (e: any) {
+        } catch (e) {
             console.error('onboarding save failed', e);
             setSubmitting(false);
         }
     };
 
-    /* ── Step renderer ──────────────────────────────────────────────── */
     const renderStep = () => {
         switch (step) {
             case 0:
@@ -186,8 +188,8 @@ export default function OnboardingScreen() {
                         value={gender}
                         onChange={(g) => {
                             setGender(g);
-                            // small delay to show selection before auto-advance
-                            setTimeout(() => goNext(), 220);
+                            // light delay so the selection registers visually
+                            setTimeout(goNext, 200);
                         }}
                     />
                 );
@@ -208,8 +210,9 @@ export default function OnboardingScreen() {
     };
 
     return (
-        <View style={[styles.root, { paddingTop: Math.max(insets.top + spacing.md, 44) }]}>
-            <View style={styles.topBar}>
+        <View style={styles.root}>
+            {/* ── Top: back + dots ─────────────────────────────────── */}
+            <View style={[styles.topBar, { paddingTop: Math.max(insets.top + spacing.md, 44) }]}>
                 <TouchableOpacity
                     onPress={goBack}
                     style={styles.backBtn}
@@ -233,21 +236,21 @@ export default function OnboardingScreen() {
                 <View style={{ width: 32 }} />
             </View>
 
-            <Animated.View
+            {/* ── Centered content ─────────────────────────────────── */}
+            <View style={styles.center}>
+                <Animated.View style={[styles.card, { opacity: fade }]}>
+                    <Text style={styles.question}>{STEP_TITLES[step]}</Text>
+                    <View style={styles.body}>{renderStep()}</View>
+                </Animated.View>
+            </View>
+
+            {/* ── CTA ───────────────────────────────────────────────── */}
+            <View
                 style={[
-                    styles.slide,
-                    { opacity: fade, transform: [{ translateX: slide }] },
+                    styles.footer,
+                    { paddingBottom: Math.max(insets.bottom + spacing.sm, spacing.lg) },
                 ]}
             >
-                <Text style={styles.eyebrow}>
-                    {`${String(step + 1).padStart(2, '0')} / ${String(STEP_COUNT).padStart(2, '0')}`}
-                </Text>
-                <Text style={styles.question}>{STEP_TITLES[step]}</Text>
-                <View style={styles.questionRule} />
-                <View style={styles.body}>{renderStep()}</View>
-            </Animated.View>
-
-            <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom + spacing.sm, spacing.md) }]}>
                 <TouchableOpacity
                     style={[styles.cta, !valid[step] && styles.ctaDisabled]}
                     onPress={goNext}
@@ -257,7 +260,6 @@ export default function OnboardingScreen() {
                     <Text style={styles.ctaText}>
                         {submitting ? 'Saving…' : step === STEP_COUNT - 1 ? 'Continue' : 'Next'}
                     </Text>
-                    <Ionicons name="arrow-forward" size={15} color={colors.buttonText} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -270,18 +272,17 @@ export default function OnboardingScreen() {
 
 function GenderStep({ value, onChange }: { value: Gender | null; onChange: (g: Gender) => void }) {
     return (
-        <View style={{ gap: spacing.sm }}>
+        <View style={{ gap: 10, alignSelf: 'stretch' }}>
             {GENDERS.map((g) => {
                 const on = value === g.id;
                 return (
                     <TouchableOpacity
                         key={g.id}
                         style={[styles.option, on && styles.optionOn]}
-                        activeOpacity={0.65}
+                        activeOpacity={0.6}
                         onPress={() => onChange(g.id)}
                     >
                         <Text style={[styles.optionLabel, on && styles.optionLabelOn]}>{g.label}</Text>
-                        {on && <Ionicons name="checkmark" size={18} color={colors.foreground} />}
                     </TouchableOpacity>
                 );
             })}
@@ -295,14 +296,10 @@ function GenderStep({ value, onChange }: { value: Gender | null; onChange: (g: G
 
 function AgeStep({ value, onChange }: { value: number; onChange: (n: number) => void }) {
     return (
-        <View style={{ alignItems: 'center', paddingTop: spacing.lg }}>
+        <View style={styles.numberStep}>
             <Text style={styles.bigNumber}>{value}</Text>
-            <Text style={styles.bigUnit}>years</Text>
-            <View style={styles.stepperRow}>
-                <Stepper onPress={() => onChange(Math.max(13, value - 1))} icon="remove" />
-                <Slider min={13} max={100} value={value} onChange={onChange} />
-                <Stepper onPress={() => onChange(Math.min(100, value + 1))} icon="add" />
-            </View>
+            <Text style={styles.unit}>years</Text>
+            <Slider min={13} max={100} value={value} onChange={onChange} />
         </View>
     );
 }
@@ -321,26 +318,22 @@ function HeightStep({
 }) {
     const { ft, inch } = cmToFtIn(cm);
     return (
-        <View style={{ alignItems: 'center', paddingTop: spacing.md }}>
+        <View style={styles.numberStep}>
             <UnitToggle unit={unit} onChange={onChangeUnit} labels={['cm', 'ft / in']} />
             {unit === 'metric' ? (
                 <>
-                    <Text style={[styles.bigNumber, { marginTop: spacing.lg }]}>{cm}</Text>
-                    <Text style={styles.bigUnit}>cm</Text>
+                    <Text style={styles.bigNumber}>{cm}</Text>
+                    <Text style={styles.unit}>cm</Text>
                 </>
             ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'baseline', marginTop: spacing.lg }}>
+                <View style={styles.inlineUnits}>
                     <Text style={styles.bigNumber}>{ft}</Text>
-                    <Text style={[styles.bigUnit, { marginHorizontal: 8 }]}>ft</Text>
+                    <Text style={[styles.unit, styles.unitInline]}>ft</Text>
                     <Text style={styles.bigNumber}>{inch}</Text>
-                    <Text style={[styles.bigUnit, { marginLeft: 8 }]}>in</Text>
+                    <Text style={[styles.unit, styles.unitInline]}>in</Text>
                 </View>
             )}
-            <View style={styles.stepperRow}>
-                <Stepper onPress={() => onChangeCm(Math.max(120, cm - 1))} icon="remove" />
-                <Slider min={120} max={230} value={cm} onChange={onChangeCm} />
-                <Stepper onPress={() => onChangeCm(Math.min(230, cm + 1))} icon="add" />
-            </View>
+            <Slider min={120} max={230} value={cm} onChange={onChangeCm} />
         </View>
     );
 }
@@ -359,15 +352,11 @@ function WeightStep({
 }) {
     const display = unit === 'metric' ? kg : kgToLb(kg);
     return (
-        <View style={{ alignItems: 'center', paddingTop: spacing.md }}>
+        <View style={styles.numberStep}>
             <UnitToggle unit={unit} onChange={onChangeUnit} labels={['kg', 'lb']} />
-            <Text style={[styles.bigNumber, { marginTop: spacing.lg }]}>{display}</Text>
-            <Text style={styles.bigUnit}>{unit === 'metric' ? 'kg' : 'lb'}</Text>
-            <View style={styles.stepperRow}>
-                <Stepper onPress={() => onChangeKg(Math.max(30, kg - 1))} icon="remove" />
-                <Slider min={30} max={230} value={kg} onChange={onChangeKg} />
-                <Stepper onPress={() => onChangeKg(Math.min(230, kg + 1))} icon="add" />
-            </View>
+            <Text style={styles.bigNumber}>{display}</Text>
+            <Text style={styles.unit}>{unit === 'metric' ? 'kg' : 'lb'}</Text>
+            <Slider min={30} max={230} value={kg} onChange={onChangeKg} />
         </View>
     );
 }
@@ -390,9 +379,9 @@ function PriorityStep({
         }
     };
     return (
-        <View>
-            <Text style={styles.helperLine}>Tap in order. First = highest priority.</Text>
-            <View style={{ gap: spacing.sm, marginTop: spacing.md }}>
+        <View style={{ alignSelf: 'stretch' }}>
+            <Text style={styles.helperLine}>tap in order — first = top priority</Text>
+            <View style={{ gap: 10, marginTop: spacing.lg }}>
                 {PRIORITIES.map((p) => {
                     const idx = value.indexOf(p.id);
                     const on = idx >= 0;
@@ -400,15 +389,12 @@ function PriorityStep({
                         <TouchableOpacity
                             key={p.id}
                             style={[styles.option, on && styles.optionOn]}
-                            activeOpacity={0.65}
+                            activeOpacity={0.6}
                             onPress={() => tap(p.id)}
                         >
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.optionLabel, on && styles.optionLabelOn]}>
-                                    {p.label}
-                                </Text>
-                                <Text style={styles.optionSub}>{p.sub}</Text>
-                            </View>
+                            <Text style={[styles.optionLabel, on && styles.optionLabelOn]}>
+                                {p.label}
+                            </Text>
                             <View style={[styles.rankBadge, on && styles.rankBadgeOn]}>
                                 {on ? <Text style={styles.rankBadgeText}>{idx + 1}</Text> : null}
                             </View>
@@ -452,18 +438,9 @@ function UnitToggle({
     );
 }
 
-function Stepper({ onPress, icon }: { onPress: () => void; icon: 'add' | 'remove' }) {
-    return (
-        <TouchableOpacity onPress={onPress} style={styles.stepper} activeOpacity={0.65}>
-            <Ionicons name={icon} size={18} color={colors.foreground} />
-        </TouchableOpacity>
-    );
-}
-
 /**
- * Tiny custom slider — flat track + draggable thumb. Avoids
- * @react-native-community/slider which has spotty web support; uses
- * the responder system so it works on iOS / Android / web.
+ * Tiny custom slider — flat track + draggable thumb. Works on iOS, Android,
+ * and web via the responder system; no community-slider dependency.
  */
 function Slider({
     min, max, value, onChange,
@@ -505,11 +482,12 @@ function Slider({
 /*  Styles                                                                 */
 /* ─────────────────────────────────────────────────────────────────────── */
 
+const CARD_MAX_WIDTH = 380;
+
 const styles = StyleSheet.create({
     root: {
         flex: 1,
         backgroundColor: colors.background,
-        paddingHorizontal: spacing.lg,
     },
 
     /* top bar */
@@ -517,7 +495,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: spacing.lg,
+        paddingHorizontal: spacing.lg,
     },
     backBtn: {
         width: 32,
@@ -545,38 +523,70 @@ const styles = StyleSheet.create({
         backgroundColor: colors.foreground,
     },
 
-    /* slide */
-    slide: { flex: 1 },
-    eyebrow: {
-        fontFamily: fonts.sansSemiBold,
-        fontSize: 11,
-        letterSpacing: 1.6,
-        color: colors.textMuted,
-        marginBottom: 10,
+    /* centered content */
+    center: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: spacing.lg,
+    },
+    card: {
+        width: '100%',
+        maxWidth: CARD_MAX_WIDTH,
+        alignItems: 'center',
     },
     question: {
         fontFamily: fonts.serif,
-        fontSize: 32,
+        fontSize: 30,
         fontWeight: '400',
         letterSpacing: -0.6,
-        lineHeight: 38,
+        lineHeight: 36,
         color: colors.foreground,
-        marginBottom: 12,
-    },
-    questionRule: {
-        width: 28,
-        height: 2,
-        borderRadius: 1,
-        backgroundColor: colors.foreground,
+        textAlign: 'center',
         marginBottom: spacing.xl,
     },
-    body: { flex: 1 },
+    body: {
+        alignSelf: 'stretch',
+        alignItems: 'center',
+    },
 
+    /* shared per-step number layout */
+    numberStep: {
+        alignItems: 'center',
+        alignSelf: 'stretch',
+    },
+    bigNumber: {
+        fontFamily: fonts.serif,
+        fontSize: 88,
+        fontWeight: '400',
+        letterSpacing: -3,
+        color: colors.foreground,
+        lineHeight: 96,
+    },
+    unit: {
+        fontFamily: fonts.sansMedium,
+        fontSize: 11,
+        letterSpacing: 1.6,
+        textTransform: 'uppercase',
+        color: colors.textMuted,
+        marginTop: 6,
+    },
+    unitInline: {
+        marginHorizontal: 6,
+        marginTop: 0,
+    },
+    inlineUnits: {
+        flexDirection: 'row',
+        alignItems: 'baseline',
+    },
+
+    /* helper text */
     helperLine: {
         fontFamily: fonts.sans,
-        fontSize: 13,
+        fontSize: 12.5,
         color: colors.textSecondary,
-        lineHeight: 19,
+        textAlign: 'center',
+        letterSpacing: 0.1,
     },
 
     /* options (gender + priority) */
@@ -600,13 +610,10 @@ const styles = StyleSheet.create({
         fontSize: 15,
         color: colors.textPrimary,
         letterSpacing: -0.05,
+        textAlign: 'left',
     },
-    optionLabelOn: { color: colors.foreground },
-    optionSub: {
-        ...typography.caption,
-        marginTop: 2,
-        textTransform: 'none',
-        letterSpacing: 0,
+    optionLabelOn: {
+        color: colors.foreground,
     },
     rankBadge: {
         width: 22,
@@ -617,29 +624,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    rankBadgeOn: { borderColor: colors.foreground, backgroundColor: colors.foreground },
+    rankBadgeOn: {
+        borderColor: colors.foreground,
+        backgroundColor: colors.foreground,
+    },
     rankBadgeText: {
         fontFamily: fonts.sansSemiBold,
         fontSize: 11,
         color: colors.buttonText,
-    },
-
-    /* big number display */
-    bigNumber: {
-        fontFamily: fonts.serif,
-        fontSize: 88,
-        fontWeight: '400',
-        letterSpacing: -3,
-        color: colors.foreground,
-        lineHeight: 96,
-    },
-    bigUnit: {
-        fontFamily: fonts.sansMedium,
-        fontSize: 12,
-        letterSpacing: 1.6,
-        textTransform: 'uppercase',
-        color: colors.textMuted,
-        marginTop: 4,
     },
 
     /* unit toggle */
@@ -649,43 +641,30 @@ const styles = StyleSheet.create({
         padding: 4,
         borderRadius: borderRadius.full,
         backgroundColor: colors.surface,
-        marginBottom: 4,
+        marginBottom: spacing.lg,
     },
     togglePill: {
         paddingHorizontal: spacing.md,
         paddingVertical: 7,
         borderRadius: borderRadius.full,
     },
-    togglePillOn: { backgroundColor: colors.foreground },
+    togglePillOn: {
+        backgroundColor: colors.foreground,
+    },
     togglePillText: {
         fontFamily: fonts.sansMedium,
         fontSize: 12,
         letterSpacing: 0.4,
         color: colors.textSecondary,
     },
-    togglePillTextOn: { color: colors.buttonText },
+    togglePillTextOn: {
+        color: colors.buttonText,
+    },
 
-    /* slider + steppers */
-    stepperRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: spacing.md,
-        marginTop: spacing.xl,
-        width: '100%',
-        paddingHorizontal: 4,
-    },
-    stepper: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
-        backgroundColor: colors.card,
-    },
+    /* slider */
     sliderTrack: {
-        flex: 1,
+        marginTop: spacing.xl,
+        alignSelf: 'stretch',
         height: 22,
         justifyContent: 'center',
     },
@@ -709,17 +688,24 @@ const styles = StyleSheet.create({
     },
 
     /* footer / CTA */
-    footer: { paddingTop: spacing.md },
+    footer: {
+        paddingHorizontal: spacing.lg,
+        paddingTop: spacing.md,
+        alignItems: 'center',
+    },
     cta: {
+        width: '100%',
+        maxWidth: CARD_MAX_WIDTH,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 8,
         backgroundColor: colors.foreground,
         paddingVertical: 14,
         borderRadius: borderRadius.full,
     },
-    ctaDisabled: { backgroundColor: colors.border },
+    ctaDisabled: {
+        backgroundColor: colors.border,
+    },
     ctaText: {
         fontFamily: fonts.sansSemiBold,
         fontSize: 13,
