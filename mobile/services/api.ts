@@ -915,6 +915,7 @@ class ApiService {
         initContext?: string,
         chatIntent?: string,
         conversationId?: string | null,
+        replyToMessageId?: string | null,
     ): Promise<{
         response: string;
         choices?: string[];
@@ -941,6 +942,7 @@ class ApiService {
         if (initContext) body.init_context = initContext;
         if (chatIntent) body.chat_intent = chatIntent;
         if (conversationId) body.conversation_id = conversationId;
+        if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
         // LangChain agent may chain multiple tool calls + LLM fallback,
         // so allow up to 120s before timing out.
         const response = await this.client.post('chat/message', body, {
@@ -963,7 +965,13 @@ class ApiService {
         const response = await this.client.get('chat/history', { params });
         return response.data as {
             conversation_id: string | null;
-            messages: Array<{ role: 'user' | 'assistant'; content: string; created_at: string }>;
+            messages: Array<{
+                id: string;
+                role: 'user' | 'assistant';
+                content: string;
+                created_at: string;
+                reply_to?: { id: string; role: 'user' | 'assistant'; preview: string } | null;
+            }>;
             pending_question?: {
                 max: string;
                 field_id: string;

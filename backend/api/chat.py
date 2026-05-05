@@ -1846,6 +1846,7 @@ async def process_chat_message(
     attachment_type: Optional[str] = None,
     channel: str = "app",
     conversation_id: Optional[str] = None,
+    reply_to_message_id: Optional[str] = None,
 ) -> Tuple[str, list[str]]:
     """
     Core chat logic shared by the HTTP endpoint and the SMS webhook.
@@ -1860,6 +1861,30 @@ async def process_chat_message(
 
     user_uuid = UUID(user_id)
     note_chat_turn()
+
+    # iMessage-style swipe-reply context. When the user replied to a
+    # specific earlier message: fetch it, prepend a tagged block to the
+    # message_text so every downstream LLM path treats that turn as the
+    # focal subject, AND set the per-request contextvar so the user-row
+    # ChatHistory insert auto-attaches `reply_to_id` (transcript renders
+    # the quoted strip on reload).
+    if reply_to_message_id:
+        try:
+            from models.sqlalchemy_models import active_reply_to_id as _reply_cv
+            target_uuid = UUID(reply_to_message_id)
+            target = await db.get(ChatHistory, target_uuid)
+            if target and target.user_id == user_uuid:
+                target_text = (target.content or "").strip()[:600]
+                if target_text:
+                    speaker = "their earlier message" if target.role == "user" else "max's earlier message"
+                    message_text = (
+                        f"[REPLYING TO {speaker.upper()} (treat as the focal subject of this turn):\n"
+                        f"\"{target_text}\"]\n\n"
+                        f"{message_text}"
+                    )
+                _reply_cv.set(target.id)
+        except Exception as _e:
+            logger.warning("reply_to_message_id lookup failed: %s", _e)
 
     fitmax_schedule_active = None
     hairmax_schedule_active = None
@@ -3765,6 +3790,7 @@ async def _send_message_locked(
                 attachment_url=data.attachment_url,
                 attachment_type=data.attachment_type,
                 conversation_id=data.conversation_id,
+                reply_to_message_id=data.reply_to_message_id,
             )
 
     conv_id = data.conversation_id
@@ -3920,10 +3946,36 @@ async def get_chat_history(
         logger.warning("history pending-question hydrate failed: %s", _e)
         pending_question = None
 
+    # Build a quick lookup so we can attach a short preview of the
+    # quoted message inline (mobile renders a tiny strip above the bubble
+    # showing what the user / assistant was replying to).
+    by_id = {r.id: r for r in rows}
+
+    def _reply_preview(target_id) -> Optional[dict]:
+        if not target_id:
+            return None
+        target = by_id.get(target_id)
+        if not target:
+            return None  # quoted message is outside the loaded window
+        snippet = (target.content or "").strip().replace("\n", " ")
+        if len(snippet) > 120:
+            snippet = snippet[:117].rstrip() + "..."
+        return {
+            "id": str(target.id),
+            "role": target.role,
+            "preview": snippet,
+        }
+
     return {
         "conversation_id": str(target_conv.id) if target_conv else None,
         "messages": [
-            {"role": r.role, "content": r.content, "created_at": r.created_at}
+            {
+                "id": str(r.id),
+                "role": r.role,
+                "content": r.content,
+                "created_at": r.created_at,
+                "reply_to": _reply_preview(r.reply_to_id),
+            }
             for r in rows
         ],
         "pending_question": pending_question,

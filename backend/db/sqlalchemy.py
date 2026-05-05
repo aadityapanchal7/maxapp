@@ -179,6 +179,10 @@ async def _run_chat_history_column_migrations():
         """,
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS retrieved_chunk_ids JSONB",
         "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS partner_rule_ids BIGINT[]",
+        # iMessage-style reply-to reference. Self-FK with SET NULL so
+        # deleting the original message orphans replies instead of
+        # cascading. Nullable — most messages don't reply to anything.
+        "ALTER TABLE chat_history ADD COLUMN IF NOT EXISTS reply_to_id uuid REFERENCES chat_history(id) ON DELETE SET NULL",
     ]
     for sql in basic_statements:
         try:

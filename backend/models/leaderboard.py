@@ -67,6 +67,16 @@ class ChatRequest(BaseModel):
         default=None,
         description="Target chat_conversations.id. Omit to auto-route to latest / new thread.",
     )
+    # iMessage-style "reply to a specific earlier message". Mobile sets this
+    # when the user swipes right on a bubble and types a reply. The backend
+    # fetches the referenced message + prepends it to the LLM context as
+    # "user is replying to this earlier turn:" so the response treats the
+    # quoted turn as the focal subject. Persisted on the new chat_history
+    # row so the transcript renders the quoted strip on reload.
+    reply_to_message_id: Optional[str] = Field(
+        default=None,
+        description="chat_history.id the user is replying to (iMessage-style swipe-reply).",
+    )
 
 
 class ChatResponse(BaseModel):

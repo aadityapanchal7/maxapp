@@ -300,6 +300,15 @@ active_conversation_id: contextvars.ContextVar = contextvars.ContextVar(
     "active_chat_conversation_id", default=None
 )
 
+# Per-request reply-to target. When the user swiped to reply on a specific
+# earlier message, _send_message_locked sets this contextvar so the user-row
+# ChatHistory insert auto-attaches the reply_to_id. Same pattern as
+# active_conversation_id — keeps the 20+ insert sites unchanged. Cleared
+# in a finally block so it doesn't leak across requests.
+active_reply_to_id: contextvars.ContextVar = contextvars.ContextVar(
+    "active_chat_reply_to_id", default=None
+)
+
 
 class ChatHistory(Base):
     """AI chat conversation history"""
@@ -317,13 +326,20 @@ class ChatHistory(Base):
     )
 
     def __init__(self, **kwargs):
-        # Auto-inject conversation_id from the request-scoped contextvar when
-        # the caller didn't specify one. Keeps the 20+ construction sites in
-        # api/chat.py unchanged while still writing the new FK.
+        # Auto-inject conversation_id + reply_to_id from request-scoped
+        # contextvars when the caller didn't specify them. Keeps the 20+
+        # construction sites in api/chat.py unchanged.
         if "conversation_id" not in kwargs:
             cv = active_conversation_id.get()
             if cv is not None:
                 kwargs["conversation_id"] = cv
+        # Reply-to attaches ONLY to the user's reply row (role="user").
+        # The assistant turn that follows shouldn't inherit the reply
+        # link — it's a new turn, not itself a reply.
+        if "reply_to_id" not in kwargs and kwargs.get("role") == "user":
+            rv = active_reply_to_id.get()
+            if rv is not None:
+                kwargs["reply_to_id"] = rv
         super().__init__(**kwargs)
 
     role = Column(String, nullable=False)
@@ -336,6 +352,17 @@ class ChatHistory(Base):
     # casts as BIGINT[] and Postgres rejects the INSERT.
     retrieved_chunk_ids = Column(JSONB, nullable=True)
     partner_rule_ids = Column(ARRAY(BIGINT), nullable=True)
+
+    # iMessage-style "reply to" reference. When set, the user is replying
+    # to a specific earlier message; the LLM prepends that message to its
+    # context so the response treats the quoted turn as the focal subject.
+    # Self-FK with ON DELETE SET NULL so deleting an old message doesn't
+    # cascade-delete every reply that pointed to it (just orphans the link).
+    reply_to_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_history.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
 

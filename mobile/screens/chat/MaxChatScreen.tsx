@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute } from '@react-navigation/native';
+import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '../../services/api';
 import { useChatHistoryQuery } from '../../hooks/useAppQueries';
@@ -19,16 +20,28 @@ import { renderRichText } from '../../utils/chatMarkdown';
 const PENDING_CHAT_KEY = '@max_pending_chat_v1';
 
 interface Message {
+  /** Server id; absent on optimistically-appended turns until /history reload. */
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   attachment_url?: string;
   attachment_type?: string;
   isTyping?: boolean;
   typingMode?: ChatTypingMode;
+  /** When this message replied to an earlier one, the inline quote strip. */
+  reply_to?: { id: string; role: 'user' | 'assistant'; preview: string } | null;
+}
+
+/** Active reply-target — set by swipe-right on a bubble; cleared on send / cancel. */
+interface ReplyTarget {
+    id: string;
+    role: 'user' | 'assistant';
+    preview: string;
 }
 
 export default function MaxChatScreen() {
     const route = useRoute<any>();
+    const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -45,6 +58,9 @@ export default function MaxChatScreen() {
     // render <ChatSliderInput /> in place of the quick-reply chip row.
     const [inputWidget, setInputWidget] = useState<SliderSpec | null>(null);
     const [drawerOpen, setDrawerOpen] = useState(false);
+    /** When the user swipes right on a bubble, we show a quote bar above
+     *  the input and send the next message with reply_to_message_id set. */
+    const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
     const flatListRef = useRef<FlashListRef<Message>>(null);
     const initScheduleHandled = useRef(false);
     const initQuestionHandled = useRef<string | null>(null);
@@ -133,6 +149,10 @@ export default function MaxChatScreen() {
             { role: 'user', content: msg },
             { role: 'assistant', content: '', isTyping: true, typingMode: initContext ? 'schedule' : 'default' },
         ]);
+        // Capture-then-clear the reply target before the request fires so a
+        // subsequent send while this is in flight starts fresh.
+        const replyId = replyTarget?.id ?? undefined;
+        if (replyTarget) setReplyTarget(null);
         try {
             const { response, choices, input_widget, conversation_id } = await api.sendChatMessage(
                 msg,
@@ -141,6 +161,7 @@ export default function MaxChatScreen() {
                 initContext,
                 chatIntent,
                 activeConversationId ?? undefined,
+                replyId,
             );
             // Adopt the server-assigned conversation on first message so the
             // mobile client stays aligned with backend routing (no second call).
@@ -226,6 +247,8 @@ export default function MaxChatScreen() {
             { role: 'user', content: userContent },
             { role: 'assistant', content: '', isTyping: true, typingMode: 'default' },
         ]);
+        const replyId = replyTarget?.id ?? undefined;
+        if (replyTarget) setReplyTarget(null);
         try {
             const { response, choices, input_widget, conversation_id } = await api.sendChatMessage(
                 userContent,
@@ -234,6 +257,7 @@ export default function MaxChatScreen() {
                 undefined,
                 undefined,
                 activeConversationId ?? undefined,
+                replyId,
             );
             // Adopt server-assigned conversation in lockstep so a refetch
             // doesn't clobber the optimistic turns (same race that hit
@@ -339,10 +363,33 @@ export default function MaxChatScreen() {
         const isAssistant = item.role === 'assistant';
         const productLinks = isAssistant && item.content ? extractProductLinks(item.content) : [];
         const displayText = productLinks.length > 0 ? stripProductLinkLines(item.content!) : item.content;
+        const canReply = !!item.id; // optimistic turns have no real id yet
 
-        return (
+        const bubbleRow = (
             <View style={[styles.messageRow, item.role === 'user' && styles.userMessageRow]}>
                 <View style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.assistantBubble]}>
+                    {item.reply_to ? (
+                        <View style={[
+                            styles.replyQuote,
+                            item.role === 'user' && { borderLeftColor: 'rgba(255,255,255,0.45)' },
+                        ]}>
+                            <Text style={[
+                                styles.replyQuoteRole,
+                                item.role === 'user' && { color: 'rgba(255,255,255,0.7)' },
+                            ]}>
+                                {item.reply_to.role === 'user' ? 'You' : 'Max'}
+                            </Text>
+                            <Text
+                                style={[
+                                    styles.replyQuoteText,
+                                    item.role === 'user' && { color: 'rgba(255,255,255,0.85)' },
+                                ]}
+                                numberOfLines={2}
+                            >
+                                {item.reply_to.preview}
+                            </Text>
+                        </View>
+                    ) : null}
                     {displayText ? renderLinkedText(displayText, [styles.messageText, item.role === 'user' && styles.userMessageText]) : null}
                     {productLinks.length > 0 && (
                         <View style={styles.productLinksContainer}>
@@ -365,6 +412,31 @@ export default function MaxChatScreen() {
                     )}
                 </View>
             </View>
+        );
+
+        if (!canReply) return bubbleRow;
+
+        // Swipe-right reveals a small reply icon, then commits on release.
+        // Mirrors iMessage's swipe-to-reply gesture; left-swipe is a no-op.
+        return (
+            <ReanimatedSwipeable
+                friction={2}
+                rightThreshold={40}
+                renderLeftActions={() => (
+                    <View style={styles.swipeReplyHint}>
+                        <Ionicons name="arrow-undo" size={18} color={colors.textMuted} />
+                    </View>
+                )}
+                onSwipeableOpen={() => {
+                    setReplyTarget({
+                        id: item.id!,
+                        role: item.role,
+                        preview: (item.content || '').slice(0, 120),
+                    });
+                }}
+            >
+                {bubbleRow}
+            </ReanimatedSwipeable>
         );
     };
 
@@ -469,10 +541,30 @@ export default function MaxChatScreen() {
                             ))}
                         </View>
                     )}
+                    {replyTarget ? (
+                        <View style={styles.replyPreviewBar}>
+                            <View style={styles.replyPreviewAccent} />
+                            <View style={styles.replyPreviewBody}>
+                                <Text style={styles.replyPreviewRole}>
+                                    Replying to {replyTarget.role === 'user' ? 'yourself' : 'Max'}
+                                </Text>
+                                <Text style={styles.replyPreviewText} numberOfLines={1}>
+                                    {replyTarget.preview}
+                                </Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => setReplyTarget(null)}
+                                style={styles.replyPreviewClose}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                                <Ionicons name="close" size={16} color={colors.textMuted} />
+                            </TouchableOpacity>
+                        </View>
+                    ) : null}
                     <View style={styles.inputContainer}>
                         <TextInput
                             style={styles.input}
-                            placeholder="Ask Max anything..."
+                            placeholder={replyTarget ? "Reply..." : "Ask Max anything..."}
                             placeholderTextColor={colors.textMuted}
                             value={input}
                             onChangeText={setInput}
@@ -612,6 +704,62 @@ const styles = StyleSheet.create({
         paddingVertical: 8,
         borderWidth: 1,
         borderColor: colors.border,
+    },
+    // --- iMessage-style swipe-to-reply UI ---
+    swipeReplyHint: {
+        width: 56,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingVertical: 8,
+    },
+    replyQuote: {
+        borderLeftWidth: 2,
+        borderLeftColor: colors.border,
+        paddingLeft: 8,
+        paddingVertical: 2,
+        marginBottom: 6,
+    },
+    replyQuoteRole: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.textMuted,
+        marginBottom: 2,
+    },
+    replyQuoteText: {
+        fontSize: 13,
+        color: colors.textSecondary,
+        opacity: 0.85,
+    },
+    replyPreviewBar: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: colors.surface,
+        borderRadius: borderRadius.md,
+        paddingVertical: 8,
+        paddingHorizontal: 10,
+        marginBottom: 6,
+        borderLeftWidth: 3,
+        borderLeftColor: colors.foreground,
+    },
+    replyPreviewAccent: {
+        width: 0,
+    },
+    replyPreviewBody: {
+        flex: 1,
+        marginRight: 8,
+    },
+    replyPreviewRole: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: colors.foreground,
+        marginBottom: 2,
+    },
+    replyPreviewText: {
+        fontSize: 13,
+        color: colors.textSecondary,
+    },
+    replyPreviewClose: {
+        padding: 4,
     },
     input: { flex: 1, color: colors.textPrimary, fontSize: 15, paddingVertical: 10, paddingHorizontal: 4, maxHeight: 100 },
     sendButton: {

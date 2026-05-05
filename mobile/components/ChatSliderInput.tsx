@@ -133,8 +133,12 @@ function SliderTrack({ min, max, step, initialValue, onChangeLive, onCommit, dis
                         onCommit(v);
                     }}
                     style={{
+                        // Bumped to 44 so the rail is taller + thumb is easier
+                        // to land on. Width-100% lets the slider use the full
+                        // chat-pane width so drag distance per step is bigger
+                        // and granular values are easier to nail.
                         width: '100%',
-                        height: 32,
+                        height: 44,
                         accentColor: colors.foreground,
                         cursor: disabled ? 'not-allowed' : 'pointer',
                         touchAction: 'none',
@@ -182,7 +186,10 @@ function SliderTrack({ min, max, step, initialValue, onChangeLive, onCommit, dis
                     minimumTrackTintColor={colors.foreground}
                     maximumTrackTintColor={colors.divider ?? '#d4d4d4'}
                     thumbTintColor={colors.foreground}
-                    style={{ width: '100%', height: 36 }}
+                    // Taller rail so the thumb is easier to grab; full width
+                    // gives more horizontal travel per step (granular values
+                    // become easier to land on).
+                    style={{ width: '100%', height: 44 }}
                 />
             </View>
         );
@@ -252,12 +259,14 @@ const styles = StyleSheet.create({
         textTransform: 'lowercase',
     },
     trackWeb: {
-        paddingVertical: spacing.xs,
+        paddingVertical: spacing.sm,
         paddingHorizontal: 2,
+        marginTop: spacing.xs,
     },
     trackNative: {
-        paddingVertical: spacing.xs,
+        paddingVertical: spacing.sm,
         paddingHorizontal: 2,
+        marginTop: spacing.xs,
     },
     scaleRow: {
         flexDirection: 'row',
