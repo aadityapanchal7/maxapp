@@ -145,6 +145,14 @@ export default function MaxChatScreen() {
         } catch (e: any) {
             console.error('sendMessageWithContext error:', e?.response?.data || e?.message || e);
             const serverMsg = e?.response?.data?.response || e?.response?.data?.detail;
+            // No HTTP response = network error / timeout (e.g. iOS suspended us mid-request).
+            // Persist the message so it auto-retries when the app returns to foreground.
+            if (!e?.response) {
+                await AsyncStorage.setItem(
+                    PENDING_CHAT_KEY,
+                    JSON.stringify({ msg, initContext, chatIntent }),
+                ).catch(() => undefined);
+            }
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
                 { role: 'assistant', content: serverMsg || 'Something went wrong — try sending again in a moment.' },

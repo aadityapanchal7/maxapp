@@ -76,13 +76,24 @@ export default function FaceScanScreen() {
             );
             return;
         }
+        // Additional scans (first scan already done) shouldn't push FeaturesIntro
+        // back into the stack — that's only for the first-scan onboarding flow.
+        if (user?.first_scan_completed) {
+            navigation.dispatch(
+                CommonActions.reset({
+                    index: 0,
+                    routes: [{ name: 'FaceScanResults' }],
+                }),
+            );
+            return;
+        }
         navigation.dispatch(
             CommonActions.reset({
                 index: 1,
                 routes: [{ name: 'FeaturesIntro' }, { name: 'FaceScanResults' }],
             }),
         );
-    }, [navigation, isScanUser]);
+    }, [navigation, isScanUser, user?.first_scan_completed]);
 
     const runAnalyzingRecovery = useCallback(
         async (fromForeground: boolean) => {
@@ -356,12 +367,15 @@ export default function FaceScanScreen() {
             const os = scanRes?.analysis?.overall_score;
             const rating =
                 typeof os === 'number' && Number.isFinite(os) ? Math.round(os * 10) / 10 : undefined;
-            try {
-                await api.uploadProgressPhoto(f, { faceRating: rating });
-            } catch (pe) {
+            // Navigate to results immediately so the user is never stuck on the
+            // 100% AnalyzingScreen waiting for refreshUser / progress upload.
+            // Both side-effects run in the background.
+            void api.uploadProgressPhoto(f, { faceRating: rating }).catch((pe) => {
                 console.warn('Progress photo from face scan', pe);
-            }
-            await refreshUser();
+            });
+            void refreshUser().catch((re) => {
+                console.warn('refreshUser after scan', re);
+            });
             await clearPendingFaceScanSubmit();
             await clearFaceScanDraft();
             navigateToResults();

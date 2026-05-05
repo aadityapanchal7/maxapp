@@ -5,8 +5,10 @@ updates, tone detection, and proactive outbound messages.
 """
 
 import asyncio
+import hashlib
 import json
 import logging
+import random
 import threading
 import time
 from datetime import datetime, timedelta
@@ -134,6 +136,11 @@ Check-in type: {check_in_type}{missed_line}
 Generate ONE short message (1-2 sentences max). Be casual, direct, no fluff. Match your tone to their situation — if they're slacking, call it out; if they're on a streak, hype them. Sound like a real person texting, not GPT.
 Do not say you're texting, reaching out, or sending a reminder — jump straight into the check-in.
 
+CRITICAL VARIETY RULES:
+- Do NOT open with "yo just checking in", "checking in", "how's it going", "how are you" or any other generic check-in opener — those are banned phrasings.
+- Anchor the message in something specific from their context (a current program, a missed task, a streak, a recent scan, the time of day) instead of being generic.
+- Vary your opener every time: a question, an observation, a callout, a one-word reaction, an instruction — not always the same shape.
+
 Message:"""
 
 _COACHING_BEDTIME_FALLBACK = """You are Max — the user's lookmaxxing coach. Send ONE text before their bedtime.
@@ -151,6 +158,60 @@ Rules:
 - Under 300 characters if you can.
 
 Output ONLY the message body, no quotes."""
+
+
+_CHECK_IN_FALLBACKS_BY_TYPE: dict[str, list[str]] = {
+    "morning": [
+        "morning. one rep at a time today.",
+        "up early matters. what's the first move?",
+        "today's the day you stop snoozing the routine.",
+        "skincare → posture → out the door. go.",
+    ],
+    "midday": [
+        "halfway through. how's the day stacking?",
+        "lunch break = perfect time to knock out one task.",
+        "midday gut check — on pace or drifting?",
+        "what's one thing you've crossed off so far?",
+    ],
+    "night": [
+        "wind down. what'd you actually finish today?",
+        "before bed: skincare, then phone down.",
+        "scan back in tomorrow — consistency over intensity.",
+        "one log before sleep, even if today wasn't perfect.",
+    ],
+    "missed_task": [
+        "saw you skipped one. tomorrow we don't.",
+        "missed task ≠ broken streak. catch the next one.",
+        "what got in the way? lock it in for tomorrow.",
+        "one slip is fine. two in a row is the trap.",
+    ],
+    "weekly": [
+        "week's done. what stuck, what slipped?",
+        "seven days in — pick one thing to sharpen next week.",
+        "weekly reset time. small wins compound.",
+        "review the week honestly — then move forward.",
+    ],
+}
+
+_CHECK_IN_FALLBACKS_DEFAULT: list[str] = [
+    "what's the move right now?",
+    "how's today stacking up?",
+    "one task — pick it and go.",
+    "where you at on today's plan?",
+    "give me one thing you'll knock out today.",
+]
+
+
+def _pick_check_in_fallback(user_id: str, check_in_type: str, missed_today: int) -> str:
+    """Deterministic per (user, day, type) so the same trigger doesn't fire the
+    same string twice in a row, but messages still vary across days/users."""
+    pool = _CHECK_IN_FALLBACKS_BY_TYPE.get((check_in_type or "").lower()) or _CHECK_IN_FALLBACKS_DEFAULT
+    if missed_today and missed_today > 0:
+        pool = _CHECK_IN_FALLBACKS_BY_TYPE.get("missed_task", pool)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    seed = hashlib.sha1(f"{user_id}|{today}|{check_in_type}".encode("utf-8")).hexdigest()
+    rng = random.Random(seed)
+    return rng.choice(pool)
 
 
 def _context_requirements(intent: str | None) -> dict[str, bool]:
@@ -1012,7 +1073,7 @@ class CoachingService:
             return _strip_asterisks_outbound(raw)
         except Exception as e:
             logger.error(f"Check-in generation failed: {e}")
-            return "yo, checking in — how you doing today?"
+            return _pick_check_in_fallback(user_id, check_in_type, missed_today)
 
     async def _prepare_bedtime_prompt(
         self, user_id: str, db: AsyncSession, rds_db
