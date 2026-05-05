@@ -35,12 +35,11 @@ MAX_TITLE_CHARS = 28
 # 15-min minimum so a routine that fans into 4 sub-tasks doesn't fire 4
 # notifications inside 20 minutes (was 5; produced morning storms).
 MIN_TASK_GAP_MIN = 15
-# 5 distinct notifications/day per module — coach research (Belgravia /
-# Renaissance Periodization / mobile-UX benchmarks) puts the mute
-# threshold at ~7/day total across all modules. With premium = 3 active
-# modules, per-module budget of 5 keeps total around 12-15 (reduced
-# further by multi_module_collision's cross-module cap).
-HARD_DAILY_TASK_CAP = 5
+# Per-module daily cap. Single skinmax user needs 7-8 (AM cleanse +
+# moisturize + SPF = 3 just for the morning foundation, before any
+# active or PM routine). Cross-module total is capped separately at 6
+# in multi_module_collision so 3 active maxxes don't aggregate to 24.
+HARD_DAILY_TASK_CAP = 8
 
 
 # Tokens that should keep their original casing in task titles even when
@@ -235,36 +234,187 @@ def _validate_task(
     return errs, fixed
 
 
+# Routine-step priority — lower = earlier in the routine. Lookup by tag.
+# A real coach orders these strictly: no one moisturizes BEFORE cleansing,
+# no one applies SPF AFTER scalp minoxidil (causes facial migration of
+# minox), no one takes a supplement before hydrating their face. The
+# validator re-orders within each ~30-min window using these priorities
+# before stamping gap-separated times.
+_ROUTINE_PRIORITY: dict[str, int] = {
+    # AM face routine (must run in this order)
+    "cleanse":          10,
+    "wash":             10,
+    "active":           20,  # serums, treatments — vit C, BHA, niacinamide
+    "anti-inflammatory": 25,
+    "hydration":        28,  # leave-ins, hyaluronic
+    "barrier":          30,  # ceramides, panthenol
+    "moisturize":       35,
+    "moisturizer":      35,
+    "spf":              40,  # ALWAYS last face step in AM
+    "protect":          40,
+    # Hair / scalp tasks (after face fully done so SPF dries first)
+    "scalp-care":       55,
+    "scalp":            55,
+    "loss-prevention":  60,  # minoxidil
+    "treatment":        60,
+    "styling":          70,
+    "post-wash":        70,
+    "grooming":         70,
+    # Mewing / posture (passive — slot anywhere after the active stuff)
+    "mewing":           80,
+    "posture":          80,
+    "fascia":           85,
+    "lymph":            85,
+    # Internal / nutrition (eat after applying topicals; gum after AM stack)
+    "supplement":       90,
+    "nutrition":        90,
+    "protein":          90,
+    "masseter":         95,  # chew gum after morning routine
+    "jaw":              95,
+    # Decompression / mobility / cardio (own time, but rank low so they
+    # don't insert mid-skincare if same slot)
+    "mobility":         100,
+    "decompression":    100,
+    "stretch":          100,
+    "cardio":           105,
+    "steps":            105,
+    "neat":             105,
+    # Workout window — pre/lift/post sequence enforced by their distinct slots,
+    # but if collisions happen these priorities back them up.
+    "preworkout":       110,
+    "warmup":           115,
+    "workout":          120,
+    "lift":             120,
+    "training":         120,
+    "postworkout":      125,
+    "recovery":         130,
+    # PM bedtime stack
+    "pm":               140,
+    "sleep":            150,
+    "wind-down":        155,
+}
+
+
+def _routine_score(t: dict) -> int:
+    """Lower = earlier in the routine. Picks the lowest-priority tag the
+    task carries; defaults to 200 (slot-end) if none of its tags are in
+    the priority map."""
+    tags = t.get("tags") or []
+    if not tags:
+        return 200
+    scores = [_ROUTINE_PRIORITY[g] for g in tags if g in _ROUTINE_PRIORITY]
+    return min(scores) if scores else 200
+
+
 def _enforce_separation(tasks: list[dict], *, day_index: int, errors: list[ValidationError]) -> list[dict]:
-    """Sort tasks by time; push later tasks forward to enforce min gap."""
+    """Sort tasks by (slot bucket, routine priority, original time); push
+    later tasks forward to enforce min gap.
+
+    Routine priority means: within the same ~30-min window, cleanse fires
+    before serum before moisturizer before SPF before minoxidil before
+    supplements — regardless of which block emitted them. Without this,
+    cross-block emission order followed declaration order in the .md doc,
+    so a hairmax minox AM block declared above a skinmax SPF block could
+    fire MINOX FIRST then SPF, causing minox migration to face skin.
+    """
     if not tasks:
         return tasks
-    sorted_tasks = sorted(tasks, key=lambda t: _parse_time_field(t["time"]) or 0)
+    # Bucket size: tasks landing within 45 min of each other are treated
+    # as the "same routine block" and re-ordered by priority. Beyond
+    # that, the original time wins (lunch should not get pulled into the
+    # morning routine because it has the lowest score).
+    BUCKET_MIN = 45
+
+    timed = [(t, _parse_time_field(t["time"]) or 0) for t in tasks]
+    timed.sort(key=lambda x: x[1])
+
+    # Bucketize: contiguous tasks within BUCKET_MIN of the bucket's first
+    # task share a bucket.
+    buckets: list[list[tuple[dict, int]]] = []
+    for t, start in timed:
+        if buckets and start - buckets[-1][0][1] <= BUCKET_MIN:
+            buckets[-1].append((t, start))
+        else:
+            buckets.append([(t, start)])
+
+    # Within each bucket, sort by routine priority then by original time.
+    reordered: list[tuple[dict, int]] = []
+    for b in buckets:
+        b.sort(key=lambda pair: (_routine_score(pair[0]), pair[1]))
+        # Anchor the bucket to the EARLIEST original time in the bucket
+        # so reordering doesn't shift the whole block earlier or later.
+        anchor = min(p[1] for p in b)
+        reordered.extend((t, anchor) for (t, _) in b)
+
+    # Stamp times sequentially with MIN_TASK_GAP_MIN spacing.
     last_end = -1
     out = []
-    for t in sorted_tasks:
-        start = _parse_time_field(t["time"]) or 0
-        if start < last_end + MIN_TASK_GAP_MIN:
-            new_start = last_end + MIN_TASK_GAP_MIN
+    for t, anchor in reordered:
+        start = max(anchor, last_end + MIN_TASK_GAP_MIN if last_end >= 0 else anchor)
+        original_start = _parse_time_field(t["time"]) or 0
+        if start != original_start:
             errors.append(ValidationError(
                 "soft", "time_collision",
-                f"day {day_index+1}: pushed {t['title']!r} to {from_minutes(new_start)}",
+                f"day {day_index+1}: re-stamped {t['title']!r} to {from_minutes(start)}",
                 day_index=day_index, task_id=t.get("catalog_id"),
             ))
-            t = {**t, "time": from_minutes(new_start).strftime("%H:%M")}
-            start = new_start
+            t = {**t, "time": from_minutes(start).strftime("%H:%M")}
         last_end = start + max(1, int(t.get("duration_min", 1)))
         out.append(t)
     return out
 
 
+# Tags that mark a task as ESSENTIAL — never drop these even if the day
+# blows past the cap. SPF, cleanse, and the workout sessions are non-
+# negotiable; dropping them would leave the user with a broken protocol.
+_ESSENTIAL_TAGS = frozenset({
+    "foundation",  # cleanse / moisturize / SPF / barrier — the daily floor
+    "spf",
+    "cleanse",
+    "wash",
+    "workout",     # the lift session itself
+    "training",
+    "lift",
+})
+
+
 def _truncate_by_intensity(tasks: list[dict], maxx_id: str, cap: int) -> list[dict]:
-    """Keep highest-intensity tasks. Tie-break by earlier time."""
-    ranked = sorted(
-        tasks,
-        key=lambda t: (-(t.get("intensity") or 0.0), _parse_time_field(t["time"]) or 0),
-    )
-    return sorted(ranked[:cap], key=lambda t: _parse_time_field(t["time"]) or 0)
+    """Drop the most-skippable tasks until we're under the cap.
+
+    Three-tier priority (kept in this order):
+      1. Tasks tagged essential (cleanse, spf, foundation, workout) —
+         these are the floor of any real protocol; never drop them.
+      2. Among non-essentials, keep highest-intensity first.
+      3. Tie-break by earliest time.
+
+    Without (1), an over-cap day would drop SPF (intensity 0.1) before
+    the daily symmetry-check (intensity 0.1, but tied) — leaving the
+    user with a skin protocol that's missing sun protection. Real
+    coaches never make that trade.
+    """
+    def _is_essential(t: dict) -> bool:
+        tags = set(t.get("tags") or [])
+        return bool(tags & _ESSENTIAL_TAGS)
+
+    essentials = [t for t in tasks if _is_essential(t)]
+    optional = [t for t in tasks if not _is_essential(t)]
+
+    # If essentials alone exceed the cap, keep the highest-intensity
+    # essentials. (Extreme edge case — a maxx with > cap foundation
+    # tasks. Real docs don't hit this.)
+    if len(essentials) > cap:
+        essentials.sort(
+            key=lambda t: (-(t.get("intensity") or 0.0), _parse_time_field(t["time"]) or 0),
+        )
+        kept = essentials[:cap]
+    else:
+        slots_left = cap - len(essentials)
+        optional.sort(
+            key=lambda t: (-(t.get("intensity") or 0.0), _parse_time_field(t["time"]) or 0),
+        )
+        kept = essentials + optional[:slots_left]
+
+    return sorted(kept, key=lambda t: _parse_time_field(t["time"]) or 0)
 
 
 # Pairs of catalog_ids that must NOT appear on the same day.

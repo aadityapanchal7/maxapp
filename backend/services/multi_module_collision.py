@@ -21,8 +21,14 @@ import logging
 from collections import defaultdict
 from typing import Any
 
-from services.schedule_validator import HARD_DAILY_TASK_CAP, MIN_TASK_GAP_MIN
+from services.schedule_validator import MIN_TASK_GAP_MIN
 from services.schedule_dsl import from_minutes
+
+# Cross-module daily cap — sum across all active maxxes. Tighter than the
+# per-module cap because users only have so much attention budget. Coach
+# research puts the mute threshold at ~7/day total. We pick 6 to leave
+# slack for SMS / contextual pushes.
+HARD_DAILY_TASK_CAP = 6
 
 logger = logging.getLogger(__name__)
 
