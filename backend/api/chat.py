@@ -719,6 +719,159 @@ def _assistant_last_turn_is_bonemax_onboarding(history: list) -> bool:
     return False
 
 
+SKINMAX_REQUIRED_FIELDS = ["skin_concern", "outside_today"]
+
+
+# Long-form labels that map to the canonical concern key. The chat client
+# renders these strings as one-tap quick-reply chips, so they should read
+# naturally on a button.
+SKINMAX_CONCERN_CHOICES: list[tuple[str, str]] = [
+    ("acne", "Acne — breakouts, congestion, oily skin"),
+    ("pigmentation", "Hyperpigmentation — dark spots, melasma, uneven tone"),
+    ("texture", "Texture — scarring, large pores, rough skin"),
+    ("redness", "Redness — sensitivity, rosacea, irritation"),
+    ("aging", "Aging — fine lines, loss of firmness, dullness"),
+]
+
+SKINMAX_OUTSIDE_CHOICES: list[tuple[str, str]] = [
+    ("yes", "Yes — I'll be outside today"),
+    ("no", "No — staying inside today"),
+]
+
+
+SKINMAX_QUESTION_MAP: dict[str, tuple[str, list[str]]] = {
+    "skin_concern": (
+        "what are you trying to target for your skin?",
+        [label for _, label in SKINMAX_CONCERN_CHOICES],
+    ),
+    "outside_today": (
+        "planning to be outside much today?",
+        [label for _, label in SKINMAX_OUTSIDE_CHOICES],
+    ),
+}
+
+
+def _skinmax_concern_key_from_text(text: str) -> Optional[str]:
+    """Best-effort: map a free-form or chip reply back to a canonical concern id."""
+    s = (text or "").strip().lower()
+    if not s:
+        return None
+    # 1. exact key (when the chip echoed e.g. just "acne")
+    for key, _ in SKINMAX_CONCERN_CHOICES:
+        if s == key:
+            return key
+    # 2. label prefix or substring match (chip text)
+    for key, label in SKINMAX_CONCERN_CHOICES:
+        if s == label.lower() or s.startswith(label.lower().split(" — ")[0]):
+            return key
+    # 3. keyword fallback — same lexicon as services.skinmax.get_concern_key
+    if any(w in s for w in ("acne", "breakout", "congest", "pimple", "oily")):
+        return "acne"
+    if any(w in s for w in ("pigment", "dark spot", "melasma", "uneven tone", "hyperpig")):
+        return "pigmentation"
+    if any(w in s for w in ("texture", "scar", "pore", "rough")):
+        return "texture"
+    if any(w in s for w in ("red", "sensitiv", "rosacea", "irritat")):
+        return "redness"
+    if any(w in s for w in ("aging", "fine line", "wrinkle", "firmness", "dull", "anti-aging")):
+        return "aging"
+    return None
+
+
+def _skinmax_outside_from_text(text: str) -> Optional[str]:
+    """Map free-form / chip reply for outside_today to 'yes' / 'no'."""
+    s = (text or "").strip().lower()
+    if not s:
+        return None
+    for key, label in SKINMAX_OUTSIDE_CHOICES:
+        if s == label.lower() or s.startswith(label.lower().split(" — ")[0]):
+            return key
+    return _normalize_hair_yes_no(s)
+
+
+def _skinmax_missing_fields(profile: dict) -> list[str]:
+    return [f for f in SKINMAX_REQUIRED_FIELDS if profile.get(f) in (None, "", [])]
+
+
+def _skinmax_next_question(profile: dict) -> str:
+    missing = _skinmax_missing_fields(profile)
+    if not missing:
+        return ""
+    return SKINMAX_QUESTION_MAP[missing[0]][0]
+
+
+def _skinmax_next_choices(profile: dict) -> list[str]:
+    missing = _skinmax_missing_fields(profile)
+    if not missing:
+        return []
+    return list(SKINMAX_QUESTION_MAP[missing[0]][1])
+
+
+def _extract_skinmax_updates(message: str, current: dict) -> dict:
+    """Parse the user's reply against whichever SkinMax field is currently being asked."""
+    updates: dict = {}
+    missing = _skinmax_missing_fields(current)
+    if not missing:
+        return updates
+    nxt = missing[0]
+    if nxt == "skin_concern":
+        key = _skinmax_concern_key_from_text(message)
+        if key:
+            updates["skin_concern"] = key
+    elif nxt == "outside_today":
+        v = _skinmax_outside_from_text(message)
+        if v:
+            updates["outside_today"] = v
+    return updates
+
+
+def _skinmax_seed_profile_from_onboarding(profile: dict, ob: dict) -> dict:
+    """Pre-fill SkinMax scripted intake from existing onboarding answers."""
+    out = dict(profile or {})
+    ob = ob or {}
+    if out.get("skin_concern") in (None, "", []):
+        # The onboarding form may have stored the concern under a few keys.
+        for k in ("skin_concern", "primary_skin_concern", "skinmax_concern"):
+            v = ob.get(k)
+            if v:
+                key = _skinmax_concern_key_from_text(str(v))
+                if key:
+                    out["skin_concern"] = key
+                    break
+    return out
+
+
+def _skinmax_setup_stale(profile: dict, hours: float = 24) -> bool:
+    at = (profile or {}).get("skinmax_chat_setup_at")
+    if not at:
+        return False
+    try:
+        at_s = str(at).replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(at_s)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - parsed > timedelta(hours=hours)
+    except Exception:
+        return True
+
+
+def _assistant_last_turn_is_skinmax_onboarding(history: list) -> bool:
+    """True if the latest assistant message looks like scripted SkinMax intake."""
+    for h in reversed(history or []):
+        if h.get("role") != "assistant":
+            continue
+        c = (h.get("content") or "").lower()
+        needles = (
+            "setting up your skinmax",
+            "what are you trying to target for your skin",
+            "planning to be outside much today",
+            "hyperpigmentation",
+            "fine lines, loss of firmness",
+        )
+        return any(n in c for n in needles)
+    return False
+
+
 def _parse_session_minutes_reply(text: str) -> Optional[int]:
     """Parse session length when user sends '45', '60', '90 min', etc."""
     s = (text or "").strip().lower()
@@ -1800,6 +1953,7 @@ async def process_chat_message(
 
     fitmax_schedule_active = None
     hairmax_schedule_active = None
+    skinmax_schedule_active = None
     bonemax_schedule_active = None
 
     # --- Resolve the active conversation for this turn ---------------------
@@ -1897,6 +2051,10 @@ async def process_chat_message(
         except Exception:
             hairmax_schedule_active = None
         try:
+            skinmax_schedule_active = await schedule_service.get_maxx_schedule(user_id, "skinmax", db=db)
+        except Exception:
+            skinmax_schedule_active = None
+        try:
             bonemax_schedule_active = await schedule_service.get_maxx_schedule(user_id, "bonemax", db=db)
         except Exception:
             bonemax_schedule_active = None
@@ -1912,6 +2070,10 @@ async def process_chat_message(
             _clear_setup_flags("hairmax")
         elif profile.get("hairmax_chat_setup") and _hairmax_setup_stale(profile):
             _clear_setup_flags("hairmax")
+        if skinmax_schedule_active and profile.get("skinmax_chat_setup"):
+            _clear_setup_flags("skinmax")
+        elif profile.get("skinmax_chat_setup") and _skinmax_setup_stale(profile):
+            _clear_setup_flags("skinmax")
         if fitmax_schedule_active and profile.get("fitmax_chat_setup"):
             _clear_setup_flags("fitmax")
         elif profile.get("fitmax_chat_setup") and _fitmax_setup_stale(profile):
@@ -2261,6 +2423,19 @@ async def process_chat_message(
             await db.commit()
             profile = dict((user.profile or {}) or {})
 
+    if scripted_mx and explicit_schedule_start and start_schedule_maxx == "skinmax" and user and not skinmax_schedule_active:
+        prof = dict(profile or {})
+        if not prof.get("skinmax_chat_setup"):
+            prof["skinmax_chat_setup"] = True
+            prof["skinmax_chat_setup_at"] = datetime.now(timezone.utc).isoformat()
+            # Reset outside_today on each fresh start so we always re-ask "today".
+            prof.pop("skinmax_profile", None)
+            user.profile = prof
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+            profile = dict((user.profile or {}) or {})
+
     if scripted_bonemax and explicit_schedule_start and start_schedule_maxx == "bonemax" and user and not bonemax_schedule_active:
         prof = dict(profile or {})
         if not prof.get("bonemax_chat_setup"):
@@ -2302,6 +2477,20 @@ async def process_chat_message(
                 hairmax_chat_setup
                 and not _hairmax_setup_stale(profile)
                 and _assistant_last_turn_is_hairmax_onboarding(history)
+            )
+        )
+    )
+    skinmax_chat_setup = bool(scripted_mx and profile.get("skinmax_chat_setup"))
+    run_skinmax_onboarding = bool(
+        scripted_mx
+        and user
+        and not skinmax_schedule_active
+        and (
+            (explicit_schedule_start and start_schedule_maxx == "skinmax")
+            or (
+                skinmax_chat_setup
+                and not _skinmax_setup_stale(profile)
+                and _assistant_last_turn_is_skinmax_onboarding(history)
             )
         )
     )
@@ -2632,6 +2821,112 @@ async def process_chat_message(
                 response_text = (
                     f"your hairmax profile is saved, but you already have {len(e.active_labels)} active modules ({names}). "
                     "stop one of them first and then come back to start hairmax."
+                )
+
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            return _finalize_assistant_message(response_text), []
+
+    # --- Skinmax chat onboarding (deterministic, same pattern as hairmax) ---
+    if run_skinmax_onboarding:
+        skinmax_profile = dict(profile.get("skinmax_profile") or {})
+        seeded = _skinmax_seed_profile_from_onboarding(skinmax_profile, onboarding)
+        if seeded != skinmax_profile:
+            skinmax_profile = seeded
+            profile["skinmax_profile"] = skinmax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+
+        updates = _extract_skinmax_updates(message_text, skinmax_profile)
+        if updates:
+            skinmax_profile.update(updates)
+            profile["skinmax_profile"] = skinmax_profile
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+            await db.commit()
+
+        missing = _skinmax_missing_fields(skinmax_profile)
+
+        if not skinmax_schedule_active and missing:
+            if not any(skinmax_profile.values()):
+                response_text = (
+                    "setting up your skinmax schedule. just need a couple quick answers. "
+                    + _skinmax_next_question(skinmax_profile)
+                )
+            else:
+                response_text = _skinmax_next_question(skinmax_profile)
+            choices_for_step = _skinmax_next_choices(skinmax_profile)
+
+            if _persist_chat_history(channel):
+                user_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="user",
+                    content=message_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                assistant_message = ChatHistory(
+                    user_id=user_uuid,
+                    role="assistant",
+                    content=response_text,
+                    channel=channel,
+                    created_at=datetime.utcnow(),
+                )
+                db.add(user_message)
+                db.add(assistant_message)
+            await db.commit()
+            ft = _finalize_assistant_message(response_text)
+            return ft, choices_for_step
+
+        if not skinmax_schedule_active and not missing:
+            profile.pop("skinmax_chat_setup", None)
+            profile.pop("skinmax_chat_setup_at", None)
+            user.profile = profile
+            flag_modified(user, "profile")
+            user.updated_at = datetime.utcnow()
+
+            wake = str(onboarding.get("wake_time") or "07:00")
+            sleep = str(onboarding.get("sleep_time") or "23:00")
+            outside_today_bool = str(skinmax_profile.get("outside_today", "")).lower() == "yes"
+
+            try:
+                schedule = await schedule_service.generate_maxx_schedule(
+                    user_id=user_id,
+                    maxx_id="skinmax",
+                    db=db,
+                    rds_db=rds_db if rds_db else None,
+                    subscription_tier=(getattr(user, "subscription_tier", None) if user else None),
+                    wake_time=wake,
+                    sleep_time=sleep,
+                    skin_concern=skinmax_profile.get("skin_concern"),
+                    outside_today=outside_today_bool,
+                )
+                user_context["active_maxx_schedule"] = schedule
+                response_text = _summarise_schedule(schedule)
+            except ScheduleLimitError as e:
+                names = ", ".join(e.active_labels)
+                response_text = (
+                    f"your skinmax profile is saved, but you already have {len(e.active_labels)} active modules ({names}). "
+                    "stop one of them first and then come back to start skinmax."
                 )
 
             if _persist_chat_history(channel):
