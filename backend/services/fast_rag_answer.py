@@ -353,6 +353,29 @@ _LEAKAGE_PATTERNS: tuple[re.Pattern, ...] = (
     re.compile(r"^\s*here'?s?\s+a\s+standard\s+template[^.\n!?:\-—]*[.\n!?:\-—]\s*", re.IGNORECASE),
     re.compile(r"^\s*(?:as\s+a\s+)?standard\s+template[^.\n!?:\-—]*[.\n!?:\-—]\s*", re.IGNORECASE),
     re.compile(r"^\s*(?:i\s+)?don'?t\s+(?:have|see)\s+(?:that|this)[^.\n!?:\-—]*?(?:docs?|file|info)[^.\n!?:\-—]*[.\n!?:\-—]\s*", re.IGNORECASE),
+    # "i don't have specific links / products / recs / brands ..." — the
+    # exact leak from the user's hair-care chat. Strip the whole leading
+    # clause so the actionable advice that follows reads cleanly.
+    re.compile(
+        r"^\s*(?:i\s+)?don'?t\s+have\s+(?:specific|any|exact)?\s*"
+        r"(?:links?|products?|recs?|recommendations?|brands?)"
+        r"[^.\n!?]*[.\n!?]\s*",
+        re.IGNORECASE,
+    ),
+    # Inline variant mid-sentence ("..., though i don't have specific links, ...").
+    re.compile(
+        r",?\s*(?:though|but)?\s*(?:i\s+)?don'?t\s+have\s+(?:specific|any|exact)?\s*"
+        r"(?:links?|products?|recs?|recommendations?|brands?)"
+        r"[^,.\n!?]*[,.\n!?]?\s*",
+        re.IGNORECASE,
+    ),
+    # "here are some practical tips" — generic preamble that contributes
+    # nothing and signals the bot is about to give vague advice.
+    re.compile(
+        r"^\s*here\s+are\s+some\s+(?:practical\s+)?(?:tips|suggestions|recommendations)"
+        r"[^.\n!?]*[.\n!?]\s*",
+        re.IGNORECASE,
+    ),
     # Inline mid-sentence cleanups for the same phrases.
     re.compile(r"\s*\(?\s*no\s+protocol\s+on\s+file[^)\n.]*\)?", re.IGNORECASE),
     re.compile(r"\s*here'?s?\s+a\s+standard\s+template\s*[—:\-]?\s*", re.IGNORECASE),
