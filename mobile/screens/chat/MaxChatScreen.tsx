@@ -98,6 +98,13 @@ export default function MaxChatScreen() {
         if (!initSchedule || !historyReady) return;
         if (initScheduleHandled.current === initSchedule) return;
         if (loading) return;
+        // Clear the route param so a back-navigate-and-return doesn't
+        // re-fire "I want to start X" (the in-mount ref doesn't survive
+        // remount, so the same param triggers a duplicate user message
+        // and a duplicate schedule-start request server-side).
+        try {
+            navigation.setParams({ initSchedule: undefined });
+        } catch { /* nav not ready */ }
         initScheduleHandled.current = initSchedule;
         const maxxLabel = initSchedule.charAt(0).toUpperCase() + initSchedule.slice(1).replace('max', 'Max');
         sendMessageWithContext(
@@ -137,8 +144,14 @@ export default function MaxChatScreen() {
             );
             // Adopt the server-assigned conversation on first message so the
             // mobile client stays aligned with backend routing (no second call).
+            // CRITICAL: also bump seededForConversation in lockstep so the seed
+            // effect doesn't re-run when the React Query key flips and clobber
+            // the optimistic user turn we just appended. (Bonemax / Hairmax
+            // start-schedule taps were losing their "i want to start X" line
+            // because of this race.)
             if (conversation_id && conversation_id !== activeConversationId) {
                 setActiveConversationId(conversation_id);
+                setSeededForConversation(conversation_id);
             }
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
@@ -214,22 +227,46 @@ export default function MaxChatScreen() {
             { role: 'assistant', content: '', isTyping: true, typingMode: 'default' },
         ]);
         try {
-            const { response, choices, input_widget } = await api.sendChatMessage(
+            const { response, choices, input_widget, conversation_id } = await api.sendChatMessage(
                 userContent,
                 undefined,
                 undefined,
+                undefined,
+                undefined,
+                activeConversationId ?? undefined,
             );
+            // Adopt server-assigned conversation in lockstep so a refetch
+            // doesn't clobber the optimistic turns (same race that hit
+            // sendMessageWithContext for the start-schedule path).
+            if (conversation_id && conversation_id !== activeConversationId) {
+                setActiveConversationId(conversation_id);
+                setSeededForConversation(conversation_id);
+            }
             setMessages(prev => [
                 ...prev.filter((m) => !m.isTyping),
                 { role: 'assistant', content: response },
             ]);
             setServerChoices(Array.isArray(choices) ? choices : []);
             setInputWidget(input_widget && input_widget.type === 'slider' ? input_widget as SliderSpec : null);
-            queryClient.setQueryData<Message[]>(queryKeys.chatHistory, (prev = []) => [
-                ...prev,
-                { role: 'user', content: userContent },
-                { role: 'assistant', content: response },
-            ]);
+            // Update the cache for the ACTIVE conversation, not the legacy
+            // single-thread key. Without this, tapping a chip wrote to
+            // queryKeys.chatHistory while the screen was reading from
+            // queryKeys.chatHistoryByConv(activeConversationId), so any
+            // refetch dropped the chip-driven turn.
+            const activeKey = (conversation_id ?? activeConversationId)
+                ? queryKeys.chatHistoryByConv((conversation_id ?? activeConversationId) as string)
+                : queryKeys.chatHistory;
+            queryClient.setQueryData<{ messages: Message[]; conversationId: string | null }>(activeKey as any, (prev) => {
+                const prevMsgs = prev?.messages ?? [];
+                return {
+                    messages: [
+                        ...prevMsgs,
+                        { role: 'user', content: userContent } as Message,
+                        { role: 'assistant', content: response } as Message,
+                    ],
+                    conversationId: (conversation_id ?? activeConversationId) ?? null,
+                };
+            });
             queryClient.invalidateQueries({
                 predicate: (q) => {
                     const k = q.queryKey;

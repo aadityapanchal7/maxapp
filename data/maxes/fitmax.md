@@ -34,10 +34,25 @@ schedule_design:
         slot: pre_evening
         cadence: n_per_week=days_per_week
         tasks: [fit.preworkout]
-      - id: workout_session
+      # Split-rotation: cycle through programmed workout days based on
+      # the user's frequency. Full-body for 2-3 days/wk, Upper/Lower for
+      # 4 days/wk, PPL for 5-6 days/wk. Each session has actual exercises,
+      # sets, reps in the description — no more vague "lift per your split".
+      - id: workout_fullbody
         slot: workout
-        cadence: n_per_week=days_per_week
-        tasks: [fit.workout_session]
+        cadence: rotation_per_week=days_per_week
+        if: "days_per_week <= 3"
+        tasks: [fit.workout_fullbody_a, fit.workout_fullbody_b, fit.workout_fullbody_c]
+      - id: workout_upper_lower
+        slot: workout
+        cadence: rotation_per_week=days_per_week
+        if: "days_per_week == 4"
+        tasks: [fit.workout_upper_a, fit.workout_lower_a, fit.workout_upper_b, fit.workout_lower_b]
+      - id: workout_ppl
+        slot: workout
+        cadence: rotation_per_week=days_per_week
+        if: "days_per_week >= 5"
+        tasks: [fit.workout_push, fit.workout_pull, fit.workout_legs, fit.workout_push_b, fit.workout_pull_b, fit.workout_legs_b]
       - id: postworkout
         slot: post_workout
         cadence: n_per_week=days_per_week
@@ -471,7 +486,7 @@ Quiet hours: nothing between bed and wake.
 
 - id: fit.workout_session
   title: "Lift session"
-  description: "lift per your split — compounds first, accessories after. lateral raises + face pulls every session. progressive overload: hit top of rep range → add 2.5-5 lb next time."
+  description: "lift per your split — compounds first, accessories after. progressive overload: hit top of rep range → add 2.5-5 lb next time."
   duration_min: 60
   default_window: pm_active
   tags: [workout, training, lift]
@@ -479,6 +494,152 @@ Quiet hours: nothing between bed and wake.
   intensity: 0.8
   evidence_section: "Training principles"
   frequency: { type: n_per_week, n: 4 }
+
+# --- Full-body rotation (2-3 days/wk) ---
+- id: fit.workout_fullbody_a
+  title: "Full body A"
+  description: "warm-up: 5 min bike + dynamic stretch. squat 4×6 (~80% 1RM), bench press 4×6, barbell row 3×8, overhead press 3×8, plank 3×45s. cool down: 5 min walk. progressive overload: +2.5-5 lb when top of rep range hit."
+  duration_min: 60
+  default_window: workout
+  tags: [workout, fullbody, lift]
+  applies_when: ["days_per_week <= 3"]
+  intensity: 0.8
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_fullbody_b
+  title: "Full body B"
+  description: "warm-up: 5 min bike. deadlift 3×5 (heavy, RPE 8), incline DB press 4×8, lat pulldown 3×10, DB shoulder press 3×10, hanging leg raise 3×10. cool down: 5 min stretch. RDL or trap bar OK if back tight."
+  duration_min: 60
+  default_window: workout
+  tags: [workout, fullbody, lift]
+  applies_when: ["days_per_week <= 3"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_fullbody_c
+  title: "Full body C"
+  description: "warm-up: 5 min row + band pull-aparts. front squat or goblet squat 4×8, DB bench 4×8, chest-supported row 3×10, lateral raise 3×12, face pull 3×15, cable curl 3×12. cool down: foam roll 5 min."
+  duration_min: 60
+  default_window: workout
+  tags: [workout, fullbody, lift]
+  applies_when: ["days_per_week <= 3"]
+  intensity: 0.75
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+# --- Upper / Lower split (4 days/wk) ---
+- id: fit.workout_upper_a
+  title: "Upper A — push focus"
+  description: "warm-up: 5 min bike + band pull-aparts. bench press 4×6, OHP 3×8, incline DB press 3×10, chest-supported row 3×10, lateral raise 3×12, tricep pushdown 3×12, face pull 3×15."
+  duration_min: 65
+  default_window: workout
+  tags: [workout, upper, push]
+  applies_when: ["days_per_week == 4"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_lower_a
+  title: "Lower A — squat focus"
+  description: "warm-up: 5 min bike + 90/90 hip openers. back squat 4×6, romanian deadlift 3×8, leg press 3×10, leg curl 3×12, standing calf raise 4×12, hanging knee raise 3×12."
+  duration_min: 65
+  default_window: workout
+  tags: [workout, lower, squat]
+  applies_when: ["days_per_week == 4"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_upper_b
+  title: "Upper B — pull focus"
+  description: "warm-up: 5 min row + band pull-aparts. weighted pull-up 4×6 (or lat pulldown 4×8), DB bench 4×8, barbell row 3×8, DB shoulder press 3×10, hammer curl 3×12, rear delt fly 3×15."
+  duration_min: 65
+  default_window: workout
+  tags: [workout, upper, pull]
+  applies_when: ["days_per_week == 4"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_lower_b
+  title: "Lower B — deadlift focus"
+  description: "warm-up: 5 min bike + glute activation. trap bar deadlift 3×5 (heavy, RPE 8), bulgarian split squat 3×8 ea, leg extension 3×12, glute-ham raise 3×10, seated calf raise 4×15."
+  duration_min: 65
+  default_window: workout
+  tags: [workout, lower, deadlift]
+  applies_when: ["days_per_week == 4"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+# --- Push / Pull / Legs (5-6 days/wk) ---
+- id: fit.workout_push
+  title: "Push day A"
+  description: "warm-up: 5 min bike + band pull-aparts. bench press 4×6, OHP 3×8, incline DB press 3×10, lateral raise 4×12, tricep pushdown 3×12, overhead tricep extension 3×12."
+  duration_min: 60
+  default_window: workout
+  tags: [workout, push, ppl]
+  applies_when: ["days_per_week >= 5"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_pull
+  title: "Pull day A"
+  description: "warm-up: 5 min row. weighted pull-up 4×6 (or lat pulldown 4×8), barbell row 4×8, chest-supported row 3×10, face pull 3×15, barbell curl 3×10, hammer curl 3×12."
+  duration_min: 60
+  default_window: workout
+  tags: [workout, pull, ppl]
+  applies_when: ["days_per_week >= 5"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_legs
+  title: "Legs day A"
+  description: "warm-up: 5 min bike + 90/90 hip openers. back squat 4×6, romanian deadlift 3×8, leg press 3×10, leg curl 3×12, calf raise 4×12, hanging leg raise 3×12."
+  duration_min: 65
+  default_window: workout
+  tags: [workout, legs, ppl]
+  applies_when: ["days_per_week >= 5"]
+  intensity: 0.9
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_push_b
+  title: "Push day B"
+  description: "warm-up: 5 min bike. incline barbell press 4×6, DB shoulder press 4×8, dips 3×10 (or DB chest fly 3×12), lateral raise 4×15, skullcrusher 3×10, cable lateral raise 3×15."
+  duration_min: 60
+  default_window: workout
+  tags: [workout, push, ppl]
+  applies_when: ["days_per_week >= 5"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_pull_b
+  title: "Pull day B"
+  description: "warm-up: 5 min row. deadlift 3×5 (heavy, RPE 8), seated cable row 4×8, lat pulldown 3×10, rear delt fly 3×15, preacher curl 3×10, reverse fly 3×15."
+  duration_min: 60
+  default_window: workout
+  tags: [workout, pull, ppl]
+  applies_when: ["days_per_week >= 5"]
+  intensity: 0.85
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.workout_legs_b
+  title: "Legs day B"
+  description: "warm-up: 5 min bike. front squat 4×6, bulgarian split squat 3×8 ea leg, leg extension 3×12, glute-ham raise 3×10, seated calf raise 4×15, hanging knee raise 3×15."
+  duration_min: 65
+  default_window: workout
+  tags: [workout, legs, ppl]
+  applies_when: ["days_per_week >= 5"]
+  intensity: 0.9
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
 
 - id: fit.postworkout
   title: "Post-workout protein"

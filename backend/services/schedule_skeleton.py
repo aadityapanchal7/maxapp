@@ -263,6 +263,49 @@ def _place_block(
         for i in range(n_days):
             if (today + _td(days=i)).day == target_dom:
                 day_indices.append(i)
+    elif cadence.startswith("rotation_per_week="):
+        # Workout-split rotation. block.tasks is a LIST of variants (e.g.
+        # [upper_a, lower_a, upper_b, lower_b]). Cycle through them on
+        # the N training days each week. RHS may be an int literal or a
+        # user_state field name (matches n_per_week= behavior).
+        raw_n = cadence.split("=", 1)[1].strip()
+        n_val: Optional[int] = None
+        try:
+            n_val = int(raw_n)
+        except ValueError:
+            field_val = user_state.get(raw_n)
+            if isinstance(field_val, (int, float)):
+                n_val = int(field_val)
+            elif isinstance(field_val, str) and field_val.strip().isdigit():
+                n_val = int(field_val.strip())
+        n = max(1, min(7, int(n_val or 1)))
+        # Same even-spread as n_per_week=, but the index INSIDE the
+        # block.tasks list is (training_day_count % len(tasks)) so the
+        # rotation cycles cleanly.
+        day_indices = []
+        for week_start in range(0, n_days, 7):
+            picks = [week_start + round(i * 7 / n) for i in range(n)]
+            day_indices.extend(p for p in picks if p < n_days)
+        # Place each rotation slot one task at a time (handled below in
+        # the dispatch). We tag the block so _emit_tasks knows to pick
+        # the right variant per occurrence.
+        if not block.tasks:
+            return
+        rotation_tasks = list(block.tasks)
+        for slot_idx, di in enumerate(day_indices):
+            variant = rotation_tasks[slot_idx % len(rotation_tasks)]
+            _emit_tasks(
+                catalog_ids=[variant],
+                day=days[di],
+                maxx_id=maxx_id,
+                user_state=user_state,
+                start_minute=resolve_window(
+                    block.slot, wake=wake, sleep=sleep, overrides=window_overrides,
+                )[0],
+                block_id=block.id,
+                not_with_same_day=block.not_with_same_day,
+            )
+        return  # short-circuit — we already emitted
     else:
         logger.warning("unknown cadence %r in block %s, defaulting to daily", cadence, block.id)
         day_indices = list(range(n_days))
