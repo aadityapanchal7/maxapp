@@ -55,12 +55,13 @@ def _is_catalog_url(url: str) -> bool:
 
 
 def _resolve_to_catalog(visible_text: str) -> Optional[str]:
-    """If the visible text matches a catalog product, return its direct URL."""
+    """If the visible text matches a catalog product, return its
+    DIRECT long-form product URL (`amazon.com/<Slug>/dp/<ASIN>`)."""
     try:
         from services.product_catalog import lookup_by_name
         hit = lookup_by_name(visible_text)
         if hit:
-            return hit.url
+            return hit.display_url
     except Exception:
         return None
     return None

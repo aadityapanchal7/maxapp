@@ -1,15 +1,20 @@
 /**
  * Pick programs for the home dashboard.
  *
- * Editorial list — same vocabulary as the Course TOC:
- *   - Tracked accent number for each row (01, 02, …)
- *   - Playfair serif title
- *   - Terse looksmaxx-coded description
- *   - Hairline divider between rows
- *   - Selected state: accent fill on the number badge + a thin accent dot
+ * Visual: each row dissolves between two states.
+ *   - Unselected: no chrome at all — just type and breathing room.
+ *   - Selected:   the row "lifts" into a subtle accent-tinted card
+ *     with a hairline border in the maxx's accent color, and the
+ *     number badge fills with accent.
  *
- * No card chrome per row. The accent comes from the per-maxx brand color
- * via resolveMaxxBrand(). Rest of the page uses neutral type + hairlines.
+ * Layout (per row):
+ *
+ *   ┌──────────────────────────────────────────┐
+ *   │  01     Skinmax                          │     ← serif title
+ *   │         skin care for clarity and glow.  │     ← brief blurb
+ *   │                                          │
+ *
+ * No card on unselected rows. The CTA at the bottom is a clean pill.
  */
 
 import React, { useCallback, useState } from 'react';
@@ -21,6 +26,7 @@ import {
     ScrollView,
     ActivityIndicator,
     Alert,
+    Platform,
 } from 'react-native';
 import { CommonActions, useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -41,6 +47,16 @@ type MaxxCard = {
     icon?: string;
     description?: string;
 };
+
+/** Convert `#rrggbb` → `rgba(r,g,b,a)` for soft accent fills. */
+function hexToRgba(hex: string, alpha: number): string {
+    const h = (hex || '#888888').replace('#', '');
+    const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+    const r = parseInt(full.slice(0, 2), 16);
+    const g = parseInt(full.slice(2, 4), 16);
+    const b = parseInt(full.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 export default function ModuleSelectScreen() {
     const navigation = useNavigation<any>();
@@ -104,10 +120,7 @@ export default function ModuleSelectScreen() {
             await api.dismissPostSubscriptionOnboarding();
             await refreshUser();
             navigation.dispatch(
-                CommonActions.reset({
-                    index: 0,
-                    routes: [{ name: 'Main' }],
-                }),
+                CommonActions.reset({ index: 0, routes: [{ name: 'Main' }] }),
             );
         } catch (e) {
             console.error(e);
@@ -132,7 +145,7 @@ export default function ModuleSelectScreen() {
                     <Text style={styles.emptyTitle}>Programs are loading</Text>
                     <Text style={styles.emptySubtitle}>
                         {maxxesQuery.isError
-                            ? 'Could not load your programs. Pull them in again and this should populate.'
+                            ? 'Could not load your programs. Pull them in again.'
                             : 'Programs still loading after payment. Try again and they should appear.'}
                     </Text>
                     <TouchableOpacity
@@ -151,13 +164,17 @@ export default function ModuleSelectScreen() {
         );
     }
 
+    const ctaDisabled = selectedIds.size === 0 || finishing;
+
     return (
         <View style={styles.root}>
             <ScrollView
-                contentContainerStyle={[styles.scroll, { paddingTop: Math.max(insets.top, 12) + 18 }]}
+                contentContainerStyle={[
+                    styles.scroll,
+                    { paddingTop: Math.max(insets.top, 12) + 18 },
+                ]}
                 showsVerticalScrollIndicator={false}
             >
-                {/* ── Hero ─────────────────────────────────────────── */}
                 <TouchableOpacity
                     onPress={() => navigation.goBack()}
                     style={styles.backBtn}
@@ -173,7 +190,6 @@ export default function ModuleSelectScreen() {
                     Pick up to {maxSlots} for your home.
                 </Text>
 
-                {/* ── Editorial list ───────────────────────────────── */}
                 <View style={styles.list}>
                     {maxes.map((m, i) => {
                         const idKey = String(m.id || '').toLowerCase();
@@ -187,41 +203,52 @@ export default function ModuleSelectScreen() {
                             <TouchableOpacity
                                 key={m.id}
                                 onPress={() => toggle(m.id)}
-                                activeOpacity={0.6}
-                                style={[
-                                    styles.row,
-                                    i !== 0 && styles.rowDivider,
-                                ]}
+                                activeOpacity={0.7}
                                 accessibilityRole="checkbox"
                                 accessibilityState={{ checked: on }}
+                                style={[
+                                    styles.row,
+                                    on && {
+                                        backgroundColor: hexToRgba(accent, 0.06),
+                                        borderColor: hexToRgba(accent, 0.3),
+                                    },
+                                ]}
                             >
-                                <Text style={[styles.numLabel, { color: accent }]}>{num}</Text>
-                                <View style={styles.rowCopy}>
-                                    <Text style={styles.rowTitle}>{label}</Text>
-                                    {!!desc && (
-                                        <Text style={styles.rowDesc} numberOfLines={1}>
-                                            {desc}
-                                        </Text>
-                                    )}
-                                </View>
                                 <View
                                     style={[
-                                        styles.dot,
+                                        styles.numBadge,
                                         on
                                             ? { backgroundColor: accent, borderColor: accent }
                                             : { borderColor: colors.border },
                                     ]}
-                                />
+                                >
+                                    <Text
+                                        style={[
+                                            styles.numText,
+                                            { color: on ? colors.buttonText : accent },
+                                        ]}
+                                    >
+                                        {num}
+                                    </Text>
+                                </View>
+
+                                <View style={styles.rowCopy}>
+                                    <Text style={styles.rowTitle}>{label}</Text>
+                                    {!!desc && (
+                                        <Text style={styles.rowDesc} numberOfLines={2}>
+                                            {desc}
+                                        </Text>
+                                    )}
+                                </View>
                             </TouchableOpacity>
                         );
                     })}
                 </View>
 
-                {/* ── CTA ──────────────────────────────────────────── */}
                 <TouchableOpacity
-                    style={[styles.cta, selectedIds.size === 0 && styles.ctaDisabled]}
+                    style={[styles.cta, ctaDisabled && styles.ctaDisabled]}
                     onPress={finish}
-                    disabled={finishing || selectedIds.size === 0}
+                    disabled={ctaDisabled}
                     activeOpacity={0.85}
                 >
                     {finishing ? (
@@ -278,35 +305,43 @@ const styles = StyleSheet.create({
     },
 
     list: {
-        marginTop: spacing.sm,
+        gap: spacing.sm,
     },
     row: {
         flexDirection: 'row',
         alignItems: 'flex-start',
         paddingVertical: spacing.lg,
+        paddingHorizontal: spacing.md,
+        borderRadius: borderRadius.lg,
+        borderWidth: 1,
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
     },
-    rowDivider: {
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: colors.border,
+    numBadge: {
+        width: 36,
+        height: 36,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        marginRight: spacing.md,
+        marginTop: 2,
     },
-    numLabel: {
+    numText: {
         fontFamily: fonts.sansSemiBold,
-        fontSize: 13,
-        letterSpacing: 1.6,
-        marginRight: 18,
-        marginTop: 5,
-        width: 26,
+        fontSize: 12,
+        letterSpacing: 1.4,
     },
     rowCopy: {
         flex: 1,
-        paddingRight: spacing.sm,
+        paddingTop: 1,
     },
     rowTitle: {
         fontFamily: fonts.serif,
-        fontSize: 22,
+        fontSize: 24,
         fontWeight: '400',
-        letterSpacing: -0.4,
-        lineHeight: 28,
+        letterSpacing: -0.5,
+        lineHeight: 30,
         color: colors.foreground,
     },
     rowDesc: {
@@ -314,14 +349,6 @@ const styles = StyleSheet.create({
         color: colors.textSecondary,
         marginTop: 4,
         lineHeight: 19,
-    },
-    dot: {
-        width: 16,
-        height: 16,
-        borderRadius: 8,
-        borderWidth: 1.5,
-        marginTop: 8,
-        marginLeft: spacing.sm,
     },
 
     cta: {

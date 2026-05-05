@@ -222,22 +222,23 @@ def _module_products(maxx_id: str) -> list[str]:
 
 
 def _amazon_search_url(name: str) -> str:
-    """Resolve a product name to a URL.
+    """Resolve a product name to a DIRECT product page URL.
 
-    Prefers a DIRECT product page from the curated `product_catalog.yaml`
-    (Amazon /dp/<ASIN>) when one matches. Falls back to a generic Amazon
-    search URL for products that aren't in the catalog yet — but every
-    new recommendation should be added to the catalog so this fallback
-    eventually goes unused.
+    Returns the long-form catalog URL (`amazon.com/<Slug>/dp/<ASIN>`)
+    when the name matches a catalog entry. Returns an empty string
+    when no match — callers MUST then skip the link entirely instead
+    of shipping a search-results URL ("amazon.com/s?k=…"), which is
+    what the user complained about. The catalog is the single source
+    of truth; if a product isn't there, we don't link it.
     """
     try:
         from services.product_catalog import lookup_by_name
         hit = lookup_by_name(name)
         if hit:
-            return hit.url
+            return hit.display_url
     except Exception:
         pass
-    return f"https://www.amazon.com/s?k={quote_plus(name)}"
+    return ""
 
 
 def _brand_name(product_name: str) -> str:
@@ -380,8 +381,17 @@ async def product_links_from_context(
         )
         return ""
 
-    lines = ["here are quick amazon search links for the products mentioned in the current module docs:"]
+    # Only ship lines whose product resolves to a catalog (direct-link)
+    # entry. Anything that would otherwise become a search URL is dropped
+    # silently — the user explicitly does not want search URLs surfaced.
+    rendered: list[str] = []
     for name in chosen:
-        lines.append(f"- {name}: {_amazon_search_url(name)}")
-    lines.append("if you want, ask for cleanser / moisturizer / sunscreen only and i can narrow it down.")
+        url = _amazon_search_url(name)
+        if not url:  # no catalog match → skip rather than ship a search url
+            continue
+        rendered.append(f"- {name}: {url}")
+    if not rendered:
+        return ""
+    lines = ["direct product links from the catalog:"]
+    lines.extend(rendered)
     return "\n".join(lines)

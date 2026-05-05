@@ -12,11 +12,11 @@
  * is ≤ 60 chars so it fits the editorial hero comfortably.
  */
 const MAXX_DESCRIPTIONS: Record<string, string> = {
-    skinmax:   'skin, barrier, glow.',
-    hairmax:   'hairline, density, scalp.',
-    fitmax:    'frame, leanness, v-taper.',
-    bonemax:   'jaw, midface, structure.',
-    heightmax: 'posture, decompression, frame.',
+    skinmax:   'skin care for clarity and glow.',
+    hairmax:   'hairline maintenance and scalp density.',
+    fitmax:    'frame building and aesthetic leanness.',
+    bonemax:   'facial structure and jawline.',
+    heightmax: 'posture and perceived vertical.',
 };
 
 /**
