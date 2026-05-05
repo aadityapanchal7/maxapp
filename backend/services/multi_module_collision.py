@@ -110,16 +110,39 @@ def reconcile_schedules(schedules: dict[str, list[dict]]) -> dict[str, list[dict
                 t_min = new_t
             last_end = t_min + dur
 
-    # 4) Daily total cap — demote lowest-intensity tasks if > HARD_CAP.
+    # 4) Daily total cap — drop lowest-intensity OPTIONAL tasks first.
+    # Mirrors the per-module truncation rules in schedule_validator: tasks
+    # tagged essential (cleanse / SPF / foundation / workout) survive cap
+    # truncation regardless of intensity. Without this, blending 3 maxxes
+    # would drop skinmax SPF (intensity 0.1) before bone.symmetry_check
+    # (intensity 0.1, but tied + non-essential), leaving the user with a
+    # broken skin protocol.
+    from services.schedule_validator import _ESSENTIAL_TAGS
+
+    def _is_essential(t: dict) -> bool:
+        return bool(set(t.get("tags") or []) & _ESSENTIAL_TAGS)
+
     for di in range(day_count):
         items = list(by_day[di])
         if len(items) <= HARD_DAILY_TASK_CAP:
             continue
-        # Sort by intensity ascending; drop the lowest until at cap.
-        ranked = sorted(items, key=lambda x: float(x[1].get("intensity") or 0.0))
-        for maxx_id, task in ranked:
-            if len(items) <= HARD_DAILY_TASK_CAP:
-                break
+        essentials = [(m, t) for (m, t) in items if _is_essential(t)]
+        optionals = [(m, t) for (m, t) in items if not _is_essential(t)]
+        # If essentials alone exceed the cap, drop the LEAST-intense
+        # essentials. Edge case — a 3-maxx user with > cap workout + SPF
+        # + cleanse tasks. Real protocols don't hit this.
+        if len(essentials) > HARD_DAILY_TASK_CAP:
+            essentials.sort(key=lambda x: float(x[1].get("intensity") or 0.0))
+            for maxx_id, task in essentials[:len(essentials) - HARD_DAILY_TASK_CAP]:
+                _remove_task(schedules, maxx_id, di, task)
+                items.remove((maxx_id, task))
+            continue
+        # Common path: drop optionals (lowest intensity first) until at cap.
+        slots_left = HARD_DAILY_TASK_CAP - len(essentials)
+        optionals.sort(key=lambda x: -float(x[1].get("intensity") or 0.0))
+        keep_optional = optionals[:slots_left]
+        drop_optional = optionals[slots_left:]
+        for maxx_id, task in drop_optional:
             _remove_task(schedules, maxx_id, di, task)
             items.remove((maxx_id, task))
 

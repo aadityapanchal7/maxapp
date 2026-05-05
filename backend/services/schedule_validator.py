@@ -69,6 +69,156 @@ def _normalize_title_case(raw: str) -> str:
     return out
 
 
+# Title humanization — converts catalog-style technical titles into
+# reminder-style friendly phrases. Called once per task in the validator;
+# every catalog gets the same human pass without needing to maintain
+# parallel display strings in each .md doc.
+#
+# Patterns are tried in order. First match wins. Each entry:
+#   (regex,  replacement_template,  flags)
+# Replacement may use \\1 \\2 capture refs.
+_HUMANIZE_PATTERNS: list[tuple[str, str]] = [
+    # Skin / hair / face routines — reframe as ACTION the user takes
+    (r"^cleanse face \(am\)$",          "wash your face"),
+    (r"^cleanse face \(pm\)$",          "wash your face before bed"),
+    (r"^moisturize \(am\)$",            "moisturize your face"),
+    (r"^moisturize \(pm\)$",            "moisturize before bed"),
+    (r"^apply spf 50$",                 "put on SPF — last step"),
+    (r"^reapply spf$",                  "reapply your SPF"),
+    (r"^apply azelaic acid$",           "apply azelaic acid serum"),
+    (r"^apply centella serum$",         "apply your calming serum"),
+    (r"^apply retinoid \(pea\)$",       "retinoid — pea-sized, dry skin"),
+    (r"^dermastamp face$",              "dermastamp face (1 pass)"),
+    (r"^facial massage \((\d+)s\)$",    r"face massage — \1 seconds"),
+    (r"^drink water — 1l target$",      "hydration check — water break"),
+    (r"^skip seed oils \+ sugar$",      "diet check — skip seed oils, sugar"),
+    (r"^take zinc \+ collagen$",        "zinc + collagen supplement"),
+    (r"^skip actives — barrier rest$",  "barrier rest — skip actives tonight"),
+    (r"^pillowcase change$",            "fresh pillowcase tonight"),
+    (r"^weekly exfoliation \(.+?\)$",   "weekly exfoliation — PHA / AHA"),
+    (r"^hydration mask \(15 min\)$",    "hydration mask before bed"),
+    (r"^photo: face front \+ sides$",   "skin progress photo"),
+    (r"^monthly skin review$",          "monthly skin check-in"),
+    (r"^schedule derm check \(6mo\)$",  "book a dermatologist visit"),
+
+    # Hair
+    (r"^wash \+ condition$",            "shampoo + condition"),
+    (r"^co-wash curls$",                "midweek co-wash"),
+    (r"^apply leave-in$",               "apply leave-in conditioner"),
+    (r"^style with product$",           "style your hair"),
+    (r"^rinse out product \(pm\)$",     "rinse hair before bed"),
+    (r"^massage scalp \(60s\)$",        "scalp massage — 60 seconds"),
+    (r"^apply minoxidil \(am, 1ml\)$",  "morning minoxidil — 1ml to scalp"),
+    (r"^apply minoxidil \(pm, 1ml\)$",  "evening minoxidil — 1ml to scalp"),
+    (r"^microneedle scalp 0\.5mm$",     "scalp microneedle (0.5mm)"),
+    (r"^take finasteride$",             "take finasteride"),
+    (r"^photo: scalp \+ hairline$",     "hair progress photo"),
+    (r"^trim beard / neckline$",        "beard / neckline trim"),
+    (r"^apply heat protectant$",        "heat protectant before styling"),
+    (r"^book next haircut$",            "book your next haircut"),
+    (r"^ketoconazole shampoo wash$",    "ketoconazole wash (anti-fungal)"),
+    (r"^deep-condition mask$",          "deep-conditioning mask"),
+    (r"^monthly hair review$",          "monthly hair check-in"),
+    (r"^bloodwork check \(quarterly\)$", "bloodwork check (every 3 months)"),
+
+    # Bone / mewing
+    (r"^mewing \(am set, (\d+)s\)$",    r"morning mewing — \1 second hold"),
+    (r"^mewing reset \(midday, (\d+)s\)$", r"midday mewing reset (\1s)"),
+    (r"^mewing \(night set\)$",         "night mewing set"),
+    (r"^chew mastic gum \((\d+) min\)$", r"mastic gum — \1 min, alternate sides"),
+    (r"^chew mastic gum \(ramp\)$",     "mastic gum — ramp set"),
+    (r"^facial massage \(am\)$",        "AM facial massage / lymph"),
+    (r"^facial fascia release \(pm\)$", "PM fascia release"),
+    (r"^nasal-breathing check$",        "nasal-breathing check"),
+    (r"^neck training \(full set\)$",   "neck training — full set"),
+    (r"^neck training \(solo day\)$",   "neck training — solo day"),
+    (r"^chin tucks ×(\d+)$",            r"chin tucks — \1 reps"),
+    (r"^symmetry / posture check$",     "posture / symmetry check"),
+    (r"^take d3 \+ k2 \(with food\)$",  "vitamin D3 + K2 with food"),
+    (r"^take magnesium \(pm\)$",        "magnesium before bed"),
+    (r"^photo: jaw \+ side profile$",   "jaw progress photo"),
+    (r"^monthly jaw review$",           "monthly jaw check-in"),
+    (r"^hard mewing \(60s suction hold\)$", "hard mewing — 60s suction hold"),
+    (r"^lip tape \(bedtime\)$",         "lip tape (medical paper) before bed"),
+    (r"^alternate chewing sides$",      "alternate chewing sides"),
+
+    # Height
+    (r"^am mobility \(5 min\)$",        "AM mobility — 5 min"),
+    (r"^desk reset \(5 min\)$",         "desk reset — 5 min posture break"),
+    (r"^pm decompression \(5 min\)$",   "spinal decompression — 5 min"),
+    (r"^dead hang \(60s\)$",            "dead hang — 60 seconds"),
+    (r"^wall posture drill$",           "wall posture drill"),
+    (r"^face pulls 3×12$",              "face pulls — 3 sets of 12"),
+    (r"^glute bridge 3×15$",            "glute bridge — 3 sets of 15"),
+    (r"^check sleep window$",           "wind down — sleep is coming"),
+    (r"^hit protein \(~1g/lb\)$",       "protein check — about 1g per lb"),
+    (r"^10 min am sunlight$",           "10 min sunlight (AM)"),
+    (r"^outfit proportions check$",     "outfit proportions check"),
+    (r"^rotate shoes \(weekly\)$",      "rotate your shoes (weekly)"),
+    (r"^mirror posture check$",         "mirror posture check"),
+    (r"^chin tucks ×15$",               "chin tucks — 15 reps"),
+    (r"^foam-roll upper back$",         "foam-roll upper back"),
+    (r"^log am height$",                "log your morning height"),
+    (r"^photo: full-body posture$",     "posture / height photo"),
+    (r"^monthly height review$",        "monthly height check-in"),
+    (r"^inversion table \(5 min\)$",    "inversion — 5 min"),
+    (r"^calcium-rich meal$",            "calcium-rich meal (one today)"),
+
+    # Fit
+    (r"^eat am protein meal$",          "eat AM protein meal"),
+    (r"^midday training cue$",          "midday training cue"),
+    (r"^eat pm meal \(protein \+ carb\)$", "PM meal — protein + carb"),
+    (r"^pre-workout fuel$",             "pre-workout fuel + caffeine"),
+    (r"^lift session$",                 "lift session"),
+    (r"^post-workout protein$",         "post-workout protein (40g)"),
+    (r"^hit step target$",              "hit your step target"),
+    (r"^liss cardio \(30 min\)$",       "LISS cardio — 30 min"),
+    (r"^weekly weigh-in$",              "weekly weigh-in (fasted)"),
+    (r"^take progress photo$",          "monthly progress photo"),
+    (r"^deload week — drop volume$",    "deload week — half volume"),
+    (r"^hydration check$",              "hydration check"),
+    (r"^mobility warm-up \(10 min\)$",  "mobility warm-up — 10 min"),
+    (r"^wind down — bed in 60 min$",    "wind down — bed in 60 min"),
+    (r"^lunch protein hit$",            "lunch protein hit (30-40g)"),
+    (r"^pm stretch \(8 min\)$",         "PM stretch — 8 min"),
+    (r"^weekly progress review$",       "weekly progress review"),
+    (r"^monthly check-in$",             "monthly progress check-in"),
+    (r"^form-check video$",             "film a form-check video"),
+    (r"^take creatine \(5g\)$",         "take creatine — 5g"),
+    (r"^full body a$",                  "lift session — Full Body A"),
+    (r"^full body b$",                  "lift session — Full Body B"),
+    (r"^full body c$",                  "lift session — Full Body C"),
+    (r"^upper a — push focus$",         "lift — Upper A (push focus)"),
+    (r"^lower a — squat focus$",        "lift — Lower A (squat focus)"),
+    (r"^upper b — pull focus$",         "lift — Upper B (pull focus)"),
+    (r"^lower b — deadlift focus$",     "lift — Lower B (deadlift focus)"),
+    (r"^push day a$",                   "lift — Push A"),
+    (r"^pull day a$",                   "lift — Pull A"),
+    (r"^legs day a$",                   "lift — Legs A"),
+    (r"^push day b$",                   "lift — Push B"),
+    (r"^pull day b$",                   "lift — Pull B"),
+    (r"^legs day b$",                   "lift — Legs B"),
+]
+
+
+def _humanize_title(catalog_title: str) -> str:
+    """Convert a catalog-style title to a reminder-style friendly phrase.
+
+    Falls through to the original title (lowercased + abbrev-cased) when
+    no pattern matches. Adding a new task doesn't require a humanize
+    entry — it just stays as-is. Adding an entry overrides the default.
+    """
+    if not catalog_title:
+        return ""
+    base = _normalize_title_case(catalog_title)
+    for pat, repl in _HUMANIZE_PATTERNS:
+        m = re.match(pat, base, re.IGNORECASE)
+        if m:
+            new = re.sub(pat, repl, base, flags=re.IGNORECASE)
+            return _normalize_title_case(new)
+    return base
+
+
 @dataclass
 class ValidationError:
     severity: str  # "hard" | "soft"
@@ -188,9 +338,16 @@ def _validate_task(
 
     catalog_task = get_task(maxx_id, cat_id)
     raw_title = (task.get("title") or catalog_task.title or "").strip()
-    title = _normalize_title_case(raw_title)
-    if len(title) > MAX_TITLE_CHARS:
-        title = title[: MAX_TITLE_CHARS - 1].rstrip() + "…"
+    # Run through the humanizer first so reminder-friendly phrasing wins
+    # over the technical catalog title. _humanize_title falls through to
+    # the original (lowercased) title if no pattern matches, so adding a
+    # task without a humanize entry is safe.
+    title = _humanize_title(raw_title)
+    # Bump the cap so the friendlier rephrasings (often a few chars
+    # longer) don't get truncated mid-word.
+    soft_cap = max(MAX_TITLE_CHARS, 36)
+    if len(title) > soft_cap:
+        title = title[: soft_cap - 1].rstrip() + "…"
     elif not title:
         title = catalog_task.title
 

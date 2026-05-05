@@ -234,11 +234,50 @@ async def _reply_today_completed_tasks_summary(user_id: str, onboarding: dict, d
     return f"here's what you checked off today:\n{body}{extra}"
 
 
-def _finalize_assistant_message(text: str) -> str:
-    """User-facing chat: no markdown asterisks; lowercase Max voice."""
+_TECH_LEAK_PATTERNS: tuple[re.Pattern, ...] = (
+    # Python-style stack-trace markers — never appropriate in chat output.
+    re.compile(r"traceback\s*\(.*?\):", re.IGNORECASE | re.DOTALL),
+    re.compile(r"^\s*file\s+['\"][^'\"]+['\"]\s*,\s*line\s+\d+.*$", re.IGNORECASE | re.MULTILINE),
+    # Common exception class names that leak into LLM-rephrased errors.
+    re.compile(r"\b(?:asyncio|sqlalchemy|httpx|openai|anthropic|google\.generativeai)\.[a-z_.]+\b", re.IGNORECASE),
+    re.compile(r"\b(?:HTTPException|ValueError|KeyError|TypeError|AttributeError|JSONDecodeError|ConnectionError)\b"),
+    # System-prompt leak markers — these should NEVER reach the user.
+    re.compile(r"\[SYSTEM[: ][^\]]*\]"),
+    re.compile(r"\bcatalog_id\b\s*[:=]"),
+    re.compile(r"\b(?:user_state|user_ctx|onboarding_pending)\b"),
+    # Internal status / debug noise from earlier prompt iterations.
+    re.compile(r"^\s*(?:debug|status|trace|warning):\s*.*$", re.IGNORECASE | re.MULTILINE),
+    re.compile(r"\b(?:exception|error)\s*:\s*[A-Za-z][\w.]*", re.IGNORECASE),
+    # Bare URLs to internal endpoints.
+    re.compile(r"https?://(?:localhost|127\.0\.0\.1|nlzsqnlk[a-z]+\.supabase\.co)\S*", re.IGNORECASE),
+)
+
+
+def _scrub_tech_leak(text: str) -> str:
+    """Strip code-shaped strings, stack-trace fragments, system-prompt
+    markers, and internal endpoints from chat output before the user
+    sees them. Defensive — the LLM prompt forbids leaking these, but a
+    flaky generation occasionally lets one through and the user shouldn't
+    see "[SYSTEM: schedule setup]" or "asyncio.exceptions.TimeoutError"
+    in their chat.
+    """
     if not text:
         return text
-    return text.replace("*", "").lower()
+    out = text
+    for pat in _TECH_LEAK_PATTERNS:
+        out = pat.sub("", out)
+    # Collapse double spaces / orphan whitespace from the cuts.
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
+
+
+def _finalize_assistant_message(text: str) -> str:
+    """User-facing chat: scrub any technical leak, drop markdown
+    asterisks, lowercase Max voice."""
+    if not text:
+        return text
+    return _scrub_tech_leak(text).replace("*", "").lower()
 
 
 router = APIRouter(prefix="/chat", tags=["Chat"])

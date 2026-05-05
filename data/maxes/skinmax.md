@@ -49,6 +49,9 @@ schedule_design:
           # Ordered by priority. Conflicts (`not_with`) are enforced day-by-day.
           - { id: skin.retinoid_pm,    days_per_week: 4, requires: ["skin_concern in [acne, pigmentation, texture, maintenance]", "barrier_state != damaged"], not_with: [skin.dermastamp_pm] }
           - { id: skin.dermastamp_pm,  days_per_week: 2, requires: ["skin_concern in [pigmentation, texture]", "barrier_state == stable", "dermastamp_owned == true"], not_with: [skin.retinoid_pm] }
+          # Rest-night fallback so PM is never under 3 steps. Niacinamide
+          # or hyaluronic on rest nights — barrier maintenance, no actives.
+          - { id: skin.rest_night_serum, days_per_week: 7, requires: [] }
       - id: pm_circulation
         slot: pm_close
         cadence: n_per_week=5
@@ -645,6 +648,17 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   intensity: 0.0
   evidence_section: "What to STOP during barrier damage"
   frequency: { type: n_per_week, n: 7 }
+
+- id: skin.rest_night_serum
+  title: "Rest-night serum"
+  description: "no retinoid tonight. apply niacinamide 10% (or hyaluronic + B5 if dry). gives the barrier a recovery beat between active nights so PM is never bare."
+  duration_min: 2
+  default_window: pm_active
+  tags: [pm, active, anti-inflammatory, foundation]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Active strategy"
+  frequency: { type: daily, n: 1 }
 
 - id: skin.pillowcase_change
   title: "Change pillowcase"
