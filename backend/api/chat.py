@@ -2275,50 +2275,21 @@ async def process_chat_message(
     fitmax_pending = bool(
         scripted_mx and user and str(profile.get("chat_pending_module") or "").lower() == "fitmax"
     )
-    fitmax_chat_setup = bool(scripted_mx and profile.get("fitmax_chat_setup"))
-    run_fitmax_onboarding = bool(
-        scripted_mx
-        and user
-        and not fitmax_schedule_active
-        and (
-            (explicit_schedule_start and start_schedule_maxx == "fitmax")
-            or fitmax_pending
-            or (
-                fitmax_chat_setup
-                and not _fitmax_setup_stale(profile)
-                and (channel == "sms" or _assistant_last_turn_is_fitmax_onboarding(history))
-            )
-        )
-    )
-
-    hairmax_chat_setup = bool(scripted_mx and profile.get("hairmax_chat_setup"))
-    run_hairmax_onboarding = bool(
-        scripted_mx
-        and user
-        and not hairmax_schedule_active
-        and (
-            (explicit_schedule_start and start_schedule_maxx == "hairmax")
-            or (
-                hairmax_chat_setup
-                and not _hairmax_setup_stale(profile)
-                and _assistant_last_turn_is_hairmax_onboarding(history)
-            )
-        )
-    )
-    bonemax_chat_setup = bool(scripted_bonemax and profile.get("bonemax_chat_setup"))
-    run_bonemax_onboarding = bool(
-        scripted_bonemax
-        and user
-        and not bonemax_schedule_active
-        and (
-            (explicit_schedule_start and start_schedule_maxx == "bonemax")
-            or (
-                bonemax_chat_setup
-                and not _bonemax_setup_stale(profile)
-                and (channel == "sms" or _assistant_last_turn_is_bonemax_onboarding(history))
-            )
-        )
-    )
+    # ------------------------------------------------------------------
+    # Legacy hardcoded scripted-onboarding gates — RETIRED.
+    #
+    # All five maxxes (skin/hair/height/fit/bone) now route through the
+    # doc-driven onboarding system in services.onboarding_questioner,
+    # invoked at the FastAPI endpoint level (chat.py:_run_onboarding_questioner)
+    # BEFORE process_chat_message runs. The old hardcoded
+    # *_REQUIRED_FIELDS / *_QUESTION_MAP / run_*_onboarding blocks
+    # below are dead code kept only so we don't break imports if some
+    # other module still references the helpers. Safe to delete in a
+    # follow-up cleanup pass.
+    # ------------------------------------------------------------------
+    run_fitmax_onboarding = False
+    run_hairmax_onboarding = False
+    run_bonemax_onboarding = False
 
     # --- Fitmax chat onboarding (profile is populated conversationally) ---
     if run_fitmax_onboarding:

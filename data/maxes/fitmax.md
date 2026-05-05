@@ -3,6 +3,80 @@ maxx_id: fitmax
 display_name: Fit
 short_description: Strength, body composition, and conditioning aligned to your goal.
 
+schedule_design:
+  cadence_days: 14
+  am_window: ["wake+0:15", "wake+1:30"]
+  pm_window: ["sleep-2:30", "sleep-0:30"]
+  daily_task_budget: [3, 6]
+  intensity_ramp:
+    week_1: [0.0, 0.6]
+    week_2: [0.4, 1.0]
+  skeleton:
+    blocks:
+      # --- Daily nutrition rails ---
+      - id: am_nutrition
+        slot: am_open
+        cadence: daily
+        tasks: [fit.am_nutrition]
+      - id: midday_tip
+        slot: midday
+        cadence: daily
+        tasks: [fit.midday_tip]
+      - id: pm_nutrition
+        slot: pm_close
+        cadence: daily
+        tasks: [fit.pm_nutrition]
+      # --- Workout window — N times/week, where N = days_per_week ---
+      - id: preworkout
+        slot: am_active
+        cadence: n_per_week=days_per_week
+        tasks: [fit.preworkout]
+      - id: workout_session
+        slot: pm_active
+        cadence: n_per_week=days_per_week
+        tasks: [fit.workout_session]
+      - id: postworkout
+        slot: pm_active
+        cadence: n_per_week=days_per_week
+        tasks: [fit.postworkout]
+      # --- Steps target — required for cut / fat-loss; sedentary users always ---
+      - id: daily_steps
+        slot: flexible
+        cadence: daily
+        if: "goal == fat_loss or daily_activity_level == sedentary"
+        tasks: [fit.daily_steps]
+      # --- Conditioning by phase ---
+      - id: cardio_liss
+        slot: flexible
+        cadence: n_per_week=2
+        if: "goal == fat_loss"
+        tasks: [fit.cardio_liss]
+      - id: cardio_lean_bulk
+        slot: flexible
+        cadence: n_per_week=1
+        if: "goal == muscle_gain"
+        tasks: [fit.cardio_liss]
+      # --- Recovery + tracking ---
+      - id: weekly_weighin
+        slot: am_open
+        cadence: n_per_week=1
+        tasks: [fit.weekly_weighin]
+      - id: monthly_photo
+        slot: midday
+        cadence: every_n_days=30
+        tasks: [fit.monthly_photo]
+      - id: deload_check
+        slot: flexible
+        cadence: every_n_days=42
+        if: "experience_level in [intermediate, advanced]"
+        tasks: [fit.deload_check]
+      # --- Hydration nudge — heavy training or hot conditions ---
+      - id: hydration_check
+        slot: midday
+        cadence: daily
+        if: "days_per_week >= 4 or daily_activity_level == very_active"
+        tasks: [fit.hydration_check]
+
 required_fields:
   - id: goal
     question: "What's your main fitness goal right now?"
@@ -194,3 +268,137 @@ Quiet hours: nothing between bed and wake.
 - **+ HeightMax**: After axial leg day, prepend a 60-90s dead hang to the post-workout block.
 - **+ SkinMax**: Merge AM nutrition and AM skincare cues into a single block (cleanse → SPF → eat).
 - **+ HairMax**: If on creatine, add the standard "creatine doesn't cause hair loss in users without genetic baldness predisposition" caveat once per cycle.
+
+```yaml task_catalog
+- id: fit.am_nutrition
+  title: "AM nutrition — protein-forward breakfast"
+  description: "30-40g protein within an hour of waking. eggs, greek yogurt, whey, or a meat option. add fruit or oats for carbs."
+  duration_min: 5
+  default_window: am_open
+  tags: [am, nutrition, protein]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Nutrition principles"
+  frequency: { type: daily, n: 1 }
+
+- id: fit.midday_tip
+  title: "midday training tip"
+  description: "rotating cue — progressive overload, technique check, recovery focus, or motivation. one specific actionable per day."
+  duration_min: 1
+  default_window: midday
+  tags: [midday, tip, motivation]
+  applies_when: [always]
+  intensity: 0.1
+  evidence_section: "Training principles"
+  frequency: { type: daily, n: 1 }
+
+- id: fit.pm_nutrition
+  title: "PM nutrition — last meal anchor"
+  description: "protein + slow carb 2-3 hours before bed. caesar salad with chicken, salmon + rice, lean ground beef + sweet potato."
+  duration_min: 5
+  default_window: pm_close
+  tags: [pm, nutrition, protein]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Nutrition principles"
+  frequency: { type: daily, n: 1 }
+
+- id: fit.preworkout
+  title: "pre-workout fuel + hydration"
+  description: "light carb + protein 60-90 min out (banana + whey, oats + egg whites). 16-24 oz water. caffeine 30 min pre-lift if you use it."
+  duration_min: 5
+  default_window: am_active
+  tags: [preworkout, fuel]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Nutrition principles"
+  frequency: { type: n_per_week, n: 4 }
+
+- id: fit.workout_session
+  title: "training session"
+  description: "lift per your split — compounds first, accessories after. lateral raises + face pulls every session. progressive overload: hit top of rep range → add 2.5-5 lb next time."
+  duration_min: 60
+  default_window: pm_active
+  tags: [workout, training, lift]
+  applies_when: [always]
+  intensity: 0.8
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 4 }
+
+- id: fit.postworkout
+  title: "post-workout protein"
+  description: "30-40g protein within 60 min of finishing — whey shake, chicken, greek yogurt. rehydrate fully before next meal."
+  duration_min: 5
+  default_window: pm_active
+  tags: [postworkout, protein, recovery]
+  applies_when: [always]
+  intensity: 0.3
+  evidence_section: "Nutrition principles"
+  frequency: { type: n_per_week, n: 4 }
+
+- id: fit.daily_steps
+  title: "daily step target"
+  description: "8000-10000 steps if cutting; 7000+ if sedentary. counts as conditioning quota when on a cut."
+  duration_min: 1
+  default_window: flexible
+  tags: [steps, conditioning, neat]
+  applies_when: ["goal == fat_loss or daily_activity_level == sedentary"]
+  intensity: 0.3
+  evidence_section: "Recovery"
+  frequency: { type: daily, n: 1 }
+
+- id: fit.cardio_liss
+  title: "LISS cardio — 30 min"
+  description: "low-intensity steady state — incline walk, easy bike, swim. heart rate 60-70% max. burns calories without eating into recovery."
+  duration_min: 30
+  default_window: flexible
+  tags: [cardio, conditioning, liss]
+  applies_when: ["goal in [fat_loss, muscle_gain]"]
+  intensity: 0.4
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 2 }
+
+- id: fit.weekly_weighin
+  title: "weekly weigh-in"
+  description: "monday morning, fasted, after bathroom, before water. average over the week — daily fluctuation is noise. log it."
+  duration_min: 2
+  default_window: am_open
+  tags: [tracking, weighin]
+  applies_when: [always]
+  intensity: 0.1
+  evidence_section: "Recovery"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.monthly_photo
+  title: "monthly progress photo"
+  description: "front + side + back. same lighting, same time of day, similar post-meal state. compare month-over-month, not day-to-day."
+  duration_min: 5
+  default_window: midday
+  tags: [tracking, progress]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Recovery"
+  frequency: { type: every_n_days, n: 30 }
+
+- id: fit.deload_check
+  title: "deload week check-in"
+  description: "every 6-8 weeks, drop volume in half for one week. recovery overshoots — strength comes back higher. only intermediates+."
+  duration_min: 2
+  default_window: flexible
+  tags: [recovery, deload]
+  applies_when: ["experience_level in [intermediate, advanced]"]
+  intensity: 0.2
+  evidence_section: "Recovery"
+  frequency: { type: every_n_days, n: 42 }
+
+- id: fit.hydration_check
+  title: "hydration check"
+  description: "0.5-1 oz per lb bodyweight per day, more on training days. urine pale yellow = good; dark = drink up."
+  duration_min: 1
+  default_window: midday
+  tags: [hydration, recovery]
+  applies_when: ["days_per_week >= 4 or daily_activity_level == very_active"]
+  intensity: 0.1
+  evidence_section: "Nutrition principles"
+  frequency: { type: daily, n: 1 }
+```

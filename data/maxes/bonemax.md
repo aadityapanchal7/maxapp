@@ -3,6 +3,104 @@ maxx_id: bonemax
 display_name: Bone
 short_description: Mewing, jaw posture, masseter training, and bone-support nutrition for facial structure.
 
+schedule_design:
+  cadence_days: 14
+  am_window: ["wake+0:00", "wake+1:00"]
+  pm_window: ["sleep-1:30", "sleep-0:15"]
+  daily_task_budget: [3, 7]
+  intensity_ramp:
+    week_1: [0.0, 0.5]
+    week_2: [0.3, 1.0]
+  skeleton:
+    blocks:
+      # --- Mewing — 3/day backbone, every day ---
+      - id: mewing_am
+        slot: am_open
+        cadence: daily
+        tasks: [bone.mewing_am]
+      - id: mewing_midday
+        slot: midday
+        cadence: daily
+        tasks: [bone.mewing_midday]
+      - id: mewing_night
+        slot: pm_close
+        cadence: daily
+        tasks: [bone.mewing_night]
+      # --- Masseter — TMJ-safe ramp handled by prompt_modifiers ---
+      - id: masseter_session
+        slot: am_active
+        cadence: daily
+        if: "tmj_history != true"
+        tasks: [bone.masseter]
+      - id: masseter_ramp
+        slot: am_active
+        cadence: n_per_week=3
+        if: "tmj_history == true"
+        tasks: [bone.masseter_ramp]
+      # --- Fascia / lymph ---
+      - id: fascia_am
+        slot: am_open
+        cadence: daily
+        tasks: [bone.fascia_am]
+      - id: fascia_pm
+        slot: pm_close
+        cadence: n_per_week=4
+        tasks: [bone.fascia_pm]
+      # --- Nasal breathing ---
+      - id: nasal_check
+        slot: midday
+        cadence: daily
+        tasks: [bone.nasal_check]
+      - id: nasal_check_extra
+        slot: pm_active
+        cadence: daily
+        if: "heavy_screen_time == true or mouth_breather == true"
+        tasks: [bone.nasal_check]
+      # --- Neck training — workout-day-coupled ---
+      - id: neck_workout_heavy
+        slot: pm_active
+        cadence: n_per_week=4
+        if: "workout_frequency == heavy"
+        tasks: [bone.neck_workout]
+      - id: neck_workout_moderate
+        slot: pm_active
+        cadence: n_per_week=3
+        if: "workout_frequency == moderate"
+        tasks: [bone.neck_workout]
+      - id: neck_light
+        slot: pm_active
+        cadence: n_per_week=2
+        if: "workout_frequency == light"
+        tasks: [bone.neck_workout]
+      - id: neck_solo
+        slot: pm_active
+        cadence: n_per_week=1
+        if: "workout_frequency == none"
+        tasks: [bone.neck_solo]
+      # --- Chin tucks bundle into midday on non-workout days; not_with_same_day prevents double-up ---
+      - id: chin_tucks
+        slot: midday
+        cadence: n_per_week=4
+        if: "workout_frequency in [none, light]"
+        not_with_same_day: [bone.neck_workout, bone.neck_solo]
+        tasks: [bone.chin_tucks]
+      # --- Daily symmetry / posture micro-check ---
+      - id: symmetry_check
+        slot: flexible
+        cadence: daily
+        tasks: [bone.symmetry_check]
+      # --- Bone-support nutrition (gated on opt-in) ---
+      - id: nutrition_stack_am
+        slot: am_open
+        cadence: daily
+        if: "nutrition_stack_open == true"
+        tasks: [bone.vitd_k2]
+      - id: nutrition_stack_pm
+        slot: pm_close
+        cadence: daily
+        if: "nutrition_stack_open == true"
+        tasks: [bone.magnesium_pm]
+
 required_fields:
   - id: workout_frequency
     question: "How many days per week do you usually work out?"
@@ -142,3 +240,162 @@ Quiet hours: nothing between bed and wake.
 - **+ SkinMax**: Skip evening fascia / lymph on retinoid or exfoliation nights.
 - **+ HairMax**: Morning fascia / lymph stacks AFTER scalp minoxidil dries (15-20 min).
 - **+ HeightMax**: Morning mewing + posture cues coordinate with height posture-reset task — render as one compound notification, not two.
+
+```yaml task_catalog
+- id: bone.mewing_am
+  title: "mewing — morning set"
+  description: "tongue on palate (back third), lips sealed, teeth light touch, chin tucked. 60s active hold, then passive all day. nasal only."
+  duration_min: 2
+  default_window: am_open
+  tags: [mewing, am, foundation]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Mewing"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.mewing_midday
+  title: "mewing — midday reset"
+  description: "tongue up? lips sealed? nasal? unclench jaw, head over neck, chin back. 30s conscious then passive."
+  duration_min: 1
+  default_window: midday
+  tags: [mewing, midday, posture]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Mewing"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.mewing_night
+  title: "mewing — night set"
+  description: "tongue up, lips closed, nasal. light suction. settle into sleep posture — tongue stays on palate as you drift off."
+  duration_min: 2
+  default_window: pm_close
+  tags: [mewing, pm, sleep]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Mewing"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.masseter
+  title: "mastic gum session"
+  description: "1 piece mastic gum, 10-15 min, alternate left/right sides every minute. balanced bite force. rest 1 day per week."
+  duration_min: 12
+  default_window: am_active
+  tags: [masseter, jaw]
+  applies_when: ["tmj_history != true"]
+  intensity: 0.5
+  evidence_section: "Masseter"
+  cooldown_hours: 18
+  frequency: { type: daily, n: 1 }
+
+- id: bone.masseter_ramp
+  title: "mastic gum — ramp set"
+  description: "TMJ-safe ramp: half-piece, 5 min max, alternating sides. log any clicking, fatigue, or pain. back off if symptoms appear."
+  duration_min: 6
+  default_window: am_active
+  tags: [masseter, jaw, ramp]
+  applies_when: ["tmj_history == true"]
+  contraindicated_when: []
+  intensity: 0.3
+  evidence_section: "Masseter"
+  cooldown_hours: 36
+  frequency: { type: n_per_week, n: 3 }
+
+- id: bone.fascia_am
+  title: "facial fascia / lymph — AM"
+  description: "3-5 min: gua sha or hand massage, neck → jawline → cheek → temple. always upward / outward strokes. drains overnight puffiness."
+  duration_min: 4
+  default_window: am_open
+  tags: [fascia, lymph, am]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Fascia / lymph"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.fascia_pm
+  title: "facial fascia / lymph — PM"
+  description: "5-8 min deeper release. cheek hollows, masseter belly, behind ears. use oil if available. skip on retinoid / exfoliation nights if on SkinMax."
+  duration_min: 6
+  default_window: pm_close
+  tags: [fascia, lymph, pm]
+  applies_when: [always]
+  intensity: 0.4
+  evidence_section: "Fascia / lymph"
+  frequency: { type: n_per_week, n: 4 }
+
+- id: bone.nasal_check
+  title: "nasal-breathing check"
+  description: "are you breathing through your nose? lips sealed, jaw relaxed? screen forward-head check — chin back, head over shoulders."
+  duration_min: 1
+  default_window: midday
+  tags: [nasal, posture, breathing]
+  applies_when: [always]
+  intensity: 0.1
+  evidence_section: "Mewing"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.neck_workout
+  title: "neck training — full session"
+  description: "5-8 min: 4-way harness or banded. front, back, left, right — 15 reps each direction, 2 sets. progress only after no soreness."
+  duration_min: 7
+  default_window: pm_active
+  tags: [neck, training]
+  applies_when: ["workout_frequency in [light, moderate, heavy]"]
+  intensity: 0.7
+  evidence_section: "Neck training"
+  frequency: { type: n_per_week, n: 3 }
+
+- id: bone.neck_solo
+  title: "neck training — solo day"
+  description: "no workout today, but neck still gets work. 5 min banded 4-way. lighter intensity, same movement pattern."
+  duration_min: 5
+  default_window: pm_active
+  tags: [neck, training, solo]
+  applies_when: ["workout_frequency == none"]
+  intensity: 0.5
+  evidence_section: "Neck training"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: bone.chin_tucks
+  title: "chin tucks bundle"
+  description: "10 chin tucks, 2-second hold each. emphasizes long-term forward-head correction. bundles into midday on non-workout days."
+  duration_min: 2
+  default_window: midday
+  tags: [neck, posture, chin-tucks]
+  applies_when: ["workout_frequency in [none, light]"]
+  intensity: 0.2
+  evidence_section: "Neck training"
+  frequency: { type: n_per_week, n: 4 }
+
+- id: bone.symmetry_check
+  title: "symmetry / posture check"
+  description: "rotating: even bite pressure / shoulders relaxed / chin back / tongue posture / nasal only. one focus per day."
+  duration_min: 1
+  default_window: flexible
+  tags: [symmetry, posture, micro]
+  applies_when: [always]
+  intensity: 0.1
+  evidence_section: "Why BoneMax matters"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.vitd_k2
+  title: "vitamin D3 + K2 with food"
+  description: "4000 IU vitamin D3 + 100 mcg K2 (MK-7) with first fat-containing meal. supports bone density and calcium routing."
+  duration_min: 1
+  default_window: am_open
+  tags: [nutrition, supplement, am]
+  applies_when: ["nutrition_stack_open == true"]
+  intensity: 0.1
+  evidence_section: "Bone-support nutrition (optional)"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.magnesium_pm
+  title: "magnesium glycinate PM"
+  description: "300-400 mg magnesium glycinate 60 min before bed. supports sleep depth and overnight muscle relaxation."
+  duration_min: 1
+  default_window: pm_close
+  tags: [nutrition, supplement, pm, sleep]
+  applies_when: ["nutrition_stack_open == true"]
+  intensity: 0.1
+  evidence_section: "Bone-support nutrition (optional)"
+  frequency: { type: daily, n: 1 }
+```

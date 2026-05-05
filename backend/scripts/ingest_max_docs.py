@@ -198,6 +198,9 @@ async def _ingest_one(doc: MaxDoc, *, force: bool) -> dict:
         prior_hash = await _existing_hash(session, doc.maxx_id)
         if not force and prior_hash == doc.content_hash:
             return {"maxx": doc.maxx_id, "status": "skipped (unchanged)", "ms": 0}
+        # The SELECT above auto-started a transaction on this session. Commit
+        # it before opening a fresh `session.begin()` for the upsert work.
+        await session.commit()
 
         async with session.begin():
             await _upsert_meta(session, doc)
