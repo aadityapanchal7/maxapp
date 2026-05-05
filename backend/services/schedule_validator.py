@@ -101,7 +101,31 @@ _HUMANIZE_PATTERNS: list[tuple[str, str]] = [
     (r"^monthly skin review$",          "monthly skin check-in"),
     (r"^schedule derm check \(6mo\)$",  "book a dermatologist visit"),
 
-    # Hair
+    # Hair — pre-humanizer catalog titles
+    (r"^minoxidil am$",                 "apply minoxidil (AM)"),
+    (r"^minoxidil pm$",                 "apply minoxidil (PM)"),
+    (r"^shampoo \+ condition$",         "shampoo + condition"),
+    (r"^60s scalp massage$",            "scalp massage — 60 seconds"),
+    (r"^scalp microneedle 0\.5mm$",     "microneedle scalp (0.5mm)"),
+    (r"^style \+ product am$",          "style with product"),
+    (r"^rinse out product pm$",         "rinse hair before bed"),
+    (r"^finasteride daily$",            "take finasteride"),
+    (r"^scalp/hairline photo$",         "hair progress photo"),
+    (r"^heat protectant spray$",        "heat protectant before styling"),
+    (r"^beard / neckline trim$",        "beard / neckline trim"),
+    # Fitmax — pre-humanizer
+    (r"^training session$",             "lift session"),
+    (r"^post-workout protein$",         "post-workout protein (40g)"),
+    (r"^pre-workout fuel \+ hydration$", "pre-workout fuel + caffeine"),
+    (r"^am nutrition — protein-forward breakfast$", "eat AM protein meal"),
+    (r"^pm nutrition — last meal anchor$", "PM meal — protein + carb"),
+    (r"^midday training tip$",          "midday training cue"),
+    (r"^liss cardio — 30 min$",         "LISS cardio — 30 min"),
+    (r"^daily step target$",            "hit your step target"),
+    (r"^weekly weigh-in$",              "weekly weigh-in (fasted)"),
+    (r"^monthly progress photo$",       "monthly progress photo"),
+    (r"^deload week check-in$",         "deload week — drop volume"),
+    # Hair — new-style
     (r"^wash \+ condition$",            "shampoo + condition"),
     (r"^co-wash curls$",                "midweek co-wash"),
     (r"^apply leave-in$",               "apply leave-in conditioner"),
@@ -121,7 +145,21 @@ _HUMANIZE_PATTERNS: list[tuple[str, str]] = [
     (r"^monthly hair review$",          "monthly hair check-in"),
     (r"^bloodwork check \(quarterly\)$", "bloodwork check (every 3 months)"),
 
-    # Bone / mewing
+    # Bone / mewing — pre-humanizer catalog titles (older user schedules)
+    (r"^mastic gum session$",           "chew mastic gum (12 min)"),
+    (r"^facial fascia / lymph — am$",   "AM facial massage"),
+    (r"^facial fascia / lymph — pm$",   "PM facial massage"),
+    (r"^facial fascia / lymph$",        "facial massage (lymph)"),
+    (r"^mewing — morning set$",         "morning mewing — 60 second hold"),
+    (r"^mewing — midday reset$",        "midday mewing reset"),
+    (r"^mewing — night set$",           "night mewing set"),
+    (r"^chin tucks bundle$",            "chin tucks — 10 reps"),
+    (r"^neck training — full session$", "neck training — full set"),
+    (r"^neck training — solo day$",     "neck training — solo day"),
+    (r"^vitamin d3 \+ k2 with food$",   "vitamin D3 + K2 with food"),
+    (r"^magnesium glycinate pm$",       "magnesium before bed"),
+    (r"^mastic gum — ramp set$",        "mastic gum — ramp"),
+    # New-style mewing titles
     (r"^mewing \(am set, (\d+)s\)$",    r"morning mewing — \1 second hold"),
     (r"^mewing reset \(midday, (\d+)s\)$", r"midday mewing reset (\1s)"),
     (r"^mewing \(night set\)$",         "night mewing set"),

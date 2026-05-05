@@ -3202,6 +3202,13 @@ class ScheduleService:
         return None
 
     def _schedule_to_dict(self, schedule: UserSchedule) -> dict:
+        # Humanize task titles on read so older schedules (generated before
+        # the humanizer landed, or before pattern X was added) get the
+        # friendly reminder-style rendering without requiring the user to
+        # regenerate. Idempotent — already-humanized titles pass through
+        # unchanged because their patterns no longer match.
+        days_raw = schedule.days or []
+        days_humanized = _humanize_titles_in_days(days_raw)
         d = {
             "id": str(schedule.id),
             "user_id": str(schedule.user_id),
@@ -3210,7 +3217,7 @@ class ScheduleService:
             "course_title": schedule.course_title,
             "module_number": schedule.module_number,
             "maxx_id": schedule.maxx_id,
-            "days": schedule.days or [],
+            "days": days_humanized,
             "preferences": schedule.preferences or {},
             "schedule_context": schedule.schedule_context or {},
             "is_active": schedule.is_active,
@@ -3218,6 +3225,45 @@ class ScheduleService:
             "adapted_count": schedule.adapted_count or 0,
         }
         return d
+
+
+def _humanize_titles_in_days(days: list[dict]) -> list[dict]:
+    """Walk every day's tasks and run titles through the validator's
+    _humanize_title so cached schedules from before the humanizer pattern
+    set was complete still render friendly. No-op for tasks with no
+    catalog_id, malformed titles, or titles that don't match a pattern.
+    """
+    try:
+        from services.schedule_validator import _humanize_title
+    except Exception:
+        return days
+    if not isinstance(days, list):
+        return days
+    out: list[dict] = []
+    for day in days:
+        if not isinstance(day, dict):
+            out.append(day)
+            continue
+        tasks_in = day.get("tasks") or []
+        tasks_out: list[dict] = []
+        for t in tasks_in:
+            if not isinstance(t, dict):
+                tasks_out.append(t)
+                continue
+            raw = t.get("title") or ""
+            if not raw:
+                tasks_out.append(t)
+                continue
+            try:
+                friendly = _humanize_title(raw)
+            except Exception:
+                friendly = raw
+            if friendly and friendly != raw:
+                tasks_out.append({**t, "title": friendly})
+            else:
+                tasks_out.append(t)
+        out.append({**day, "tasks": tasks_out})
+    return out
 
 
 schedule_service = ScheduleService()
