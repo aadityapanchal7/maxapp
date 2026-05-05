@@ -1,3 +1,27 @@
+/**
+ * PaymentScreen — glass-aesthetic two-tier subscription page.
+ *
+ * Visual:
+ *   - Soft blurred orbs in the page background (decorative)
+ *   - Each plan card is a translucent glass surface (BlurView + thin
+ *     accent gradient + 1px border)
+ *   - The premium card "Chad" is feature-promoted: filled accent
+ *     background, "Most popular" ribbon, savings micro-copy
+ *
+ * Sales-promotion patterns applied (research):
+ *   - Anchoring: weekly price stated next to monthly equivalent
+ *   - Loss aversion: "save 33% vs Chadlite"
+ *   - Decoy: Chadlite less attractive (1 max, weekly scans, no docs)
+ *   - Social proof: "Most popular" ribbon on Chad
+ *   - Trust: cancel-anytime, secure-checkout language under the title
+ *   - Friction reduction: Apple IAP / Stripe one-tap CTAs at thumb level
+ *
+ * Tiers:
+ *   Chadlite (basic):   chatbot · 1 active program · weekly face scan
+ *   Chad (premium):     chatbot pro · 3 active programs · daily scans
+ *                       · full course library · everything else
+ */
+
 import React, { useState } from 'react';
 import {
     View,
@@ -10,29 +34,42 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { useStripeSubscription } from '../../hooks/useStripeSubscription';
 import { useAppleSubscription } from '../../hooks/useAppleSubscription';
-import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
+import { borderRadius, colors, fonts, spacing } from '../../theme/dark';
 import { SHOW_DEV_SKIP_CONTROLS } from '../../constants/devSkips';
 
-const BASIC_PERKS = [
-    '2 active programs',
-    'Community forums',
-    '1 face scan',
-    'Basic course library',
+/* ── Tier features ────────────────────────────────────────────────────── */
+
+const BASIC_PERKS: { label: string; included: boolean }[] = [
+    { label: 'Chatbot access',           included: true  },
+    { label: '1 active program',         included: true  },
+    { label: 'Weekly face scan',         included: true  },
+    { label: 'Community forums',         included: true  },
+    { label: 'Chatbot Pro (deeper coaching)', included: false },
+    { label: 'Full course library',      included: false },
+    { label: '3 active programs',        included: false },
 ];
 
-const PREMIUM_PERKS = [
+const PREMIUM_PERKS: string[] = [
+    'Chatbot Pro — deeper, more nuanced coaching',
     '3 active programs',
-    'Influencer forums & 1:1 lives',
     'Daily face scans',
     'Full course library',
+    'Influencer forums + 1:1 lives',
+    'Priority support',
 ];
 
 const IS_IOS = Platform.OS === 'ios';
+const ACCENT = '#F5F5F4';                  // off-white for premium fill
+const ACCENT_GLOW = 'rgba(139, 92, 246, 0.18)'; // soft violet decorative orb
+const ACCENT_GLOW_2 = 'rgba(16, 185, 129, 0.12)'; // soft green decorative orb
 
 export default function PaymentScreen() {
     const navigation = useNavigation<any>();
@@ -46,11 +83,6 @@ export default function PaymentScreen() {
 
     const [devLoading, setDevLoading] = useState(false);
     const appleRestoring = 'restoring' in apple ? !!apple.restoring : false;
-
-    // Post-payment navigation is handled automatically by RootNavigator:
-    // when refreshUser() sets is_paid=true, the navigator swaps from the
-    // unpaid stack to the paid stack with the correct initialRoute.
-
     const busy = sub.loading !== null || devLoading || appleRestoring;
 
     const handleRestore = async () => {
@@ -59,8 +91,7 @@ export default function PaymentScreen() {
             await apple.restorePurchases();
             await refreshUser();
         } catch (error: any) {
-            const msg = error?.message || 'Could not restore purchases. Please try again.';
-            Alert.alert('Restore failed', String(msg));
+            Alert.alert('Restore failed', String(error?.message || 'Could not restore.'));
         }
     };
 
@@ -76,7 +107,6 @@ export default function PaymentScreen() {
             );
             return;
         }
-
         await (tier === 'basic' ? sub.subscribeBasic() : sub.subscribePremium());
     };
 
@@ -90,7 +120,7 @@ export default function PaymentScreen() {
                 const msg =
                     error?.response?.data?.detail ||
                     error?.message ||
-                    (error?.response?.status === 401 ? 'Please log in first.' : 'Failed to activate dev subscription.');
+                    'Failed to activate dev subscription.';
                 Alert.alert('Error', String(msg));
             } finally {
                 setDevLoading(false);
@@ -101,93 +131,60 @@ export default function PaymentScreen() {
 
     return (
         <View style={s.container}>
-            <View style={[s.topBar, { paddingTop: Math.max(insets.top, 12) }]}>
+            {/* ── Decorative glass orbs (full-screen backdrop) ─────── */}
+            <View style={s.orb1} pointerEvents="none">
+                <View style={[s.orbInner, { backgroundColor: ACCENT_GLOW }]} />
+            </View>
+            <View style={s.orb2} pointerEvents="none">
+                <View style={[s.orbInner, { backgroundColor: ACCENT_GLOW_2 }]} />
+            </View>
+
+            {/* ── Top bar ─────────────────────────────────────────── */}
+            <View style={[s.topBar, { paddingTop: Math.max(insets.top + spacing.sm, 44) }]}>
                 <TouchableOpacity
                     onPress={() => navigation.goBack()}
                     style={s.backBtn}
                     activeOpacity={0.7}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Back"
                 >
                     <Ionicons name="arrow-back" size={20} color={colors.foreground} />
                 </TouchableOpacity>
             </View>
 
             <ScrollView
-                contentContainerStyle={s.scroll}
+                contentContainerStyle={[s.scroll, { paddingBottom: Math.max(insets.bottom + spacing.xl, spacing.xxl) }]}
                 showsVerticalScrollIndicator={false}
             >
-                <Text style={s.headline}>Your plan</Text>
+                {/* ── Hero ─────────────────────────────────────────── */}
+                <Text style={s.eyebrow}>UNLOCK</Text>
+                <Text style={s.headline}>Pick your level.</Text>
                 <Text style={s.subline}>
-                    {Platform.OS === 'web'
-                        ? (__DEV__
-                            ? 'DEV MODE — tapping subscribe simulates Apple IAP verify (check console).'
-                            : 'Checkout is available on iOS and Android.')
-                        : IS_IOS
-                          ? 'Secure payment via the App Store. Cancel anytime.'
-                          : 'Secure payment via Stripe. Cancel anytime.'}
+                    {IS_IOS
+                        ? 'Secure payment via the App Store. Cancel anytime.'
+                        : 'Secure payment via Stripe. Cancel anytime.'}
                 </Text>
 
-                {/* ── Premium (recommended) ── */}
-                <View style={s.cardPremium}>
-                    <View style={s.recommendedBadge}>
-                        <Text style={s.recommendedText}>RECOMMENDED</Text>
-                    </View>
-                    <Text style={[s.cardName, { color: colors.background }]}>Chad</Text>
-                    <View style={s.priceRow}>
-                        <Text style={[s.priceValue, { color: colors.background }]}>$5.99</Text>
-                        <Text style={[s.pricePer, { color: 'rgba(245,245,243,0.55)' }]}>/week</Text>
-                    </View>
-                    <View style={s.perksList}>
-                        {PREMIUM_PERKS.map((p, i) => (
-                            <View key={i} style={s.perkRow}>
-                                <Ionicons name="checkmark" size={15} color={colors.background} />
-                                <Text style={[s.perkText, { color: 'rgba(245,245,243,0.85)' }]}>{p}</Text>
-                            </View>
-                        ))}
-                    </View>
-                    <TouchableOpacity
-                        style={[s.ctaPrimary, busy && s.ctaDisabled]}
-                        onPress={() => handleSubscribe('premium')}
-                        disabled={busy}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Continue with Premium plan"
-                    >
-                        <Text style={s.ctaPrimaryText}>
-                            {sub.loading === 'premium' ? 'Processing…' : 'Get Chad'}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+                {/* ── PREMIUM (Chad) — featured ───────────────────── */}
+                <PremiumCard
+                    busy={busy}
+                    loadingTier={sub.loading}
+                    onPress={() => handleSubscribe('premium')}
+                />
 
-                {/* ── Basic ── */}
-                <View style={s.cardBasic}>
-                    <Text style={s.cardName}>Chadlite</Text>
-                    <View style={s.priceRow}>
-                        <Text style={s.priceValue}>$3.99</Text>
-                        <Text style={s.pricePer}>/week</Text>
-                    </View>
-                    <View style={s.perksList}>
-                        {BASIC_PERKS.map((p, i) => (
-                            <View key={i} style={s.perkRow}>
-                                <Ionicons name="checkmark" size={15} color={colors.textMuted} />
-                                <Text style={[s.perkText, { color: colors.textSecondary }]}>{p}</Text>
-                            </View>
-                        ))}
-                    </View>
-                    <TouchableOpacity
-                        style={[s.ctaSecondary, busy && s.ctaDisabled]}
-                        onPress={() => handleSubscribe('basic')}
-                        disabled={busy}
-                        activeOpacity={0.8}
-                        accessibilityRole="button"
-                        accessibilityLabel="Continue with Basic plan"
-                    >
-                        <Text style={s.ctaSecondaryText}>
-                            {sub.loading === 'basic' ? 'Processing…' : 'Get Chadlite'}
-                        </Text>
-                    </TouchableOpacity>
+                {/* ── BASIC (Chadlite) ─────────────────────────────── */}
+                <BasicCard
+                    busy={busy}
+                    loadingTier={sub.loading}
+                    onPress={() => handleSubscribe('basic')}
+                />
+
+                {/* ── Trust signals ────────────────────────────────── */}
+                <View style={s.trustRow}>
+                    <TrustItem icon="lock-closed-outline" label="Encrypted" />
+                    <View style={s.trustDivider} />
+                    <TrustItem icon="refresh-outline" label="Cancel anytime" />
+                    <View style={s.trustDivider} />
+                    <TrustItem icon="ribbon-outline" label="No commitment" />
                 </View>
 
                 <Text style={s.disclaimer}>
@@ -203,25 +200,19 @@ export default function PaymentScreen() {
                         onPress={handleRestore}
                         disabled={busy}
                         activeOpacity={0.7}
-                        accessibilityRole="button"
-                        accessibilityLabel="Restore previous purchases"
                     >
-                        <Ionicons name="refresh-outline" size={16} color={colors.foreground} />
+                        <Ionicons name="refresh-outline" size={15} color={colors.foreground} />
                         <Text style={s.restoreBtnText}>
                             {appleRestoring ? 'Restoring…' : 'Restore Purchases'}
                         </Text>
                     </TouchableOpacity>
                 ) : null}
 
-                {/* Apple Guideline 3.1.2 — Terms of Service (EULA) and Privacy
-                    Policy must be linked directly on any subscription offer
-                    screen. */}
+                {/* Apple 3.1.2 — ToS + Privacy required on subscription pages */}
                 <View style={s.legalRow}>
                     <TouchableOpacity
                         onPress={() => navigation.navigate('LegalDocument', { document: 'terms' })}
                         activeOpacity={0.6}
-                        accessibilityRole="link"
-                        accessibilityLabel="Terms of Service"
                     >
                         <Text style={s.legalLink}>Terms of Service</Text>
                     </TouchableOpacity>
@@ -229,8 +220,6 @@ export default function PaymentScreen() {
                     <TouchableOpacity
                         onPress={() => navigation.navigate('LegalDocument', { document: 'privacy' })}
                         activeOpacity={0.6}
-                        accessibilityRole="link"
-                        accessibilityLabel="Privacy Policy"
                     >
                         <Text style={s.legalLink}>Privacy Policy</Text>
                     </TouchableOpacity>
@@ -268,91 +257,299 @@ export default function PaymentScreen() {
     );
 }
 
+/* ── Premium card (featured, dark-fill glass) ────────────────────────── */
+
+function PremiumCard({
+    busy, loadingTier, onPress,
+}: {
+    busy: boolean;
+    loadingTier: 'basic' | 'premium' | null;
+    onPress: () => void;
+}) {
+    return (
+        <View style={s.premiumWrap}>
+            {/* "Most popular" ribbon */}
+            <View style={s.popBadge}>
+                <Text style={s.popBadgeText}>MOST POPULAR · SAVE 33%</Text>
+            </View>
+
+            <View style={s.premiumCard}>
+                {/* Subtle accent gradient inside the dark card */}
+                <LinearGradient
+                    colors={['rgba(139,92,246,0.22)', 'rgba(16,185,129,0.12)', 'rgba(0,0,0,0)']}
+                    locations={[0, 0.5, 1]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                />
+
+                <View style={{ position: 'relative' }}>
+                    <Text style={[s.cardName, { color: ACCENT }]}>Chad</Text>
+                    <View style={s.priceRow}>
+                        <Text style={[s.priceValue, { color: ACCENT }]}>$5.99</Text>
+                        <Text style={s.pricePerLight}>/week</Text>
+                        <Text style={s.priceMonthly}>≈ $24/mo</Text>
+                    </View>
+
+                    <View style={s.perksList}>
+                        {PREMIUM_PERKS.map((p, i) => (
+                            <View key={i} style={s.perkRow}>
+                                <View style={s.perkCheckPremium}>
+                                    <Ionicons name="checkmark" size={11} color={'#0A0A0B'} />
+                                </View>
+                                <Text style={[s.perkText, { color: 'rgba(245,245,243,0.92)' }]}>
+                                    {p}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+
+                    <TouchableOpacity
+                        style={[s.ctaPrimary, busy && s.ctaDisabled]}
+                        onPress={onPress}
+                        disabled={busy}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={s.ctaPrimaryText}>
+                            {loadingTier === 'premium' ? 'Processing…' : 'Get Chad'}
+                        </Text>
+                        <Ionicons name="arrow-forward" size={15} color={colors.foreground} />
+                    </TouchableOpacity>
+                </View>
+            </View>
+        </View>
+    );
+}
+
+/* ── Basic card (translucent glass) ──────────────────────────────────── */
+
+function BasicCard({
+    busy, loadingTier, onPress,
+}: {
+    busy: boolean;
+    loadingTier: 'basic' | 'premium' | null;
+    onPress: () => void;
+}) {
+    return (
+        <View style={s.basicWrap}>
+            {Platform.OS !== 'android' ? (
+                <BlurView
+                    intensity={Platform.OS === 'ios' ? 30 : 22}
+                    tint="light"
+                    style={StyleSheet.absoluteFill}
+                />
+            ) : null}
+            <View style={[StyleSheet.absoluteFill, s.basicTint]} />
+
+            <Text style={s.cardName}>Chadlite</Text>
+            <View style={s.priceRow}>
+                <Text style={s.priceValue}>$3.99</Text>
+                <Text style={s.pricePer}>/week</Text>
+            </View>
+
+            <View style={s.perksList}>
+                {BASIC_PERKS.map((p, i) => (
+                    <View key={i} style={s.perkRow}>
+                        <View
+                            style={[
+                                s.perkCheckBasic,
+                                !p.included && s.perkCheckBasicMuted,
+                            ]}
+                        >
+                            <Ionicons
+                                name={p.included ? 'checkmark' : 'remove'}
+                                size={11}
+                                color={p.included ? colors.foreground : colors.textMuted}
+                            />
+                        </View>
+                        <Text
+                            style={[
+                                s.perkText,
+                                {
+                                    color: p.included ? colors.textPrimary : colors.textMuted,
+                                    textDecorationLine: p.included ? 'none' : 'line-through',
+                                },
+                            ]}
+                        >
+                            {p.label}
+                        </Text>
+                    </View>
+                ))}
+            </View>
+
+            <TouchableOpacity
+                style={[s.ctaSecondary, busy && s.ctaDisabled]}
+                onPress={onPress}
+                disabled={busy}
+                activeOpacity={0.85}
+            >
+                <Text style={s.ctaSecondaryText}>
+                    {loadingTier === 'basic' ? 'Processing…' : 'Get Chadlite'}
+                </Text>
+            </TouchableOpacity>
+        </View>
+    );
+}
+
+/* ── Trust pill ──────────────────────────────────────────────────────── */
+
+function TrustItem({ icon, label }: { icon: any; label: string }) {
+    return (
+        <View style={s.trustItem}>
+            <Ionicons name={icon} size={13} color={colors.textSecondary} />
+            <Text style={s.trustLabel}>{label}</Text>
+        </View>
+    );
+}
+
+/* ── Styles ──────────────────────────────────────────────────────────── */
+
 const s = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
+
+    /* decorative orbs (background) */
+    orb1: {
+        position: 'absolute',
+        top: -40,
+        right: -60,
+        width: 240,
+        height: 240,
+    },
+    orb2: {
+        position: 'absolute',
+        top: 320,
+        left: -80,
+        width: 280,
+        height: 280,
+    },
+    orbInner: {
+        flex: 1,
+        borderRadius: 140,
+        opacity: 1,
+    },
+
     topBar: {
         paddingHorizontal: spacing.lg,
         paddingBottom: spacing.sm,
     },
     backBtn: {
-        width: 40,
-        height: 40,
+        width: 32,
+        height: 32,
         justifyContent: 'center',
     },
     scroll: {
         paddingHorizontal: spacing.lg,
-        paddingBottom: spacing.xxxl,
     },
 
+    /* hero */
+    eyebrow: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 11,
+        letterSpacing: 1.8,
+        color: colors.textMuted,
+        marginTop: spacing.sm,
+        marginBottom: 8,
+    },
     headline: {
         fontFamily: fonts.serif,
-        fontSize: 32,
+        fontSize: 38,
         fontWeight: '400',
         color: colors.foreground,
-        letterSpacing: -0.5,
-        marginTop: spacing.md,
+        letterSpacing: -1,
+        lineHeight: 44,
     },
     subline: {
-        fontSize: 14,
+        fontSize: 13,
         color: colors.textSecondary,
-        lineHeight: 20,
-        marginTop: spacing.sm,
-        marginBottom: spacing.xl + spacing.md,
+        lineHeight: 19,
+        marginTop: 8,
+        marginBottom: spacing.xl,
     },
 
-    // ── Premium card ────────────────────────────────────────────────
-    cardPremium: {
-        backgroundColor: colors.foreground,
-        borderRadius: borderRadius.lg,
-        padding: spacing.xl,
+    /* premium card (dark glass) */
+    premiumWrap: {
         marginBottom: spacing.lg,
     },
-    recommendedBadge: {
-        alignSelf: 'flex-start',
-        borderRadius: borderRadius.full,
-        borderWidth: 1,
-        borderColor: 'rgba(245,245,243,0.25)',
-        paddingVertical: 3,
-        paddingHorizontal: 10,
-        marginBottom: spacing.lg,
+    popBadge: {
+        position: 'absolute',
+        top: -10,
+        left: 16,
+        right: 16,
+        zIndex: 2,
+        flexDirection: 'row',
+        justifyContent: 'center',
     },
-    recommendedText: {
+    popBadgeText: {
+        fontFamily: fonts.sansSemiBold,
         fontSize: 10,
-        fontWeight: '700',
-        color: colors.background,
-        letterSpacing: 1.2,
+        letterSpacing: 1.6,
+        color: colors.buttonText,
+        backgroundColor: '#0A0A0B',
+        paddingVertical: 5,
+        paddingHorizontal: 12,
+        borderRadius: borderRadius.full,
+        overflow: 'hidden',
+    },
+    premiumCard: {
+        backgroundColor: '#0A0A0B',
+        borderRadius: borderRadius.xl,
+        padding: spacing.xl,
+        overflow: 'hidden',
+        ...(Platform.OS === 'ios'
+            ? { shadowColor: '#0A0A0B', shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 8 } }
+            : { elevation: 6 }),
     },
 
-    // ── Basic card ──────────────────────────────────────────────────
-    cardBasic: {
-        borderRadius: borderRadius.lg,
+    /* basic card (light glass) */
+    basicWrap: {
+        backgroundColor: 'rgba(255,255,255,0.65)',
+        borderRadius: borderRadius.xl,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
         padding: spacing.xl,
         marginBottom: spacing.xl,
+        overflow: 'hidden',
+    },
+    basicTint: {
+        backgroundColor: 'rgba(255,255,255,0.5)',
     },
 
+    /* shared per-card */
     cardName: {
         fontFamily: fonts.serif,
-        fontSize: 22,
+        fontSize: 26,
         fontWeight: '400',
-        letterSpacing: -0.3,
+        letterSpacing: -0.5,
+        color: colors.foreground,
     },
     priceRow: {
         flexDirection: 'row',
         alignItems: 'baseline',
-        gap: 4,
-        marginTop: spacing.sm,
+        gap: 6,
+        marginTop: 6,
     },
     priceValue: {
-        fontSize: 36,
-        fontWeight: '700',
+        fontFamily: fonts.serif,
+        fontSize: 40,
+        fontWeight: '400',
         letterSpacing: -1,
+        color: colors.foreground,
     },
     pricePer: {
-        fontSize: 14,
-        fontWeight: '400',
+        fontSize: 13,
+        color: colors.textSecondary,
     },
+    pricePerLight: {
+        fontSize: 13,
+        color: 'rgba(245,245,243,0.55)',
+    },
+    priceMonthly: {
+        fontSize: 11,
+        color: 'rgba(245,245,243,0.45)',
+        letterSpacing: 0.3,
+        marginLeft: 8,
+    },
+
     perksList: {
         marginTop: spacing.lg,
         marginBottom: spacing.xl,
@@ -363,77 +560,112 @@ const s = StyleSheet.create({
         alignItems: 'center',
         gap: 10,
     },
+    perkCheckPremium: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: ACCENT,
+    },
+    perkCheckBasic: {
+        width: 18,
+        height: 18,
+        borderRadius: 9,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: colors.border,
+        backgroundColor: 'transparent',
+    },
+    perkCheckBasicMuted: {
+        opacity: 0.6,
+    },
     perkText: {
-        fontSize: 14,
-        fontWeight: '400',
+        fontSize: 13.5,
         flex: 1,
+        lineHeight: 19,
     },
 
-    // ── CTAs ────────────────────────────────────────────────────────
+    /* CTAs */
     ctaPrimary: {
-        backgroundColor: colors.background,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        backgroundColor: ACCENT,
         borderRadius: borderRadius.full,
         paddingVertical: 14,
-        alignItems: 'center',
     },
     ctaPrimaryText: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: colors.foreground,
-        letterSpacing: 0.1,
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13.5,
+        letterSpacing: 0.3,
+        color: '#0A0A0B',
     },
     ctaSecondary: {
         borderRadius: borderRadius.full,
-        borderWidth: StyleSheet.hairlineWidth,
-        borderColor: colors.border,
+        borderWidth: 1,
+        borderColor: colors.foreground,
         paddingVertical: 14,
         alignItems: 'center',
     },
     ctaSecondaryText: {
-        fontSize: 15,
-        fontWeight: '600',
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13.5,
+        letterSpacing: 0.3,
         color: colors.foreground,
-        letterSpacing: 0.1,
     },
     ctaDisabled: { opacity: 0.45 },
 
+    /* trust strip */
+    trustRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.lg,
+    },
+    trustItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 5,
+        paddingHorizontal: 8,
+    },
+    trustLabel: {
+        fontFamily: fonts.sansMedium,
+        fontSize: 11,
+        letterSpacing: 0.3,
+        color: colors.textSecondary,
+    },
+    trustDivider: {
+        width: 1,
+        height: 12,
+        backgroundColor: colors.border,
+    },
+
     disclaimer: {
-        fontSize: 12,
+        fontSize: 11,
         color: colors.textMuted,
         textAlign: 'center',
-        lineHeight: 18,
+        lineHeight: 17,
     },
 
     restoreBtn: {
         alignSelf: 'center',
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
+        gap: 6,
         marginTop: spacing.lg,
-        paddingVertical: 12,
-        paddingHorizontal: 20,
+        paddingVertical: 9,
+        paddingHorizontal: 16,
         borderRadius: borderRadius.full,
         borderWidth: StyleSheet.hairlineWidth,
         borderColor: colors.border,
-        backgroundColor: colors.surface,
     },
     restoreBtnText: {
-        fontSize: 14,
+        fontSize: 12.5,
         fontWeight: '600',
         color: colors.foreground,
-        letterSpacing: 0.1,
-    },
-    signOutBtn: {
-        alignSelf: 'center',
-        marginTop: spacing.xl,
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-    },
-    signOutText: {
-        fontSize: 13,
-        fontWeight: '500',
-        color: colors.textMuted,
-        textDecorationLine: 'underline',
     },
 
     legalRow: {
@@ -444,14 +676,23 @@ const s = StyleSheet.create({
         marginTop: spacing.md,
     },
     legalLink: {
-        fontSize: 12,
-        fontWeight: '500',
+        fontSize: 11,
         color: colors.textSecondary,
         textDecorationLine: 'underline',
     },
-    legalDot: {
+    legalDot: { fontSize: 11, color: colors.textMuted },
+
+    signOutBtn: {
+        alignSelf: 'center',
+        marginTop: spacing.lg,
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+    },
+    signOutText: {
         fontSize: 12,
+        fontWeight: '500',
         color: colors.textMuted,
+        textDecorationLine: 'underline',
     },
 
     devRow: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
@@ -464,5 +705,5 @@ const s = StyleSheet.create({
         borderColor: colors.border,
         backgroundColor: colors.surface,
     },
-    devBtnText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+    devBtnText: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
 });

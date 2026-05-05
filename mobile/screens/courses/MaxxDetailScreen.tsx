@@ -150,7 +150,7 @@ export default function MaxxDetailScreen() {
     const activeLabels = activeSummaryQuery.data?.labels ?? [];
 
     const loading = !!maxxId && maxxQuery.isPending && !maxxQuery.data;
-    const maxActiveModules = isPremium ? 3 : 2;
+    const maxActiveModules = isPremium ? 3 : 1;
     const atLimit = !activeSchedule && activeCount >= maxActiveModules;
 
     /* Course reader (full-screen modal pager). null = closed. */
@@ -461,7 +461,14 @@ export default function MaxxDetailScreen() {
                 )}
 
                 {courseDef ? (
-                    <CourseTOC course={courseDef} onOpenSection={openReaderAt} />
+                    isPremium ? (
+                        <CourseTOC course={courseDef} onOpenSection={openReaderAt} />
+                    ) : (
+                        <CourseLockedCard
+                            accent={accent}
+                            onUpgrade={() => navigation.navigate('Payment')}
+                        />
+                    )
                 ) : null}
 
                 {/* Legacy MODULES list — only render for maxxes that
@@ -580,6 +587,37 @@ export default function MaxxDetailScreen() {
     );
 }
 
+/* ── Locked-course card for Chadlite users ──────────────────────────── */
+
+function CourseLockedCard({
+    accent, onUpgrade,
+}: {
+    accent: string;
+    onUpgrade: () => void;
+}) {
+    return (
+        <View style={styles.lockedCard}>
+            <View style={[styles.lockedIcon, { backgroundColor: `${accent}1F` }]}>
+                <Ionicons name="lock-closed-outline" size={20} color={accent} />
+            </View>
+            <Text style={styles.lockedTitle}>Course library is Chad-only</Text>
+            <Text style={styles.lockedSubtitle}>
+                Chadlite gives you the chatbot, 1 active program, and weekly
+                face scans. Upgrade to Chad to unlock all chapters across every
+                module + daily face scans.
+            </Text>
+            <TouchableOpacity
+                style={[styles.lockedCta, { backgroundColor: accent }]}
+                onPress={onUpgrade}
+                activeOpacity={0.85}
+            >
+                <Text style={styles.lockedCtaText}>Upgrade to Chad</Text>
+                <Ionicons name="arrow-forward" size={15} color={colors.buttonText} />
+            </TouchableOpacity>
+        </View>
+    );
+}
+
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     center: { justifyContent: 'center', alignItems: 'center' },
@@ -651,6 +689,56 @@ const styles = StyleSheet.create({
     scrollContent: { padding: spacing.lg, paddingBottom: spacing.xxxl },
     description: { fontSize: 15, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.xl },
     sectionLabel: { ...typography.label, marginBottom: spacing.md },
+
+    /* Locked course (Chadlite) */
+    lockedCard: {
+        marginTop: spacing.md,
+        marginBottom: spacing.xl,
+        padding: spacing.xl,
+        borderRadius: borderRadius.xl,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
+        backgroundColor: colors.card,
+        alignItems: 'flex-start',
+    },
+    lockedIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: spacing.md,
+    },
+    lockedTitle: {
+        fontFamily: fonts.serif,
+        fontSize: 22,
+        fontWeight: '400',
+        letterSpacing: -0.4,
+        color: colors.foreground,
+        marginBottom: 6,
+    },
+    lockedSubtitle: {
+        ...typography.bodySmall,
+        color: colors.textSecondary,
+        lineHeight: 19,
+        marginBottom: spacing.lg,
+    },
+    lockedCta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingHorizontal: 22,
+        paddingVertical: 11,
+        borderRadius: borderRadius.full,
+        alignSelf: 'flex-start',
+    },
+    lockedCtaText: {
+        fontFamily: fonts.sansSemiBold,
+        fontSize: 13,
+        letterSpacing: 0.3,
+        color: colors.buttonText,
+    },
     pillWrap: {
         flexDirection: 'row',
         flexWrap: 'wrap',

@@ -147,18 +147,46 @@ async def upload_scan_triple(
     tier = (current_user.get("subscription_tier") or "").lower()
     is_premium = is_paid and tier == "premium"
 
+    # Tier-based scan rate limiting
+    #   Scan-user (admin/internal): unlimited
+    #   Free (not paid):  1 lifetime
+    #   Chadlite (basic): 1 per ROLLING 7-DAY WINDOW (weekly)
+    #   Chad (premium):   1 per UTC DAY (daily)
     if is_scan_user:
-        pass  # unlimited scans, no limits
+        pass
     elif not is_paid:
-        if user_row and user_row.first_scan_completed:
-            raise HTTPException(status_code=400, detail="You have already completed your free face scan. Subscribe to scan again.")
-    elif not is_premium:
         if user_row and user_row.first_scan_completed:
             raise HTTPException(
                 status_code=400,
-                detail="Basic includes one face scan. Upgrade to Premium for daily scans.",
+                detail="You have already completed your free face scan. Subscribe to scan again.",
+            )
+    elif not is_premium:
+        # Chadlite — once per rolling 7-day window
+        now = datetime.utcnow()
+        week_start = now - timedelta(days=7)
+        recent_res = await db.execute(
+            select(Scan.id, Scan.created_at)
+            .where(Scan.user_id == user_uuid)
+            .where(Scan.created_at >= week_start)
+            .where(Scan.processing_status != "failed")
+            .order_by(Scan.created_at.desc())
+            .limit(1)
+        )
+        recent_row = recent_res.first()
+        if recent_row:
+            last_scan_at = recent_row[1]
+            next_at = last_scan_at + timedelta(days=7)
+            wait_days = max(1, (next_at - now).days + 1)
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"Chadlite includes 1 face scan per week. "
+                    f"Try again in ~{wait_days} day{'s' if wait_days != 1 else ''}, "
+                    f"or upgrade to Chad for daily scans."
+                ),
             )
     else:
+        # Chad — once per UTC day
         now = datetime.utcnow()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         day_end = day_start + timedelta(days=1)
@@ -171,7 +199,10 @@ async def upload_scan_triple(
             .limit(1)
         )
         if today_res.first():
-            raise HTTPException(status_code=429, detail="You already completed a face scan today. Try again tomorrow.")
+            raise HTTPException(
+                status_code=429,
+                detail="You already completed a face scan today. Try again tomorrow.",
+            )
 
     onboarding_ctx = json.dumps(user_row.onboarding or {}, default=str) if user_row else "{}"
 
