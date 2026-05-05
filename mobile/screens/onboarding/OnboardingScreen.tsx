@@ -166,7 +166,11 @@ export default function OnboardingScreen() {
                 weight_kg: weightKg,
             });
             await refreshUser();
-            navigation.reset({ index: 0, routes: [{ name: 'PaymentEntry' }] });
+            // Restore the original pre-pay flow:
+            //   Onboarding → FeaturesIntro → FaceScan → FaceScanResults → Payment.
+            // Only the *questions* on this screen were meant to change; the
+            // post-onboarding sequence stays intact.
+            navigation.reset({ index: 0, routes: [{ name: 'FeaturesIntro' }] });
         } catch (e: any) {
             console.error('onboarding save failed', e);
             setSubmitting(false);

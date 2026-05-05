@@ -117,10 +117,17 @@ def format_recent_turns(
 
 # Onboarding keys we surface in the profile block. Skipping noisy ones
 # (e.g. timezone offsets, raw enum integers) keeps the prompt readable.
+#
+# `height_cm` / `weight_kg` are the canonical fields the new onboarding
+# stores; existing prompts read these. `priority_ranking` is the new
+# field — an ordered list of maxx ids (#1 → #5) that tells the bot what
+# the user cares about most, which we render specially below.
 _ONBOARDING_KEYS_OF_INTEREST = (
     ("gender", "gender"),
     ("age", "age"),
     ("dob", "date of birth"),
+    ("height_cm", "height (cm)"),
+    ("weight_kg", "weight (kg)"),
     ("location", "location"),
     ("climate", "climate"),
     ("wake_time", "wakes around"),
@@ -130,6 +137,17 @@ _ONBOARDING_KEYS_OF_INTEREST = (
     ("goal", "goal"),
     ("primary_goal", "primary goal"),
 )
+
+# Maxx-id → human label map for the priority block. Mirrors the labels
+# in mobile/screens/onboarding/OnboardingScreen.tsx so the bot reads the
+# same vocabulary the user picked from.
+_PRIORITY_LABELS = {
+    "skinmax":   "skin",
+    "hairmax":   "hair",
+    "fitmax":    "physique",
+    "bonemax":   "facial structure",
+    "heightmax": "height / posture",
+}
 
 
 def format_user_profile(
@@ -178,6 +196,19 @@ def format_user_profile(
         onboarding_lines.append(f"- {label}: {v}")
     if onboarding_lines:
         sections.append("Onboarding:\n" + "\n".join(onboarding_lines))
+
+    # --- Priority ranking (what the user cares about most) ---------------
+    # Authored at onboarding time as an ordered list of maxx ids.
+    # Surface as a numbered list so the bot can weight recommendations
+    # toward the user's top priorities.
+    priority = onboarding.get("priority_ranking")
+    if isinstance(priority, list) and priority:
+        ranked: list[str] = []
+        for i, raw in enumerate(priority[:5], start=1):
+            key = str(raw).strip().lower()
+            label = _PRIORITY_LABELS.get(key, key)
+            ranked.append(f"  {i}. {label}")
+        sections.append("Priority (highest first):\n" + "\n".join(ranked))
 
     # --- Other persistent context (light touch) --------------------------
     if persistent_ctx:
