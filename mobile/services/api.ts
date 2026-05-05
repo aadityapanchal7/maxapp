@@ -964,6 +964,21 @@ class ApiService {
         return response.data as {
             conversation_id: string | null;
             messages: Array<{ role: 'user' | 'assistant'; content: string; created_at: string }>;
+            pending_question?: {
+                max: string;
+                field_id: string;
+                text: string;
+                choices: string[];
+                input_widget?: {
+                    type: 'slider';
+                    min: number;
+                    max: number;
+                    step: number;
+                    default: number;
+                    label: string;
+                    unit?: string;
+                } | null;
+            } | null;
         };
     }
 

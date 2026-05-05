@@ -150,12 +150,16 @@ export function useChatHistoryQuery(conversationId?: string | null) {
             ? queryKeys.chatHistoryByConv(conversationId)
             : queryKeys.chatHistory,
         queryFn: async () => {
-            const { messages, conversation_id } = await api.getChatHistory({
+            const { messages, conversation_id, pending_question } = await api.getChatHistory({
                 limit: 80,
                 offset: 0,
                 conversationId: conversationId ?? null,
             });
-            return { messages: messages ?? [], conversationId: conversation_id ?? null };
+            return {
+                messages: messages ?? [],
+                conversationId: conversation_id ?? null,
+                pendingQuestion: pending_question ?? null,
+            };
         },
         staleTime: STALE_CHAT_HISTORY_MS,
     });

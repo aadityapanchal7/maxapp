@@ -55,10 +55,11 @@ export default function MaxChatScreen() {
     useEffect(() => {
         if (!chatHistoryQuery.isSuccess) return;
         const data = chatHistoryQuery.data;
-        // data shape was Message[] pre-multi-chat; now {messages, conversationId}.
+        // data shape was Message[] pre-multi-chat; now {messages, conversationId, pendingQuestion}.
         const msgs: Message[] = Array.isArray(data) ? data : data?.messages ?? [];
         const resolvedId: string | null =
             Array.isArray(data) ? null : data?.conversationId ?? null;
+        const pendingQ = Array.isArray(data) ? null : (data?.pendingQuestion ?? null);
 
         // Seed once per conversation. Avoids wiping in-flight optimistic turns
         // when React Query refetches without a thread change.
@@ -70,6 +71,19 @@ export default function MaxChatScreen() {
         setHistoryReady(true);
         if (!activeConversationId && resolvedId) {
             setActiveConversationId(resolvedId);
+        }
+
+        // Re-render the chip / slider widget for any in-flight onboarding
+        // question. Without this, the question text stays in the transcript
+        // but the answer-chooser disappears on reload, leaving the user no
+        // way to tap an option without re-typing.
+        if (pendingQ) {
+            if (Array.isArray(pendingQ.choices) && pendingQ.choices.length > 0) {
+                setServerChoices(pendingQ.choices);
+            }
+            if (pendingQ.input_widget && pendingQ.input_widget.type === 'slider') {
+                setInputWidget(pendingQ.input_widget as SliderSpec);
+            }
         }
     }, [chatHistoryQuery.isSuccess, chatHistoryQuery.data, activeConversationId, seededForConversation]);
 

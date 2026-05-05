@@ -35,11 +35,22 @@ class ScheduleLimitError(Exception):
 
 async def _enforce_active_schedule_limit(
     *, user_id: str, db: AsyncSession, replacing_maxx_id: str, subscription_tier: str | None,
-    cap: int = 2,
+    cap: int | None = None,
 ) -> None:
-    """Allow up to `cap` active schedules. If at cap and not replacing one
-    of them, raise ScheduleLimitError. (Legacy schedule_service has its own
-    tier-aware version — this is a simpler fallback.)"""
+    """Allow up to N active schedules where N depends on tier:
+        Chad (premium): 3
+        Chadlite (basic) / unpaid: 2
+    Caller can override by passing `cap` explicitly. Mirrors
+    schedule_service.MAX_ACTIVE_SCHEDULES_{BASIC,PREMIUM}.
+    """
+    if cap is None:
+        from services.schedule_service import (
+            MAX_ACTIVE_SCHEDULES_BASIC,
+            MAX_ACTIVE_SCHEDULES_PREMIUM,
+        )
+        tier = (subscription_tier or "").lower()
+        cap = MAX_ACTIVE_SCHEDULES_PREMIUM if tier == "premium" else MAX_ACTIVE_SCHEDULES_BASIC
+
     user_uuid = UUID(user_id)
     res = await db.execute(
         select(UserSchedule).where(

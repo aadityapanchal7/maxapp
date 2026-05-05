@@ -1744,6 +1744,30 @@ def _persist_chat_history(channel: str) -> bool:
 _BACKGROUND_TASKS: set = set()
 
 
+# --------------------------------------------------------------------------- #
+#  Per-user chat serialization                                                #
+# --------------------------------------------------------------------------- #
+# A user firing two messages in quick succession used to race — both ran
+# concurrently and the slower reply could land AFTER the faster one,
+# producing the "I asked X, got an unrelated answer to my earlier
+# message" bug. Lock every chat turn behind a per-user asyncio.Lock so
+# only one in-flight processing pass exists per user. The waiter is held
+# in the event loop, so the second request still gets a response — just
+# strictly after the first finishes.
+import asyncio as _asyncio_chat_lock  # local alias to keep imports tidy
+_CHAT_LOCKS: dict[str, _asyncio_chat_lock.Lock] = {}
+_CHAT_LOCKS_GUARD: _asyncio_chat_lock.Lock = _asyncio_chat_lock.Lock()
+
+
+async def _get_user_chat_lock(user_id: str) -> _asyncio_chat_lock.Lock:
+    async with _CHAT_LOCKS_GUARD:
+        lock = _CHAT_LOCKS.get(user_id)
+        if lock is None:
+            lock = _asyncio_chat_lock.Lock()
+            _CHAT_LOCKS[user_id] = lock
+        return lock
+
+
 def _spawn_background_task(coro) -> None:
     """Fire-and-forget a coroutine off the request's critical path."""
     task = asyncio.create_task(coro)
@@ -4025,6 +4049,25 @@ async def send_message(
 
     user_id = current_user["id"]
 
+    # Per-user serialization. Two concurrent requests for the same user
+    # would otherwise race and reply out-of-order. Wait for any in-flight
+    # turn to finish before processing this one.
+    user_lock = await _get_user_chat_lock(user_id)
+    async with user_lock:
+        return await _send_message_locked(data, background_tasks, current_user, db, rds_db)
+
+
+async def _send_message_locked(
+    data: "ChatRequest",
+    background_tasks: BackgroundTasks,
+    current_user: dict,
+    db: AsyncSession,
+    rds_db: AsyncSession | None,
+) -> "ChatResponse":
+    from services import chat_conversations_service as _conv
+
+    user_id = current_user["id"]
+
     # Tier 0 — passive fact extraction. Catches vegetarian/allergic-to/lives-in/
     # weighs-X/has-eczema/etc. and merges into user_schedule_context.user_facts.
     # Pure regex, ~1ms, never blocks or returns a reply — just builds the
@@ -4238,12 +4281,53 @@ async def get_chat_history(
             .limit(limit)
     )
     rows = list(reversed(result.scalars().all()))
+
+    # If the user has an in-flight doc-driven onboarding (e.g. they
+    # answered question 1 of HairMax then closed the app), surface the
+    # NEXT question's chips / input_widget alongside the history so the
+    # mobile UI can re-render the answer chooser. Without this, the
+    # question text shows in the transcript but the chip row underneath
+    # disappears on reload — the user has to type or wait for a re-ask.
+    pending_question: Optional[dict] = None
+    try:
+        from services.onboarding_questioner import (
+            get_pending,
+            peek_next_question,
+            field_to_question_payload,
+        )
+        from services.user_context_service import get_context, merged_user_state
+        from services.task_catalog_service import is_loaded, warm_catalog, get_doc
+
+        if not is_loaded():
+            await warm_catalog()
+
+        user_obj = await db.get(User, user_uuid)
+        onboarding = dict(getattr(user_obj, "onboarding", {}) or {})
+        persistent = await get_context(user_id, db)
+        state = merged_user_state(onboarding, persistent)
+        pending = get_pending(state)
+        if pending and get_doc(pending.get("max", "")):
+            next_field = peek_next_question(pending["max"], state)
+            if next_field is not None:
+                payload = field_to_question_payload(next_field)
+                pending_question = {
+                    "max": pending["max"],
+                    "field_id": next_field.get("id"),
+                    "text": payload.get("text"),
+                    "choices": payload.get("choices") or [],
+                    "input_widget": payload.get("input_widget"),
+                }
+    except Exception as _e:
+        logger.warning("history pending-question hydrate failed: %s", _e)
+        pending_question = None
+
     return {
         "conversation_id": str(target_conv.id) if target_conv else None,
         "messages": [
             {"role": r.role, "content": r.content, "created_at": r.created_at}
             for r in rows
         ],
+        "pending_question": pending_question,
     }
 
 
