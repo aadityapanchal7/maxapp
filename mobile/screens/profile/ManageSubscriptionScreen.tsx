@@ -9,17 +9,17 @@ import { useAppleSubscription } from '../../hooks/useAppleSubscription';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 
 const BASIC_FEATURES = [
-    'Up to 2 maxxes active',
-    'Community forums',
-    '1 face scan total (not daily)',
-    'Basic course library',
+    'Chatbot access',
+    '1 active program',
+    'Weekly face scan',
 ];
 
 const PREMIUM_FEATURES = [
-    'Up to 3 maxxes active',
-    'Exclusive forums with influencers',
+    'Chatbot Pro — deeper, more nuanced coaching',
+    '3 active programs',
     'Daily face scans',
     'Full course library',
+    'Priority support',
 ];
 
 function formatPeriodEnd(iso: string | null | undefined): string | null {
@@ -120,7 +120,7 @@ export default function ManageSubscriptionScreen() {
             tier: 'basic' as const,
             name: 'Chadlite',
             tag: 'Core access',
-            sub: 'Essential maxxes, forums, and one included face scan (not daily).',
+            sub: 'Chatbot, one active program, and a weekly face scan.',
             features: BASIC_FEATURES,
             price: '$3.99',
         },
@@ -128,7 +128,7 @@ export default function ManageSubscriptionScreen() {
             tier: 'premium' as const,
             name: 'Chad',
             tag: 'Full stack',
-            sub: 'Influencer access, daily scans, and the full library.',
+            sub: 'Deeper coaching, daily scans, and the full library.',
             features: PREMIUM_FEATURES,
             price: '$5.99',
         },
@@ -183,7 +183,7 @@ export default function ManageSubscriptionScreen() {
     const confirmDowngrade = () => {
         Alert.alert(
             'Switch to Basic?',
-            "You'll lose Premium benefits (extra maxxes on Home, daily face scans, premium forums). Stripe may credit or charge a prorated difference.",
+            "You'll lose Premium benefits (extra programs, daily face scans, full course library). Stripe may credit or charge a prorated difference.",
             [
                 { text: 'Keep Premium', style: 'cancel' },
                 { text: 'Switch to Basic', style: 'destructive', onPress: () => void runChangeTier('basic') },

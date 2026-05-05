@@ -51,10 +51,6 @@ const BASIC_PERKS: { label: string; included: boolean }[] = [
     { label: 'Chatbot access',           included: true  },
     { label: '1 active program',         included: true  },
     { label: 'Weekly face scan',         included: true  },
-    { label: 'Community forums',         included: true  },
-    { label: 'Chatbot Pro (deeper coaching)', included: false },
-    { label: 'Full course library',      included: false },
-    { label: '3 active programs',        included: false },
 ];
 
 const PREMIUM_PERKS: string[] = [
@@ -157,11 +153,6 @@ export default function PaymentScreen() {
                 {/* ── Hero ─────────────────────────────────────────── */}
                 <Text style={s.eyebrow}>UNLOCK</Text>
                 <Text style={s.headline}>Pick your level.</Text>
-                <Text style={s.subline}>
-                    {IS_IOS
-                        ? 'Secure payment via the App Store. Cancel anytime.'
-                        : 'Secure payment via Stripe. Cancel anytime.'}
-                </Text>
 
                 {/* ── PREMIUM (Chad) — featured ───────────────────── */}
                 <PremiumCard
