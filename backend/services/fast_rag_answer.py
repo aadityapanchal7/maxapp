@@ -707,6 +707,104 @@ def _looks_truncated_output(text: str) -> bool:
     return False
 
 
+async def _answer_from_web(
+    *,
+    message: str,
+    user_context_str: Optional[str] = None,
+    response_length: Optional[str] = None,
+    user_facts: Optional[dict] = None,
+    user_profile: Optional[str] = None,
+    coaching_tone: Optional[str] = None,
+) -> str:
+    """Last-resort failsafe: when both targeted and broad RAG return nothing,
+    fetch web snippets and ground a Max-voiced answer in them.
+
+    Returns "" on web-search failure or empty results — caller falls through
+    to the strict miss message.
+    """
+    from services.web_search import search as _web_search
+
+    web_blob = await _web_search(message, max_results=3)
+    if not web_blob or web_blob.startswith("(no web results") or web_blob.startswith("(web search"):
+        return ""
+
+    persona_prompt = resolve_prompt(PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT)
+    web_suffix = """
+
+## WEB EVIDENCE MODE (failsafe)
+The user asked something the loaded module docs don't cover. Fresh web
+snippets are provided below. Treat them as your evidence — ground the
+answer in them, but rewrite in Max's voice (lowercase, direct, short).
+
+ABSOLUTE RULES — these are user-visible product issues if violated:
+- NEVER mention "web search", "search results", "web", "internet",
+  "snippets", "according to [site]", or any phrase that surfaces the
+  retrieval system. The user does not know the docs ran out — just
+  answer the question.
+- NEVER say "no protocol on file", "i don't have that on file",
+  "module docs", "knowledge base", or anything similar.
+- NEVER copy URLs into the answer. NEVER cite sources. NEVER use
+  [source: ...] markers.
+- NEVER refuse, hedge, or push to a professional unless the question
+  is genuinely medical/diagnostic.
+
+ANSWER QUALITY:
+- Specific numbers when available (sets x reps, %, mg, minutes).
+- Pick the single most evidence-backed approach if the snippets disagree.
+- Lowercase, direct, short. No motivational closing. No filler intro.
+- Use any user context provided to personalize."""
+
+    system_prompt = persona_prompt + _length_suffix(response_length) + web_suffix
+
+    logger.info(
+        "[fast_rag] web-search failsafe fired: msg=%r snippets=%d",
+        (message or "")[:120], web_blob.count("\n\n") + 1,
+    )
+
+    length_key = _effective_response_length(message, response_length)
+    max_tokens = 180 if length_key == "concise" else 1000 if length_key == "detailed" else 700
+    llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.3)
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    facts_block = ""
+    if user_facts:
+        try:
+            from services.user_facts_service import format_facts_for_prompt
+            facts_str = format_facts_for_prompt(user_facts)
+            if facts_str:
+                facts_block = f"KNOWN USER FACTS (filter recommendations through these):\n{facts_str}\n\n"
+        except Exception:
+            facts_block = ""
+
+    profile_block = ""
+    if user_profile:
+        profile_block = user_profile.strip() + "\n\n"
+
+    context_block = ""
+    if user_context_str:
+        context_block = (
+            f"USER CONTEXT (use this to personalize the answer):\n"
+            f"{user_context_str.strip()}\n\n"
+        )
+
+    human = (
+        f"{facts_block}"
+        f"{profile_block}"
+        f"{context_block}"
+        f"WEB EVIDENCE (do not mention this block exists):\n{web_blob}\n\n"
+        f"User question:\n{message.strip()}"
+    )
+    try:
+        resp = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
+        text = getattr(resp, "content", resp)
+        if isinstance(text, list):
+            text = "\n".join(str(x) for x in text)
+        return _scrub_leakage(str(text or "").strip())
+    except Exception as e:
+        logger.warning("fast rag web-search failsafe failed: %s", e)
+        return ""
+
+
 async def answer_from_rag(
     *,
     message: str,
@@ -792,9 +890,24 @@ async def answer_from_rag(
             )
             return answer, broad
 
-    # Tier 3: nothing in any index — strict evidence-only fallback.
+    # Tier 2.5: web-search failsafe. If both targeted and broad RAG missed,
+    # try a live web fetch before falling to the strict miss copy. Common case:
+    # user asks about a brand-new ingredient / product / news item the docs
+    # don't cover yet. Better to ground in fresh snippets than to refuse.
+    web_answer = await _answer_from_web(
+        message=message,
+        user_context_str=user_context_str,
+        response_length=response_length,
+        user_facts=user_facts,
+        user_profile=user_profile,
+        coaching_tone=coaching_tone,
+    )
+    if web_answer and not _looks_like_template_response(web_answer):
+        return web_answer, []
+
+    # Tier 3: nothing in any index AND web search failed — strict miss.
     logger.info(
-        "[fast_rag] all retrieval exhausted; returning evidence-only miss (msg=%r)",
+        "[fast_rag] all retrieval + web exhausted; returning miss copy (msg=%r)",
         (message or "")[:120],
     )
     return "i don't have that in the course material yet.", broad if broad else []
