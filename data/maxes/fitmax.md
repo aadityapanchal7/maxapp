@@ -76,6 +76,44 @@ schedule_design:
         cadence: daily
         if: "days_per_week >= 4 or daily_activity_level == very_active"
         tasks: [fit.hydration_check]
+      # --- Density layer: real-routine pieces a coach actually programs ---
+      - id: mobility_warmup
+        slot: am_active
+        cadence: n_per_week=3
+        if: "experience_level in [intermediate, advanced] or injury_history != none"
+        tasks: [fit.mobility_warmup]
+      - id: sleep_priority
+        slot: pm_close
+        cadence: daily
+        if: "sleep_hours < 8"
+        tasks: [fit.sleep_cue]
+      - id: protein_check_lunch
+        slot: midday
+        cadence: daily
+        if: "nutrition_tracking_pref in [full_track, portion_only]"
+        tasks: [fit.protein_check]
+      - id: stretch_pm
+        slot: pm_close
+        cadence: n_per_week=4
+        tasks: [fit.stretch_pm]
+      - id: weekly_review
+        slot: midday
+        cadence: every_n_days=7
+        tasks: [fit.weekly_review]
+      - id: monthly_review_fit
+        slot: midday
+        cadence: every_n_days=30
+        tasks: [fit.monthly_review]
+      - id: form_check
+        slot: pm_active
+        cadence: n_per_week=1
+        if: "experience_level == beginner"
+        tasks: [fit.form_check]
+      - id: creatine_daily
+        slot: am_open
+        cadence: daily
+        if: "supplement_openness in [basic, full_stack]"
+        tasks: [fit.creatine]
 
 required_fields:
   - id: goal
@@ -385,7 +423,7 @@ Quiet hours: nothing between bed and wake.
 
 ```yaml task_catalog
 - id: fit.am_nutrition
-  title: "AM nutrition — protein-forward breakfast"
+  title: "Eat AM protein meal"
   description: "30-40g protein within an hour of waking. eggs, greek yogurt, whey, or a meat option. add fruit or oats for carbs."
   duration_min: 5
   default_window: am_open
@@ -396,7 +434,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: fit.midday_tip
-  title: "midday training tip"
+  title: "Midday training cue"
   description: "rotating cue — progressive overload, technique check, recovery focus, or motivation. one specific actionable per day."
   duration_min: 1
   default_window: midday
@@ -407,7 +445,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: fit.pm_nutrition
-  title: "PM nutrition — last meal anchor"
+  title: "Eat PM meal (protein + carb)"
   description: "protein + slow carb 2-3 hours before bed. caesar salad with chicken, salmon + rice, lean ground beef + sweet potato."
   duration_min: 5
   default_window: pm_close
@@ -418,7 +456,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: fit.preworkout
-  title: "pre-workout fuel + hydration"
+  title: "Pre-workout fuel"
   description: "light carb + protein 60-90 min out (banana + whey, oats + egg whites). 16-24 oz water. caffeine 30 min pre-lift if you use it."
   duration_min: 5
   default_window: am_active
@@ -429,7 +467,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 4 }
 
 - id: fit.workout_session
-  title: "training session"
+  title: "Lift session"
   description: "lift per your split — compounds first, accessories after. lateral raises + face pulls every session. progressive overload: hit top of rep range → add 2.5-5 lb next time."
   duration_min: 60
   default_window: pm_active
@@ -440,7 +478,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 4 }
 
 - id: fit.postworkout
-  title: "post-workout protein"
+  title: "Post-workout protein"
   description: "30-40g protein within 60 min of finishing — whey shake, chicken, greek yogurt. rehydrate fully before next meal."
   duration_min: 5
   default_window: pm_active
@@ -451,7 +489,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 4 }
 
 - id: fit.daily_steps
-  title: "daily step target"
+  title: "Hit step target"
   description: "8000-10000 steps if cutting; 7000+ if sedentary. counts as conditioning quota when on a cut."
   duration_min: 1
   default_window: flexible
@@ -462,7 +500,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: fit.cardio_liss
-  title: "LISS cardio — 30 min"
+  title: "LISS cardio (30 min)"
   description: "low-intensity steady state — incline walk, easy bike, swim. heart rate 60-70% max. burns calories without eating into recovery."
   duration_min: 30
   default_window: flexible
@@ -473,7 +511,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 2 }
 
 - id: fit.weekly_weighin
-  title: "weekly weigh-in"
+  title: "Weekly weigh-in"
   description: "monday morning, fasted, after bathroom, before water. average over the week — daily fluctuation is noise. log it."
   duration_min: 2
   default_window: am_open
@@ -484,7 +522,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 1 }
 
 - id: fit.monthly_photo
-  title: "monthly progress photo"
+  title: "Take progress photo"
   description: "front + side + back. same lighting, same time of day, similar post-meal state. compare month-over-month, not day-to-day."
   duration_min: 5
   default_window: midday
@@ -495,7 +533,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: every_n_days, n: 30 }
 
 - id: fit.deload_check
-  title: "deload week check-in"
+  title: "Deload week — drop volume"
   description: "every 6-8 weeks, drop volume in half for one week. recovery overshoots — strength comes back higher. only intermediates+."
   duration_min: 2
   default_window: flexible
@@ -506,7 +544,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: every_n_days, n: 42 }
 
 - id: fit.hydration_check
-  title: "hydration check"
+  title: "Hydration check"
   description: "0.5-1 oz per lb bodyweight per day, more on training days. urine pale yellow = good; dark = drink up."
   duration_min: 1
   default_window: midday
@@ -514,5 +552,93 @@ Quiet hours: nothing between bed and wake.
   applies_when: ["days_per_week >= 4 or daily_activity_level == very_active"]
   intensity: 0.1
   evidence_section: "Nutrition principles"
+  frequency: { type: daily, n: 1 }
+
+- id: fit.mobility_warmup
+  title: "Mobility warm-up (10 min)"
+  description: "hip openers + thoracic rotations + shoulder dislocates + ankle circles. lubricates the joints you'll load — tax-free injury prevention."
+  duration_min: 10
+  default_window: am_active
+  tags: [mobility, prehab, warmup]
+  applies_when: ["experience_level in [intermediate, advanced] or injury_history != none"]
+  intensity: 0.3
+  evidence_section: "Recovery"
+  frequency: { type: n_per_week, n: 3 }
+
+- id: fit.sleep_cue
+  title: "Wind down — bed in 60 min"
+  description: "screens off (or blue-light filter), no caffeine reminder noted, low light. recovery happens in deep sleep — protect the runway."
+  duration_min: 5
+  default_window: pm_close
+  tags: [sleep, recovery, daily]
+  applies_when: ["sleep_hours < 8"]
+  intensity: 0.1
+  evidence_section: "Recovery"
+  frequency: { type: daily, n: 1 }
+
+- id: fit.protein_check
+  title: "Lunch protein hit"
+  description: "30-40g protein at lunch — chicken / fish / tofu / Greek yogurt + a fist of carbs. half-day protein quota done."
+  duration_min: 5
+  default_window: midday
+  tags: [nutrition, protein, midday]
+  applies_when: ["nutrition_tracking_pref in [full_track, portion_only]"]
+  intensity: 0.2
+  evidence_section: "Nutrition principles"
+  frequency: { type: daily, n: 1 }
+
+- id: fit.stretch_pm
+  title: "PM stretch (8 min)"
+  description: "couch stretch + pigeon + child's pose + hamstring floss. unwinds the hips after sitting + lifting."
+  duration_min: 8
+  default_window: pm_close
+  tags: [mobility, stretch, evening]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Recovery"
+  frequency: { type: n_per_week, n: 4 }
+
+- id: fit.weekly_review
+  title: "Weekly progress review"
+  description: "review: lifts hit? calories on track? sleep? steps? pick ONE thing to dial up next week. honest 5-min reflection."
+  duration_min: 5
+  default_window: midday
+  tags: [review, weekly, checkpoint]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Training principles"
+  frequency: { type: every_n_days, n: 7 }
+
+- id: fit.monthly_review
+  title: "Monthly check-in"
+  description: "compare this month's photo + bodyweight + lifts to last month. better / same / worse? if same after 8 weeks, escalate one variable (volume / calories / sleep)."
+  duration_min: 10
+  default_window: midday
+  tags: [review, monthly, checkpoint]
+  applies_when: [always]
+  intensity: 0.3
+  evidence_section: "Training principles"
+  frequency: { type: every_n_days, n: 30 }
+
+- id: fit.form_check
+  title: "Form-check video"
+  description: "film 1 working set on a compound this week. squat, bench, deadlift, or OHP. watch back, fix one thing next session."
+  duration_min: 5
+  default_window: pm_active
+  tags: [technique, form, weekly]
+  applies_when: ["experience_level == beginner"]
+  intensity: 0.2
+  evidence_section: "Training principles"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: fit.creatine
+  title: "Take creatine (5g)"
+  description: "5g creatine monohydrate, any time, with food + water. consistency > timing. no loading needed."
+  duration_min: 1
+  default_window: am_open
+  tags: [supplement, creatine, daily]
+  applies_when: ["supplement_openness in [basic, full_stack]"]
+  intensity: 0.1
+  evidence_section: "Recovery"
   frequency: { type: daily, n: 1 }
 ```

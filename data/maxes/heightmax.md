@@ -89,6 +89,29 @@ schedule_design:
         cadence: n_per_week=2
         if: "heightmax_focus in [perceived, all]"
         tasks: [height.posing_practice]
+      # --- Density layer ---
+      - id: morning_height_log
+        slot: am_open
+        cadence: n_per_week=2
+        tasks: [height.morning_log]
+      - id: progress_photo_height
+        slot: am_open
+        cadence: every_n_days=14
+        tasks: [height.progress_photo]
+      - id: monthly_review_height
+        slot: midday
+        cadence: every_n_days=30
+        tasks: [height.monthly_review]
+      - id: inversion_session
+        slot: pm_close
+        cadence: n_per_week=4
+        if: "equipment_access in [inversion_table, full_setup] and spine_health == none"
+        tasks: [height.inversion]
+      - id: calcium_check
+        slot: midday
+        cadence: daily
+        if: "age < 22"
+        tasks: [height.calcium_check]
 
 required_fields:
   - id: age
@@ -462,7 +485,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
 
 ```yaml task_catalog
 - id: height.am_mobility
-  title: "5min AM mobility"
+  title: "AM mobility (5 min)"
   description: "cat-cow x10, cobra x5, doorway lat stretch 30s/side. wakes the spine without aggressive stretch."
   duration_min: 5
   default_window: am_open
@@ -473,7 +496,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 1 }
 
 - id: height.desk_reset_midday
-  title: "desk reset 5min"
+  title: "Desk reset (5 min)"
   description: "stand up, chin tucks x10, chest opener at door 30s, shoulder rolls. resets posture from sitting."
   duration_min: 5
   default_window: midday
@@ -484,7 +507,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 1 }
 
 - id: height.pm_decompression
-  title: "PM decompression 5min"
+  title: "PM decompression (5 min)"
   description: "child's pose 60s, hip flexor stretch 30s/side, hamstring stretch 30s/side, lying knee-to-chest 30s."
   duration_min: 5
   default_window: pm_close
@@ -495,7 +518,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 1 }
 
 - id: height.dead_hang
-  title: "dead hang 60s"
+  title: "Dead hang (60s)"
   description: "hang from a bar (assisted ok), arms straight, relaxed grip. temporary spinal decompression."
   duration_min: 2
   default_window: pm_active
@@ -507,7 +530,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: n_per_week, n: 4 }
 
 - id: height.wall_posture
-  title: "wall posture 60s"
+  title: "Wall posture drill"
   description: "back against wall: heels, butt, shoulders, head all touching. chin tucked. 60 seconds."
   duration_min: 1
   default_window: am_open
@@ -518,7 +541,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 1 }
 
 - id: height.face_pulls
-  title: "face pulls 3x12"
+  title: "Face pulls 3×12"
   description: "band or cable face pulls, 3 sets x 12. fixes rounded shoulders. light weight, controlled."
   duration_min: 5
   default_window: pm_active
@@ -529,7 +552,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: n_per_week, n: 3 }
 
 - id: height.glute_bridge
-  title: "glute bridge 3x15"
+  title: "Glute bridge 3×15"
   description: "lying glute bridge, 3 sets x 15, 1-second pause at top. fixes anterior pelvic tilt."
   duration_min: 5
   default_window: am_active
@@ -540,7 +563,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: n_per_week, n: 4 }
 
 - id: height.sleep_extend
-  title: "sleep window check"
+  title: "Check sleep window"
   description: "lights out by [sleep time]. teens: 8–10 hr target. adults: 7–9. consistency > duration."
   duration_min: 1
   default_window: pm_close
@@ -551,7 +574,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 1 }
 
 - id: height.protein_check
-  title: "protein hit (~1g/lb)"
+  title: "Hit protein (~1g/lb)"
   description: "today: aim 1g protein per lb bodyweight. eggs, meat, fish, dairy, beans. supports growth + frame."
   duration_min: 1
   default_window: midday
@@ -562,7 +585,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 1 }
 
 - id: height.sunlight_am
-  title: "10min sunlight AM"
+  title: "10 min AM sunlight"
   description: "10 min of morning sunlight, eyes open (no sunglasses), no window. circadian + vitamin D."
   duration_min: 10
   default_window: am_open
@@ -573,7 +596,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 1 }
 
 - id: height.outfit_check
-  title: "outfit proportions check"
+  title: "Outfit proportions check"
   description: "high-waist or tucked, slim/straight pants, low-contrast shoes/pants, no baggy ankle break. monochrome bonus."
   duration_min: 3
   default_window: am_active
@@ -584,7 +607,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: n_per_week, n: 3 }
 
 - id: height.shoe_audit
-  title: "weekly shoe rotation"
+  title: "Rotate shoes (weekly)"
   description: "wear thicker-soled shoe today (boot, air max, platform sneaker). avoid flat slides/converse."
   duration_min: 1
   default_window: am_open
@@ -595,7 +618,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: n_per_week, n: 3 }
 
 - id: height.posing_practice
-  title: "posing check (mirror)"
+  title: "Mirror posture check"
   description: "shoulders back, chin slightly down, one foot forward. confident upright stance for 30s."
   duration_min: 1
   default_window: flexible
@@ -606,7 +629,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: n_per_week, n: 2 }
 
 - id: height.chin_tucks
-  title: "chin tucks x15"
+  title: "Chin tucks ×15"
   description: "sit/stand straight, retract chin (double-chin posture) x 15. fixes forward head."
   duration_min: 1
   default_window: midday
@@ -617,7 +640,7 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   frequency: { type: daily, n: 2 }
 
 - id: height.foam_roll_back
-  title: "foam roll upper back"
+  title: "Foam-roll upper back"
   description: "foam roller across upper back, 60s. opens chest, fixes rounded shoulders."
   duration_min: 3
   default_window: pm_active
@@ -626,4 +649,61 @@ When to see a doctor: very delayed puberty, sudden growth stopping early, severe
   intensity: 0.2
   evidence_section: "Rounded shoulder fix"
   frequency: { type: n_per_week, n: 3 }
+
+- id: height.morning_log
+  title: "Log AM height"
+  description: "measure first thing AM (no shoes, against wall, marker on top of head). morning is your TRUE height — gravity hasn't compressed yet. log + compare bi-weekly."
+  duration_min: 3
+  default_window: am_open
+  tags: [tracking, measurement, biweekly]
+  applies_when: [always]
+  intensity: 0.1
+  evidence_section: "Measuring height"
+  frequency: { type: n_per_week, n: 2 }
+
+- id: height.progress_photo
+  title: "Photo: full-body posture"
+  description: "front + side, neutral standing. compare in 30 days for posture changes (head over shoulders, chest open). under 22 → also tracks growth."
+  duration_min: 5
+  default_window: am_open
+  tags: [tracking, progress, biweekly]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Tracking progress"
+  frequency: { type: every_n_days, n: 14 }
+
+- id: height.monthly_review
+  title: "Monthly height review"
+  description: "compare AM measurements + photos. 0.5cm taller (under 22 = real growth, adult = decompression win). posture clearly better? if no change in 90 days, audit consistency."
+  duration_min: 5
+  default_window: midday
+  tags: [review, monthly, checkpoint]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Treatment timelines"
+  frequency: { type: every_n_days, n: 30 }
+
+- id: height.inversion
+  title: "Inversion table (5 min)"
+  description: "5 min on inversion table at 30° (week 1) → 60° (week 4). decompresses spine, reverses daily compression. NEVER if dizzy or BP issues."
+  duration_min: 5
+  default_window: pm_close
+  tags: [decompression, equipment, evening]
+  applies_when: ["equipment_access in [inversion_table, full_setup]"]
+  contraindicated_when: ["spine_health in [chronic, diagnosed]", "cardiovascular_concerns == true"]
+  intensity: 0.5
+  evidence_section: "Decompression"
+  cooldown_hours: 18
+  frequency: { type: n_per_week, n: 4 }
+
+- id: height.calcium_check
+  title: "Calcium-rich meal"
+  description: "Greek yogurt, sardines, leafy greens, fortified milk. for under-22 — building bones now. one calcium-loaded meal/day."
+  duration_min: 5
+  default_window: midday
+  tags: [nutrition, calcium, growth]
+  applies_when: ["age < 22"]
+  intensity: 0.2
+  evidence_section: "Bone health"
+  frequency: { type: daily, n: 1 }
 ```

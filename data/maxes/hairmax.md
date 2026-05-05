@@ -93,6 +93,33 @@ schedule_design:
         slot: flexible
         cadence: every_n_days=28
         tasks: [hair.haircut_book]
+      # --- Density layer: anti-fungal wash, deep condition, progress photo,
+      # monthly check-in. These give the user a real protocol — not just
+      # one minox reminder per day.
+      - id: ketoconazole_wash
+        slot: am_active
+        cadence: n_per_week=2
+        if: "scalp_state in [oily, dry]"
+        tasks: [hair.ketoconazole_wash]
+      - id: deep_condition_weekly
+        slot: pm_active
+        cadence: n_per_week=1
+        if: "heat_styling in [sometimes, often] or hair_type in [wavy, curly]"
+        tasks: [hair.deep_condition]
+      - id: progress_photo_biweekly
+        slot: am_open
+        cadence: every_n_days=14
+        if: "hair_loss_signs in [yes_active, yes_observing, no_but_family]"
+        tasks: [hair.progress_photo]
+      - id: monthly_review
+        slot: midday
+        cadence: every_n_days=30
+        tasks: [hair.monthly_review]
+      - id: bloodwork_quarterly
+        slot: flexible
+        cadence: every_n_days=90
+        if: "current_treatment in [oral_topical, full_stack]"
+        tasks: [hair.bloodwork_check]
 
 required_fields:
   - id: hair_type
@@ -464,7 +491,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
 
 ```yaml task_catalog
 - id: hair.shampoo_wash
-  title: "shampoo + condition"
+  title: "Wash + condition"
   description: "shampoo (sulfate-free if scalp is sensitive), condition mid-lengths to ends. don't apply conditioner to scalp."
   duration_min: 5
   default_window: am_active
@@ -475,7 +502,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: n_per_week, n: 2 }
 
 - id: hair.cowash_curly
-  title: "co-wash midweek"
+  title: "Co-wash curls"
   description: "conditioner-only wash to refresh curls without stripping. work through with fingers, rinse cool."
   duration_min: 5
   default_window: am_active
@@ -486,7 +513,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: n_per_week, n: 1 }
 
 - id: hair.leavein
-  title: "leave-in conditioner"
+  title: "Apply leave-in"
   description: "small amount of leave-in on damp hair after wash. focuses on mid-lengths and ends."
   duration_min: 1
   default_window: am_active
@@ -497,7 +524,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: n_per_week, n: 2 }
 
 - id: hair.style_product
-  title: "style + product AM"
+  title: "Style with product"
   description: "small amount of clay/pomade/curl cream on damp hair. shape with hands. less is more."
   duration_min: 4
   default_window: am_active
@@ -508,7 +535,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: daily, n: 1 }
 
 - id: hair.product_rinse_pm
-  title: "rinse out product PM"
+  title: "Rinse out product (PM)"
   description: "quick rinse with water before bed if you've worn product 3+ days straight. prevents buildup."
   duration_min: 3
   default_window: pm_close
@@ -519,7 +546,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: n_per_week, n: 2 }
 
 - id: hair.scalp_massage
-  title: "60s scalp massage"
+  title: "Massage scalp (60s)"
   description: "fingertip massage in circles for 60s. boosts circulation. do dry or with leave-in."
   duration_min: 1
   default_window: am_open
@@ -530,7 +557,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: n_per_week, n: 5 }
 
 - id: hair.minoxidil_am
-  title: "minoxidil AM"
+  title: "Apply minoxidil (AM, 1ml)"
   description: "1ml topical minoxidil to thinning areas on dry scalp. wait 2–4 hr before getting hair wet."
   duration_min: 3
   default_window: am_open
@@ -542,7 +569,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: daily, n: 1 }
 
 - id: hair.minoxidil_pm
-  title: "minoxidil PM"
+  title: "Apply minoxidil (PM, 1ml)"
   description: "1ml topical minoxidil to thinning areas. wait 30+ min before pillow contact."
   duration_min: 3
   default_window: pm_close
@@ -554,7 +581,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: daily, n: 1 }
 
 - id: hair.microneedle_pm
-  title: "scalp microneedle 0.5mm"
+  title: "Microneedle scalp 0.5mm"
   description: "0.5mm dermaroller across thinning areas, 4 passes per zone. NEVER within 24hr of minoxidil. no products for 4hr after."
   duration_min: 8
   default_window: pm_active
@@ -567,7 +594,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: n_per_week, n: 1 }
 
 - id: hair.finasteride_reminder
-  title: "finasteride daily"
+  title: "Take finasteride"
   description: "take prescribed finasteride. consistency matters more than timing."
   duration_min: 1
   default_window: flexible
@@ -578,7 +605,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: daily, n: 1 }
 
 - id: hair.scalp_check
-  title: "scalp/hairline photo"
+  title: "Photo: scalp + hairline"
   description: "front + crown photos in same lighting. compare monthly. catches loss early."
   duration_min: 2
   default_window: flexible
@@ -589,7 +616,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: every_n_days, n: 14 }
 
 - id: hair.beard_trim
-  title: "beard / neckline trim"
+  title: "Trim beard / neckline"
   description: "trim with guard. clean neckline 1–2 fingers above adam's apple. with the grain only."
   duration_min: 5
   default_window: am_active
@@ -600,7 +627,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: n_per_week, n: 2 }
 
 - id: hair.heat_protect
-  title: "heat protectant spray"
+  title: "Apply heat protectant"
   description: "spray on damp hair before blow dryer / iron. prevents cuticle damage."
   duration_min: 1
   default_window: am_active
@@ -611,7 +638,7 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   frequency: { type: daily, n: 1 }
 
 - id: hair.haircut_book
-  title: "book haircut (4–6 wk)"
+  title: "Book next haircut"
   description: "short cuts: 3–4 weeks. medium: 5–6 weeks. bring 2–3 reference photos with similar hair type."
   duration_min: 5
   default_window: flexible
@@ -620,4 +647,59 @@ Neckline sits about 1–2 fingers above the Adam's apple. Everything below gets 
   intensity: 0.1
   evidence_section: "Common hair mistakes"
   frequency: { type: every_n_days, n: 28 }
+
+- id: hair.ketoconazole_wash
+  title: "Ketoconazole shampoo wash"
+  description: "lather Nizoral 1% (or 2% Rx) on scalp, leave 5 min, rinse. anti-fungal + DHT-blocker action — supports the loss-prevention stack on top of minoxidil."
+  duration_min: 8
+  default_window: am_active
+  tags: [wash, scalp-health, anti-dandruff]
+  applies_when: ["scalp_state in [oily, dry]"]
+  intensity: 0.3
+  evidence_section: "Scalp health"
+  frequency: { type: n_per_week, n: 2 }
+
+- id: hair.deep_condition
+  title: "Deep-condition mask"
+  description: "leave-in mask (hydrating, NOT protein) on mid-lengths to ends, 10–15 min under shower steam, rinse cool. weekly recovery for heat or curly hair."
+  duration_min: 15
+  default_window: pm_active
+  tags: [conditioning, recovery, weekly]
+  applies_when: ["heat_styling in [sometimes, often] or hair_type in [wavy, curly]"]
+  intensity: 0.2
+  evidence_section: "Hair care basics"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: hair.progress_photo
+  title: "Photo: hairline + crown"
+  description: "wet hair shows density better than dry. same lighting, same angle (front, crown from above, both temples). compare in 30 days, not daily."
+  duration_min: 5
+  default_window: am_open
+  tags: [tracking, progress, biweekly]
+  applies_when: ["hair_loss_signs in [yes_active, yes_observing, no_but_family]"]
+  intensity: 0.2
+  evidence_section: "Hair loss tracking"
+  frequency: { type: every_n_days, n: 14 }
+
+- id: hair.monthly_review
+  title: "Monthly hair review"
+  description: "review this month's photos vs last. thicker / same / thinner? sides showing up? if same after 6+ months, escalate stack with derm. if better, hold the line."
+  duration_min: 5
+  default_window: midday
+  tags: [review, monthly, checkpoint]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Treatment timelines"
+  frequency: { type: every_n_days, n: 30 }
+
+- id: hair.bloodwork_check
+  title: "Bloodwork check (quarterly)"
+  description: "if on oral fin or dut: total + free T, DHT, estradiol, CBC, LFT. monitors side-effect risk. talk to your prescribing doctor about timing."
+  duration_min: 30
+  default_window: flexible
+  tags: [medical, bloodwork, quarterly]
+  applies_when: ["current_treatment in [oral_topical, full_stack]"]
+  intensity: 0.5
+  evidence_section: "Medication safety"
+  frequency: { type: every_n_days, n: 90 }
 ```

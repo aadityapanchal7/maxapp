@@ -100,6 +100,30 @@ schedule_design:
         cadence: daily
         if: "nutrition_stack_open == true"
         tasks: [bone.magnesium_pm]
+      # --- Density layer ---
+      - id: jaw_progress_photo
+        slot: am_open
+        cadence: every_n_days=14
+        tasks: [bone.progress_photo]
+      - id: monthly_review_bone
+        slot: midday
+        cadence: every_n_days=30
+        tasks: [bone.monthly_review]
+      - id: hard_mewing
+        slot: midday
+        cadence: n_per_week=2
+        if: "mewing_experience == regular"
+        tasks: [bone.hard_mewing]
+      - id: lip_tape_pm
+        slot: pm_close
+        cadence: daily
+        if: "nasal_breather == mouth"
+        tasks: [bone.lip_tape]
+      - id: bite_alternation
+        slot: midday
+        cadence: daily
+        if: "jaw_priority == symmetry"
+        tasks: [bone.bite_alternation]
 
 required_fields:
   - id: workout_frequency
@@ -320,7 +344,7 @@ Quiet hours: nothing between bed and wake.
 
 ```yaml task_catalog
 - id: bone.mewing_am
-  title: "mewing — morning set"
+  title: "Mewing (AM set, 60s)"
   description: "tongue on palate (back third), lips sealed, teeth light touch, chin tucked. 60s active hold, then passive all day. nasal only."
   duration_min: 2
   default_window: am_open
@@ -331,7 +355,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.mewing_midday
-  title: "mewing — midday reset"
+  title: "Mewing reset (midday, 30s)"
   description: "tongue up? lips sealed? nasal? unclench jaw, head over neck, chin back. 30s conscious then passive."
   duration_min: 1
   default_window: midday
@@ -342,7 +366,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.mewing_night
-  title: "mewing — night set"
+  title: "Mewing (night set)"
   description: "tongue up, lips closed, nasal. light suction. settle into sleep posture — tongue stays on palate as you drift off."
   duration_min: 2
   default_window: pm_close
@@ -353,7 +377,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.masseter
-  title: "mastic gum session"
+  title: "Chew mastic gum (12 min)"
   description: "1 piece mastic gum, 10-15 min, alternate left/right sides every minute. balanced bite force. rest 1 day per week."
   duration_min: 12
   default_window: am_active
@@ -365,7 +389,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.masseter_ramp
-  title: "mastic gum — ramp set"
+  title: "Chew mastic gum (ramp)"
   description: "TMJ-safe ramp: half-piece, 5 min max, alternating sides. log any clicking, fatigue, or pain. back off if symptoms appear."
   duration_min: 6
   default_window: am_active
@@ -378,7 +402,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 3 }
 
 - id: bone.fascia_am
-  title: "facial fascia / lymph — AM"
+  title: "Facial massage (AM)"
   description: "3-5 min: gua sha or hand massage, neck → jawline → cheek → temple. always upward / outward strokes. drains overnight puffiness."
   duration_min: 4
   default_window: am_open
@@ -389,7 +413,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.fascia_pm
-  title: "facial fascia / lymph — PM"
+  title: "Facial fascia release (PM)"
   description: "5-8 min deeper release. cheek hollows, masseter belly, behind ears. use oil if available. skip on retinoid / exfoliation nights if on SkinMax."
   duration_min: 6
   default_window: pm_close
@@ -400,7 +424,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 4 }
 
 - id: bone.nasal_check
-  title: "nasal-breathing check"
+  title: "Nasal-breathing check"
   description: "are you breathing through your nose? lips sealed, jaw relaxed? screen forward-head check — chin back, head over shoulders."
   duration_min: 1
   default_window: midday
@@ -411,7 +435,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.neck_workout
-  title: "neck training — full session"
+  title: "Neck training (full set)"
   description: "5-8 min: 4-way harness or banded. front, back, left, right — 15 reps each direction, 2 sets. progress only after no soreness."
   duration_min: 7
   default_window: pm_active
@@ -422,7 +446,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 3 }
 
 - id: bone.neck_solo
-  title: "neck training — solo day"
+  title: "Neck training (solo day)"
   description: "no workout today, but neck still gets work. 5 min banded 4-way. lighter intensity, same movement pattern."
   duration_min: 5
   default_window: pm_active
@@ -433,7 +457,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 1 }
 
 - id: bone.chin_tucks
-  title: "chin tucks bundle"
+  title: "Chin tucks ×10"
   description: "10 chin tucks, 2-second hold each. emphasizes long-term forward-head correction. bundles into midday on non-workout days."
   duration_min: 2
   default_window: midday
@@ -444,7 +468,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: n_per_week, n: 4 }
 
 - id: bone.symmetry_check
-  title: "symmetry / posture check"
+  title: "Symmetry / posture check"
   description: "rotating: even bite pressure / shoulders relaxed / chin back / tongue posture / nasal only. one focus per day."
   duration_min: 1
   default_window: flexible
@@ -455,7 +479,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.vitd_k2
-  title: "vitamin D3 + K2 with food"
+  title: "Take D3 + K2 (with food)"
   description: "4000 IU vitamin D3 + 100 mcg K2 (MK-7) with first fat-containing meal. supports bone density and calcium routing."
   duration_min: 1
   default_window: am_open
@@ -466,7 +490,7 @@ Quiet hours: nothing between bed and wake.
   frequency: { type: daily, n: 1 }
 
 - id: bone.magnesium_pm
-  title: "magnesium glycinate PM"
+  title: "Take magnesium (PM)"
   description: "300-400 mg magnesium glycinate 60 min before bed. supports sleep depth and overnight muscle relaxation."
   duration_min: 1
   default_window: pm_close
@@ -474,5 +498,60 @@ Quiet hours: nothing between bed and wake.
   applies_when: ["nutrition_stack_open == true"]
   intensity: 0.1
   evidence_section: "Bone-support nutrition (optional)"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.progress_photo
+  title: "Photo: jaw + side profile"
+  description: "front + both 45°s + side. natural light, mouth closed, head level. compare in 30 days — bone changes over months, not days."
+  duration_min: 5
+  default_window: am_open
+  tags: [tracking, progress, biweekly]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Tracking jaw progress"
+  frequency: { type: every_n_days, n: 14 }
+
+- id: bone.monthly_review
+  title: "Monthly jaw review"
+  description: "compare this month's photos. jawline sharper? masseter fuller? sides looking even? if no change after 6 months, dial up cardio (definition) or mastic intensity (mass)."
+  duration_min: 5
+  default_window: midday
+  tags: [review, monthly, checkpoint]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Treatment timelines"
+  frequency: { type: every_n_days, n: 30 }
+
+- id: bone.hard_mewing
+  title: "Hard mewing (60s suction hold)"
+  description: "active suction: full back-third tongue contact, swallow + hold + slight upward pressure, 60s. advanced practice for trained users."
+  duration_min: 2
+  default_window: midday
+  tags: [mewing, advanced, biweekly]
+  applies_when: ["mewing_experience == regular"]
+  intensity: 0.3
+  evidence_section: "Mewing"
+  frequency: { type: n_per_week, n: 2 }
+
+- id: bone.lip_tape
+  title: "Lip tape (bedtime)"
+  description: "small vertical strip of medical paper tape, NOT across full mouth. forces nasal breathing overnight. start 1-2 nights / wk to test, build up."
+  duration_min: 1
+  default_window: pm_close
+  tags: [nasal, sleep, mouth-breather]
+  applies_when: ["nasal_breather == mouth"]
+  intensity: 0.3
+  evidence_section: "Mewing"
+  frequency: { type: daily, n: 1 }
+
+- id: bone.bite_alternation
+  title: "Alternate chewing sides"
+  description: "every meal: switch chew side every minute. uneven bite habit shifts jaw asymmetry over years. break it."
+  duration_min: 1
+  default_window: midday
+  tags: [symmetry, daily, chewing]
+  applies_when: ["jaw_priority == symmetry"]
+  intensity: 0.1
+  evidence_section: "Symmetry"
   frequency: { type: daily, n: 1 }
 ```

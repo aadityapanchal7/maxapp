@@ -71,6 +71,35 @@ schedule_design:
         if: "barrier_state == damaged"
         replaces: [pm_active, am_active]
         tasks: [skin.barrier_pause]
+      # --- Density layer: weekly + monthly habits a real protocol includes ---
+      - id: pillowcase_change
+        slot: midday
+        cadence: n_per_week=1
+        tasks: [skin.pillowcase_change]
+      - id: weekly_exfoliation
+        slot: pm_active
+        cadence: n_per_week=1
+        if: "barrier_state == stable and skin_concern in [acne, pigmentation, texture]"
+        not_with_same_day: [skin.retinoid_pm, skin.dermastamp_pm]
+        tasks: [skin.weekly_exfoliation]
+      - id: hydration_mask
+        slot: pm_active
+        cadence: n_per_week=1
+        if: "skin_concern in [rosacea, maintenance] or skin_type == dry"
+        tasks: [skin.hydration_mask]
+      - id: progress_photo_skin
+        slot: am_open
+        cadence: every_n_days=14
+        tasks: [skin.progress_photo]
+      - id: monthly_review_skin
+        slot: midday
+        cadence: every_n_days=30
+        tasks: [skin.monthly_review]
+      - id: derm_check
+        slot: flexible
+        cadence: every_n_days=180
+        if: "skin_concern in [acne, rosacea, pigmentation]"
+        tasks: [skin.derm_consult]
 
 required_fields:
   - id: skin_concern
@@ -445,7 +474,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
 
 ```yaml task_catalog
 - id: skin.cleanse_am
-  title: "gentle cleanse AM"
+  title: "Cleanse face (AM)"
   description: "wash face with a gentle, non-stripping cleanser. lukewarm water only. 30 seconds, no scrubbing."
   duration_min: 3
   default_window: am_open
@@ -458,7 +487,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.cleanse_pm
-  title: "gentle cleanse PM"
+  title: "Cleanse face (PM)"
   description: "wash off SPF + buildup with the same gentle cleanser. don't double-cleanse unless heavy SPF/makeup."
   duration_min: 3
   default_window: pm_active
@@ -469,7 +498,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.moisturize_am
-  title: "ceramide moisturizer AM"
+  title: "Moisturize (AM)"
   description: "ceramide + panthenol moisturizer on damp skin within 60 seconds of cleansing. dime-sized."
   duration_min: 2
   default_window: am_open
@@ -480,7 +509,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.moisturize_pm
-  title: "ceramide moisturizer PM"
+  title: "Moisturize (PM)"
   description: "ceramide moisturizer to lock in PM routine. wait 5 min after retinoid if used."
   duration_min: 2
   default_window: pm_close
@@ -491,7 +520,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.spf
-  title: "spf 50 AM"
+  title: "Apply SPF 50"
   description: "broad spectrum SPF 50, last step of AM routine, 2-finger-length. non-negotiable, every day."
   duration_min: 2
   default_window: am_open
@@ -502,7 +531,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.spf_reapply
-  title: "spf reapply midday"
+  title: "Reapply SPF"
   description: "reapply SPF if you've been outside or near windows. powder or stick is easiest."
   duration_min: 2
   default_window: midday
@@ -513,7 +542,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.azelaic_am
-  title: "azelaic acid AM"
+  title: "Apply azelaic acid"
   description: "thin layer azelaic 10–20% on damp skin AFTER cleanser, BEFORE moisturizer. anti-inflammatory + brightening."
   duration_min: 2
   default_window: am_active
@@ -525,7 +554,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.centella_am
-  title: "centella calming serum"
+  title: "Apply centella serum"
   description: "centella asiatica serum for redness/micro-damage. apply on damp skin, before moisturizer."
   duration_min: 2
   default_window: am_active
@@ -536,7 +565,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.retinoid_pm
-  title: "tret pea PM"
+  title: "Apply retinoid (pea)"
   description: "pea-sized tretinoin 0.05% on DRY skin (wait 15 min after cleanse). avoid eye/lip area. follow with moisturizer after 5 min."
   duration_min: 5
   default_window: pm_active
@@ -549,7 +578,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: n_per_week, n: 4 }
 
 - id: skin.dermastamp_pm
-  title: "dermastamp 0.25mm"
+  title: "Dermastamp face"
   description: "dermastamp 0.25mm depth, 4 passes per zone, on clean dry skin. follow with hyaluronic + moisturizer. NEVER same night as retinoid."
   duration_min: 10
   default_window: pm_active
@@ -562,7 +591,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: n_per_week, n: 2 }
 
 - id: skin.facial_massage
-  title: "30s facial massage"
+  title: "Facial massage (30s)"
   description: "upward strokes jaw → temples → forehead. drain downward behind ears. circulation boost. skip on retinoid nights."
   duration_min: 1
   default_window: pm_close
@@ -574,7 +603,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: n_per_week, n: 5 }
 
 - id: skin.hydration_water
-  title: "hydration check 1L"
+  title: "Drink water — 1L target"
   description: "drink 1L water by midday. internal hydration → barrier function."
   duration_min: 1
   default_window: midday
@@ -585,7 +614,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.diet_anti_inflammatory
-  title: "skip seed oils + sugar"
+  title: "Skip seed oils + sugar"
   description: "today: avoid seed oils, refined sugar, excess dairy. reduces inflammation that drives flares + pigment."
   duration_min: 1
   default_window: flexible
@@ -596,7 +625,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: n_per_week, n: 5 }
 
 - id: skin.zinc_supp
-  title: "zinc + collagen AM"
+  title: "Take zinc + collagen"
   description: "zinc 15mg + collagen peptides with breakfast. skin repair + tissue support."
   duration_min: 1
   default_window: am_open
@@ -607,7 +636,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   frequency: { type: daily, n: 1 }
 
 - id: skin.barrier_pause
-  title: "actives pause day"
+  title: "Skip actives — barrier rest"
   description: "skip ALL actives today. only cleanse, ceramides, SPF. let barrier recover. critical during repair."
   duration_min: 1
   default_window: flexible
@@ -616,4 +645,72 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   intensity: 0.0
   evidence_section: "What to STOP during barrier damage"
   frequency: { type: n_per_week, n: 7 }
+
+- id: skin.pillowcase_change
+  title: "Change pillowcase"
+  description: "fresh pillowcase = no overnight bacteria + oil transfer onto cheeks. silk or freshly-laundered cotton. weekly minimum."
+  duration_min: 2
+  default_window: midday
+  tags: [hygiene, weekly, environment]
+  applies_when: [always]
+  intensity: 0.1
+  evidence_section: "Skin barrier basics"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: skin.weekly_exfoliation
+  title: "Weekly exfoliation (PHA/AHA)"
+  description: "swap PM cleanse for: cleanse → 1 layer mandelic acid 5% (or PHA toner) → moisturize. resurfaces dead cells. NEVER same night as retinoid."
+  duration_min: 8
+  default_window: pm_active
+  tags: [exfoliation, weekly, active]
+  applies_when: ["barrier_state == stable", "skin_concern in [acne, pigmentation, texture]"]
+  contraindicated_when: ["barrier_state == damaged"]
+  intensity: 0.5
+  evidence_section: "Active strategy"
+  cooldown_hours: 168
+  frequency: { type: n_per_week, n: 1 }
+
+- id: skin.hydration_mask
+  title: "Hydration mask (15 min)"
+  description: "hyaluronic + ceramide overnight mask, OR sheet mask 15 min before bed. weekly barrier reset for dry / irritated skin."
+  duration_min: 15
+  default_window: pm_active
+  tags: [hydration, mask, weekly, repair]
+  applies_when: ["skin_concern in [rosacea, maintenance] or skin_type == dry"]
+  intensity: 0.2
+  evidence_section: "Repair ingredients"
+  frequency: { type: n_per_week, n: 1 }
+
+- id: skin.progress_photo
+  title: "Photo: face front + sides"
+  description: "natural light, no makeup, same angle (front + 45° both sides). compare in 30 days, not daily — skin changes are slow."
+  duration_min: 5
+  default_window: am_open
+  tags: [tracking, progress, biweekly]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Tracking progress"
+  frequency: { type: every_n_days, n: 14 }
+
+- id: skin.monthly_review
+  title: "Monthly skin review"
+  description: "compare photos. better / same / worse? new texture? stubborn spots? if 8+ weeks no change, escalate one variable (active strength, retinoid frequency, derm visit)."
+  duration_min: 5
+  default_window: midday
+  tags: [review, monthly, checkpoint]
+  applies_when: [always]
+  intensity: 0.2
+  evidence_section: "Treatment timelines"
+  frequency: { type: every_n_days, n: 30 }
+
+- id: skin.derm_consult
+  title: "Schedule derm check (6mo)"
+  description: "twice a year for active concerns. moles, persistent redness, severe acne all benefit from professional eyes. log Q's beforehand."
+  duration_min: 5
+  default_window: flexible
+  tags: [medical, dermatology, biannual]
+  applies_when: ["skin_concern in [acne, rosacea, pigmentation]"]
+  intensity: 0.3
+  evidence_section: "When to see a derm"
+  frequency: { type: every_n_days, n: 180 }
 ```
