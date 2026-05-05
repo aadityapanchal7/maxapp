@@ -143,6 +143,75 @@ required_fields:
     required: true
     why: "TDEE multiplier — drives calorie target alongside goal."
 
+  - id: estimated_body_fat
+    question: "Roughly what's your body-fat range right now?"
+    type: enum
+    options:
+      under_10: "Under 10% — visible abs, vascularity"
+      "10_15": "10–15% — lean, abs faintly visible"
+      "15_20": "15–20% — soft but athletic"
+      "20_25": "20–25% — noticeable softness"
+      over_25: "25%+ — significant softness"
+      unknown: "Honestly not sure"
+    required: true
+    why: "Refines phase selection. Over_25 → cut even if user wants 'recomp' (recomp at higher BF wastes time). Under_10 + bulk = lean bulk; under_10 + maintain = aggressive maintenance."
+
+  - id: nutrition_tracking_pref
+    question: "How precise do you want to get with nutrition?"
+    type: enum
+    options:
+      full_track: "Full tracking — log calories + macros daily"
+      portion_only: "Portion language — palms / fists, no numbers"
+      no_tracking: "Don't track at all — just eat better intuitively"
+    required: true
+    why: "Decides whether the schedule shows calorie/macro tasks (full_track), portion reminders (portion_only), or only food-quality cues (no_tracking)."
+
+  - id: sleep_hours
+    question: "Average hours of sleep per night?"
+    type: int
+    min: 4
+    max: 12
+    step: 1
+    default: 7
+    unit: "hr"
+    required: true
+    why: "Under 7 hr → recovery is the limiter. Lower training volume on under-7 days, add sleep priority cue 60 min before bed. Over 8 hr → can push higher volume / intensity."
+
+  - id: dietary_restrictions
+    question: "Any dietary restrictions you're sticking to?"
+    type: enum
+    options:
+      none: "No restrictions"
+      vegetarian: "Vegetarian"
+      vegan: "Vegan"
+      gluten_free: "Gluten-free"
+      lactose_free: "Lactose-free"
+      keto: "Keto / very low carb"
+    required: true
+    why: "Drives meal-suggestion bias. Vegan/vegetarian → harder to hit protein, suggest tofu/tempeh/pea protein. Keto → low-carb meal templates. Gluten/lactose-free → exclude wheat/dairy from suggestions."
+
+  - id: injury_history
+    question: "Any injuries to work around?"
+    type: enum
+    options:
+      none: "Nothing — full range of motion"
+      knee: "Knees — careful with squats/lunges"
+      shoulder: "Shoulder — careful with overhead pressing"
+      back: "Lower back — careful with deadlifts / squats"
+      multiple: "Multiple — I'll explain in chat"
+    required: true
+    why: "Substitutes contraindicated lifts. Knee → goblet squat / leg press / split squat. Shoulder → DB landmine press / chest-supported row. Back → trap bar / RDL only / box squat."
+
+  - id: supplement_openness
+    question: "How open are you to supplements?"
+    type: enum
+    options:
+      none: "Just food — no supplements"
+      basic: "Basics — protein powder + creatine"
+      full_stack: "Full stack — pre-workout, BCAAs, vitamins, etc."
+    required: true
+    why: "Gates supplement reminders. None = no nudges. Basic = protein + creatine timing reminders. Full = pre-workout + EAA timing layered in."
+
 optional_context:
   - id: age
     description: "User age (from onboarding) — gates training intensity, recovery cadence."
@@ -216,6 +285,51 @@ prompt_modifiers:
   - id: tmj_neck_caveat
     if: "injury_history contains 'tmj' or injury_history contains 'jaw' or injury_history contains 'neck'"
     then: "EXCLUDE neck training. Substitute with banded face pulls + cuffed reverse fly. Avoid heavy front-loaded movements (front squat, Zercher) until cleared."
+  - id: bf_high_force_cut
+    if: "estimated_body_fat in [over_25] and goal != maintenance"
+    then: "OVERRIDE: regardless of stated goal, this user needs CUT phase. Recomp at >25% BF wastes time. Calorie target = TDEE − 500. Frame supportively: 'lean out first, then build — order matters'."
+  - id: bf_low_lean_bulk_ok
+    if: "estimated_body_fat == under_10 and goal == muscle_gain"
+    then: "Aggressive lean bulk window. TDEE + 350 (vs +250 for higher BF). Less risk of fat gain at this body fat. Daily weigh-in reminder; pull back surplus to +200 if weekly gain >0.5 lb."
+  - id: tracking_full_macros
+    if: "nutrition_tracking_pref == full_track"
+    then: "Schedule daily macro log reminders: protein at each meal, calorie total at PM. Add weekly macro review task on Sunday. Use exact gram numbers in copy."
+  - id: tracking_portion_only
+    if: "nutrition_tracking_pref == portion_only"
+    then: "Use portion language exclusively. 'Palm of protein, fist of carbs, thumb of fat per meal'. Skip macro/calorie task copy. Weekly bodyweight review only."
+  - id: tracking_none_food_quality
+    if: "nutrition_tracking_pref == no_tracking"
+    then: "Drop ALL calorie/macro/portion task copy. Replace with food-quality cues only ('add a vegetable', 'protein at every meal', 'limit liquid calories'). No numbers. Frame around habits, not measurements."
+  - id: low_sleep_recovery
+    if: "sleep_hours < 7"
+    then: "RECOVERY-LIMITED. Lower training volume by 1 working set per exercise. Add bedtime cue 60 min before target sleep. Cut PM caffeine entirely. Frame: 'more sleep > more sets, every time'."
+  - id: high_sleep_push_volume
+    if: "sleep_hours >= 8"
+    then: "RECOVERY-RICH. Can push higher volume / intensity. Add 1 extra working set per exercise on top of phase baseline. Maintain bedtime consistency though — drift wrecks the gain."
+  - id: vegetarian_protein
+    if: "dietary_restrictions == vegetarian"
+    then: "Suggest eggs / dairy / Greek yogurt / cottage cheese / whey + plant protein blends. Easier than vegan to hit protein. Daily protein cue at one meal."
+  - id: keto_macros
+    if: "dietary_restrictions == keto"
+    then: "MACRO INVERT: fat is primary fuel. Carbs <30g/day. Protein moderate (0.7g/lb to avoid gluconeogenesis). Schedule keto-friendly meal suggestions: meat + fat + green veg. Skip 'add a banana' style copy."
+  - id: gluten_free_swap
+    if: "dietary_restrictions == gluten_free"
+    then: "Swap wheat suggestions to rice / oats (certified GF) / quinoa / GF pasta. Watch hidden gluten in protein bars / sauces — flag at weekly review."
+  - id: knee_injury_sub
+    if: "injury_history == knee"
+    then: "EXCLUDE: barbell back squat, lunges, jump variations. SUBSTITUTE: goblet squat, leg press, Bulgarian split squat (controlled), step-ups (low height). Add quad activation warm-up before any leg session."
+  - id: shoulder_injury_sub
+    if: "injury_history == shoulder"
+    then: "EXCLUDE: overhead barbell press, behind-neck pulldown, upright row, dips. SUBSTITUTE: DB landmine press, neutral-grip DB press, chest-supported DB row, machine pec deck. Add shoulder mobility warm-up."
+  - id: back_injury_sub
+    if: "injury_history == back"
+    then: "EXCLUDE: conventional deadlift, heavy back squat, bent-over barbell row. SUBSTITUTE: trap bar deadlift, box squat, chest-supported row, cable row. Add deadbug + bird-dog core stability warm-up before any compound lift."
+  - id: supplements_basic_timing
+    if: "supplement_openness in [basic, full_stack]"
+    then: "Add creatine 5g/day reminder (any time, but consistency matters). Whey shake post-workout reminder. Both build into the existing post-workout protein task — no new notification, just copy."
+  - id: supplements_full_preworkout
+    if: "supplement_openness == full_stack"
+    then: "Add pre-workout caffeine reminder 30 min before training. EAA / BCAA during long sessions (>75 min). Multivitamin AM. Vitamin D3 daily if under 22 or northern climate."
 
 ---
 

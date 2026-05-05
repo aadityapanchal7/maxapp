@@ -106,23 +106,74 @@ required_fields:
     required: true
     why: "Drives moisturizer choice and wash frequency."
 
-optional_context:
+  - id: routine_level
+    question: "Where are you starting from with your skincare routine?"
+    type: enum
+    options:
+      none: "Nothing right now — start me from scratch"
+      basic: "Cleanser + moisturizer + SPF"
+      intermediate: "I use 1–2 actives (vitamin C, BHA, etc.)"
+      advanced: "Multiple actives + retinoid in rotation"
+    required: true
+    why: "Drives ramp speed. Beginners get a slower onboarding to actives; advanced users skip the foundation phase."
+
+  - id: outdoor_exposure
+    question: "How much time do you spend outside in direct sun, on a typical day?"
+    type: enum
+    options:
+      heavy: "A lot — outdoor work, daily walks, frequent sun"
+      moderate: "Some — commute, errands, weekend outdoors"
+      minimal: "Barely — mostly indoors, drive everywhere"
+    required: true
+    why: "Drives SPF reapply cadence. Heavy = midday + afternoon reapply task. Minimal = AM SPF only."
+
   - id: tret_history
-    description: "Has the user used tretinoin/tretinoid before? (changes ramp speed)"
+    question: "Have you ever used tretinoin or a prescription retinoid before?"
+    type: enum
+    options:
+      never: "No, never tried it"
+      tried_quit: "Tried it, but quit (irritation, side effects)"
+      currently_on: "Currently using it"
+      previously_used: "Used it in the past, comfortable with it"
+    required: true
+    why: "Drives retinoid ramp pace. Never → start at 0.025% 2×/wk and ramp slowly. Currently_on → maintain current cadence. Quit-due-to-irritation → use buffered/sandwich method or skip retinoid track entirely."
+
+  - id: climate
+    question: "What's your climate / weather like, mostly?"
+    type: enum
+    options:
+      humid: "Humid — sticky, sweaty, high moisture"
+      dry: "Dry — low humidity, arid, indoor heat"
+      temperate: "Mild — neither extreme"
+      cold: "Cold — winter most of the year"
+    required: true
+    why: "Drives moisturizer weight + hydration emphasis. Dry/cold = heavier moisturizer + occlusive layer at PM. Humid = lightweight gel-cream + extra cleanse cadence."
+
+  - id: diet_open
+    question: "Open to small diet tweaks (cutting dairy, sugar, or seed oils) if they'd clear your skin faster?"
+    type: enum
+    options:
+      yes_full: "Yes — willing to cut anything if it helps"
+      yes_some: "Maybe — open to one or two changes"
+      no: "Not interested — keep food separate"
+    required: true
+    why: "Gates internal-support tasks (anti-inflammatory diet reminders, dairy/sugar cuts). Most acne and rosacea respond significantly to dietary changes."
+
+optional_context:
   - id: product_preferences
     description: "Specific cleansers/moisturizers/SPFs the user prefers"
   - id: product_dislikes
     description: "Products that have caused breakouts or irritation"
   - id: dermastamp_owned
     description: "Whether user owns a dermastamp (gates that task)"
-  - id: outdoor_lifestyle
-    description: "Heavy sun exposure → SPF reapply tasks become critical"
-  - id: climate
-    description: "Dry/humid → adjusts hydration emphasis"
   - id: hormonal_factors
     description: "On accutane/birth control/cycle issues — gates aggressive actives"
-  - id: diet_inflammation_open
-    description: "User open to diet adjustments → enables internal-support tasks"
+  - id: routine_complexity_pref
+    description: "User prefers a minimalist routine vs. willing to layer many products"
+  - id: budget_constraint
+    description: "Drugstore-only vs. open to mid-tier vs. open to any price"
+  - id: time_per_routine
+    description: "How many minutes user wants to spend per AM/PM routine — drives layering depth"
 
 prompt_modifiers:
   - id: phase_repair
@@ -140,6 +191,39 @@ prompt_modifiers:
   - id: maintenance_simple
     if: "skin_concern == maintenance"
     then: "PROTECT phase from day 1. Minimal routine: cleanse AM/PM, moisturizer, SPF, retinoid PM 3×/wk. No phase ramp needed."
+  - id: routine_none_starter
+    if: "routine_level == none"
+    then: "ABSOLUTE BEGINNER. Week 1–2 = cleanser + moisturizer + SPF only, no exceptions. Build the habit first. Week 3+ introduce ONE active per fortnight. Skip all PM actives until week 4."
+  - id: routine_advanced_skip_ramp
+    if: "routine_level == advanced"
+    then: "ADVANCED USER. Skip the foundation phase. Start full protocol week 1 at user's existing tolerance level. Lean on prompt_modifiers for concern; assume user knows ingredient interactions."
+  - id: heavy_outdoor_spf
+    if: "outdoor_exposure == heavy"
+    then: "SPF REAPPLY: critical. Schedule midday SPF reapply (AM+3h) every day + afternoon (AM+6h) on weekdays. Use stick or powder format for over-makeup reapply. Add weekly UV-damage scan reminder."
+  - id: minimal_outdoor_spf
+    if: "outdoor_exposure == minimal"
+    then: "SPF REAPPLY: skip — AM SPF + window-distance only. Save the notification slot for hydration check or evening routine cue."
+  - id: tret_never_slow_ramp
+    if: "tret_history == never and skin_concern in [acne, pigmentation, texture, aging]"
+    then: "RETINOID RAMP: start at adapalene 0.1% (drugstore, gentle) or tretinoin 0.025%, 2×/wk weeks 1–2, 3×/wk weeks 3–4, every-other-night weeks 5–8, nightly week 9+. Add purge reassurance reminder week 2."
+  - id: tret_quit_buffer
+    if: "tret_history == tried_quit"
+    then: "RETINOID SANDWICH METHOD: moisturizer first, retinoid 0.025% over the moisturizer (buffered), wait 20 min, moisturizer again. Start 1×/wk only. Slow reintroduction prevents the irritation that caused them to quit before."
+  - id: tret_currently_maintain
+    if: "tret_history == currently_on"
+    then: "RETINOID: maintain current cadence — do NOT reset the ramp. Schedule retinoid PM at user's existing frequency (default 4×/wk). Skip purge reassurance — user is past that phase."
+  - id: dry_climate_occlusive
+    if: "climate in [dry, cold]"
+    then: "MOISTURIZER: heavier ceramide cream PM + occlusive seal (squalane oil or petrolatum-based balm) on top. Add hydration check 2×/day during winter months. Skip foaming cleanser AM — too stripping in dry air."
+  - id: humid_climate_lighter
+    if: "climate == humid"
+    then: "MOISTURIZER: lightweight gel-cream only. Skip oils. Add second cleanse cadence (PM double-cleanse always). Increase BHA frequency to clear sweat-driven congestion."
+  - id: diet_full_open
+    if: "diet_open == yes_full"
+    then: "INTERNAL TRACK: enable all anti-inflammatory diet reminders. Daily anti-inflammatory cue at lunch. Weekly dairy/sugar/seed-oil cycling reminder. 30-day elimination challenge after week 4 if breakouts persist."
+  - id: diet_partial
+    if: "diet_open == yes_some"
+    then: "INTERNAL TRACK: light. One diet reminder per week (rotate dairy/sugar/seed-oils). No elimination challenge. Frame as 'optional' so user doesn't feel forced."
 ---
 
 # Why skin matters for appearance

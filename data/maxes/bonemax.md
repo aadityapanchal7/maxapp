@@ -131,6 +131,56 @@ required_fields:
     required: true
     why: "Heavy screen time means forward-head posture all day — schedule adds extra mid-day mewing reset + nasal-breathing checks."
 
+  - id: mewing_experience
+    question: "How familiar are you with mewing?"
+    type: enum
+    options:
+      none: "Never tried it"
+      heard_of: "Heard of it, never properly done it"
+      occasional: "I do it sometimes"
+      regular: "Daily practice for months+"
+    required: true
+    why: "Decides ramp pace + technique-emphasis copy. None → start with form check + basic morning hold; regular → skip basics, layer hard-mewing cues."
+
+  - id: sleep_position
+    question: "How do you sleep, mostly?"
+    type: enum
+    options:
+      back: "Back — face up"
+      side: "Side"
+      stomach: "Stomach — face down"
+      mixed: "Mixed / depends"
+    required: true
+    why: "Stomach sleeping wrecks tongue posture and pushes the jaw forward asymmetrically. Stomach → bedtime cue includes side-sleep transition. Back → ideal, no extra cue. Side → asymmetric load reminder weekly."
+
+  - id: nasal_breather
+    question: "Do you breathe through your nose during the day?"
+    type: enum
+    options:
+      always: "Always — nose only"
+      mostly: "Mostly — sometimes mouth"
+      mouth: "Often through my mouth"
+      unsure: "Honestly not sure"
+    required: true
+    why: "Mouth breathing is the #1 enemy of jaw posture. Mouth → nasal check 3×/day + lip-tape suggestion at bedtime. Mostly → 2×/day. Always → 1×/day form check."
+
+  - id: jaw_priority
+    question: "What matters most to you for your jaw?"
+    type: enum
+    options:
+      definition: "Sharper definition / lower body fat at jawline"
+      mass: "Bigger masseter / fuller lower face"
+      structure: "Overall facial structure / posture"
+      symmetry: "Even left/right balance"
+    required: true
+    why: "Drives masseter ramp aggressiveness + which symmetry-check tips rotate. Definition → cardio + chewing gum focus. Mass → harder masseter + creatine optional. Structure → mewing + posture priority. Symmetry → balanced-bite + asymmetric chewing avoidance."
+
+  - id: nutrition_stack_open
+    question: "Open to a bone-support supplement stack (vitamin D3 + K2 + magnesium)?"
+    type: yes_no
+    required: true
+    why: "Gates the nutrition tasks. If yes → AM D3+K2 with food + PM magnesium. If no → skip those notification slots entirely."
+
 optional_context:
   - id: age
     description: "User age (from onboarding) — under-22 has more growth-plate plasticity for jaw posture changes."
@@ -180,6 +230,33 @@ prompt_modifiers:
   - id: adult_maintenance_framing
     if: "age >= 25"
     then: "Frame mewing as 'maintenance + drainage / posture' — fully-fused bone, gains are slower. Same daily cadence but mention realistic timeline (6-12 months for visible jaw posture change). No claims about bone remodeling."
+  - id: mewing_none_form_check
+    if: "mewing_experience == none"
+    then: "WEEK 1: form-check focus. Daily 30s morning hold + mirror check (back third of tongue on palate, lips sealed, teeth touching). No midday or night cue yet. Week 2 add midday. Week 3 add night. Build the habit before stacking."
+  - id: mewing_regular_advanced
+    if: "mewing_experience == regular"
+    then: "Skip basic form copy. Add hard-mewing cue (active suction holds 60s) 1×/day in addition to the standard 3-set. Add weekly self-progress photo (jawline angle, side profile)."
+  - id: stomach_sleep_correction
+    if: "sleep_position == stomach"
+    then: "STOMACH SLEEPING: counterproductive. Add bedtime cue 'try side or back tonight' + pillow setup tips (body pillow to anchor side position). After 2 weeks if still stomach, add weekly transition reminder. Frame: 'face plants in pillow undo your daily mewing'."
+  - id: side_sleep_alternation
+    if: "sleep_position == side"
+    then: "SIDE SLEEPING: asymmetric pressure. Add weekly reminder to alternate sides (note which side you woke up on). Recommend high-loft pillow for shoulder support so jaw doesn't compress."
+  - id: mouth_breather_lip_tape
+    if: "nasal_breather == mouth"
+    then: "MOUTH BREATHING: critical fix. 3×/day nasal-only practice (5 min each: AM, midday, PM). At bedtime, suggest lip tape (medical paper tape, vertical strip, NOT across full mouth). Add weekly snore / dry-mouth check-in. Refer to ENT if persistent."
+  - id: nasal_mostly_check
+    if: "nasal_breather == mostly"
+    then: "Nasal breathing 2×/day check. Frame: 'when you catch yourself mouth-breathing, close lips, push tongue up, breathe slow through nose 3x'. No lip-tape suggestion yet."
+  - id: jaw_definition_priority
+    if: "jaw_priority == definition"
+    then: "DEFINITION FOCUS: emphasize body-fat reduction (link to FitMax if active). Add daily 'jawline reveal' check — front-camera photo at consistent angle / lighting. Lower masseter intensity (avoid bulking the muscle); skip creatine for jaw."
+  - id: jaw_mass_priority
+    if: "jaw_priority == mass"
+    then: "MASS FOCUS: aggressive masseter ramp. Mastic 2× daily (AM + PM) once past TMJ check. Add jaw-specific creatine cue (5g/day). Weekly progress photo at chin / side angle."
+  - id: jaw_symmetry_priority
+    if: "jaw_priority == symmetry"
+    then: "SYMMETRY FOCUS: alternate chewing sides at every meal (cue: AM brush reminder + meal-time mid-chew prompt). Avoid sleeping always on same side. Add monthly self-photo at perfectly square angle to track shifts."
 
 ---
 

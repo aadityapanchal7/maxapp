@@ -125,6 +125,50 @@ required_fields:
     required: true
     why: "Strength training builds the frame that holds posture. Gates frame-building tasks."
 
+  - id: desk_hours
+    question: "How many hours a day do you spend at a desk or on your phone?"
+    type: int
+    min: 0
+    max: 16
+    step: 1
+    default: 8
+    unit: "hr"
+    required: true
+    why: "Desk-bound users need 2× midday posture resets + forward-head correction at AM and PM. Light desk users get 1 reset. None can skip the reset chain."
+
+  - id: sleep_hours
+    question: "Average hours of sleep per night?"
+    type: int
+    min: 4
+    max: 12
+    step: 1
+    default: 7
+    unit: "hr"
+    required: true
+    why: "For users under 22, sleep extension matters more than any decompression — growth hormone peaks in deep sleep. Under 7hr triggers nightly wind-down + screen cutoff cues."
+
+  - id: spine_health
+    question: "Any back, neck, or spine pain you live with?"
+    type: enum
+    options:
+      none: "No issues"
+      occasional: "Occasional stiffness or soreness"
+      chronic: "Chronic — see a doctor regularly"
+      diagnosed: "Diagnosed condition (herniated disc, scoliosis, etc.)"
+    required: true
+    why: "Chronic / diagnosed → ONLY gentle decompression + doctor consult reminder. Strip dead hangs, inversions, aggressive stretches. None → full protocol."
+
+  - id: equipment_access
+    question: "What do you have access to for decompression work?"
+    type: enum
+    options:
+      none: "Nothing — bodyweight only"
+      pullup_bar: "Pull-up bar / doorway bar"
+      inversion_table: "Inversion table"
+      full_setup: "Bar + inversion + foam roller / mobility tools"
+    required: true
+    why: "Decides which decompression tasks fire. None = lying decompression only. Inversion = full hang + inversion. Full = the works."
+
 optional_context:
   - id: height_current
     description: "Current height — for perceived-height baseline (not promised growth)"
@@ -134,12 +178,12 @@ optional_context:
     description: "Boots/sneakers/dress — biases shoe recommendations"
   - id: cardiovascular_concerns
     description: "Any heart/BP issues — gates inversion table tasks"
-  - id: spine_pain
-    description: "Back/neck pain history — modifies decompression tasks (gentler, doctor referral)"
   - id: body_fat_high
     description: "User wants leanmaxx → adds body-comp tasks"
-  - id: sleep_short
-    description: "Sleeps <7hr → emphasized sleep extension cue"
+  - id: morning_loss_amt
+    description: "How much height user loses through the day (cm) — drives decompression cadence"
+  - id: nutrition_priority
+    description: "Open to dietary tweaks for growth (protein, calcium, vitamin D)"
 
 prompt_modifiers:
   - id: under_18_growth
@@ -157,6 +201,27 @@ prompt_modifiers:
   - id: spine_pain_caution
     if: "spine_pain == true"
     then: "Use ONLY gentle decompression (lying knee-to-chest, doorway hang ≤30s). Skip dead hangs and aggressive stretches. Recommend doctor consult."
+  - id: chronic_spine_doctor_only
+    if: "spine_health in [chronic, diagnosed]"
+    then: "DOCTOR-ONLY DECOMPRESSION. Schedule lying knee-to-chest 2×/day max. Skip ALL hangs, inversions, aggressive stretches. Add weekly doctor / PT check-in reminder. Frame as 'support, not treatment'."
+  - id: heavy_desk_double_reset
+    if: "desk_hours >= 8"
+    then: "TWO midday posture resets (mid-morning + mid-afternoon). Add forward-head correction every 90 min as standalone task. Wall posture drill 3×/day. Eye-line check (monitor at eye level) reminder weekly."
+  - id: low_sleep_under_22_critical
+    if: "sleep_hours < 7 and age < 22"
+    then: "SLEEP-FIRST PROTOCOL. Bedtime cue 90 min before target sleep. Screen cutoff 60 min before bed. No caffeine after 2pm reminder. Frame: 'growth hormone peaks in first 2 hr of deep sleep — under 7 hr cuts that window in half'."
+  - id: low_sleep_adult
+    if: "sleep_hours < 7 and age >= 22"
+    then: "Add bedtime wind-down cue. Frame around recovery + posture muscle repair, not growth. Skip the under-22 framing."
+  - id: equipment_none_lying_only
+    if: "equipment_access == none"
+    then: "DECOMPRESSION TASKS: lying knee-to-chest, cat-cow, supine spinal twist, child's pose. ZERO standing hang or inversion tasks. Frame as 'gravity-neutral release'."
+  - id: equipment_pullup_bar_hangs
+    if: "equipment_access in [pullup_bar, full_setup] and spine_health == none"
+    then: "Add dead hang 60s 2×/day (AM after wake, PM before bed). Progress to weighted hangs after week 4 if comfortable. NEVER same day as heavy axial leg work — at least 6 hr gap."
+  - id: equipment_inversion_full
+    if: "equipment_access in [inversion_table, full_setup] and spine_health == none and cardiovascular_concerns != true"
+    then: "Inversion table 5 min PM, 4×/wk. Start at 30° angle week 1, progress to 60° by week 4. Always supervised first sessions. Skip if dizziness or BP issues."
 ---
 
 # What heightmaxxing actually means

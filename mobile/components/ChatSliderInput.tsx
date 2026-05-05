@@ -23,7 +23,8 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, spacing } from '../theme/dark';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, fonts, spacing } from '../theme/dark';
 
 export interface SliderSpec {
     type: 'slider';
@@ -60,9 +61,9 @@ export default function ChatSliderInput({ spec, onSubmit, disabled }: Props) {
 
     return (
         <View style={styles.container}>
-            <View style={styles.header}>
-                <Text style={styles.value}>{displayValue}{spec.unit ? ` ${spec.unit}` : ''}</Text>
-                <Text style={styles.range}>{spec.min}–{spec.max}</Text>
+            <View style={styles.valueRow}>
+                <Text style={styles.value}>{displayValue}</Text>
+                {spec.unit ? <Text style={styles.unit}>{spec.unit}</Text> : null}
             </View>
             <SliderTrack
                 min={spec.min}
@@ -73,6 +74,10 @@ export default function ChatSliderInput({ spec, onSubmit, disabled }: Props) {
                 onCommit={setCommittedValue}
                 disabled={disabled}
             />
+            <View style={styles.scaleRow}>
+                <Text style={styles.scaleText}>{spec.min}</Text>
+                <Text style={styles.scaleText}>{spec.max}</Text>
+            </View>
             <Pressable
                 onPress={submit}
                 disabled={disabled}
@@ -84,7 +89,8 @@ export default function ChatSliderInput({ spec, onSubmit, disabled }: Props) {
                 accessibilityRole="button"
                 accessibilityLabel={`Submit ${committedValue}`}
             >
-                <Text style={styles.submitText}>Submit · {committedValue}{spec.unit ? ` ${spec.unit}` : ''}</Text>
+                <Text style={styles.submitText}>Confirm</Text>
+                <Ionicons name="arrow-forward" size={14} color={colors.foreground} />
             </Pressable>
         </View>
     );
@@ -217,44 +223,67 @@ const styles = StyleSheet.create({
     container: {
         marginTop: spacing.sm,
         marginBottom: spacing.md,
-        paddingVertical: spacing.md,
-        paddingHorizontal: spacing.md,
-        borderRadius: 14,
-        backgroundColor: colors.surface ?? '#f4f4f5',
+        paddingVertical: spacing.lg,
+        paddingHorizontal: spacing.xs,
         gap: spacing.sm,
     },
-    header: {
+    valueRow: {
         flexDirection: 'row',
-        justifyContent: 'space-between',
         alignItems: 'baseline',
+        justifyContent: 'center',
+        gap: 6,
+        marginBottom: spacing.xs,
     },
     value: {
-        fontSize: 28,
-        fontWeight: '700',
+        fontFamily: fonts.serif,
+        fontSize: 56,
+        fontWeight: '400',
         color: colors.foreground,
+        letterSpacing: -1.5,
+        lineHeight: 60,
+        includeFontPadding: false,
     },
-    range: {
-        fontSize: 12,
-        color: colors.textSecondary ?? '#888',
+    unit: {
+        fontFamily: fonts.sans,
+        fontSize: 14,
+        fontWeight: '400',
+        color: colors.textMuted ?? '#888',
+        letterSpacing: 0.4,
+        textTransform: 'lowercase',
     },
     trackWeb: {
         paddingVertical: spacing.xs,
+        paddingHorizontal: 2,
     },
     trackNative: {
         paddingVertical: spacing.xs,
+        paddingHorizontal: 2,
+    },
+    scaleRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingHorizontal: 2,
+        marginTop: -spacing.xs,
+    },
+    scaleText: {
+        fontSize: 11,
+        color: colors.textMuted ?? '#888',
+        letterSpacing: 0.5,
+        opacity: 0.7,
     },
     snapRow: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 6,
         paddingVertical: spacing.xs,
+        justifyContent: 'center',
     },
     snap: {
         paddingVertical: 6,
         paddingHorizontal: 12,
         borderRadius: 999,
-        borderWidth: 1,
-        borderColor: colors.divider ?? '#d4d4d4',
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border ?? '#2a2a2a',
         backgroundColor: 'transparent',
     },
     snapPressed: {
@@ -265,22 +294,30 @@ const styles = StyleSheet.create({
         color: colors.foreground,
     },
     submit: {
-        marginTop: spacing.xs,
-        paddingVertical: spacing.sm + 2,
-        paddingHorizontal: spacing.md,
+        marginTop: spacing.md,
+        paddingVertical: 10,
+        paddingHorizontal: spacing.lg,
         borderRadius: 999,
-        backgroundColor: colors.foreground,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border ?? '#2a2a2a',
+        backgroundColor: 'transparent',
+        flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        alignSelf: 'center',
     },
     submitPressed: {
-        opacity: 0.85,
+        opacity: 0.6,
     },
     submitDisabled: {
-        opacity: 0.4,
+        opacity: 0.3,
     },
     submitText: {
-        color: colors.background ?? '#fff',
-        fontWeight: '600',
-        fontSize: 15,
+        color: colors.foreground,
+        fontWeight: '500',
+        fontSize: 13,
+        letterSpacing: 0.4,
+        textTransform: 'uppercase',
     },
 });

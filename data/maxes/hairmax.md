@@ -133,23 +133,60 @@ required_fields:
     required: true
     why: "Adds wash-out reminders and a styling task."
 
+  - id: current_treatment
+    question: "Are you on any hair-loss treatments right now?"
+    type: enum
+    options:
+      none: "Nothing yet"
+      topical_only: "Topical minoxidil (Rogaine / generic)"
+      oral_topical: "Oral finasteride + minoxidil"
+      full_stack: "Fin + min + microneedle / dermastamp"
+    required: true
+    why: "Decides where to start the user — none = ramp from baseline, full_stack = maintain, drop redundant reminders."
+
+  - id: heat_styling
+    question: "Do you use heat styling tools (blow dryer, flat iron, curling iron)?"
+    type: enum
+    options:
+      never: "Never"
+      sometimes: "Once or twice a week"
+      often: "Most days"
+    required: true
+    why: "Heat = need protectant task before each session + weekly deep-condition. Often = mandatory protectant; sometimes = lighter cadence."
+
+  - id: dermaroller_owned
+    question: "Do you own (or willing to buy) a 0.5mm dermaroller for scalp microneedling?"
+    type: yes_no
+    required: true
+    why: "Gates the weekly microneedling task. If no, suggest hand massage as substitute (less effective but still circulation boost)."
+
+  - id: routine_time_pref
+    question: "How much time do you want to spend on hair / scalp care daily?"
+    type: enum
+    options:
+      minimal: "Under 5 min — wash + go"
+      standard: "5–15 min — basics + product"
+      extensive: "15+ min — full routine, willing to invest"
+    required: true
+    why: "Drives task density. Minimal = strip to essentials (wash + minox if loss); extensive = layer scalp massage, pre-poo treatments, weekly masks."
+
 optional_context:
   - id: face_shape
     description: "User-stated face shape — biases haircut suggestions"
   - id: current_haircut
     description: "What they have now — relevant for transition advice"
   - id: minoxidil_using
-    description: "Already using minox? gates microneedle scheduling"
+    description: "Already using minox? gates microneedle scheduling — superseded by current_treatment"
   - id: finasteride_using
-    description: "On fin/dut already? skip those reminders"
+    description: "On fin/dut already? skip those reminders — superseded by current_treatment"
   - id: facial_hair_growing
     description: "Adds beard care tasks"
   - id: product_preferences
     description: "Specific shampoos/conditioners they like"
-  - id: heat_styling
-    description: "Uses blow dryer/iron — adds heat protection task"
-  - id: dermaroller_owned
-    description: "Owns a dermaroller for scalp microneedling"
+  - id: previous_treatments_quit
+    description: "Previously tried fin/min and quit — informs sensitivity / pace"
+  - id: hair_density_goal
+    description: "Maintain vs. regrow vs. transplant-prep — biases aggressiveness"
 
 prompt_modifiers:
   - id: loss_prevention_active
@@ -170,6 +207,30 @@ prompt_modifiers:
   - id: styling_routine
     if: "daily_styling == true"
     then: "Add: pre-style routine (small product, on damp hair), evening rinse if heavy product use 3+ days in a row."
+  - id: treatment_none_starter
+    if: "current_treatment == none and hair_loss_signs in [yes_active, yes_observing]"
+    then: "RAMP TREATMENT: month 1 = topical minoxidil 1×/day (foam, AM only). Month 2 = bump to 2×/day (AM foam + PM liquid). Add finasteride consultation reminder month 2. Month 3+ = consider microneedle if scalp not sensitive."
+  - id: treatment_topical_only_advance
+    if: "current_treatment == topical_only and hair_loss_signs == yes_active"
+    then: "Suggest oral finasteride consultation in month 2 if regrowth plateaus. Continue minoxidil 2×/day. Add microneedle 1×/wk after week 4."
+  - id: treatment_full_stack_maintain
+    if: "current_treatment == full_stack"
+    then: "MAINTENANCE MODE: minox AM + PM, fin daily, microneedle 1×/wk. Skip ramp reminders, skip 'consider treatment' nudges. Focus reminders on consistency + monthly progress photo."
+  - id: heat_protectant_required
+    if: "heat_styling == often"
+    then: "Add heat protectant spray task BEFORE every styling session. Add weekly deep-condition mask (hydrating, not protein — protein on damaged hair makes it brittle). Recommend 2-month break from heat 1×/yr."
+  - id: heat_occasional
+    if: "heat_styling == sometimes"
+    then: "Heat protectant on heat days only. Bi-weekly deep-condition. Lower priority than treatment / wash routine."
+  - id: dermaroller_microneedle
+    if: "dermaroller_owned == true and hair_loss_signs in [yes_active, yes_observing] and scalp_state != sensitive"
+    then: "Schedule microneedle 1×/week PM (NEVER same night as minoxidil — 24hr gap). Pre-clean scalp with alcohol wipe. Apply minox 24hr later. Replace dermaroller every 3 months."
+  - id: routine_minimal_strip
+    if: "routine_time_pref == minimal"
+    then: "STRIP to essentials: wash + condition + (minox if loss-prevention). Skip scalp massage task, skip pre-poo, skip weekly mask. Frame everything as 'this is the floor — anything beyond it is bonus'."
+  - id: routine_extensive_layer
+    if: "routine_time_pref == extensive"
+    then: "FULL ROUTINE: layer scalp massage AM (5 min, fingertip circles), pre-poo oil treatment 1×/wk, weekly hydration mask, monthly clarifying wash. Add daily scalp tonic if oily."
 ---
 
 # Why hair matters for attractiveness
