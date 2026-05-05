@@ -1,12 +1,13 @@
 /**
  * Per-tier feature limits.
  *
- *   Chadlite (basic):   1 active program, 1 face scan / week, no course docs
+ *   Chadlite (basic):   2 active programs, 1 face scan / week, no course docs
  *   Chad (premium):     3 active programs, 1 face scan / day, full course docs
  *
- * Keep mobile limits in sync with backend enforcement
- * (backend/api/scans.py for scan rate-limiting; PaymentScreen.tsx for
- * the user-facing feature copy).
+ * Keep mobile limits in sync with backend enforcement (the source of truth):
+ *   - backend/services/schedule_service.py MAX_ACTIVE_SCHEDULES_BASIC / PREMIUM
+ *   - backend/api/scans.py for scan rate-limiting
+ *   - PaymentScreen.tsx for the user-facing feature copy
  */
 
 export type TierUser = {
@@ -19,10 +20,15 @@ export function isPremium(user: TierUser): boolean {
     return (user.subscription_tier || '').toLowerCase() === 'premium';
 }
 
-/** "My Maxxes" home tile slots — Chadlite 1, Chad 3, unpaid 1. */
+/** Active-schedule cap — must match backend MAX_ACTIVE_SCHEDULES_*. */
+export function maxActiveSchedulesForUser(user: TierUser): number {
+    if (!user?.is_paid) return 2; // unpaid sees same cap as basic until paywall hits
+    return isPremium(user) ? 3 : 2;
+}
+
+/** "My Maxxes" home tile slots — same as the active-schedule cap. */
 export function maxHomeMaxxesForUser(user: TierUser): number {
-    if (!user?.is_paid) return 1;
-    return isPremium(user) ? 3 : 1;
+    return maxActiveSchedulesForUser(user);
 }
 
 /** Whether the user can see the per-maxx chapter library (TOC + reader). */

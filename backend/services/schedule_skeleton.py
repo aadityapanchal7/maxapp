@@ -200,10 +200,30 @@ def _place_block(
     elif cadence == "dynamic":
         day_indices = list(range(n_days))   # picker decides per-day below
     elif cadence.startswith("n_per_week="):
+        raw_n = cadence.split("=", 1)[1].strip()
+        # Allow either a literal int (`n_per_week=4`) OR a user_state field
+        # name (`n_per_week=days_per_week`) — interpolate at runtime so
+        # docs don't need to hardcode N. Falls back to 1 if neither
+        # resolves to a usable int.
+        n_val: Optional[int] = None
         try:
-            n = max(1, min(7, int(cadence.split("=", 1)[1])))
+            n_val = int(raw_n)
         except ValueError:
-            n = 1
+            field_val = user_state.get(raw_n)
+            if isinstance(field_val, bool):
+                n_val = 1 if field_val else 0
+            elif isinstance(field_val, (int, float)):
+                n_val = int(field_val)
+            elif isinstance(field_val, str) and field_val.strip().isdigit():
+                n_val = int(field_val.strip())
+            else:
+                logger.warning(
+                    "schedule_skeleton: cadence n_per_week=%s could not be resolved "
+                    "from user_state for block %s; defaulting to 1/wk",
+                    raw_n, block.id,
+                )
+                n_val = 1
+        n = max(1, min(7, int(n_val or 1)))
         # Spread evenly across each 7-day window. Keep going for week 2.
         day_indices = []
         for week_start in range(0, n_days, 7):
@@ -336,6 +356,10 @@ def _emit_tasks(
         ):
             continue
         time_str = from_minutes(cur).strftime("%H:%M")
+        # Emit BOTH duration_min and duration_minutes — mobile reads
+        # `duration_minutes` (legacy LLM-path key); skeleton/validator
+        # internals use `duration_min`. Without both, doc-driven
+        # schedules render with no duration suffix in the UI.
         day.setdefault("tasks", []).append({
             "task_id": str(uuid4()),
             "catalog_id": cat.id,
@@ -343,12 +367,15 @@ def _emit_tasks(
             "description": cat.description,
             "time": time_str,
             "duration_min": cat.duration_min,
+            "duration_minutes": cat.duration_min,
             "tags": list(cat.tags),
             "status": "pending",
             "intensity": float(cat.intensity),
         })
-        # 5-minute gap between tasks, or the task's duration, whichever is bigger.
-        cur += max(int(cat.duration_min) + 1, 5)
+        # 15-minute minimum gap between same-block tasks (was 5 — too
+        # aggressive, produced 4-task notification storms in the 7-7:25am
+        # window). Routines feel calmer at 15-min cadence.
+        cur += max(int(cat.duration_min) + 1, 15)
 
 
 # --------------------------------------------------------------------------- #

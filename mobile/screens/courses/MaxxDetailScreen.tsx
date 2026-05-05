@@ -150,7 +150,10 @@ export default function MaxxDetailScreen() {
     const activeLabels = activeSummaryQuery.data?.labels ?? [];
 
     const loading = !!maxxId && maxxQuery.isPending && !maxxQuery.data;
-    const maxActiveModules = isPremium ? 3 : 1;
+    // Mirror backend: Chad=3, Chadlite=2. Was hardcoded basic=1 here, which
+    // hid the Start Schedule button after the first add even though the
+    // backend would have accepted a second.
+    const maxActiveModules = isPremium ? 3 : 2;
     const atLimit = !activeSchedule && activeCount >= maxActiveModules;
 
     /* Course reader (full-screen modal pager). null = closed. */
@@ -231,13 +234,33 @@ export default function MaxxDetailScreen() {
 
     const handleStopSchedule = () => {
         if (!activeSchedule) return;
+        // Count today's still-pending tasks so the user knows what they
+        // lose right now. Without this warning, users at 4pm tap Stop and
+        // wonder why their evening reminders silently disappear.
+        const today = new Date();
+        const yyyymmdd = today.toISOString().slice(0, 10);
+        const todaysTasks: any[] = (activeSchedule as any)?.days?.find?.(
+            (d: any) => (d?.date || '').slice(0, 10) === yyyymmdd,
+        )?.tasks ?? [];
+        const nowMins = today.getHours() * 60 + today.getMinutes();
+        const remaining = todaysTasks.filter((t: any) => {
+            const time: string = t?.time || '';
+            const m = /^(\d{1,2}):(\d{2})/.exec(time);
+            if (!m) return false;
+            const tMins = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+            return tMins >= nowMins && (t?.status || 'pending') === 'pending';
+        }).length;
+        const tail = remaining > 0
+            ? ` Today's remaining ${remaining} task${remaining === 1 ? '' : 's'} will be removed.`
+            : '';
+        const msg = `This deactivates your ${maxxId} schedule. You can restart it anytime.${tail}`;
         if (Platform.OS === 'web') {
-            const ok = window.confirm(`Stop your ${maxxId} schedule? You can restart it anytime.`);
+            const ok = window.confirm(msg);
             if (ok) doStopSchedule();
         } else {
             Alert.alert(
                 'Stop schedule?',
-                `This will deactivate your ${maxxId} schedule. You can restart it anytime.`,
+                msg,
                 [
                     { text: 'Cancel', style: 'cancel' },
                     { text: 'Stop', style: 'destructive', onPress: () => doStopSchedule() },
@@ -369,7 +392,7 @@ export default function MaxxDetailScreen() {
                             <View style={styles.limitBanner}>
                                 <Ionicons name="alert-circle-outline" size={16} color={colors.textSecondary} />
                                 <Text style={styles.limitBannerText}>
-                                    You have {maxActiveModules} active modules ({activeLabels.join(', ')}). Stop one to start this.
+                                    You're at your limit of {maxActiveModules} active program{maxActiveModules === 1 ? '' : 's'} ({activeLabels.join(', ')}). Stop one first to start this.{!isPremium ? ' Or upgrade to Chad for a 3rd slot.' : ''}
                                 </Text>
                             </View>
                         ) : (
@@ -415,7 +438,7 @@ export default function MaxxDetailScreen() {
                             <View style={styles.limitBanner}>
                                 <Ionicons name="alert-circle-outline" size={18} color={colors.textSecondary} />
                                 <Text style={styles.limitBannerText}>
-                                    You have {maxActiveModules} active modules ({activeLabels.join(', ')}). Stop one to start this.
+                                    You're at your limit of {maxActiveModules} active program{maxActiveModules === 1 ? '' : 's'} ({activeLabels.join(', ')}). Stop one first to start this.{!isPremium ? ' Or upgrade to Chad for a 3rd slot.' : ''}
                                 </Text>
                             </View>
                         ) : (

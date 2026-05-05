@@ -32,8 +32,40 @@ from services.task_catalog_service import all_tasks, get_task
 logger = logging.getLogger(__name__)
 
 MAX_TITLE_CHARS = 28
-MIN_TASK_GAP_MIN = 5
-HARD_DAILY_TASK_CAP = 8
+# 15-min minimum so a routine that fans into 4 sub-tasks doesn't fire 4
+# notifications inside 20 minutes (was 5; produced morning storms).
+MIN_TASK_GAP_MIN = 15
+# 6 distinct notifications/day per module is the realistic ceiling — past
+# that, the user mutes the app. Multi-module collision cap (services.
+# multi_module_collision) runs separately and matches.
+HARD_DAILY_TASK_CAP = 6
+
+
+# Tokens that should keep their original casing in task titles even when
+# the rest of the title is lowercased. These are common abbreviations
+# users recognize visually; rendering them lowercase ("am nutrition",
+# "spf 50", "liss cardio") looks wrong and reduces scan-ability.
+_PRESERVE_CASE_TOKENS = (
+    "AM", "PM", "SPF", "UV", "BHA", "AHA", "PHA", "LISS", "HIIT",
+    "TDEE", "RIR", "DB", "BB", "OHP", "RDL", "PPL", "TMJ",
+    "K2", "D3", "B5", "B12", "C", "EAA", "BCAA", "MMA",
+)
+
+
+def _normalize_title_case(raw: str) -> str:
+    """Lowercase a task title but preserve common ALL-CAPS abbreviations
+    (AM, PM, SPF, LISS, etc). Without this, the validator's earlier
+    blanket .lower() turned "AM nutrition" into "am nutrition", which
+    reads wrong for a scannable reminder list.
+    """
+    if not raw:
+        return ""
+    lo = raw.strip().lower()
+    out = lo
+    for tok in _PRESERVE_CASE_TOKENS:
+        # Word-boundary, case-insensitive replace back to canonical casing.
+        out = re.sub(rf"\b{tok.lower()}\b", tok, out)
+    return out
 
 
 @dataclass
@@ -154,7 +186,8 @@ def _validate_task(
                                 day_index=day_index, task_id=cat_id)], None
 
     catalog_task = get_task(maxx_id, cat_id)
-    title = (task.get("title") or catalog_task.title or "").strip().lower()
+    raw_title = (task.get("title") or catalog_task.title or "").strip()
+    title = _normalize_title_case(raw_title)
     if len(title) > MAX_TITLE_CHARS:
         title = title[: MAX_TITLE_CHARS - 1].rstrip() + "…"
     elif not title:

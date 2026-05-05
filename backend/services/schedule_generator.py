@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -241,15 +242,34 @@ async def generate_schedule(
 
 def _skeleton_summary(doc, days: list[dict], modifiers: list[str]) -> str:
     """Concise human-readable summary of a skeleton-built schedule.
+
     Replaces the LLM-written `summary` field with a deterministic one
-    so we don't need a model round-trip."""
+    so we don't need a model round-trip. Modifier ids like `phase_repair`
+    or `cut_phase` get translated to plain phrases — the user never sees
+    raw config-key strings.
+    """
     n_days = len(days)
     day_counts = [len(d.get("tasks") or []) for d in days]
     avg = round(sum(day_counts) / max(1, len(day_counts)), 1)
     name = doc.display_name.lower() if doc and doc.display_name else "your"
     parts = [f"{name} schedule built — {n_days} days, ~{avg} tasks/day."]
-    if modifiers:
-        parts.append("active rules: " + "; ".join(m.split(".")[0].lower() for m in modifiers[:3]))
+    if modifiers and doc:
+        # Map modifier id → human label by looking up the doc's
+        # prompt_modifiers list. Keep the plain-English `then:` text trimmed
+        # to the first sentence so the summary stays scannable.
+        mod_labels = []
+        by_id = {m.get("id"): m for m in (doc.prompt_modifiers or []) if isinstance(m, dict)}
+        for mid in modifiers[:3]:
+            spec = by_id.get(mid)
+            if not spec:
+                continue
+            then = str(spec.get("then") or "").strip()
+            # Take the first sentence / clause as the label, lowercase.
+            first = re.split(r"[.\n:]", then, maxsplit=1)[0].strip().lower()
+            if first:
+                mod_labels.append(first[:80])
+        if mod_labels:
+            parts.append("personalized for: " + "; ".join(mod_labels))
     return " ".join(parts)[:400]
 
 

@@ -36,7 +36,7 @@ schedule_design:
       - id: midday_spf_reapply
         slot: midday
         cadence: daily
-        if: "outdoor_lifestyle == true"
+        if: "outdoor_exposure in [heavy, moderate]"
         tasks: [skin.spf_reapply]
       - id: pm_foundation
         slot: pm_close
@@ -61,7 +61,7 @@ schedule_design:
       - id: internal_diet
         slot: flexible
         cadence: n_per_week=5
-        if: "skin_concern in [rosacea, acne, pigmentation] and diet_inflammation_open == true"
+        if: "skin_concern in [rosacea, acne, pigmentation] and diet_open in [yes_full, yes_some]"
         tasks: [skin.diet_anti_inflammatory]
       # Phase override: damaged barrier → strip all actives + force pause day.
       # `replaces` removes other blocks by id before placement.
@@ -507,7 +507,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   duration_min: 2
   default_window: midday
   tags: [midday, protect]
-  applies_when: ["outdoor_lifestyle == true"]
+  applies_when: ["outdoor_exposure in [heavy, moderate]"]
   intensity: 0.2
   evidence_section: "Phase 3 — Protect"
   frequency: { type: daily, n: 1 }
@@ -590,7 +590,7 @@ Internal: ~3L water daily, collagen, zinc, anti-inflammatory diet.
   duration_min: 1
   default_window: flexible
   tags: [internal, diet, anti-inflammatory]
-  applies_when: ["skin_concern in [rosacea, acne, pigmentation]", "diet_inflammation_open == true"]
+  applies_when: ["skin_concern in [rosacea, acne, pigmentation]", "diet_open in [yes_full, yes_some]"]
   intensity: 0.3
   evidence_section: "Internal triggers"
   frequency: { type: n_per_week, n: 5 }
