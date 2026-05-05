@@ -59,12 +59,15 @@ export function RootNavigator() {
 
     const onboardingCompleted = user?.onboarding?.completed === true;
     const firstScanDone = user?.first_scan_completed === true;
-    const sendblueDone = (user?.onboarding as Record<string, unknown> | undefined)?.sendblue_connect_completed === true;
     const postSubscriptionOnboarding = !!(user?.onboarding as Record<string, unknown> | undefined)?.post_subscription_onboarding;
 
     /**
-     * Pre-pay: Onboarding → FeaturesIntro → FaceScan → FaceScanResults (locked) → Payment.
-     * Post-pay: Main (→ HomeScreen redirects to FaceScanResults with postPay) → SmsCoachingIntro/SendblueConnect → NotificationChannels → ModuleSelect → Main.
+     * Pre-pay:  Onboarding → FeaturesIntro → FaceScan → FaceScanResults (locked) → Payment.
+     * Post-pay: Main (→ HomeScreen redirects to FaceScanResults postPay) → ModuleSelect → Main.
+     *
+     * SMS verification + NotificationChannels screens were removed; push
+     * notifications default to ON for paid users (opted in automatically
+     * — they can still toggle device-level via OS settings).
      */
     const initialRoute = !isAuthenticated
         ? 'Landing'
@@ -79,12 +82,8 @@ export function RootNavigator() {
                             ? 'FaceScanResults'
                             : 'FeaturesIntro'
                     : postSubscriptionOnboarding
-                        ? 'Main'
-                        : !sendblueDone
-                            ? userHasSignupPhone(user)
-                                ? 'SendblueConnect'
-                                : 'SmsCoachingIntro'
-                            : 'Main';
+                        ? 'ModuleSelect'
+                        : 'Main';
 
     const stackKey = !isAuthenticated
         ? 'guest'

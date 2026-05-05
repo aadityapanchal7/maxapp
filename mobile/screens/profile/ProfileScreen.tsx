@@ -295,9 +295,9 @@ export default function ProfileScreen() {
                 >
                     <Ionicons name="arrow-back" size={20} color={colors.foreground} />
                 </TouchableOpacity>
-                <Text style={styles.topBarTitle} numberOfLines={1}>
-                    {user?.username ? user.username : 'Profile'}
-                </Text>
+                {/* Username intentionally hidden — keeps the header airy
+                    and lets the body content lead. */}
+                <View style={{ flex: 1 }} />
                 <TouchableOpacity
                     onPress={() => navigation.navigate('Settings')}
                     style={styles.iconButton}
@@ -313,22 +313,9 @@ export default function ProfileScreen() {
                 renderSkeleton()
             ) : (
                 <Animated.ScrollView showsVerticalScrollIndicator={false} style={{ opacity: fadeAnim }} contentContainerStyle={styles.scrollContent}>
-                    {isPaid && !userHasSignupPhone(user) ? (
-                        <TouchableOpacity
-                            style={styles.smsAlertBanner}
-                            onPress={() => navigation.navigate('SmsSetup')}
-                            activeOpacity={0.85}
-                        >
-                            <View style={styles.smsAlertIconWrap}>
-                                <Ionicons name="alert-circle" size={18} color={colors.warning} />
-                            </View>
-                            <View style={styles.smsAlertTextCol}>
-                                <Text style={styles.smsAlertTitle}>Phone number missing</Text>
-                                <Text style={styles.smsAlertSub}>Add one to enable SMS coaching</Text>
-                            </View>
-                            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                        </TouchableOpacity>
-                    ) : null}
+                    {/* SMS coaching banner removed — phone-verification flow
+                        is no longer part of the app. Push notifications are
+                        the default channel for paid users. */}
 
                     <View style={styles.identitySection}>
                         <TouchableOpacity

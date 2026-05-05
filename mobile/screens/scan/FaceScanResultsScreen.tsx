@@ -592,17 +592,10 @@ export default function FaceScanResultsScreen() {
      *  on the fetch-error UI, so a paid user with no scan (e.g. DEV
      *  test-activate) is never trapped on "Couldn't load your scan". */
     const advancePostPay = useCallback(() => {
-        if (sendbluePending) {
-            const next = 'ModuleSelect';
-            if (isPaid === true && !userHasSignupPhone(user)) {
-                navigation.navigate('SmsCoachingIntro', { next });
-            } else {
-                navigation.navigate('SendblueConnect', { next });
-            }
-            return;
-        }
+        // SMS/phone verification removed from the post-pay flow; users go
+        // straight from face-scan results to choosing their programs.
         navigation.navigate('ModuleSelect');
-    }, [sendbluePending, isPaid, user, navigation]);
+    }, [navigation]);
 
     /** Auto-advance when we arrived from the paywall redirect but there is no
      *  scan on file. The normal flow requires scanning before paying, but
@@ -675,15 +668,8 @@ export default function FaceScanResultsScreen() {
             goPayment();
             return;
         }
-        if (sendbluePending) {
-            const next = postPay ? 'ModuleSelect' : 'Main';
-            if (isPaid === true && !userHasSignupPhone(user)) {
-                navigation.navigate('SmsCoachingIntro', { next });
-            } else {
-                navigation.navigate('SendblueConnect', { next });
-            }
-            return;
-        }
+        // SMS verification flow removed — paid users skip directly to
+        // ModuleSelect post-pay; everyone else goes home.
         if (postPay) {
             navigation.navigate('ModuleSelect');
             return;

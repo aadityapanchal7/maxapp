@@ -16,7 +16,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { colors, spacing, borderRadius, typography } from '../../theme/dark';
+import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
 import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
 import { resolveMaxxBrand } from '../../utils/maxxBrand';
@@ -403,7 +403,7 @@ export default function EditPersonalScreen() {
               isWide ? { marginHorizontal: -spacing.xxl } : { marginHorizontal: -spacing.xl },
             ]}
           >
-            {GOALS.map((goal) => {
+            {GOALS.map((goal, idx) => {
               const selected = selectedGoals.includes(goal.id);
               const maxG = maxHomeMaxxesForUser(user);
               const apiMax = maxesById.get(goal.id);
@@ -412,6 +412,68 @@ export default function EditPersonalScreen() {
               const label = getMaxxDisplayLabel(merged);
               const desc = getMaxxDisplayDescription(merged) ?? apiMax?.description;
 
+              const onPress = () =>
+                setSelectedGoals((prev) => {
+                  if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
+                  if (prev.length >= maxG) {
+                    Alert.alert(
+                      'Limit reached',
+                      `Your plan allows up to ${maxG} Maxxes on Home. Remove one to add another.`,
+                    );
+                    return prev;
+                  }
+                  return [...prev, goal.id];
+                });
+
+              // "Your Maxxes" — same editorial row pattern as ModuleSelect:
+              // unselected = no chrome; selected = subtle accent-tinted card
+              // with a filled accent number badge.
+              if (onlyGoals) {
+                const num = String(idx + 1).padStart(2, '0');
+                const onTint = `${brand}1A`; // ~10%
+                const onBorder = `${brand}4D`; // ~30%
+                return (
+                  <TouchableOpacity
+                    key={goal.id}
+                    onPress={onPress}
+                    activeOpacity={0.7}
+                    accessibilityRole="checkbox"
+                    accessibilityState={{ checked: selected }}
+                    style={[
+                      ygStyles.row,
+                      selected && { backgroundColor: onTint, borderColor: onBorder },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        ygStyles.numBadge,
+                        selected
+                          ? { backgroundColor: brand, borderColor: brand }
+                          : { borderColor: colors.border },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          ygStyles.numText,
+                          { color: selected ? colors.buttonText : brand },
+                        ]}
+                      >
+                        {num}
+                      </Text>
+                    </View>
+                    <View style={ygStyles.copy}>
+                      <Text style={ygStyles.title}>{label}</Text>
+                      {!!desc && (
+                        <Text style={ygStyles.desc} numberOfLines={2}>
+                          {desc}
+                        </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              }
+
+              // Default ("edit lifestyle") — keep the existing MaxxProgramRow.
               return (
                 <MaxxProgramRow
                   key={goal.id}
@@ -419,34 +481,19 @@ export default function EditPersonalScreen() {
                   iconName={(apiMax?.icon || goal.icon) as string}
                   title={label}
                   description={desc}
-                  accent={onlyGoals ? 'none' : 'stripe'}
+                  accent="stripe"
                   selected={selected}
-                  selectedVariant={onlyGoals ? 'uniform' : 'brand'}
+                  selectedVariant="brand"
                   brandColor={brand}
-                  style={{ marginBottom: onlyGoals ? spacing.lg : spacing.sm }}
+                  style={{ marginBottom: spacing.sm }}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: selected }}
-                  onPress={() =>
-                    setSelectedGoals((prev) => {
-                      if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
-                      if (prev.length >= maxG) {
-                        Alert.alert(
-                          'Limit reached',
-                          `Your plan allows up to ${maxG} Maxxes on Home. Remove one to add another.`,
-                        );
-                        return prev;
-                      }
-                      return [...prev, goal.id];
-                    })
-                  }
+                  onPress={onPress}
                   trailing={
                     <View
                       style={[
                         styles.goalRowCheck,
-                        selected &&
-                          (onlyGoals
-                            ? styles.goalRowCheckSelectedUniform
-                            : { borderColor: brand, backgroundColor: brand }),
+                        selected && { borderColor: brand, backgroundColor: brand },
                       ]}
                     >
                       <Ionicons
@@ -918,4 +965,52 @@ const styles = StyleSheet.create({
     borderColor: colors.foreground,
   },
   saveBtnText: { ...typography.button, color: colors.background },
+});
+
+/* "Your Maxxes" editorial row — mirrors ModuleSelect. */
+const ygStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
+  },
+  numBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    marginRight: spacing.md,
+    marginTop: 2,
+  },
+  numText: {
+    fontFamily: fonts.sansSemiBold,
+    fontSize: 12,
+    letterSpacing: 1.4,
+  },
+  copy: {
+    flex: 1,
+    paddingTop: 1,
+  },
+  title: {
+    fontFamily: fonts.serif,
+    fontSize: 24,
+    fontWeight: '400',
+    letterSpacing: -0.5,
+    lineHeight: 30,
+    color: colors.foreground,
+  },
+  desc: {
+    ...typography.bodySmall,
+    color: colors.textSecondary,
+    marginTop: 4,
+    lineHeight: 19,
+  },
 });

@@ -62,7 +62,6 @@ const PREMIUM_PERKS: string[] = [
     '3 active programs',
     'Daily face scans',
     'Full course library',
-    'Influencer forums + 1:1 lives',
     'Priority support',
 ];
 
@@ -178,21 +177,12 @@ export default function PaymentScreen() {
                     onPress={() => handleSubscribe('basic')}
                 />
 
-                {/* ── Trust signals ────────────────────────────────── */}
+                {/* ── Trust strip ──────────────────────────────────── */}
                 <View style={s.trustRow}>
                     <TrustItem icon="lock-closed-outline" label="Encrypted" />
                     <View style={s.trustDivider} />
                     <TrustItem icon="refresh-outline" label="Cancel anytime" />
-                    <View style={s.trustDivider} />
-                    <TrustItem icon="ribbon-outline" label="No commitment" />
                 </View>
-
-                <Text style={s.disclaimer}>
-                    Subscriptions renew weekly until cancelled.{'\n'}
-                    {IS_IOS
-                        ? 'Manage billing in Settings → Subscriptions.'
-                        : 'Manage billing via Stripe customer portal.'}
-                </Text>
 
                 {IS_IOS ? (
                     <TouchableOpacity
@@ -270,7 +260,7 @@ function PremiumCard({
         <View style={s.premiumWrap}>
             {/* "Most popular" ribbon */}
             <View style={s.popBadge}>
-                <Text style={s.popBadgeText}>MOST POPULAR · SAVE 33%</Text>
+                <Text style={s.popBadgeText}>MOST POPULAR</Text>
             </View>
 
             <View style={s.premiumCard}>
@@ -288,7 +278,6 @@ function PremiumCard({
                     <View style={s.priceRow}>
                         <Text style={[s.priceValue, { color: ACCENT }]}>$5.99</Text>
                         <Text style={s.pricePerLight}>/week</Text>
-                        <Text style={s.priceMonthly}>≈ $24/mo</Text>
                     </View>
 
                     <View style={s.perksList}>

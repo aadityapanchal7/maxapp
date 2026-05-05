@@ -139,13 +139,8 @@ export default function SettingsScreen() {
                 {/* ── Coaching ────────────────────────────────────────── */}
                 <View style={st.section}>
                     <Text style={st.sectionLabel}>Coaching</Text>
-                    {isPaid ? (
-                        <Row
-                            label="Notification preferences"
-                            hint="Reminders, timing & intensity"
-                            onPress={() => navigation.navigate('NotificationChannels', { editMode: true })}
-                        />
-                    ) : null}
+                    {/* Notification preferences row removed — push is on
+                        by default; users toggle device-level via OS. */}
                     <Row
                         label="Edit lifestyle"
                         hint="Goals & habits for better recommendations"
