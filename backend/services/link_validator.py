@@ -114,21 +114,86 @@ def _enrich_brand_mentions(text: str, *, max_inserts: int = 3) -> tuple[str, int
     out = text
     seen_ids: set[str] = set()
 
-    for p in catalog:
+    # Build a [start, end) list of regions that are INSIDE existing
+    # markdown links so we don't double-link or break existing markup.
+    def _link_regions(s: str) -> list[tuple[int, int]]:
+        return [(m.start(), m.end()) for m in re.finditer(r"\[[^\]]+\]\([^\)]+\)", s)]
+
+    def _inside_link(pos: int, regions: list[tuple[int, int]]) -> bool:
+        return any(a <= pos < b for a, b in regions)
+
+    # Track text-surface candidate strings that have already been enriched
+    # so a "The Ordinary" mention doesn't get matched 3 times by 3
+    # different "The Ordinary X" catalog entries (each appending its
+    # own [The Ordinary](url) pill next to the same brand mention).
+    enriched_candidates: set[str] = set()
+
+    # Iterate catalog with the LONGEST product names first. Without this,
+    # "The Ordinary Hyaluronic Acid" would claim the "The Ordinary"
+    # prefix in a sentence about "The Ordinary Niacinamide" before the
+    # niacinamide entry got a chance to match its own (more specific)
+    # name. Most-specific match wins.
+    catalog_by_specificity = sorted(catalog, key=lambda p: -len(p.name))
+
+    # Pre-compute which 2-token prefixes are SHARED by multiple catalog
+    # products (e.g. "The Ordinary", "La Roche-Posay"). Don't auto-link
+    # those — picking one arbitrarily would mislead the user. Specific
+    # mentions ("The Ordinary Niacinamide") still match via 3-token /
+    # full-name patterns above the 2-token candidate.
+    _prefix_count: dict[str, int] = {}
+    for _p in catalog:
+        _toks = _p.name.split()
+        if len(_toks) >= 2:
+            key = " ".join(_toks[:2]).lower()
+            _prefix_count[key] = _prefix_count.get(key, 0) + 1
+    ambiguous_2token_prefixes = {k for k, v in _prefix_count.items() if v > 1}
+
+    for p in catalog_by_specificity:
         if inserts >= max_inserts:
             break
         if p.id in seen_ids:
             continue
-        # Skip if the URL is already in the answer (avoid double-linking).
+        # Skip if this product's URL is already in the answer.
         if p.url in out:
             seen_ids.add(p.id)
             continue
-        # Match on product name OR distinctive brand+keyword combo. We
-        # only insert once per product.
-        name_pat = re.compile(r"\b" + re.escape(p.name) + r"\b", re.IGNORECASE)
-        m = name_pat.search(out)
+        # Try several name patterns in order: full catalog name first,
+        # then progressively shorter prefixes (first 3 tokens, first 2)
+        # so "EltaMD UV Clear" in the answer matches catalog name
+        # "EltaMD UV Clear Broad-Spectrum SPF 46" without the LLM
+        # having to type the full marketing string.
+        name_tokens = p.name.split()
+        candidates = [p.name]
+        if len(name_tokens) > 3:
+            candidates.append(" ".join(name_tokens[:3]))
+        if len(name_tokens) > 2:
+            two_tok = " ".join(name_tokens[:2])
+            # Skip the 2-token candidate if it's a shared brand prefix
+            # (multiple products start with it). Picking one arbitrarily
+            # would mislead the user.
+            if two_tok.lower() not in ambiguous_2token_prefixes:
+                candidates.append(two_tok)
+        m = None
+        matched_label: str = p.name
+        link_regions = _link_regions(out)
+        for cand in candidates:
+            # Skip a candidate that's already been enriched by an
+            # earlier (more-specific) catalog product on this run.
+            if cand.lower() in enriched_candidates:
+                continue
+            pat = re.compile(r"\b" + re.escape(cand) + r"\b", re.IGNORECASE)
+            for hit in pat.finditer(out):
+                # Skip matches that fall inside an existing link bubble
+                # (would double-link or shred the markdown).
+                if _inside_link(hit.start(), link_regions):
+                    continue
+                m = hit
+                matched_label = cand
+                break
+            if m:
+                break
         if m:
-            ins = f" ([{p.name}]({p.url}))"
+            ins = f" ([{matched_label}]({p.url}))"
             # Don't append if the next chars already look like a link.
             following = out[m.end(): m.end() + 5]
             if "](" in following or "(http" in following:
@@ -137,6 +202,44 @@ def _enrich_brand_mentions(text: str, *, max_inserts: int = 3) -> tuple[str, int
             out = out[: m.end()] + ins + out[m.end():]
             inserts += 1
             seen_ids.add(p.id)
+            enriched_candidates.add(matched_label.lower())
+
+    # Single-token brand fallback: scan for distinctive names ("Differin",
+    # "Nizoral", "tretinoin", "creatine") not yet linked. Resolves via
+    # lookup_by_name's distinctive-names map → direct catalog URL.
+    if inserts < max_inserts:
+        try:
+            from services.product_catalog import lookup_by_name
+        except Exception:
+            lookup_by_name = None
+        if lookup_by_name:
+            DISTINCTIVE_TOKENS = (
+                "tretinoin", "differin", "minoxidil", "rogaine", "finasteride",
+                "kirkland", "nizoral", "ketoconazole", "creatine", "ashwagandha",
+                "magnesium", "azelaic", "niacinamide", "centella",
+            )
+            for tok in DISTINCTIVE_TOKENS:
+                if inserts >= max_inserts:
+                    break
+                pat = re.compile(rf"\b{re.escape(tok)}\b", re.IGNORECASE)
+                regions = _link_regions(out)
+                hit = None
+                for h in pat.finditer(out):
+                    if not _inside_link(h.start(), regions):
+                        hit = h
+                        break
+                if not hit:
+                    continue
+                resolved = lookup_by_name(tok)
+                if not resolved or resolved.id in seen_ids or resolved.url in out:
+                    if resolved:
+                        seen_ids.add(resolved.id)
+                    continue
+                ins = f" ([{hit.group(0)}]({resolved.url}))"
+                out = out[: hit.end()] + ins + out[hit.end():]
+                inserts += 1
+                seen_ids.add(resolved.id)
+
     return out, inserts
 
 

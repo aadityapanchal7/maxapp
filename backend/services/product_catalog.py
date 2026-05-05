@@ -325,25 +325,65 @@ def _tokens(s: str) -> set[str]:
     return {t for t in _TOKEN_RE.findall(s.lower()) if t not in drop}
 
 
+# Distinctive single-token product names that uniquely identify a catalog
+# entry (no false-positive collisions). When the LLM mentions just one of
+# these we can confidently link directly without requiring a 2-token
+# overlap. Keys are lowercased; values are catalog ids that MUST exist
+# in product_catalog.yaml (verified at module load via _validate_distinctive_map).
+_DISTINCTIVE_NAMES: dict[str, str] = {
+    "differin":     "differin-adapalene",
+    "minoxidil":    "kirkland-minoxidil-5",
+    "kirkland":     "kirkland-minoxidil-5",
+    "nizoral":      "nizoral-shampoo",
+    "ketoconazole": "nizoral-shampoo",
+    "creatine":     "now-creatine-monohydrate",
+    "magnesium":    "doctors-best-magnesium-glycinate",
+    "azelaic":      "ordinary-azelaic-acid",
+    "niacinamide":  "ordinary-niacinamide",
+    "bha":          "paulas-choice-2-bha",
+    "aha":          "ordinary-glycolic-acid",
+}
+
+
 def lookup_by_name(name_substr: str, *, min_overlap: int = 2) -> Optional[Product]:
-    """Token-overlap matcher.
+    """Token-overlap matcher with single-token brand fallback.
 
-    Picks the catalog entry with the largest token overlap with the
-    input, requiring at least `min_overlap` shared tokens (so "CeraVe
-    Hydrating Cleanser" matches "CeraVe Hydrating Facial Cleanser" via
-    {cerave, hydrating, cleanser}).
+    1) If the input contains exactly one of our distinctive single-token
+       brand names ("Differin", "Nizoral", "Tretinoin", "Creatine", ...),
+       resolve to that catalog id directly. Cheap O(1) lookup.
 
-    Returns None when nothing crosses the threshold — the caller should
-    fall back to a search URL in that case.
+    2) Otherwise picks the catalog entry with the largest token overlap
+       with the input, requiring at least `min_overlap` shared tokens
+       (so "CeraVe Hydrating Cleanser" matches "CeraVe Hydrating Facial
+       Cleanser" via {cerave, hydrating, cleanser}).
+
+    Returns None when nothing crosses the threshold.
     """
     if not name_substr:
         return None
     target = _tokens(name_substr)
+
+    # Single-token distinctive-brand fast path. Doesn't need 2-token
+    # overlap because these names map 1:1 to a known catalog entry.
+    if len(target) >= 1:
+        catalog_by_id = {p.id: p for p in load_catalog()}
+        for tok in target:
+            target_id = _DISTINCTIVE_NAMES.get(tok)
+            if target_id and target_id in catalog_by_id:
+                return catalog_by_id[target_id]
+
     if len(target) < min_overlap:
         return None
     best: Optional[tuple[int, Product]] = None
     for p in load_catalog():
-        overlap = len(target & _tokens(p.name))
+        # Allow matching against a short prefix of the catalog name
+        # (first 3 tokens) so "EltaMD UV Clear" matches "EltaMD UV Clear
+        # Broad-Spectrum SPF 46" without needing a 7-token overlap.
+        catalog_tokens = _tokens(p.name)
+        catalog_prefix = set(list(catalog_tokens)[:3]) if len(catalog_tokens) > 3 else catalog_tokens
+        overlap_full = len(target & catalog_tokens)
+        overlap_prefix = len(target & catalog_prefix)
+        overlap = max(overlap_full, overlap_prefix)
         if overlap < min_overlap:
             continue
         if best is None or overlap > best[0]:
