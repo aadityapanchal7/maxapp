@@ -28,6 +28,24 @@ import {
     getPendingFaceScanSubmit,
 } from '../../lib/faceScanDraft';
 
+function formatNextScan(d: Date): string {
+    const now = new Date();
+    const sameYear = d.getFullYear() === now.getFullYear();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    const dayDiff = Math.round((d.getTime() - startOfToday.getTime()) / 86_400_000);
+    const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    if (dayDiff === 0) return `${time} today`;
+    if (dayDiff === 1) return `tomorrow ${time}`;
+    const date = d.toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'short',
+        day: 'numeric',
+        ...(sameYear ? {} : { year: 'numeric' }),
+    });
+    return `${date} at ${time}`;
+}
+
 const STEPS = [
     {
         key: 'front',
@@ -237,18 +255,42 @@ export default function FaceScanScreen() {
     useEffect(() => {
         const run = async () => {
             if (isScanUser) return;
-            if (!isPaid || !isPremium) return;
+            if (!isPaid) return;
             try {
                 const latest = await api.getLatestScan();
                 const ts = latest?.created_at ? new Date(latest.created_at) : null;
                 if (!ts || Number.isNaN(ts.getTime())) return;
                 const now = new Date();
-                const sameDay =
-                    ts.getFullYear() === now.getFullYear() &&
-                    ts.getMonth() === now.getMonth() &&
-                    ts.getDate() === now.getDate();
-                if (sameDay) {
-                    Alert.alert('Daily face scan', 'You already did your face scan today. Come back tomorrow.');
+                let nextAt: Date | null = null;
+                let title = '';
+                let plan = '';
+                if (isPremium) {
+                    // Chad — 1 per local calendar day
+                    const sameDay =
+                        ts.getFullYear() === now.getFullYear() &&
+                        ts.getMonth() === now.getMonth() &&
+                        ts.getDate() === now.getDate();
+                    if (sameDay) {
+                        nextAt = new Date(now);
+                        nextAt.setHours(0, 0, 0, 0);
+                        nextAt.setDate(nextAt.getDate() + 1);
+                        title = 'Daily face scan';
+                        plan = 'Chad includes one face scan per day.';
+                    }
+                } else {
+                    // Chadlite — 1 per rolling 7-day window
+                    const next = new Date(ts.getTime() + 7 * 24 * 60 * 60 * 1000);
+                    if (next > now) {
+                        nextAt = next;
+                        title = 'Weekly face scan';
+                        plan = 'Chadlite includes one face scan per week.';
+                    }
+                }
+                if (nextAt) {
+                    Alert.alert(
+                        title,
+                        `${plan} Wait until ${formatNextScan(nextAt)} for your next scan.`,
+                    );
                     if (navigation.canGoBack()) {
                         navigation.goBack();
                     }
