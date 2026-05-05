@@ -13,18 +13,15 @@
  *     unit: ""
  *   }
  *
- * On submit we fire `onSubmit(value)` and the screen sends the value (as a
- * plain string, e.g. "17") as the next user message. The server-side
- * onboarding_questioner coerces it back into the int answer for the
- * required field.
- *
- * On native we use @react-native-community/slider; on web we fall back to a
- * styled native <input type="range"> wrapped in a Pressable. RN-Web ships
- * View renders cleanly on both — keeping the same JSX path simplifies
- * styling at the cost of a tiny render-branch on Platform.OS.
+ * UX notes — the previous version was controlled on every drag tick, which
+ * caused the thumb to fight the user's finger on iOS (state update → re-render
+ * → re-snap to last-committed value). Now the underlying slider is internally
+ * uncontrolled after first mount: we read its drag value via onValueChange to
+ * update the displayed number, and only commit to React state on
+ * onSlidingComplete (or release on web). This makes scrubbing feel native.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors, spacing } from '../theme/dark';
 
@@ -46,30 +43,34 @@ interface Props {
 
 export default function ChatSliderInput({ spec, onSubmit, disabled }: Props) {
     const initial = clamp(spec.default ?? Math.round((spec.min + spec.max) / 2), spec.min, spec.max);
-    const [value, setValue] = useState<number>(initial);
+    const [committedValue, setCommittedValue] = useState<number>(initial);
+    const [displayValue, setDisplayValue] = useState<number>(initial);
 
     // Sync if the spec ever changes (e.g. server re-asks a different field).
     useEffect(() => {
-        setValue(clamp(spec.default ?? Math.round((spec.min + spec.max) / 2), spec.min, spec.max));
+        const next = clamp(spec.default ?? Math.round((spec.min + spec.max) / 2), spec.min, spec.max);
+        setCommittedValue(next);
+        setDisplayValue(next);
     }, [spec.min, spec.max, spec.default]);
 
     const submit = () => {
         if (disabled) return;
-        onSubmit(value);
+        onSubmit(committedValue);
     };
 
     return (
         <View style={styles.container}>
             <View style={styles.header}>
-                <Text style={styles.value}>{value}{spec.unit ? ` ${spec.unit}` : ''}</Text>
+                <Text style={styles.value}>{displayValue}{spec.unit ? ` ${spec.unit}` : ''}</Text>
                 <Text style={styles.range}>{spec.min}–{spec.max}</Text>
             </View>
             <SliderTrack
                 min={spec.min}
                 max={spec.max}
                 step={spec.step}
-                value={value}
-                onChange={setValue}
+                initialValue={initial}
+                onChangeLive={setDisplayValue}
+                onCommit={setCommittedValue}
                 disabled={disabled}
             />
             <Pressable
@@ -81,9 +82,9 @@ export default function ChatSliderInput({ spec, onSubmit, disabled }: Props) {
                     pressed && !disabled && styles.submitPressed,
                 ]}
                 accessibilityRole="button"
-                accessibilityLabel={`Submit ${value}`}
+                accessibilityLabel={`Submit ${committedValue}`}
             >
-                <Text style={styles.submitText}>Submit · {value}{spec.unit ? ` ${spec.unit}` : ''}</Text>
+                <Text style={styles.submitText}>Submit · {committedValue}{spec.unit ? ` ${spec.unit}` : ''}</Text>
             </Pressable>
         </View>
     );
@@ -98,14 +99,14 @@ interface TrackProps {
     min: number;
     max: number;
     step: number;
-    value: number;
-    onChange: (v: number) => void;
+    initialValue: number;
+    onChangeLive: (v: number) => void;
+    onCommit: (v: number) => void;
     disabled?: boolean;
 }
 
-function SliderTrack({ min, max, step, value, onChange, disabled }: TrackProps) {
+function SliderTrack({ min, max, step, initialValue, onChangeLive, onCommit, disabled }: TrackProps) {
     if (Platform.OS === 'web') {
-        // RN-Web View → div; we can mount a native HTML range input directly.
         return (
             <View style={styles.trackWeb}>
                 {/* @ts-expect-error - native HTML element under RN-Web */}
@@ -114,14 +115,23 @@ function SliderTrack({ min, max, step, value, onChange, disabled }: TrackProps) 
                     min={min}
                     max={max}
                     step={step}
-                    value={value}
+                    defaultValue={initialValue}
                     disabled={disabled}
-                    onChange={(e: any) => onChange(Number(e.target.value))}
+                    onInput={(e: any) => {
+                        const v = Number(e.target.value);
+                        onChangeLive(v);
+                    }}
+                    onChange={(e: any) => {
+                        const v = Number(e.target.value);
+                        onChangeLive(v);
+                        onCommit(v);
+                    }}
                     style={{
                         width: '100%',
-                        height: 28,
+                        height: 32,
                         accentColor: colors.foreground,
                         cursor: disabled ? 'not-allowed' : 'pointer',
+                        touchAction: 'none',
                     }}
                 />
             </View>
@@ -138,19 +148,35 @@ function SliderTrack({ min, max, step, value, onChange, disabled }: TrackProps) 
         CommunitySlider = null;
     }
     if (CommunitySlider) {
+        // Throttle live display updates so we don't blow the bridge with 60fps
+        // numeric updates while the user is dragging.
+        const lastEmitRef = useRef(0);
         return (
             <View style={styles.trackNative}>
                 <CommunitySlider
                     minimumValue={min}
                     maximumValue={max}
                     step={step}
-                    value={value}
+                    // value is intentionally NOT bound after mount — passing it
+                    // on every render fights the user's finger on iOS.
+                    value={initialValue}
                     disabled={disabled}
-                    onValueChange={(v: number) => onChange(v)}
+                    onValueChange={(v: number) => {
+                        const now = Date.now();
+                        if (now - lastEmitRef.current < 33) return;
+                        lastEmitRef.current = now;
+                        const snapped = step > 0 ? Math.round(v / step) * step : v;
+                        onChangeLive(snapped);
+                    }}
+                    onSlidingComplete={(v: number) => {
+                        const snapped = step > 0 ? Math.round(v / step) * step : v;
+                        onChangeLive(snapped);
+                        onCommit(snapped);
+                    }}
                     minimumTrackTintColor={colors.foreground}
                     maximumTrackTintColor={colors.divider ?? '#d4d4d4'}
                     thumbTintColor={colors.foreground}
-                    style={{ width: '100%', height: 32 }}
+                    style={{ width: '100%', height: 36 }}
                 />
             </View>
         );
@@ -166,14 +192,17 @@ function SliderTrack({ min, max, step, value, onChange, disabled }: TrackProps) 
             {snaps.map((s) => (
                 <Pressable
                     key={s}
-                    onPress={() => !disabled && onChange(s)}
+                    onPress={() => {
+                        if (disabled) return;
+                        onChangeLive(s);
+                        onCommit(s);
+                    }}
                     style={({ pressed }) => [
                         styles.snap,
-                        s === value && styles.snapActive,
                         pressed && styles.snapPressed,
                     ]}
                 >
-                    <Text style={[styles.snapText, s === value && styles.snapTextActive]}>{s}</Text>
+                    <Text style={styles.snapText}>{s}</Text>
                 </Pressable>
             ))}
         </View>
@@ -228,19 +257,12 @@ const styles = StyleSheet.create({
         borderColor: colors.divider ?? '#d4d4d4',
         backgroundColor: 'transparent',
     },
-    snapActive: {
-        backgroundColor: colors.foreground,
-        borderColor: colors.foreground,
-    },
     snapPressed: {
         opacity: 0.7,
     },
     snapText: {
         fontSize: 13,
         color: colors.foreground,
-    },
-    snapTextActive: {
-        color: colors.background ?? '#fff',
     },
     submit: {
         marginTop: spacing.xs,
