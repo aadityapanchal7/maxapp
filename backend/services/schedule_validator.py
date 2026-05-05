@@ -366,6 +366,13 @@ def validate_and_fix(
     # Cross-day antagonism: retinoid + dermastamp on same day
     _detect_antagonism(fixed_days, maxx_id, errors)
 
+    # Final coherence pass — enforces hard ordering rules between specific
+    # task pairs across the day. Runs AFTER routine-priority sorting so it
+    # only fires when a task's time was edited (e.g. user moved their
+    # workout) and another task that depends on it ends up in the wrong
+    # spot. Idempotent — running twice is the same as running once.
+    fixed_days = _enforce_coherence(fixed_days, errors=errors)
+
     has_hard = any(e.severity == "hard" for e in errors)
     return (not has_hard), errors, fixed_days
 
@@ -649,6 +656,162 @@ def _detect_antagonism(days: list[dict], maxx_id: str, errors: list[ValidationEr
                     f"day {di+1}: {sorted(pair)} must not coexist on same day",
                     day_index=di,
                 ))
+
+
+# --- Coherence rules: hard ordering between specific task pairs --------- #
+# Each rule: dependent task X must come AT LEAST `gap_min` minutes AFTER
+# the END of any prerequisite task in the same day. If X is currently
+# earlier (e.g. user dragged their workout later in the day, leaving
+# post-workout protein stranded in the morning), slide X forward.
+#
+# Format: (dependent_id, [prerequisite_ids], gap_min, max_gap_min_or_None)
+#   gap_min      = minimum minutes between prerequisite end and dependent start
+#   max_gap_min  = if not None and dependent runs LATER than this past the
+#                  prerequisite end, slide it CLOSER (used for pre/post-workout
+#                  windows where being too far away breaks the protocol)
+#
+# Order matters: rules earlier in the list resolve first; later rules see the
+# moved tasks. Cross-module rules included so blending stays coherent
+# (skin SPF must finish before hair minox in the same window, etc.).
+_COHERENCE_RULES: list[tuple[str, list[str], int, int | None]] = [
+    # AM SKINCARE: cleanse → moisturize → SPF (immediately after, no real gap)
+    ("skin.moisturize_am",  ["skin.cleanse_am"],                              0, None),
+    ("skin.spf",            ["skin.moisturize_am", "skin.cleanse_am"],        0, None),
+    ("skin.azelaic_am",     ["skin.cleanse_am"],                              0, None),
+    ("skin.centella_am",    ["skin.cleanse_am"],                              0, None),
+    ("skin.zinc_supp",      ["skin.cleanse_am"],                              0, None),
+    # PM SKINCARE: cleanse → wait 15 min for dry skin → retinoid → moisturize
+    ("skin.retinoid_pm",      ["skin.cleanse_pm"],                            15, None),
+    ("skin.dermastamp_pm",    ["skin.cleanse_pm"],                            15, None),
+    ("skin.rest_night_serum", ["skin.cleanse_pm"],                             5, None),
+    ("skin.weekly_exfoliation", ["skin.cleanse_pm"],                           5, None),
+    ("skin.hydration_mask",   ["skin.cleanse_pm"],                             5, None),
+    ("skin.moisturize_pm",  [
+        "skin.retinoid_pm", "skin.dermastamp_pm", "skin.rest_night_serum",
+        "skin.weekly_exfoliation", "skin.hydration_mask", "skin.cleanse_pm",
+    ], 0, None),
+    # HAIR ON FACE-AREA: minoxidil only after the face is fully sealed
+    # (otherwise the alcohol vehicle migrates onto skincare-coated skin
+    # → unwanted facial hair, irritation).
+    ("hair.minoxidil_am",   ["skin.spf"],                                      5, None),
+    ("hair.microneedle_pm", ["skin.cleanse_pm"],                              30, None),
+    # WORKOUT WINDOW: pre-workout fuel 30-45 min BEFORE lift, post-workout
+    # protein within ~75 min AFTER lift starts. The reverse-direction rule
+    # (preworkout BEFORE workout) is handled below by treating preworkout as
+    # the dependent — we move it CLOSER if it's too far before workout.
+    ("fit.postworkout",     ["fit.workout_session"],                           1, None),
+    ("fit.postworkout",     [
+        "fit.workout_fullbody_a", "fit.workout_fullbody_b", "fit.workout_fullbody_c",
+        "fit.workout_upper_a", "fit.workout_lower_a", "fit.workout_upper_b", "fit.workout_lower_b",
+        "fit.workout_push", "fit.workout_pull", "fit.workout_legs",
+        "fit.workout_push_b", "fit.workout_pull_b", "fit.workout_legs_b",
+    ], 1, None),
+    # MEWING NIGHT must be the LAST routine task — it's a bedtime cue.
+    # If the user moves something else later, mewing night still anchors
+    # ~30 min before bed; we don't move it via this rule (slot already
+    # handles), but we DO move bone.magnesium_pm and bone.lip_tape after
+    # mewing night so they're the literal last steps before sleep.
+    ("bone.magnesium_pm",   ["bone.mewing_night"],                            0, None),
+    ("bone.lip_tape",       ["bone.mewing_night"],                            5, None),
+    # FACIAL FASCIA / RELEASE — if face is being treated, do fascia AFTER
+    # so we don't spread product around with hands during massage.
+    ("bone.fascia_am",      ["skin.spf"],                                      5, None),
+    ("bone.fascia_pm",      ["skin.moisturize_pm"],                            5, None),
+]
+
+# Pre-workout MUST land 30-45 min BEFORE the workout. Implemented separately
+# because it's a "dependent must precede" rule not a "must follow".
+_PRE_WORKOUT_TARGET_GAP_MIN = 30  # ideal lead time
+_PRE_WORKOUT_MAX_LEAD_MIN = 90    # if more than this far ahead, slide CLOSER
+
+
+def _enforce_coherence(days: list[dict], *, errors: list[ValidationError]) -> list[dict]:
+    """Slide tasks to satisfy hard ordering rules between specific pairs.
+
+    Iterates each day, walks _COHERENCE_RULES, and pushes the dependent
+    task forward (or pre-workout backward) when a prerequisite is later
+    than expected. Caps the iteration at 5 passes per day to avoid loops
+    when rules conflict (would only happen on misconfigured rule sets).
+    """
+    for di, day in enumerate(days):
+        tasks: list[dict] = day.get("tasks") or []
+        if len(tasks) < 2:
+            continue
+
+        # Index by catalog_id for O(1) lookup. There can be duplicates if
+        # two modules emit the same id; we operate on the first.
+        def _index() -> dict[str, dict]:
+            return {t.get("catalog_id"): t for t in tasks if t.get("catalog_id")}
+
+        for _ in range(5):
+            changed = False
+            idx = _index()
+
+            # Forward rules: dependent must come AFTER prerequisite end + gap.
+            for dep_id, prereq_ids, gap_min, _max in _COHERENCE_RULES:
+                dep = idx.get(dep_id)
+                if not dep:
+                    continue
+                dep_start = _parse_time_field(dep.get("time")) or 0
+                # Latest prerequisite end on this day.
+                latest_prereq_end = -1
+                for pid in prereq_ids:
+                    pre = idx.get(pid)
+                    if not pre:
+                        continue
+                    pre_start = _parse_time_field(pre.get("time")) or 0
+                    pre_end = pre_start + max(1, int(pre.get("duration_min", 1)))
+                    if pre_end > latest_prereq_end:
+                        latest_prereq_end = pre_end
+                if latest_prereq_end < 0:
+                    continue
+                required_start = latest_prereq_end + gap_min
+                if dep_start < required_start:
+                    new_time = from_minutes(required_start).strftime("%H:%M")
+                    errors.append(ValidationError(
+                        "soft", "coherence_slide",
+                        f"day {di+1}: slid {dep.get('title','?')!r} to {new_time} "
+                        f"(must come after {prereq_ids[0]})",
+                        day_index=di, task_id=dep_id,
+                    ))
+                    dep["time"] = new_time
+                    changed = True
+
+            # Pre-workout rule: stay within [target, max_lead] before workout.
+            workout_ids = {
+                "fit.workout_session", "fit.workout_fullbody_a", "fit.workout_fullbody_b",
+                "fit.workout_fullbody_c", "fit.workout_upper_a", "fit.workout_lower_a",
+                "fit.workout_upper_b", "fit.workout_lower_b", "fit.workout_push",
+                "fit.workout_pull", "fit.workout_legs", "fit.workout_push_b",
+                "fit.workout_pull_b", "fit.workout_legs_b",
+            }
+            pre = idx.get("fit.preworkout")
+            workout = next((idx[w] for w in workout_ids if w in idx), None)
+            if pre and workout:
+                workout_start = _parse_time_field(workout.get("time")) or 0
+                pre_start = _parse_time_field(pre.get("time")) or 0
+                lead = workout_start - pre_start
+                if lead < 0 or lead > _PRE_WORKOUT_MAX_LEAD_MIN:
+                    new_pre = max(0, workout_start - _PRE_WORKOUT_TARGET_GAP_MIN)
+                    new_time = from_minutes(new_pre).strftime("%H:%M")
+                    errors.append(ValidationError(
+                        "soft", "coherence_slide",
+                        f"day {di+1}: slid 'pre-workout' to {new_time} "
+                        f"(should be {_PRE_WORKOUT_TARGET_GAP_MIN} min before workout)",
+                        day_index=di, task_id="fit.preworkout",
+                    ))
+                    pre["time"] = new_time
+                    changed = True
+
+            if not changed:
+                break
+
+        # Re-sort tasks by time after the slides so the day stays
+        # chronological (mobile renders in array order).
+        tasks.sort(key=lambda t: _parse_time_field(t.get("time")) or 0)
+        day["tasks"] = tasks
+
+    return days
 
 
 def _parse_time_field(s: Any) -> int | None:
