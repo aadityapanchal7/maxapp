@@ -81,7 +81,7 @@ schedule_design:
         tasks: [hair.finasteride_reminder]
       - id: scalp_check
         slot: flexible
-        cadence: every_n_days=14
+        cadence: weekly_on=sunday
         if: "hair_loss_signs in [yes_observing, no_but_family]"
         tasks: [hair.scalp_check]
       - id: beard_trim
@@ -91,7 +91,7 @@ schedule_design:
         tasks: [hair.beard_trim]
       - id: haircut_book
         slot: flexible
-        cadence: every_n_days=28
+        cadence: monthly_on=1
         tasks: [hair.haircut_book]
       # --- Density layer: anti-fungal wash, deep condition, progress photo,
       # monthly check-in. These give the user a real protocol — not just
@@ -108,16 +108,16 @@ schedule_design:
         tasks: [hair.deep_condition]
       - id: progress_photo_biweekly
         slot: am_open
-        cadence: every_n_days=14
+        cadence: weekly_on=sunday
         if: "hair_loss_signs in [yes_active, yes_observing, no_but_family]"
         tasks: [hair.progress_photo]
       - id: monthly_review
         slot: midday
-        cadence: every_n_days=30
+        cadence: monthly_on=1
         tasks: [hair.monthly_review]
       - id: bloodwork_quarterly
         slot: flexible
-        cadence: every_n_days=90
+        cadence: monthly_on=1
         if: "current_treatment in [oral_topical, full_stack]"
         tasks: [hair.bloodwork_check]
 

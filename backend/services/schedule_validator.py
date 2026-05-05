@@ -35,10 +35,12 @@ MAX_TITLE_CHARS = 28
 # 15-min minimum so a routine that fans into 4 sub-tasks doesn't fire 4
 # notifications inside 20 minutes (was 5; produced morning storms).
 MIN_TASK_GAP_MIN = 15
-# 6 distinct notifications/day per module is the realistic ceiling — past
-# that, the user mutes the app. Multi-module collision cap (services.
-# multi_module_collision) runs separately and matches.
-HARD_DAILY_TASK_CAP = 6
+# 5 distinct notifications/day per module — coach research (Belgravia /
+# Renaissance Periodization / mobile-UX benchmarks) puts the mute
+# threshold at ~7/day total across all modules. With premium = 3 active
+# modules, per-module budget of 5 keeps total around 12-15 (reduced
+# further by multi_module_collision's cross-module cap).
+HARD_DAILY_TASK_CAP = 5
 
 
 # Tokens that should keep their original casing in task titles even when

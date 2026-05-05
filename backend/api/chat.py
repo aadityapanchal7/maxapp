@@ -3795,23 +3795,44 @@ async def _run_onboarding_questioner(
     pending = get_pending(state)
     msg = (message_text or "").strip()
 
-    # 1) New start-intent → kick off onboarding for that max.
+    # 1) Detect new start-intent — even if there's a pending onboarding for a
+    # DIFFERENT max. Without this, "I want to start skinmax" mid-hairmax
+    # gets coerced as the next hairmax field answer, fails, re-asks.
+    # When a pending exists for a different max, we abandon the half-finished
+    # one and start the new one fresh. (Prior answers stay in
+    # user_schedule_context for when they come back to that maxx later.)
+    new_max = detect_max_start_intent(msg)
+    if new_max:
+        if pending and pending.get("max") != new_max:
+            logger.info(
+                "[onboarding] mid-pending switch: %s -> %s; abandoning prior pending",
+                pending.get("max"), new_max,
+            )
+        if not pending or pending.get("max") != new_max:
+            next_field = peek_next_question(new_max, state)
+            if next_field is None:
+                # All required fields already known — let the agent handle it
+                # (it'll trigger generation directly).
+                return None
+            await merge_context(
+                user_id,
+                {**clear_pending(), **{"_onboarding_pending": make_pending(new_max, next_field["id"])}},
+                db,
+            )
+            payload = field_to_question_payload(next_field)
+            switch_note = (
+                f"switching to your {get_doc(new_max).display_name.lower()} schedule. "
+                if pending and pending.get("max") != new_max
+                else f"let's get your {get_doc(new_max).display_name.lower()} schedule going. "
+            )
+            text = switch_note + payload["text"].lower()
+            return _finish_onboarding_turn(text, payload)
+        # else: pending already matches new_max — just continue (treat as
+        # repeated start of the same flow; coerce step below handles it).
+
+    # If no pending and no start-intent, hand off to other paths.
     if not pending:
-        new_max = detect_max_start_intent(msg)
-        if not new_max:
-            return None
-        next_field = peek_next_question(new_max, state)
-        if next_field is None:
-            # All required fields already known — let the agent handle it
-            # (it'll trigger generation directly).
-            return None
-        # Persist the pending state, render first question.
-        await merge_context(user_id, {**clear_pending(), **{"_onboarding_pending": make_pending(new_max, next_field["id"])}}, db)
-        payload = field_to_question_payload(next_field)
-        # Friendly preface so the chat reads like a conversation, not a quiz.
-        prefix = f"let's get your {get_doc(new_max).display_name.lower()} schedule going. "
-        text = prefix + payload["text"].lower() if not payload["text"].endswith("?") else prefix + payload["text"].lower()
-        return _finish_onboarding_turn(text, payload)
+        return None
 
     # 2) Pending → coerce the user's answer, persist, advance.
     maxx_id = pending["max"]

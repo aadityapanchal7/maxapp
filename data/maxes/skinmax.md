@@ -89,15 +89,15 @@ schedule_design:
         tasks: [skin.hydration_mask]
       - id: progress_photo_skin
         slot: am_open
-        cadence: every_n_days=14
+        cadence: weekly_on=sunday
         tasks: [skin.progress_photo]
       - id: monthly_review_skin
         slot: midday
-        cadence: every_n_days=30
+        cadence: monthly_on=1
         tasks: [skin.monthly_review]
       - id: derm_check
         slot: flexible
-        cadence: every_n_days=180
+        cadence: monthly_on=1
         if: "skin_concern in [acne, rosacea, pigmentation]"
         tasks: [skin.derm_consult]
 

@@ -235,6 +235,34 @@ def _place_block(
         except ValueError:
             n = 7
         day_indices = list(range(0, n_days, n))
+    elif cadence.startswith("weekly_on="):
+        # Pin to a canonical weekday — e.g. weekly_on=sunday for the
+        # weekly review. Fires every Sunday inside the window. Defaults to
+        # Sunday if the weekday name isn't recognized.
+        from datetime import date as _date
+        wd_map = {
+            "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+            "friday": 4, "saturday": 5, "sunday": 6,
+        }
+        target_wd = wd_map.get(cadence.split("=", 1)[1].strip().lower(), 6)
+        today_wd = _date.today().weekday()
+        # Day offset from today to the next target weekday (could be 0).
+        first_offset = (target_wd - today_wd) % 7
+        day_indices = list(range(first_offset, n_days, 7))
+    elif cadence.startswith("monthly_on="):
+        # Pin to a calendar day-of-month (e.g. monthly_on=1 = the 1st of
+        # every month). Computes which day_index inside the window falls
+        # on that day-of-month.
+        from datetime import date as _date, timedelta as _td
+        try:
+            target_dom = max(1, min(28, int(cadence.split("=", 1)[1].strip())))
+        except ValueError:
+            target_dom = 1
+        today = _date.today()
+        day_indices = []
+        for i in range(n_days):
+            if (today + _td(days=i)).day == target_dom:
+                day_indices.append(i)
     else:
         logger.warning("unknown cadence %r in block %s, defaulting to daily", cadence, block.id)
         day_indices = list(range(n_days))

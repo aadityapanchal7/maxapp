@@ -27,16 +27,19 @@ schedule_design:
         cadence: daily
         tasks: [fit.pm_nutrition]
       # --- Workout window — N times/week, where N = days_per_week ---
+      # Pre-workout fuels 30-45 min before lift, lift in main pm window,
+      # post-workout protein right after. Three different time slots
+      # so they don't cram into the same minute.
       - id: preworkout
-        slot: am_active
+        slot: pre_evening
         cadence: n_per_week=days_per_week
         tasks: [fit.preworkout]
       - id: workout_session
-        slot: pm_active
+        slot: workout
         cadence: n_per_week=days_per_week
         tasks: [fit.workout_session]
       - id: postworkout
-        slot: pm_active
+        slot: post_workout
         cadence: n_per_week=days_per_week
         tasks: [fit.postworkout]
       # --- Steps target — required for cut / fat-loss; sedentary users always ---
@@ -59,15 +62,15 @@ schedule_design:
       # --- Recovery + tracking ---
       - id: weekly_weighin
         slot: am_open
-        cadence: n_per_week=1
+        cadence: weekly_on=monday
         tasks: [fit.weekly_weighin]
       - id: monthly_photo
         slot: midday
-        cadence: every_n_days=30
+        cadence: monthly_on=1
         tasks: [fit.monthly_photo]
       - id: deload_check
         slot: flexible
-        cadence: every_n_days=42
+        cadence: monthly_on=15
         if: "experience_level in [intermediate, advanced]"
         tasks: [fit.deload_check]
       # --- Hydration nudge — heavy training or hot conditions ---
@@ -98,11 +101,11 @@ schedule_design:
         tasks: [fit.stretch_pm]
       - id: weekly_review
         slot: midday
-        cadence: every_n_days=7
+        cadence: weekly_on=sunday
         tasks: [fit.weekly_review]
       - id: monthly_review_fit
         slot: midday
-        cadence: every_n_days=30
+        cadence: monthly_on=1
         tasks: [fit.monthly_review]
       - id: form_check
         slot: pm_active

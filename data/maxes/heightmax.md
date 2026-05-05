@@ -96,11 +96,11 @@ schedule_design:
         tasks: [height.morning_log]
       - id: progress_photo_height
         slot: am_open
-        cadence: every_n_days=14
+        cadence: weekly_on=sunday
         tasks: [height.progress_photo]
       - id: monthly_review_height
         slot: midday
-        cadence: every_n_days=30
+        cadence: monthly_on=1
         tasks: [height.monthly_review]
       - id: inversion_session
         slot: pm_close

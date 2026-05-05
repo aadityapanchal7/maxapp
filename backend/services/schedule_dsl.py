@@ -174,15 +174,44 @@ def _truthy(v: Any) -> bool:
 #  Window resolver                                                            #
 # --------------------------------------------------------------------------- #
 
-# Default window definitions in minutes relative to wake (negative = before sleep).
-# Override per-max via schedule_design.am_window / pm_window if needed.
+# Time slots anchored to a real human's day (wake 07, sleep 23 → defaults
+# below). Slots are biology-aware, not vague: "morning_routine" is the
+# 5-30 min after wake when a person is in the bathroom; "midday" is lunch
+# protein + posture window; "pre_evening" is 4 hr before sleep so
+# minoxidil dries before pillow contact.
+#
+# Old vague slots (am_open / am_active / midday / pm_active / pm_close /
+# flexible) are kept as ALIASES that map onto the new anchors so existing
+# docs render in sensible places without a mass rewrite. New blocks should
+# prefer the named anchors.
 _DEFAULT_WINDOWS: dict[str, tuple[str, str]] = {
-    "am_open":   ("wake+0:10", "wake+0:30"),
-    "am_active": ("wake+0:30", "wake+2:00"),
-    "midday":    ("wake+4:00", "wake+6:00"),
-    "pm_active": ("sleep-3:00", "sleep-1:30"),
-    "pm_close":  ("sleep-1:00", "sleep-0:15"),
-    "flexible":  ("wake+1:00", "sleep-1:00"),
+    # --- New biology-anchored windows ---
+    "morning_routine":   ("wake+0:05", "wake+0:30"),    # bathroom: skin AM, mewing, hair
+    "post_routine":      ("wake+0:30", "wake+1:00"),    # supplements + breakfast
+    "mid_morning":       ("wake+2:30", "wake+3:30"),    # one cue: posture / hydration
+    "lunch":             ("wake+4:30", "wake+5:30"),    # protein + diet check
+    "afternoon":         ("wake+7:00", "wake+8:30"),    # SPF reapply / posture reset
+    "pre_evening":       ("sleep-4:00", "sleep-3:00"),  # evening minox (4hr dry-time)
+    "workout":           ("sleep-3:30", "sleep-2:00"),  # late-afternoon strength window
+    "post_workout":      ("sleep-2:00", "sleep-1:30"),  # protein hit + cooldown
+    "pm_routine":        ("sleep-1:30", "sleep-0:45"),  # bathroom: skin PM, mewing
+    "wind_down":         ("sleep-1:00", "sleep-0:15"),  # screens off, casein, magnesium
+
+    # --- Legacy aliases (existing .md docs use these names) ---
+    # am_open ≈ morning_routine; was 0:10-0:30, now slightly wider.
+    "am_open":   ("wake+0:05", "wake+0:30"),
+    # am_active ≈ post_routine (supplements + breakfast).
+    "am_active": ("wake+0:30", "wake+1:30"),
+    # midday ≈ lunch — split off the SPF reapply / afternoon reset
+    # to its own slot via the new "afternoon" name where helpful.
+    "midday":    ("wake+4:30", "wake+5:30"),
+    # pm_active ≈ workout / post-workout window.
+    "pm_active": ("sleep-3:30", "sleep-2:00"),
+    # pm_close ≈ pm_routine (bathroom + bedtime stack).
+    "pm_close":  ("sleep-1:30", "sleep-0:30"),
+    # flexible — anywhere in the day, but avoid the dense morning/PM
+    # windows so picker spreads it out.
+    "flexible":  ("wake+1:30", "sleep-1:30"),
 }
 
 

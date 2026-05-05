@@ -103,11 +103,11 @@ schedule_design:
       # --- Density layer ---
       - id: jaw_progress_photo
         slot: am_open
-        cadence: every_n_days=14
+        cadence: weekly_on=sunday
         tasks: [bone.progress_photo]
       - id: monthly_review_bone
         slot: midday
-        cadence: every_n_days=30
+        cadence: monthly_on=1
         tasks: [bone.monthly_review]
       - id: hard_mewing
         slot: midday
