@@ -201,6 +201,62 @@ _HUMANIZE_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
+def _format_description(raw: str) -> str:
+    """Break a long single-paragraph description into scannable lines.
+
+    Real coach-style notification body: each step on its own line, prefixed
+    with a bullet. Mobile renders the description verbatim, so adding `\n`
+    + bullet markers yields a multi-line card the user can skim.
+
+    Heuristics:
+    - If the description is already multi-line OR short (≤80 chars), leave as-is.
+    - Split on sentence boundaries (. ! ?) AND comma-separated step lists
+      that look like "X 4×6, Y 3×8, Z 3×10" (workout/skincare instructions).
+    - Wrap each step in "• " bullet marker.
+    - Cap at 6 bullets — past that the body becomes a wall again.
+    """
+    if not raw:
+        return ""
+    raw = raw.strip()
+    if "\n" in raw or len(raw) <= 80:
+        return raw
+
+    # Identify a leading prefix like "warm-up: ..." that wraps the whole
+    # description; surface it as the first bullet.
+    pieces: list[str] = []
+
+    # First pass: split on sentence ends.
+    sentence_split = re.split(r"(?<=[.!?])\s+(?=[a-z0-9A-Z])", raw)
+    for s in sentence_split:
+        s = s.strip()
+        if not s:
+            continue
+        # If a sentence contains a "x 4×6, y 3×8, z 3×10" exercise list
+        # (or comma-separated multi-step list), break it on commas too.
+        if re.search(r"\d×\d", s) or s.count(", ") >= 3:
+            sub_pieces = [p.strip() for p in s.split(",") if p.strip()]
+            pieces.extend(sub_pieces)
+        else:
+            pieces.append(s)
+
+    # Drop the trailing period from each piece for cleaner bullets.
+    cleaned = []
+    for p in pieces:
+        p = p.rstrip(". ")
+        if p:
+            cleaned.append(p)
+
+    if len(cleaned) <= 1:
+        # Nothing meaningful to split on — return original.
+        return raw
+    if len(cleaned) > 6:
+        # Cap to 6 bullets so the body doesn't become its own wall.
+        # Merge the tail into the last bullet so we don't lose info.
+        cleaned = cleaned[:5] + [", ".join(cleaned[5:])]
+
+    return "\n".join(f"• {p}" for p in cleaned)
+
+
 def _humanize_title(catalog_title: str) -> str:
     """Convert a catalog-style title to a reminder-style friendly phrase.
 
@@ -352,8 +408,9 @@ def _validate_task(
         title = catalog_task.title
 
     description = (task.get("description") or catalog_task.description or "").strip()
-    if len(description) > 220:
-        description = description[:217].rstrip() + "..."
+    if len(description) > 380:  # bumped from 220 — bullets give us extra char budget
+        description = description[:377].rstrip() + "..."
+    description = _format_description(description)
 
     # Time
     raw_time = task.get("time") or ""
