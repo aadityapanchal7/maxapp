@@ -244,6 +244,8 @@ _START_INTENT_KEYWORDS = {
     "skinmax":   ["skinmax", "skin max", "skin schedule", "skin plan", "skin routine"],
     "hairmax":   ["hairmax", "hair max", "hair schedule", "hair plan", "hair routine"],
     "heightmax": ["heightmax", "height max", "height schedule", "height plan", "posture plan"],
+    "fitmax":    ["fitmax", "fit max", "fit schedule", "fit plan", "fitness plan", "workout plan", "training plan", "lifting plan", "gym plan"],
+    "bonemax":   ["bonemax", "bone max", "bone schedule", "bone plan", "jaw plan", "mewing plan"],
 }
 
 
