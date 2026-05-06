@@ -2,7 +2,7 @@
   "expo": {
     "name": "Max",
     "slug": "cannon-mobile",
-    "version": "3.0.1",
+    "version": "3.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -17,7 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.cannon.mobile",
-      "buildNumber": "301",
+      "buildNumber": "302",
       "entitlements": {
         "aps-environment": "production"
       },
