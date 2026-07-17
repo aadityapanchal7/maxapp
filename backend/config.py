@@ -317,7 +317,9 @@ class Settings(BaseSettings):
     # built by joining server-validated relative paths onto this (no open
     # redirect). e.g. https://app.usemaxapp.com
     web_app_url: str = Field(default="")
-    
+    # Free-trial length for web Stripe checkout (days). 0 disables the trial.
+    web_trial_days: int = Field(default=3)
+
     # Sendblue (iMessage / SMS) -- https://sendblue.com/
     sendblue_api_key_id: str = Field(default="", description="sb-api-key-id header")
     sendblue_api_secret_key: str = Field(default="", description="sb-api-secret-key header")

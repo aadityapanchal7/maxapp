@@ -119,6 +119,13 @@ async def create_web_checkout(
     success_url = _safe_redirect_url(body.success_path)
     cancel_url = _safe_redirect_url(body.cancel_path)
 
+    # 3-day free trial to match the iOS paywall. Overridable via
+    # WEB_TRIAL_DAYS (0 disables the trial).
+    trial_days = int(getattr(settings, "web_trial_days", 3) or 0)
+    sub_data: dict = {"metadata": {"user_id": str(current_user["id"]), "tier": tier}}
+    if trial_days > 0:
+        sub_data["trial_period_days"] = trial_days
+
     session_kwargs: dict = dict(
         mode="subscription",
         customer=customer_id,
@@ -126,7 +133,7 @@ async def create_web_checkout(
         success_url=success_url,
         cancel_url=cancel_url,
         metadata={"user_id": str(current_user["id"]), "tier": tier},
-        subscription_data={"metadata": {"user_id": str(current_user["id"]), "tier": tier}},
+        subscription_data=sub_data,
     )
     # A specific promotion code and the manual-entry field are mutually
     # exclusive in Stripe: pre-apply the code when we have one, else let the
