@@ -57,6 +57,28 @@ class CheckoutRequest(BaseModel):
     tier: str = "premium"
     success_path: str = "/subscribe/success"
     cancel_path: str = "/subscribe"
+    # Optional promotion code carried over from a redeemed referral/discount.
+    # Accepts either a Stripe promotion-code id (promo_...) or the customer-
+    # facing code string (which we resolve to an id below).
+    promotion_code: str | None = None
+
+
+def _resolve_promotion_code(raw: str | None) -> str | None:
+    """Map a customer-facing code to a Stripe promotion-code id, or pass an
+    existing promo_ id straight through. Returns None if it can't be resolved
+    (so checkout still proceeds without a discount rather than erroring)."""
+    if not raw:
+        return None
+    code = raw.strip()
+    if code.startswith("promo_"):
+        return code
+    try:
+        found = stripe.PromotionCode.list(code=code, active=True, limit=1)
+        data = getattr(found, "data", None) or found.get("data", [])
+        return data[0].id if data else None
+    except Exception:
+        logger.warning("could not resolve promotion code %r", code)
+        return None
 
 
 @router.get("/config")
@@ -97,17 +119,26 @@ async def create_web_checkout(
     success_url = _safe_redirect_url(body.success_path)
     cancel_url = _safe_redirect_url(body.cancel_path)
 
+    session_kwargs: dict = dict(
+        mode="subscription",
+        customer=customer_id,
+        line_items=[{"price": price_id, "quantity": 1}],
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"user_id": str(current_user["id"]), "tier": tier},
+        subscription_data={"metadata": {"user_id": str(current_user["id"]), "tier": tier}},
+    )
+    # A specific promotion code and the manual-entry field are mutually
+    # exclusive in Stripe: pre-apply the code when we have one, else let the
+    # user type one at checkout.
+    promo_id = _resolve_promotion_code(body.promotion_code)
+    if promo_id:
+        session_kwargs["discounts"] = [{"promotion_code": promo_id}]
+    else:
+        session_kwargs["allow_promotion_codes"] = True
+
     try:
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            customer=customer_id,
-            line_items=[{"price": price_id, "quantity": 1}],
-            success_url=success_url,
-            cancel_url=cancel_url,
-            metadata={"user_id": str(current_user["id"]), "tier": tier},
-            subscription_data={"metadata": {"user_id": str(current_user["id"]), "tier": tier}},
-            allow_promotion_codes=True,
-        )
+        session = stripe.checkout.Session.create(**session_kwargs)
     except Exception:
         logger.exception("web checkout session create failed")
         raise HTTPException(status_code=502, detail="checkout_unavailable")
