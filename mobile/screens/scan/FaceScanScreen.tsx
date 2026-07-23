@@ -95,6 +95,10 @@ export default function FaceScanScreen() {
     const analyzingRef = useRef(false);
     analyzingRef.current = analyzing;
     const uploadActiveRef = useRef(false);
+    // Set when the user taps the AnalyzingScreen escape hatch: the in-flight
+    // upload keeps running server-side, but its resolution must no longer
+    // navigate or alert (the user has moved on; recovery flags stay cleared).
+    const scanCancelledRef = useRef(false);
 
     const navigateToResults = useCallback(() => {
         // Funnel V4: the capture is the funnel's FIRST screen; the analysis
@@ -486,6 +490,7 @@ export default function FaceScanScreen() {
         setAnalyzing(true);
         setAnalysisStep(0);
         uploadActiveRef.current = true;
+        scanCancelledRef.current = false;
         let didLeaveScan = false;
         if (user?.id) {
             try {
@@ -497,6 +502,7 @@ export default function FaceScanScreen() {
         try {
             setAnalysisStep(1);
             const scanRes = (await api.uploadScanTriple(f, l, r)) as { analysis?: { overall_score?: number } };
+            if (scanCancelledRef.current) return; // user bailed; don't navigate/alert late
             setAnalysisStep(2);
             const os = scanRes?.analysis?.overall_score;
             const rating =
@@ -529,6 +535,7 @@ export default function FaceScanScreen() {
         } catch (err: unknown) {
             console.error(err);
             await clearPendingFaceScanSubmit().catch(() => undefined);
+            if (scanCancelledRef.current) return; // cancel aborted the fetch — no error alert
             const e = err as any;
             const detail =
                 e?.response?.data?.detail ??
@@ -546,7 +553,19 @@ export default function FaceScanScreen() {
     };
 
     if (analyzing) {
-        return <AnalyzingScreen currentStep={analysisStep} />;
+        return (
+            <AnalyzingScreen
+                currentStep={analysisStep}
+                onCancel={() => {
+                    // Escape hatch (appears after 45s): back to the capture UI
+                    // with photos intact so the user can retry or leave.
+                    scanCancelledRef.current = true;
+                    uploadActiveRef.current = false;
+                    void clearPendingFaceScanSubmit().catch(() => undefined);
+                    setAnalyzing(false);
+                }}
+            />
+        );
     }
 
     if (!bootstrapped) {

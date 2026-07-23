@@ -8,6 +8,13 @@ from typing import Optional
 # the scan is marked failed and the app shows a retry instead of hanging.
 _SCAN_ANALYSIS_TIMEOUT_S = 75.0
 
+# A scan can only legitimately sit in "processing" for as long as the analysis
+# timeout allows. If the server dies mid-analysis (deploy/restart/OOM) the
+# except-blocks never run and the row is stranded in "processing" — which the
+# app renders as an eternal Analyzing screen. Any read older than this gets
+# reaped to "failed" so clients fall into their retry UI instead of hanging.
+_STALE_PROCESSING_S = _SCAN_ANALYSIS_TIMEOUT_S + 105.0  # 3 min total
+
 # Per-image upload cap. A face photo is well under this; the limit stops a
 # malicious/buggy client from forcing the server to buffer + vision-analyze a
 # huge payload (memory exhaustion + runaway LLM cost).
@@ -26,7 +33,7 @@ def _validate_image_upload(data: bytes, content_type: Optional[str], label: str)
         raise HTTPException(status_code=400, detail=f"{label} must be an image.")
 
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -608,6 +615,32 @@ async def analyze_scan(
         raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
 
+async def _reap_if_stale_processing(scan: "Scan", db: AsyncSession) -> None:
+    """Flip a scan stranded in "processing" to "failed" on read.
+
+    In-process failures already mark rows failed, but a process death mid-
+    analysis (deploy, restart, OOM) strands the row — and the app's results
+    gate polls it forever. Reaping on the read path unwedges every stuck
+    client on its next poll, with no app update required.
+    """
+    if scan.processing_status != "processing":
+        return
+    created = scan.created_at
+    if created is None:
+        return
+    if created.tzinfo is None:
+        created = created.replace(tzinfo=timezone.utc)
+    age_s = (datetime.now(timezone.utc) - created).total_seconds()
+    if age_s < _STALE_PROCESSING_S:
+        return
+    scan.processing_status = "failed"
+    scan.error_message = "stale_processing_reaped"
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+
+
 @router.get("/latest")
 async def get_latest_scan(
     current_user: dict = Depends(get_current_user),
@@ -625,6 +658,8 @@ async def get_latest_scan(
         # home loading state when a fresh user (faux-skip-signup) had no scans.
         # "No latest scan" is a normal data state, not a missing route.
         return None
+
+    await _reap_if_stale_processing(scan, db)
 
     is_paid = current_user.get("is_paid", False)
     is_scan_user = current_user.get("is_scan_user", False)
@@ -710,6 +745,8 @@ async def get_scan_by_id(
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
+
+    await _reap_if_stale_processing(scan, db)
 
     return {
         "id": str(scan.id),

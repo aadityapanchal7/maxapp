@@ -1,12 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
+import { View, Text, StyleSheet, Animated, Easing, TouchableOpacity } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import Svg, { Circle } from 'react-native-svg';
 import { colors, fonts } from '../../theme/dark';
 
 interface Props {
     currentStep: number;
+    /** Escape hatch: shown as a muted "Cancel" link after a grace period so a
+     *  hung upload/analysis can never hard-trap the user on this screen. */
+    onCancel?: () => void;
 }
+
+// How long the screen stays escape-free before the Cancel link fades in.
+const CANCEL_GRACE_MS = 45_000;
 
 const STEP_LABELS = [
     'Uploading your photos',
@@ -37,12 +43,21 @@ const STROKE = 4;
 const CIRC = 2 * Math.PI * R;
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
-export default function AnalyzingScreen({ currentStep = 0 }: Props) {
+export default function AnalyzingScreen({ currentStep = 0, onCancel }: Props) {
     const progressAnim = useRef(new Animated.Value(0)).current;
     const [pct, setPct] = useState(0);
     const highWater = useRef(0);
     const activeAnim = useRef<Animated.CompositeAnimation | null>(null);
     const fadeAnim = useRef(new Animated.Value(0.5)).current;
+    const [showCancel, setShowCancel] = useState(false);
+
+    // Reveal the escape hatch only after the grace period — a normal scan
+    // never sees it, but a hung one always gets a way out.
+    useEffect(() => {
+        if (!onCancel) return;
+        const t = setTimeout(() => setShowCancel(true), CANCEL_GRACE_MS);
+        return () => clearTimeout(t);
+    }, [onCancel]);
 
     // Keep the displayed % monotonically increasing.
     useEffect(() => {
@@ -158,6 +173,17 @@ export default function AnalyzingScreen({ currentStep = 0 }: Props) {
                 <Animated.Text style={[st.label, { opacity: fadeAnim }]}>{label}</Animated.Text>
 
                 <Text style={st.hint}>Keep the app open. This takes a second.</Text>
+
+                {onCancel && showCancel ? (
+                    <TouchableOpacity
+                        onPress={onCancel}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 24, right: 24 }}
+                        style={st.cancelBtn}
+                    >
+                        <Text style={st.cancelText}>Taking longer than usual? Cancel</Text>
+                    </TouchableOpacity>
+                ) : null}
             </View>
         </View>
     );
@@ -213,5 +239,17 @@ const st = StyleSheet.create({
         textAlign: 'center',
         marginTop: 14,
         opacity: 0.7,
+    },
+    cancelBtn: {
+        marginTop: 28,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+    },
+    cancelText: {
+        fontFamily: fonts.sansMedium,
+        fontSize: 13,
+        color: '#888888',
+        textAlign: 'center',
+        textDecorationLine: 'underline',
     },
 });

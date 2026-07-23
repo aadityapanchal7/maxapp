@@ -946,6 +946,30 @@ export default function FaceScanResultsScreen() {
         return () => { cancelled = true; if (timer) clearTimeout(timer); appSub.remove(); };
     }, [scan?.processing_status, scanIdParam]);
 
+    // ── Gate watchdog ─────────────────────────────────────────────────────
+    // The funnelV4 gate renders the no-exit AnalyzingScreen while the upload/
+    // analysis lands. It must NEVER be infinite: a scan row stranded in
+    // "processing" (server died mid-analysis) or an upload that silently
+    // failed (row never appears) used to hard-trap users here — full screen,
+    // reset stack, no back. After the timeout (or instantly when the row is
+    // already stale on arrival) fall through to ScanProcessingView, which has
+    // Retry + Back.
+    const gateWaiting =
+        gateV4 && (scan?.processing_status === 'processing' || (!hydrating && !scan));
+    const [gateTimedOut, setGateTimedOut] = useState(false);
+    useEffect(() => {
+        if (!gateWaiting) { setGateTimedOut(false); return; }
+        const createdRaw = (scan as { created_at?: string } | null)?.created_at;
+        const createdMs = createdRaw ? Date.parse(createdRaw) : NaN;
+        const STALE_ON_ARRIVAL_MS = 4 * 60_000; // backend reaps at 3 min; belt + suspenders
+        if (Number.isFinite(createdMs) && Date.now() - createdMs > STALE_ON_ARRIVAL_MS) {
+            setGateTimedOut(true);
+            return;
+        }
+        const t = setTimeout(() => setGateTimedOut(true), PROCESSING_TIMEOUT_MS * 2);
+        return () => clearTimeout(t);
+    }, [gateWaiting, scan]);
+
     const a = coerceAnalysisObject(scan?.analysis);
     const treatAsPaid = isPaid === true || isScanUser === true || scan?.is_unlocked === true;
     const locked = !treatAsPaid;
@@ -1147,7 +1171,14 @@ export default function FaceScanResultsScreen() {
     // the upload lands, step 2 once the analysis is processing); other paths
     // keep the plain processing view with its retry affordance.
     if (scan?.processing_status === 'processing' || (gateV4 && !hydrating && !scan)) {
-        if (gateV4) return <AnalyzingScreen currentStep={scan ? 2 : 1} />;
+        if (gateV4 && !gateTimedOut) {
+            return (
+                <AnalyzingScreen
+                    currentStep={scan ? 2 : 1}
+                    onCancel={() => setGateTimedOut(true)}
+                />
+            );
+        }
         return <ScanProcessingView onRetry={bootstrap} onBack={headerBack} />;
     }
     if ((hydrating && !scan) || (advancing && !scan)) {

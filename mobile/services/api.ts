@@ -1207,11 +1207,24 @@ class ApiService {
             return formData;
         };
 
+        // Per-attempt hard timeout. This request runs the FULL vision analysis
+        // server-side (~75s ceiling), so give it headroom — but never infinity:
+        // a stalled cellular connection used to hang this fetch forever, which
+        // left the user trapped on the full-screen AnalyzingScreen.
+        const ATTEMPT_TIMEOUT_MS = 110_000;
         const doFetch = async (formData: FormData) => {
             const token = await this.getToken();
             const headers: Record<string, string> = {};
             if (token) headers.Authorization = `Bearer ${token}`;
-            return fetch(url, { method: 'POST', headers, body: formData });
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), ATTEMPT_TIMEOUT_MS);
+            try {
+                return await fetch(url, {
+                    method: 'POST', headers, body: formData, signal: ctrl.signal,
+                });
+            } finally {
+                clearTimeout(timer);
+            }
         };
 
         const RETRY_DELAYS = [1000, 2000];
