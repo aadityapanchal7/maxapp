@@ -524,7 +524,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             isAuthenticated: !!user,
             isPaid: user?.is_paid ?? false,
             isPremium: user?.is_admin || (user?.is_paid && subscriptionTier === 'premium') || false,
-            isScanUser: user?.is_scan_user ?? false,
+            // Scan-only is a LIMITED tier; a full paid subscription supersedes it
+            // (same principle as isFreeTier below). Without this, a scan-tier user
+            // who later subscribes stays locked in the ScanOnly navigator with no
+            // main app — RootNavigator checks isScanUser before Main/Admin/paid.
+            isScanUser: (user?.is_scan_user ?? false) && !(user?.is_paid ?? false),
             isCreator: user?.is_creator ?? false,
             isAnonymous: !!user?.email && String(user.email).endsWith('@anon.trymax.app'),
             // Never "free tier" once actually paid — paying supersedes the choice.
