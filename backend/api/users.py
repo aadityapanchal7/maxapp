@@ -1456,7 +1456,9 @@ async def upload_avatar(
     """
     Upload profile picture
     """
-    content = await file.read()
+    # Bounded read: cap+1 so an oversized body 413s in _validate_image_upload
+    # without first being buffered whole into RAM.
+    content = await file.read(_MAX_IMAGE_BYTES + 1)
     _validate_image_upload(content, file.content_type, "Avatar")
 
     user_uuid = UUID(current_user["id"])
@@ -1540,7 +1542,7 @@ async def upload_progress_photo(
             detail="Missing file: send multipart form with 'file' or 'image'",
         )
 
-    content = await upload.read()
+    content = await upload.read(_MAX_IMAGE_BYTES + 1)
     _validate_image_upload(content, upload.content_type, "Progress photo")
     image_url = await storage_service.upload_image(
         content,

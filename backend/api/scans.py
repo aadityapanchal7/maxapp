@@ -320,9 +320,12 @@ async def upload_scan_triple(
 
     onboarding_ctx = json.dumps(user_row.onboarding or {}, default=str) if user_row else "{}"
 
-    front_data = await front.read()
-    left_data = await left.read()
-    right_data = await right.read()
+    # Bounded reads: read at most cap+1 bytes so an oversized upload trips the
+    # 413 below WITHOUT first being buffered whole into RAM (OOM vector — and a
+    # process death here strands every in-flight scan in "processing").
+    front_data = await front.read(_MAX_IMAGE_BYTES + 1)
+    left_data = await left.read(_MAX_IMAGE_BYTES + 1)
+    right_data = await right.read(_MAX_IMAGE_BYTES + 1)
     if not front_data or not left_data or not right_data:
         raise HTTPException(status_code=400, detail="All three images (front, left, right) are required")
     _validate_image_upload(front_data, front.content_type, "Front")
@@ -449,7 +452,9 @@ async def upload_scan_video(
     db: AsyncSession = Depends(get_db),
 ):
     """Deprecated: app uses three-photo Gemini scan (`/scans/upload-triple`)."""
-    await video.read()  # consume body
+    # NOTE: do NOT `await video.read()` here — multipart parsing has already
+    # consumed the request body (spooled to disk); reading it back would load
+    # an arbitrarily large video into RAM just to discard it (OOM vector).
     raise HTTPException(
         status_code=400,
         detail="Video scans are no longer supported. Use the three-photo face scan in the app.",

@@ -375,7 +375,10 @@ async def embed_text(text: str) -> list[float]:
     if _EMBEDDING_CLIENT is None:
         from openai import AsyncOpenAI
 
-        _EMBEDDING_CLIENT = AsyncOpenAI(api_key=api_key)
+        # timeout: SDK default is 600s (+retries). Embeddings run inside the
+        # chat request path — a stalled connection must not pin a turn for
+        # ~10+ minutes. Embedding calls normally complete in well under 15s.
+        _EMBEDDING_CLIENT = AsyncOpenAI(api_key=api_key, timeout=15.0)
     model = getattr(settings, "rag_embedding_model", "text-embedding-3-small") or "text-embedding-3-small"
     dim = int(getattr(settings, "rag_embedding_dimensions", 1536) or 1536)
 

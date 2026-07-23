@@ -61,6 +61,7 @@ router = APIRouter(prefix="/creators", tags=["Creators"])
 MAX_COMMENT_LEN = 1000
 MAX_BODY_LEN = 2200
 MAX_VIDEO_BYTES = 300 * 1024 * 1024  # 300 MB (≈3 min H.264)
+MAX_POSTER_BYTES = 12 * 1024 * 1024  # poster frame is an image — mirror the 12 MB image cap
 FEED_PAGE = 20
 
 
@@ -231,14 +232,18 @@ async def create_post(
     video_url = None
     poster_url = None
     if video is not None:
-        data = await video.read()
+        # Bounded read: cap+1 so an oversized body 413s without first being
+        # buffered whole into RAM (OOM vector).
+        data = await video.read(MAX_VIDEO_BYTES + 1)
         if len(data) > MAX_VIDEO_BYTES:
             raise HTTPException(status_code=413, detail="Video is too long (max ~3 min).")
         video_url = await storage_service.upload_video(data, current_user["id"])
         if not video_url:
             raise HTTPException(status_code=502, detail="Upload failed. Try again.")
     if poster is not None:
-        pdata = await poster.read()
+        pdata = await poster.read(MAX_POSTER_BYTES + 1)
+        if len(pdata) > MAX_POSTER_BYTES:
+            raise HTTPException(status_code=413, detail="Poster image too large (max 12 MB).")
         poster_url = await storage_service.upload_image(pdata, current_user["id"], image_type="creator")
 
     post = CreatorPost(
@@ -1159,7 +1164,7 @@ async def upload_avatar(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _require_own_creator(current_user, db)
-    data = await image.read()
+    data = await image.read(MAX_AVATAR_BYTES + 1)
     if len(data) > MAX_AVATAR_BYTES:
         raise HTTPException(status_code=413, detail="Image too large (max 8 MB).")
     if not data:

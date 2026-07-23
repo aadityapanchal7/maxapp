@@ -1065,7 +1065,20 @@ export default function FaceScanResultsScreen() {
     const postPayOnboardingFlow = postPay && !viewingHistory;
 
     const headerBack = () => {
-        if (postPayOnboardingFlow) return;
+        if (postPayOnboardingFlow) {
+            // The post-pay reveal hides the main header Back on purpose (the CTA
+            // is the way forward) — but the FALLBACK views (scan row stuck in
+            // 'processing', failed analysis) still render a Back control that
+            // routes here. It must never be a dead button: a wedged scan used to
+            // leave post-pay users tapping a Back that silently no-oped, with
+            // gestures and Android back disabled — a hard trap. Finish the
+            // post-pay hand-off instead (clear the flag, land on Main), exactly
+            // what the happy-path CTA does.
+            advancedRef.current = true;
+            setAdvancing(true);
+            void advancePostPay();
+            return;
+        }
         if (isScanUser) { navigation.reset({ index: 0, routes: [{ name: 'FaceScan' }] }); return; }
         if (navigation.canGoBack()) navigation.goBack();
         else navigation.navigate('Main');

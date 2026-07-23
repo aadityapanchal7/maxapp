@@ -1276,11 +1276,22 @@ class ApiService {
             fd.append('right', right, 'right.jpg');
             return fd;
         };
+        // Per-attempt hard timeout. Same endpoint as uploadScanTriple: the request
+        // runs the FULL vision analysis server-side (~75s ceiling), so give it
+        // headroom — but never infinity: a stalled connection must not hang the
+        // upload (and the screen waiting on it) forever.
+        const ATTEMPT_TIMEOUT_MS = 110_000;
         const doFetch = async (formData: FormData) => {
             const token = await this.getToken();
             const headers: Record<string, string> = {};
             if (token) headers.Authorization = `Bearer ${token}`;
-            return fetch(url, { method: 'POST', headers, body: formData });
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), ATTEMPT_TIMEOUT_MS);
+            try {
+                return await fetch(url, { method: 'POST', headers, body: formData, signal: ctrl.signal });
+            } finally {
+                clearTimeout(timer);
+            }
         };
         let form = buildForm();
         let res = await doFetch(form);

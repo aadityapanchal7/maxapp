@@ -570,7 +570,7 @@ async def admin_set_creator_art(
     if creator is None:
         raise HTTPException(status_code=404, detail="Creator not found")
     if image is not None:
-        data = await image.read()
+        data = await image.read(12 * 1024 * 1024 + 1)  # bounded: cap+1 so oversized 413s without full RAM buffer
         if not data:
             raise HTTPException(status_code=422, detail="Empty upload")
         if len(data) > 12 * 1024 * 1024:

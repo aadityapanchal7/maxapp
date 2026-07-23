@@ -316,6 +316,9 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
       const detail = status ? `HTTP ${status}` : e?.message ? String(e.message) : 'no response (network)';
       Alert.alert('Could not connect Google Calendar', `Please try again.\n\n(${detail})`);
     } finally {
+      // Always stop the status poll — on the error path the interval would
+      // otherwise keep refetching every 3s until the screen unmounts.
+      if (calPollRef.current) { clearInterval(calPollRef.current); calPollRef.current = null; }
       setCalConnecting(false);
     }
   }, [googleStatusQ.data?.oauth_available, qc]);

@@ -3,7 +3,7 @@
  * pick/record a clip (or write text), add a caption, tap Post. The upload runs
  * with an inline "Posting…" state, then returns to the studio.
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
     ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View,
@@ -29,6 +29,10 @@ export default function ComposerScreen() {
     const [durationS, setDurationS] = useState<number | null>(null);
     const [caption, setCaption] = useState('');
     const [posting, setPosting] = useState(false);
+    // Set when the user taps Cancel mid-upload: the request keeps running
+    // server-side, but its resolution must no longer navigate or alert (the
+    // user has already left this screen).
+    const cancelledRef = useRef(false);
 
     const pickVideo = async (fromCamera: boolean) => {
         try {
@@ -70,6 +74,7 @@ export default function ComposerScreen() {
     const post = async () => {
         if (!canPost) return;
         setPosting(true);
+        cancelledRef.current = false;
         try {
             await api.createCreatorPost({
                 type: mode,
@@ -77,8 +82,10 @@ export default function ComposerScreen() {
                 videoUri: mode === 'video' ? videoUri : null,
                 durationS: mode === 'video' ? durationS : null,
             });
+            if (cancelledRef.current) return; // user bailed mid-upload; don't navigate again
             nav.goBack();
         } catch (e: any) {
+            if (cancelledRef.current) return; // user already left; no late error alert
             Alert.alert('Could not post', e?.response?.data?.detail || e?.message || 'Try again.');
             setPosting(false);
         }
@@ -87,8 +94,19 @@ export default function ComposerScreen() {
     return (
         <View style={[s.root, { paddingTop: insets.top + 6 }]}>
             <View style={s.topBar}>
-                <TouchableOpacity onPress={() => nav.goBack()} hitSlop={12} disabled={posting} accessibilityLabel="Cancel">
-                    <Text style={[s.cancel, posting && { opacity: 0.4 }]}>Cancel</Text>
+                {/* Cancel stays tappable during the upload (a large clip can run
+                    up to 2 minutes) — a frozen Cancel used to read as a locked
+                    screen. Bailing mid-upload just abandons the result client-side
+                    (cancelledRef guards the late resolve). */}
+                <TouchableOpacity
+                    onPress={() => {
+                        if (posting) cancelledRef.current = true;
+                        nav.goBack();
+                    }}
+                    hitSlop={12}
+                    accessibilityLabel="Cancel"
+                >
+                    <Text style={s.cancel}>Cancel</Text>
                 </TouchableOpacity>
                 <Text style={s.topTitle}>New update</Text>
                 <TouchableOpacity onPress={post} disabled={!canPost} hitSlop={12} accessibilityLabel="Post">

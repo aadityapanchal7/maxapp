@@ -82,6 +82,9 @@ export default function GoogleCalendarConnectScreen() {
             const detail = s ? `HTTP ${s}` : e?.message ? String(e.message) : 'no response (network)';
             Alert.alert('Could not connect Google Calendar', `Please try again.\n\n(${detail})`);
         } finally {
+            // Always stop the status poll — on the error path the interval would
+            // otherwise keep refetching every 3s until the screen unmounts.
+            if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
             setConnecting(false);
         }
     };
@@ -100,9 +103,16 @@ export default function GoogleCalendarConnectScreen() {
     };
 
     if (statusQ.isLoading) {
+        // The status fetch retries with backoff on a bad connection — keep the
+        // back chevron visible so this spinner is never a screen with no exit.
         return (
-            <View style={[styles.center, { paddingTop: insets.top + 60 }]}>
-                <ActivityIndicator color={colors.textMuted} />
+            <View style={{ flex: 1, paddingTop: insets.top + 16, paddingHorizontal: spacing.md ?? 16 }}>
+                <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+                    <Ionicons name="chevron-back" size={22} color={colors.foreground} />
+                </TouchableOpacity>
+                <View style={styles.center}>
+                    <ActivityIndicator color={colors.textMuted} />
+                </View>
             </View>
         );
     }

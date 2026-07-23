@@ -150,7 +150,8 @@ async def upload_doc(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
-    data = await file.read()
+    # Bounded read: cap+1 so an oversized body 413s without full RAM buffer.
+    data = await file.read(_MAX_DOC_BYTES + 1)
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(status_code=413, detail="File too large (25 MB max).")
     uid = str(current_user["id"])

@@ -396,6 +396,12 @@ async def cancel_subscription(
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    # This endpoint is unauthenticated (signature is only verified AFTER the
+    # full body is buffered). Real Stripe events are small and always carry
+    # Content-Length; reject anything oversized/chunked before buffering it.
+    _cl = request.headers.get("content-length")
+    if _cl is None or not _cl.isdigit() or int(_cl) > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Payload too large")
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 

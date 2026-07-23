@@ -71,7 +71,13 @@ async def upload_chat_file(
     current_user: dict = Depends(require_paid_user)
 ):
     """Upload a file or image for chat attachment"""
-    file_data = await file.read()
+    # Bounded read (was completely uncapped): mirror the 12 MB image cap used by
+    # /scans and /users uploads. Reading at most cap+1 bytes means an oversized
+    # body 413s instead of being buffered whole into RAM (OOM vector).
+    _MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+    file_data = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(file_data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 12 MB).")
     user_id = current_user["id"]
     
     # Use storage service (legacy upload_image for now as it handles byte data)

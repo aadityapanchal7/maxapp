@@ -5732,15 +5732,23 @@ async def transcribe_audio(
     key = (settings.openai_api_key or "").strip()
     if not key:
         raise HTTPException(status_code=503, detail="Voice transcription is unavailable right now.")
-    data = await file.read()
+    # Bounded read: Whisper's own API limit is 25 MB, and a short dictation clip
+    # is far smaller. Reading at most cap+1 bytes means an oversized/malicious
+    # body 413s instead of being buffered whole into RAM (OOM vector).
+    _MAX_AUDIO_BYTES = 25 * 1024 * 1024
+    data = await file.read(_MAX_AUDIO_BYTES + 1)
     if not data:
         raise HTTPException(status_code=400, detail="No audio received.")
+    if len(data) > _MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio clip is too large (max 25MB).")
     import io
     from openai import AsyncOpenAI
     buf = io.BytesIO(data)
     buf.name = file.filename or "audio.m4a"
     try:
-        client = AsyncOpenAI(api_key=key)
+        # timeout: SDK default is 600s with retries — a stalled connection would
+        # otherwise pin this request (and the user's composer) for ~10+ minutes.
+        client = AsyncOpenAI(api_key=key, timeout=60.0)
         tr = await client.audio.transcriptions.create(model="whisper-1", file=buf)
         return {"text": (getattr(tr, "text", "") or "").strip()}
     except Exception as e:
