@@ -377,6 +377,11 @@ export default function HomeScreen() {
     // Which day's tasks the HABITS list shows. Null → today; tapping a day pill
     // selects that date. (Synthetic days on the empty strip just show no tasks.)
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
+    // Day strip auto-scroll: bring the current day into view on load (and again
+    // when the calendar day rolls over), so a user on day 15 isn't staring at
+    // day 1. Only fires once per `today` value so it never fights a manual scroll.
+    const stripRef = useRef<ScrollView>(null);
+    const scrolledToTodayRef = useRef<string | null>(null);
     const activeDate = selectedDate ?? today;
     const selectedRows = byDate[activeDate] || [];
 
@@ -617,6 +622,7 @@ export default function HomeScreen() {
                                 </Text>
                             </View>
                         <ScrollView
+                            ref={stripRef}
                             horizontal
                             showsHorizontalScrollIndicator={false}
                             contentContainerStyle={s.stripScroll}
@@ -625,13 +631,20 @@ export default function HomeScreen() {
                                 const onPill = selectedDate ? d.date === selectedDate : d.isToday;
                                 const complete = d.total > 0 && d.done >= d.total;
                                 const partial = d.done > 0 && d.done < d.total;
+                                // A past day that had tasks but zero completed — the day
+                                // elapsed unfulfilled and doesn't count toward the streak.
+                                // Marked with a dashed outline so it reads as "missed",
+                                // distinct from a solid-outline upcoming day.
+                                const missed = d.total > 0 && d.done === 0 && !d.isToday && d.date < today;
                                 // Pill background: black only when complete; colorless otherwise.
                                 // Selected-but-incomplete gets a border outline instead.
                                 const pillStyle = complete
                                     ? { backgroundColor: BW.ink, borderWidth: 0 }
                                     : onPill
                                         ? { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: BW.ink }
-                                        : { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: BW.track };
+                                        : missed
+                                            ? { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: BW.track, borderStyle: 'dashed' as const }
+                                            : { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: BW.track };
                                 const numColor = complete ? BW.onInk : onPill ? BW.ink : BW.mute;
                                 const dotStyle = complete
                                     ? { backgroundColor: BW.onInk }
@@ -644,6 +657,14 @@ export default function HomeScreen() {
                                         style={[s.dayPill, pillStyle]}
                                         activeOpacity={0.85}
                                         onPress={() => setSelectedDate(d.date)}
+                                        onLayout={d.isToday ? (e) => {
+                                            // Scroll the current day into view once per calendar
+                                            // day, leaving ~96px of prior-day context to its left.
+                                            if (scrolledToTodayRef.current === today) return;
+                                            scrolledToTodayRef.current = today;
+                                            const x = e.nativeEvent.layout.x;
+                                            stripRef.current?.scrollTo({ x: Math.max(0, x - 96), animated: false });
+                                        } : undefined}
                                         accessibilityRole="button"
                                         accessibilityLabel={`Day ${d.index}`}
                                     >
