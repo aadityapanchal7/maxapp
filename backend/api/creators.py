@@ -129,6 +129,18 @@ async def _require_own_creator(current_user: dict, db: AsyncSession) -> Creator:
     return creator
 
 
+def _reject_if_locked(creator: Creator) -> None:
+    """A struck (paused) or banned (takedown) creator must not be able to
+    self-reinstate to live — those are moderation states only an admin can
+    clear. Guards both the Studio go_live toggle (below) and the onboarding
+    /launch endpoint (api/creator_onboarding.py), which shares this helper."""
+    if creator.status in ("paused", "takedown"):
+        raise HTTPException(
+            status_code=403,
+            detail="This max is paused or under review and can't be relaunched. Contact support.",
+        )
+
+
 class ProfileUpdate(BaseModel):
     display_name: Optional[str] = Field(None, max_length=60)
     bio: Optional[str] = Field(None, max_length=600)
@@ -170,6 +182,7 @@ async def update_my_creator(
     # Go live: only allowed once the SKU cleared Apple review (or in non-prod)
     # AND the creator has posted something — Apple 3.1.1: no empty paid listing.
     if body.go_live:
+        _reject_if_locked(creator)
         has_content = (await db.execute(
             select(func.count()).select_from(CreatorPost).where(
                 (CreatorPost.creator_id == creator.id) & (CreatorPost.status == "published")
@@ -590,6 +603,8 @@ async def upsert_lesson(
     creator = await _require_own_creator(current_user, db)
     if body.status not in ("draft", "published"):
         raise HTTPException(status_code=422, detail="Bad status")
+    if body.status == "published" and (not body.title.strip() or not body.body_md.strip()):
+        raise HTTPException(status_code=422, detail="A published lesson needs a title and body.")
     if body.video_url and not body.video_url.lower().startswith(("http://", "https://")):
         raise HTTPException(status_code=422, detail="Video URL must be a full http(s) link.")
     lesson = None
@@ -1296,9 +1311,15 @@ async def get_creator_by_maxx(
     creator = await creator_service.get_creator_by_maxx(maxx_id, db)
     if creator is None:
         raise HTTPException(status_code=404, detail="Not a creator max")
+    is_owner = str(creator.user_id) == current_user["id"]
+    # Same hidden gate as the sibling /course and /posts endpoints (takedown =
+    # banned; onboarding = not yet published) — a non-owner/admin shouldn't be
+    # able to fetch this profile before it's live.
+    if creator.status in ("takedown", "onboarding") and not (is_owner or current_user.get("is_admin")):
+        raise HTTPException(status_code=404, detail="This max is unavailable.")
     d = creator_service.creator_public_dict(creator)
     d["subscribed"] = (await creator_service.active_subscription(current_user["id"], str(creator.id), db)) is not None
-    d["is_owner"] = str(creator.user_id) == current_user["id"]
+    d["is_owner"] = is_owner
     # Course size for the paywall pitch ("12 lessons · 2 free previews").
     lrows = (await db.execute(
         select(CreatorCourseLesson.is_free_preview, func.count())

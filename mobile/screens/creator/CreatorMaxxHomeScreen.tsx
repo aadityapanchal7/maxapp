@@ -52,6 +52,7 @@ export default function CreatorMaxxHomeScreen() {
     const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
     const maxxId: string = route.params?.maxxId;
+    const previewLocked: boolean = !!route.params?.previewLocked;
     const seedTab: HomeTab = (['updates', 'course', 'community'] as const).includes(route.params?.tab)
         ? route.params?.tab
         : 'updates';
@@ -151,7 +152,9 @@ export default function CreatorMaxxHomeScreen() {
         );
     }
 
-    const locked = !creator.subscribed && !creator.is_owner;
+    // `previewLocked` forces the paywalled view even for the owner — the
+    // "Preview as member (locked)" entry point from Studio.
+    const locked = previewLocked || (!creator.subscribed && !creator.is_owner);
     const members = Number(creator.subscriber_count || 0);
     const art = creator.art_url ? api.resolveAttachmentUrl(creator.art_url) : undefined;
     const avatar = creator.avatar_url ? api.resolveAttachmentUrl(creator.avatar_url) : undefined;
@@ -159,6 +162,18 @@ export default function CreatorMaxxHomeScreen() {
 
     return (
         <View style={s.root}>
+            {previewLocked ? (
+                <TouchableOpacity
+                    style={[s.previewBanner, { paddingTop: insets.top + 8 }]}
+                    onPress={() => nav.goBack()}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Exit preview"
+                >
+                    <Ionicons name="eye-outline" size={14} color="#FFFFFF" />
+                    <Text style={s.previewBannerText}>Previewing what non-subscribers see — tap to exit</Text>
+                </TouchableOpacity>
+            ) : null}
             {/* Banner — creator art with a soft fade, or an accent-tinted field. */}
             <View style={[s.banner, { backgroundColor: hexA(accent, 0.14) }]}>
                 {art ? (
@@ -200,7 +215,7 @@ export default function CreatorMaxxHomeScreen() {
                     </View>
                     {members >= 10 ? <Text style={s.meta}>{members} members</Text> : null}
                 </View>
-                {creator.is_owner ? (
+                {creator.is_owner && !previewLocked ? (
                     <TouchableOpacity
                         style={s.ghostPill}
                         onPress={() => nav.navigate('CreatorStudio')}
@@ -331,6 +346,12 @@ const s = StyleSheet.create({
         alignItems: 'center', justifyContent: 'center',
     },
     retryText: { fontFamily: fonts.sansSemiBold, fontSize: 14, color: INK },
+
+    previewBanner: {
+        flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
+        backgroundColor: INK, paddingBottom: 9, paddingHorizontal: 16,
+    },
+    previewBannerText: { fontFamily: fonts.sansSemiBold, fontSize: 12, color: '#FFFFFF' },
 
     banner: { height: 120, overflow: 'hidden' },
 

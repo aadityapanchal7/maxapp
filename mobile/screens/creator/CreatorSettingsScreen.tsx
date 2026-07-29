@@ -4,7 +4,7 @@
  * review status, and go live. Save is disabled until the profile has actually
  * loaded so a failed fetch can never PATCH empty strings over real data.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
     ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView,
     StyleSheet, Text, TextInput, TouchableOpacity, View,
@@ -52,17 +52,35 @@ export default function CreatorSettingsScreen() {
     const [loaded, setLoaded] = useState(false); // only true after a successful fetch — guards Save
     const [avatarBusy, setAvatarBusy] = useState(false);
 
+    // Dirty-check baseline — snapshot of the editable fields as last loaded/saved.
+    const baselineRef = useRef<string>('');
+    const snapshot = (v: {
+        displayName: string; tagline: string; bio: string; accent: string;
+        instagram: string; tiktok: string; youtube: string;
+    }) => JSON.stringify(v);
+    const isDirty = () => snapshot({ displayName, tagline, bio, accent, instagram, tiktok, youtube }) !== baselineRef.current;
+
     const load = useCallback(async () => {
         try {
             const c = await api.getMyCreator();
             setCreator(c);
-            setDisplayName(c.display_name || '');
-            setTagline(c.tagline || '');
-            setBio(c.bio || '');
-            setAccent(c.accent_color || '');
-            setInstagram(c.socials?.instagram || '');
-            setTiktok(c.socials?.tiktok || '');
-            setYoutube(c.socials?.youtube || '');
+            const next = {
+                displayName: c.display_name || '',
+                tagline: c.tagline || '',
+                bio: c.bio || '',
+                accent: c.accent_color || '',
+                instagram: c.socials?.instagram || '',
+                tiktok: c.socials?.tiktok || '',
+                youtube: c.socials?.youtube || '',
+            };
+            setDisplayName(next.displayName);
+            setTagline(next.tagline);
+            setBio(next.bio);
+            setAccent(next.accent);
+            setInstagram(next.instagram);
+            setTiktok(next.tiktok);
+            setYoutube(next.youtube);
+            baselineRef.current = JSON.stringify(next);
             setLoaded(true);
         } catch { /* keep — Save stays disabled until a load succeeds */ }
         finally { setLoading(false); }
@@ -85,6 +103,10 @@ export default function CreatorSettingsScreen() {
             setInstagram(socials.instagram);
             setTiktok(socials.tiktok);
             setYoutube(socials.youtube);
+            baselineRef.current = snapshot({
+                displayName, tagline, bio, accent,
+                instagram: socials.instagram, tiktok: socials.tiktok, youtube: socials.youtube,
+            });
             Alert.alert('Saved');
         } catch (e: any) {
             Alert.alert('Could not save', e?.response?.data?.detail || 'Try again.');
@@ -113,6 +135,17 @@ export default function CreatorSettingsScreen() {
         } finally { setAvatarBusy(false); }
     };
 
+    const requestGoBack = () => {
+        if (isDirty()) {
+            Alert.alert('Discard changes?', undefined, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Discard', style: 'destructive', onPress: () => nav.goBack() },
+            ]);
+        } else {
+            nav.goBack();
+        }
+    };
+
     const goLive = async () => {
         try {
             const c = await api.updateMyCreator({ go_live: true });
@@ -130,7 +163,7 @@ export default function CreatorSettingsScreen() {
     return (
         <View style={[s.root, { paddingTop: insets.top }]}>
             <View style={s.topBar}>
-                <TouchableOpacity onPress={() => nav.goBack()} hitSlop={12} style={s.back} accessibilityLabel="Back">
+                <TouchableOpacity onPress={requestGoBack} hitSlop={12} style={s.back} accessibilityLabel="Back">
                     <Ionicons name="chevron-back" size={24} color={INK} />
                 </TouchableOpacity>
                 <Text style={s.topTitle}>Settings</Text>

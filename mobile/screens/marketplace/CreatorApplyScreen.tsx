@@ -8,7 +8,7 @@
  * submit. Success shows a confirmation page ("we'll get back to you in 1–2 weeks")
  * whose Done returns to the Creator tab.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -118,6 +118,16 @@ function Field({ value, onChangeText, placeholder, multiline, autoCapitalize, au
                 maxLength={maxLength}
             />
         </View>
+    );
+}
+
+/** Subtle "N/max" counter — only appears once the field is getting close to its limit. */
+function CharCounter({ length, max }: { length: number; max: number }) {
+    if (length < max - 300) return null;
+    return (
+        <Text style={[styles.charCounter, length >= max && styles.charCounterAtLimit]}>
+            {length}/{max}
+        </Text>
     );
 }
 
@@ -318,7 +328,9 @@ function DocUploader({ docs, onChange }: {
     return (
         <View style={{ gap: 12 }}>
             <Text style={styles.docHint}>
-                Upload PDFs, docs, or paste Google Drive links. Set sharing to "Anyone with the link can view".
+                Pasted links are reference-only for our review — Max doesn't read them. Upload a .txt, .md, or
+                PDF file for content Max actually learns from. Max reads ~the first 4,000 characters, so lead
+                with your core protocols.
             </Text>
             {docs.map((d, i) => (
                 <View key={`${d.url}-${i}`} style={styles.docRow}>
@@ -472,21 +484,36 @@ export default function CreatorApplyScreen() {
             title: 'What is\nyour max?',
             sub: 'What does it teach? Who is it for?',
             canNext: desc.trim().length > 0,
-            body: <Field value={desc} onChangeText={setDesc} placeholder="The routine, the promise…" multiline autoFocus maxLength={1500} />,
+            body: (
+                <View>
+                    <Field value={desc} onChangeText={setDesc} placeholder="The routine, the promise…" multiline autoFocus maxLength={1500} />
+                    <CharCounter length={desc.length} max={1500} />
+                </View>
+            ),
         },
         {
             key: 'different',
             title: 'What makes it\ndifferent?',
             sub: 'Why yours stands out from everything else out there.',
             canNext: differentiator.trim().length > 0,
-            body: <Field value={differentiator} onChangeText={setDifferentiator} placeholder="Your edge, your method…" multiline autoFocus maxLength={1500} />,
+            body: (
+                <View>
+                    <Field value={differentiator} onChangeText={setDifferentiator} placeholder="Your edge, your method…" multiline autoFocus maxLength={1500} />
+                    <CharCounter length={differentiator.length} max={1500} />
+                </View>
+            ),
         },
         {
             key: 'brand',
             title: 'Why it fits\nyour brand',
             sub: 'How this max connects to what your audience already knows you for.',
             canNext: brandFit.trim().length > 0,
-            body: <Field value={brandFit} onChangeText={setBrandFit} placeholder="Your brand, your audience, your lane…" multiline autoFocus maxLength={1500} />,
+            body: (
+                <View>
+                    <Field value={brandFit} onChangeText={setBrandFit} placeholder="Your brand, your audience, your lane…" multiline autoFocus maxLength={1500} />
+                    <CharCounter length={brandFit.length} max={1500} />
+                </View>
+            ),
         },
         {
             key: 'social',
@@ -552,7 +579,13 @@ export default function CreatorApplyScreen() {
     const current = steps[safeStep];
     const isLast = safeStep === steps.length - 1;
 
+    // Tracks which step goNext launched from, so its async availability check
+    // never forces a late-resolving result onto a step the applicant already left.
+    const stepRef = useRef(safeStep);
+    useEffect(() => { stepRef.current = safeStep; }, [safeStep]);
+
     const goBack = () => {
+        if (submitting || checkingMax) return; // don't let the applicant navigate away from an in-flight request
         if (safeStep === 0) { navigation.goBack(); return; }
         Haptics.selectionAsync().catch(() => {});
         setDir(-1); setStep(safeStep - 1); setError(null);
@@ -591,11 +624,13 @@ export default function CreatorApplyScreen() {
 
     const goNext = async () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+        const fromStep = safeStep;
         // First-come-first-served pre-check on the max step.
         if (current.key === 'max') {
             setCheckingMax(true); setError(null);
             try {
                 const res = await api.checkMaxAvailability(maxName.trim());
+                if (stepRef.current !== fromStep) return; // applicant moved off this step while we were checking
                 if (!res.available) {
                     setError("That max is taken. It's first come, first served — try another niche.");
                     setCheckingMax(false);
@@ -607,6 +642,7 @@ export default function CreatorApplyScreen() {
                 setCheckingMax(false);
             }
         }
+        if (stepRef.current !== fromStep) return;
         if (isLast) { void submit(); return; }
         setDir(1); setStep(safeStep + 1); setError(null);
     };
@@ -721,6 +757,8 @@ const styles = StyleSheet.create({
     fieldLine: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: HAIR, paddingBottom: 10 },
     input: { fontFamily: 'Matter-Medium', fontSize: 22, color: INK, padding: 0, textAlign: 'center', lineHeight: 28 },
     inputMulti: { minHeight: 96, textAlignVertical: 'top', textAlign: 'left', fontSize: 18, lineHeight: 26, fontFamily: 'Matter-Regular' },
+    charCounter: { fontFamily: 'Matter-Regular', fontSize: 12, color: MUTE, textAlign: 'right', marginTop: 6 },
+    charCounterAtLimit: { color: DANGER },
 
     // social linker
     linkerBlock: { gap: 12 },

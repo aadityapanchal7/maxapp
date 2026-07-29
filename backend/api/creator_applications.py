@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -156,6 +156,23 @@ async def submit_application(
     normalized = _normalize_max_name(body.max_name)
     if not normalized:
         raise HTTPException(status_code=422, detail="Tell us which max you'd own.")
+
+    # Atomicity: max_name_normalized has no DB-level unique constraint (a
+    # migration is out of scope for this fix), so two concurrent requests for
+    # the same niche could otherwise both pass the "taken" check below and
+    # both insert. A Postgres advisory lock scoped to THIS transaction
+    # (auto-released at commit/rollback, never leaked to the connection pool)
+    # serializes concurrent claims on the same normalized name — safe even
+    # under Supavisor's transaction-mode pooling since it's held only for the
+    # lifetime of this request's single transaction.
+    # TODO(atomicity): the durable fix is a partial unique index, e.g.
+    #   CREATE UNIQUE INDEX ON creator_applications (max_name_normalized)
+    #   WHERE status IN ('pending', 'approved')
+    # — this lock is a code-only stopgap until that migration lands.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+        {"lock_key": f"creator_app_claim:{normalized}"},
+    )
 
     # First-come-first-served — one creator per max. If someone already has a
     # pending/approved claim on this niche, this applicant is too late.
