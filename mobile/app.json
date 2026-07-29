@@ -25,7 +25,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.cannon.mobile",
       "appleTeamId": "3TJ8RC3JCX",
-      "buildNumber": "334",
+      "buildNumber": "335",
       "usesAppleSignIn": true,
       "entitlements": {
         "aps-environment": "production",
