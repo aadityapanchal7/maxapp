@@ -125,6 +125,10 @@ export default function CourseEditorScreen() {
     const saveLesson = async (mode: 'save' | 'publish' | 'unpublish') => {
         if (!editing) return;
         if (!editing.title.trim()) { Alert.alert('Add a title'); return; }
+        if (mode === 'publish' && !editing.body_md.trim()) {
+            Alert.alert('Add lesson content', 'Write something in the lesson body before publishing.');
+            return;
+        }
         // 'save' preserves the lesson's current status (new lessons are drafts).
         const status = mode === 'publish' ? 'published' : mode === 'unpublish' ? 'draft' : editing.status;
         setSavingAction(mode);
@@ -273,6 +277,8 @@ export default function CourseEditorScreen() {
     };
 
     // ── Render ───────────────────────────────────────────────────────────
+    const publishBlocked = !editing?.title.trim() || !editing?.body_md.trim();
+
     return (
         <View style={[s.root, { paddingTop: insets.top }]}>
             <View style={s.topBar}>
@@ -439,10 +445,18 @@ export default function CourseEditorScreen() {
                                 <TouchableOpacity style={[s.saveBtn, s.draftBtn]} onPress={() => saveLesson('save')} disabled={!!savingAction} activeOpacity={0.85}>
                                     {savingAction === 'save' ? <ActivityIndicator size="small" color={INK} /> : <Text style={s.draftText}>Save</Text>}
                                 </TouchableOpacity>
-                                <TouchableOpacity style={[s.saveBtn, s.pubBtn]} onPress={() => saveLesson('publish')} disabled={!!savingAction} activeOpacity={0.85}>
+                                <TouchableOpacity
+                                    style={[s.saveBtn, s.pubBtn, publishBlocked && s.pubBtnDisabled]}
+                                    onPress={() => saveLesson('publish')}
+                                    disabled={!!savingAction || publishBlocked}
+                                    activeOpacity={0.85}
+                                >
                                     {savingAction === 'publish' ? <ActivityIndicator color="#FFFFFF" size="small" /> : <Text style={s.pubText}>Publish</Text>}
                                 </TouchableOpacity>
                             </View>
+                            {publishBlocked ? (
+                                <Text style={s.publishHint}>Add a title and write some lesson content before publishing.</Text>
+                            ) : null}
                             {editing?.id && editing.status === 'published' ? (
                                 <TouchableOpacity style={s.unpubBtn} onPress={confirmUnpublish} disabled={!!savingAction} hitSlop={8}>
                                     {savingAction === 'unpublish'
@@ -567,7 +581,9 @@ const s = StyleSheet.create({
     draftBtn: { backgroundColor: '#FFFFFF', borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.12)' },
     draftText: { fontFamily: fonts.sansSemiBold, fontSize: 15, color: INK },
     pubBtn: { backgroundColor: INK },
+    pubBtnDisabled: { opacity: 0.35 },
     pubText: { fontFamily: fonts.sansSemiBold, fontSize: 15, color: '#FFFFFF' },
+    publishHint: { fontFamily: fonts.sans, fontSize: 12, color: MUTE, textAlign: 'center', marginTop: 8 },
     unpubBtn: { alignSelf: 'center', paddingVertical: 10 },
     unpubText: { fontFamily: fonts.sansMedium, fontSize: 13, color: MUTE },
 

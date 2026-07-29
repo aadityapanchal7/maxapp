@@ -20,6 +20,7 @@ from middleware.rate_limit import rate_limit
 from models.sqlalchemy_models import CreatorVoiceSample
 from services import creator_onboarding_service as onboarding
 from services import creator_service
+from api.creators import _reject_if_locked
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +38,16 @@ def _normalize_doc_url(raw: str) -> str:
     return url
 
 
+_MAX_KNOWLEDGE_DOCS = 30  # mirrors PUT /docs's [:30] cap
+
+
 def _append_knowledge_doc(creator, doc: dict) -> None:
     docs = list(creator.knowledge_docs or [])
+    if len(docs) >= _MAX_KNOWLEDGE_DOCS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"You've reached the {_MAX_KNOWLEDGE_DOCS} document limit.",
+        )
     docs.append(doc)
     creator.knowledge_docs = docs
     flag_modified(creator, "knowledge_docs")
@@ -49,6 +58,17 @@ async def _creator(current_user: dict, db: AsyncSession):
     if c is None:
         raise HTTPException(status_code=404, detail="No creator profile")
     return c
+
+
+def _reject_if_live(creator) -> None:
+    """A live max's subscriber-facing content must be edited from the Studio,
+    not the onboarding wizard — letting a live creator re-run onboarding could
+    silently corrupt what subscribers already see (docs, habits, pricing...)."""
+    if creator.status == "live":
+        raise HTTPException(
+            status_code=409,
+            detail="Your max is live — edit content from the Studio, not onboarding.",
+        )
 
 
 async def _samples(creator_id, db: AsyncSession):
@@ -96,12 +116,16 @@ async def set_step(
     return await _onboarding_state(creator, db)
 
 
-@router.post("/analyze")
+@router.post(
+    "/analyze",
+    dependencies=[Depends(rate_limit(limit=10, window_s=3600, scope="creator_onboarding_analyze"))],
+)
 async def analyze_docs(
     current_user: dict = Depends(require_creator_user),
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     result = await onboarding.analyze_knowledge(creator, db)
     creator.onboarding_step = max(int(creator.onboarding_step or 0), 1)
     await db.commit()
@@ -119,6 +143,7 @@ async def set_docs(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     creator.knowledge_docs = body.docs[:30]
     flag_modified(creator, "knowledge_docs")
     await db.commit()
@@ -143,13 +168,17 @@ async def delete_doc(
     return await _onboarding_state(creator, db)
 
 
-@router.post("/upload-doc")
+@router.post(
+    "/upload-doc",
+    dependencies=[Depends(rate_limit(limit=30, window_s=3600, scope="creator_onboarding_upload_doc"))],
+)
 async def upload_doc(
     file: UploadFile = File(...),
     current_user: dict = Depends(require_creator_user),
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     # Bounded read: cap+1 so an oversized body 413s without full RAM buffer.
     data = await file.read(_MAX_DOC_BYTES + 1)
     if len(data) > _MAX_DOC_BYTES:
@@ -179,13 +208,17 @@ class LinkDocBody(BaseModel):
     filename: str | None = None
 
 
-@router.post("/link-doc")
+@router.post(
+    "/link-doc",
+    dependencies=[Depends(rate_limit(limit=30, window_s=3600, scope="creator_onboarding_link_doc"))],
+)
 async def link_doc(
     body: LinkDocBody,
     current_user: dict = Depends(require_creator_user),
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     url = _normalize_doc_url(body.url)
     doc = {
         "filename": (body.filename or "Google Drive link").strip()[:120],
@@ -209,6 +242,7 @@ async def voice_answer(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     try:
         sid = uuid.UUID(body.sample_id)
     except ValueError:
@@ -286,6 +320,7 @@ async def update_habit_library(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     meta = onboarding._meta(creator)
     meta["habit_library"] = body.habits[:50]
     onboarding._set_meta(creator, meta)
@@ -305,6 +340,7 @@ async def set_pricing(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     creator.price_tier = body.tier
     creator.price_cents = creator_service.price_cents_for_tier(body.tier)
     creator.onboarding_step = max(int(creator.onboarding_step or 0), 6)
@@ -324,6 +360,7 @@ async def set_media(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     if body.intro_video_url is not None:
         creator.intro_video_url = body.intro_video_url.strip()[:500] or None
     if body.welcome_message is not None:
@@ -393,6 +430,7 @@ async def sync_habits(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_live(creator)
     n = await onboarding.sync_habit_library(creator, db)
     await db.commit()
     return {"synced": n}
@@ -404,6 +442,7 @@ async def launch(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    _reject_if_locked(creator)
     try:
         await onboarding.launch_creator(creator, db, is_production=settings.is_production)
     except ValueError as e:

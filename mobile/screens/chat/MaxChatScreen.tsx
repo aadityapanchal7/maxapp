@@ -514,6 +514,12 @@ export default function MaxChatScreen() {
      *  the input and send the next message with reply_to_message_id set. */
     const [replyTarget, setReplyTarget] = useState<ReplyTarget | null>(null);
     const flatListRef = useRef<FlashListRef<Message>>(null);
+    // Whether the user is parked at (or near) the bottom of the transcript.
+    // Starts true so the first content-size change scrolls to the latest line.
+    // While the user scrolls UP to read history, this flips false and the
+    // auto-scroll-to-end on content-size change is suppressed — otherwise any
+    // re-measure (typing shimmer, image load, re-render) yanks them back down.
+    const isAtBottomRef = useRef(true);
     const inputRef = useRef<TextInput>(null);
     // Keys of assistant messages that have already played their typewriter
     // reveal. FlashList recycles rows on scroll, which remounts StreamingText;
@@ -874,6 +880,10 @@ export default function MaxChatScreen() {
         setInputWidget(null);
         setPendingConfirm(null);
         if (!fromPreset) setInput('');
+        // Sending is an explicit "bring me to the latest" — re-arm auto-follow so
+        // the user's own line and the reply scroll into view even if they'd been
+        // reading history above.
+        isAtBottomRef.current = true;
         setMessages(prev => [
             ...prev,
             { role: 'user', content: userContent },
@@ -1458,11 +1468,28 @@ export default function MaxChatScreen() {
                             item.isTyping ? `typing-${item.typingMode ?? 'default'}` : i.toString()
                         }
                         contentContainerStyle={[styles.messageList, messages.length === 0 && styles.messageListEmpty]}
-                        onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+                        // Only follow new content to the bottom when the user is already
+                        // parked there. If they've scrolled up to read history, don't yank
+                        // them back down on every re-measure.
+                        onContentSizeChange={() => {
+                            if (isAtBottomRef.current) flatListRef.current?.scrollToEnd({ animated: true });
+                        }}
+                        // Track scroll position so we know whether to auto-follow. A small
+                        // threshold treats "almost at the bottom" as at-bottom.
+                        onScroll={(e) => {
+                            const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+                            const distanceFromBottom =
+                                contentSize.height - layoutMeasurement.height - contentOffset.y;
+                            isAtBottomRef.current = distanceFromBottom < 120;
+                        }}
+                        scrollEventThrottle={16}
                         // The list FRAME also shrinks (keyboard up, chip stack appears) —
                         // onContentSizeChange doesn't fire for that, so without this the
-                        // current question ends up hidden behind the chips/keyboard.
-                        onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+                        // current question ends up hidden behind the chips/keyboard. Gate
+                        // it on at-bottom too so it can't fight an intentional scroll-up.
+                        onLayout={() => {
+                            if (isAtBottomRef.current) flatListRef.current?.scrollToEnd({ animated: false });
+                        }}
                         showsVerticalScrollIndicator={false}
                         ListEmptyComponent={ListEmpty}
                     />

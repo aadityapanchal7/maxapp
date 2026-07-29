@@ -94,7 +94,13 @@ def award_task_xp(
         return award_xp(profile, 0, today_iso) | {"xp_awarded": 0, "already_paid": False}
 
 MAX_LEVEL = 100
-_LEVEL_COEFF_NUM = 46  # cumulative XP to reach level n = 46*(n-1)**2 // 10  (== 4.6·(n-1)²)
+_LEVEL_COEFF_NUM = 46  # quadratic term: 46*(n-1)**2 // 10  (== 4.6·(n-1)²)
+# Linear term. A PURE quadratic makes the first levels near-free (L2=4, …, L6=115
+# XP), so a single fully-completed day (~115 XP) rocketed a new user to level 6.
+# The linear term puts a real floor under each early level (L2=54, L3=118, L4=191)
+# so day one lands around L2 and a consistent week reaches ~L9 — while L100 stays
+# ~50k XP (≈ a year of play), preserving the aspirational top end.
+_LEVEL_LINEAR = 50
 
 # Named ranks over the 1..100 ladder — themed to the app's disciplined,
 # self-improvement vibe. (min_level inclusive, ascending.)
@@ -115,7 +121,7 @@ def xp_for_level(n: int) -> int:
     starts at level 1). Quadratic curve: quick early levels, aspirational L100
     (~45k XP → roughly a year of consistent play)."""
     n = max(1, min(int(n), MAX_LEVEL))
-    return _LEVEL_COEFF_NUM * (n - 1) ** 2 // 10
+    return _LEVEL_LINEAR * (n - 1) + _LEVEL_COEFF_NUM * (n - 1) ** 2 // 10
 
 
 def level_from_xp(xp: int) -> int:

@@ -308,7 +308,18 @@ class Settings(BaseSettings):
     # Must match the API version expected by @stripe/stripe-react-native for EphemeralKey.
     # Check Stripe RN SDK changelog when upgrading the mobile package.
     stripe_ephemeral_key_api_version: str = Field(default="2024-12-18.acacia")
-    
+
+    # Web hosted-checkout billing (browser client). OFF by default and inert
+    # unless a Stripe secret key is also configured, so this never touches the
+    # live Apple-native iOS billing path. See api/payments_web.py.
+    stripe_web_billing_enabled: bool = Field(default=False)
+    # Absolute base URL of the web app; Stripe success/cancel redirects are
+    # built by joining server-validated relative paths onto this (no open
+    # redirect). e.g. https://app.usemaxapp.com
+    web_app_url: str = Field(default="")
+    # Free-trial length for web Stripe checkout (days). 0 disables the trial.
+    web_trial_days: int = Field(default=3)
+
     # Sendblue (iMessage / SMS) -- https://sendblue.com/
     sendblue_api_key_id: str = Field(default="", description="sb-api-key-id header")
     sendblue_api_secret_key: str = Field(default="", description="sb-api-secret-key header")

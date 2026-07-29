@@ -149,8 +149,14 @@ class ClaudeService:
         user_prompt: str,
         system_prompt: str = "",
         max_tokens: int = 1200,
+        timeout: float = 45.0,
     ) -> str:
-        """Single-turn text completion — no history, no coaching context."""
+        """Single-turn text completion — no history, no coaching context.
+
+        Never raises: a hung/erroring/timed-out Anthropic call returns "" so
+        existing callers (which already treat "" as "unavailable" and degrade)
+        keep working unchanged.
+        """
         from config import settings as _settings
         if not (_settings.anthropic_api_key or "").strip():
             return ""
@@ -160,10 +166,18 @@ class ClaudeService:
             "model": model,
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": user_prompt}],
+            "timeout": timeout,
         }
         if system_prompt:
             kwargs["system"] = system_prompt
-        response = await client.messages.create(**kwargs)
+        try:
+            response = await client.messages.create(**kwargs)
+        except anthropic.APIError as e:
+            logger.warning("[Claude] simple_completion failed (%s: %s)", type(e).__name__, e)
+            return ""
+        except Exception as e:
+            logger.warning("[Claude] simple_completion unexpected error (%s: %s)", type(e).__name__, e)
+            return ""
         return _extract_text(response)
 
 

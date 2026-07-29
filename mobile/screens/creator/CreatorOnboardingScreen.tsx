@@ -4,7 +4,7 @@
  * centered Matter headlines, Fraunces italic accents, liquid glass cards,
  * staggered page transitions, white pill back button.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
     ActivityIndicator, Platform, KeyboardAvoidingView, Modal, Pressable,
@@ -13,6 +13,7 @@ import Animated, {
     Easing, Extrapolation, interpolate, useAnimatedStyle,
     useReducedMotion, useSharedValue, withTiming,
 } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -20,6 +21,57 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as Haptics from 'expo-haptics';
 import { LiquidGlass } from '../../components/glass/LiquidGlass';
 import api, { type CreatorHabitTemplate, type CreatorOnboardingState } from '../../services/api';
+
+// How long a busy request stays escape-free before the Cancel link fades in
+// (mirrors AnalyzingScreen's CANCEL_GRACE_MS — same spirit for the creator
+// onboarding AI calls, which can run 20-60s server-side).
+const CANCEL_GRACE_MS = 45_000;
+
+// ── In-progress draft (typed-but-unsent text) ───────────────────────────────
+// Step progress already persists server-side (setCreatorOnboardingStep). This
+// covers the cheaper-to-lose-but-still-annoying case: a voice answer,
+// correction, or welcome message the creator was mid-typing when the app got
+// killed. Best-effort, debounced, keyed by creator id (maxx_id).
+type CreatorDraft = {
+    v: 1;
+    creatorId: string;
+    welcomeMsg?: string;
+    voiceSampleId?: string;
+    voiceAnswer?: string;
+    correction?: string;
+    ts: number;
+};
+
+const CREATOR_DRAFT_KEY_PREFIX = '@max_creator_onboarding_draft_v1:';
+
+async function loadCreatorDraft(creatorId: string): Promise<CreatorDraft | null> {
+    try {
+        const raw = await AsyncStorage.getItem(CREATOR_DRAFT_KEY_PREFIX + creatorId);
+        if (!raw) return null;
+        const d = JSON.parse(raw) as CreatorDraft;
+        if (!d || d.v !== 1 || d.creatorId !== creatorId) return null;
+        return d;
+    } catch {
+        return null;
+    }
+}
+
+async function saveCreatorDraft(creatorId: string, fields: Omit<CreatorDraft, 'v' | 'creatorId' | 'ts'>): Promise<void> {
+    try {
+        const draft: CreatorDraft = { v: 1, creatorId, ts: Date.now(), ...fields };
+        await AsyncStorage.setItem(CREATOR_DRAFT_KEY_PREFIX + creatorId, JSON.stringify(draft));
+    } catch {
+        /* best-effort — a failed draft write must never break onboarding */
+    }
+}
+
+async function clearCreatorDraft(creatorId: string): Promise<void> {
+    try {
+        await AsyncStorage.removeItem(CREATOR_DRAFT_KEY_PREFIX + creatorId);
+    } catch {
+        /* ignore */
+    }
+}
 
 const INK = '#000000';
 const ON_INK = '#FFFFFF';
@@ -168,6 +220,17 @@ export default function CreatorOnboardingScreen() {
     const [habitDraft, setHabitDraft] = useState<CreatorHabitTemplate | null>(null);
     const [showCorrection, setShowCorrection] = useState(false);
     const [docErr, setDocErr] = useState<string | null>(null);
+    // Escape hatch for long-running AI calls (analyze / voice-draft / test-drive).
+    const [longWait, setLongWait] = useState(false);
+    const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
+    // Sticky "has the creator engaged the test drive at all" latch (stress-test
+    // complete OR ever sent a chat message) — independent of which tab is open.
+    const [testEngaged, setTestEngaged] = useState(false);
+    // Which step a busy request launched from, and whether it's been cancelled
+    // via the escape hatch — both guard goNext/voice/test-drive continuations
+    // against applying a stale result after the user has moved on.
+    const stepRef = useRef(step);
+    const cancelledRef = useRef(false);
 
     const appendKnowledgeDoc = useCallback((doc: { filename: string; url: string; source?: string }) => {
         setState((prev) => prev ? {
@@ -201,6 +264,63 @@ export default function CreatorOnboardingScreen() {
         setCorrection('');
         setVoiceAnswer('');
     }, [state?.current_voice_sample?.id]);
+
+    useEffect(() => { stepRef.current = step; }, [step]);
+
+    // Reveal the "taking longer than usual" escape hatch only after a busy
+    // request has been in flight past the grace period — a normal request
+    // never sees it, but a hung one always gets a way out.
+    useEffect(() => {
+        if (!busy) { setLongWait(false); return; }
+        const t = setTimeout(() => setLongWait(true), CANCEL_GRACE_MS);
+        return () => clearTimeout(t);
+    }, [busy]);
+
+    // Stress-test / chat engagement is sticky — once the creator has run the
+    // gauntlet OR sent a single test-chat message, Continue stays unlocked
+    // even if they flip back to the other tab.
+    useEffect(() => {
+        if (state?.test_drive?.complete || (state?.test_chat || []).length > 0) {
+            setTestEngaged(true);
+        }
+    }, [state?.test_drive?.complete, state?.test_chat]);
+
+    // Restore any unsent voice answer/correction/welcome message from a prior
+    // session, once the creator id is known. Runs once per mount — later
+    // sample transitions intentionally clear the box (see effect above).
+    useEffect(() => {
+        const creatorId = state?.max_name;
+        if (!creatorId) return;
+        let cancelled = false;
+        (async () => {
+            const draft = await loadCreatorDraft(creatorId);
+            if (cancelled || !draft) return;
+            if (draft.welcomeMsg && !state?.welcome_message) setWelcomeMsg(draft.welcomeMsg);
+            if (draft.voiceSampleId && draft.voiceSampleId === state?.current_voice_sample?.id) {
+                if (draft.voiceAnswer) setVoiceAnswer(draft.voiceAnswer);
+                if (draft.correction) setCorrection(draft.correction);
+            }
+        })();
+        return () => { cancelled = true; };
+        // Intentionally only re-runs when the creator id first resolves.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state?.max_name]);
+
+    // Debounced save of in-progress unsent text — cheap insurance against an
+    // app kill mid-edit. Step progress already persists separately.
+    useEffect(() => {
+        const creatorId = state?.max_name;
+        if (!creatorId) return;
+        const t = setTimeout(() => {
+            void saveCreatorDraft(creatorId, {
+                welcomeMsg: welcomeMsg || undefined,
+                voiceSampleId: state?.current_voice_sample?.id,
+                voiceAnswer: voiceAnswer || undefined,
+                correction: correction || undefined,
+            });
+        }, 600);
+        return () => clearTimeout(t);
+    }, [state?.max_name, state?.current_voice_sample?.id, welcomeMsg, voiceAnswer, correction]);
 
     const maxName = state?.max_name?.replace(/max$/i, '') || 'Your max';
     const maxLabel = maxName.charAt(0).toUpperCase() + maxName.slice(1);
@@ -236,14 +356,31 @@ export default function CreatorOnboardingScreen() {
         try { await api.setCreatorOnboardingStep(next); } catch { /* best-effort */ }
     };
 
+    // Aborts the current wait: a late-resolving request becomes a no-op (via
+    // cancelledRef), busy clears immediately, and the creator lands back on
+    // the same step with whatever they'd typed still in the fields.
+    const cancelLongWait = useCallback(() => {
+        cancelledRef.current = true;
+        setLongWait(false);
+        setBusy(false);
+    }, []);
+
     const goNext = async () => {
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         setError(null);
+        setRetryAction(null);
         const key = STEP_KEYS[step];
+        const fromStep = step;
+        cancelledRef.current = false;
         setBusy(true);
+        // Bail out of applying a result if the creator cancelled the wait, or
+        // (defense in depth) has already moved off the step this call started
+        // from — never force them forward on a stale response.
+        const stale = () => cancelledRef.current || stepRef.current !== fromStep;
         try {
             if (key === 'knowledge') {
                 const data = await api.analyzeCreatorKnowledge();
+                if (stale()) return;
                 setState(data);
                 setDir(1); setStep(1);
                 await persistStep(1);
@@ -253,6 +390,7 @@ export default function CreatorOnboardingScreen() {
             } else if (key === 'habits') {
                 await api.updateCreatorHabitLibrary(habits);
                 await api.syncCreatorOnboardingHabits();
+                if (stale()) return;
                 setDir(1); setStep(5);
                 await persistStep(5);
             } else if (key === 'pricing') {
@@ -260,11 +398,14 @@ export default function CreatorOnboardingScreen() {
                 await persistStep(7);
             } else if (key === 'media') {
                 const data = await api.setCreatorOnboardingMedia(introUrl.trim() || undefined, welcomeMsg.trim());
+                if (stale()) return;
                 setState(data);
+                if (state?.max_name) void clearCreatorDraft(state.max_name);
                 setDir(1); setStep(8);
                 await persistStep(8);
             } else if (key === 'launch') {
                 const data = await api.launchCreatorMax();
+                if (stale()) return;
                 setState(data);
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
                 navigation.replace('CreatorStudio');
@@ -274,13 +415,16 @@ export default function CreatorOnboardingScreen() {
                 await persistStep(step + 1);
             }
         } catch (e: any) {
+            if (cancelledRef.current) return;
             setError(e?.response?.data?.detail || 'Something went wrong.');
+            setRetryAction(() => () => { void goNext(); });
         } finally {
             setBusy(false);
         }
     };
 
     const goBack = () => {
+        if (busy) return; // don't let the creator navigate away from an in-flight step request
         if (step === 0) { navigation.goBack(); return; }
         Haptics.selectionAsync().catch(() => {});
         setDir(-1); setStep(step - 1); setError(null);
@@ -432,12 +576,19 @@ export default function CreatorOnboardingScreen() {
     const submitTestDrive = async (answer: string) => {
         const cur = state?.test_drive?.current;
         if (!cur) return;
-        setBusy(true); setError(null);
+        setError(null); setRetryAction(null);
+        cancelledRef.current = false;
+        setBusy(true);
         try {
             const data = await api.submitTestDriveAnswer(cur.id, answer);
+            if (cancelledRef.current) return;
             setState(data);
+            // testEngaged flips to true reactively (see effect above) only once
+            // state.test_drive.complete — a single answer isn't "engaged" yet.
         } catch {
+            if (cancelledRef.current) return;
             setError('Could not save answer.');
+            setRetryAction(() => () => { void submitTestDrive(answer); });
         } finally {
             setBusy(false);
         }
@@ -446,39 +597,63 @@ export default function CreatorOnboardingScreen() {
     const submitVoice = async () => {
         const sample = state?.current_voice_sample;
         if (!sample || !voiceAnswer.trim()) return;
+        setError(null); setRetryAction(null);
+        cancelledRef.current = false;
         setBusy(true);
         try {
             const data = await api.submitCreatorVoiceAnswer(sample.id, voiceAnswer.trim());
+            if (cancelledRef.current) return;
             setState(data);
             setVoiceAnswer('');
             setShowCorrection(false);
-        } catch { setError('Could not save answer.'); }
+        } catch {
+            if (cancelledRef.current) return;
+            setError('Could not save answer.');
+            setRetryAction(() => () => { void submitVoice(); });
+        }
         finally { setBusy(false); }
     };
 
     const voiceFeedback = async (approved: boolean) => {
         const sample = state?.current_voice_sample;
         if (!sample) return;
+        setError(null); setRetryAction(null);
+        cancelledRef.current = false;
         setBusy(true);
         try {
             const data = await api.submitCreatorVoiceFeedback(
                 sample.id, approved, approved ? undefined : correction.trim(),
             );
+            if (cancelledRef.current) return;
             setState(data);
             setCorrection('');
             setShowCorrection(false);
-        } catch { setError('Could not save feedback.'); }
+        } catch {
+            if (cancelledRef.current) return;
+            setError('Could not save feedback.');
+            setRetryAction(() => () => { void voiceFeedback(approved); });
+        }
         finally { setBusy(false); }
     };
 
     const sendChat = async () => {
         if (!chatInput.trim()) return;
+        const sent = chatInput.trim();
+        setError(null); setRetryAction(null);
+        cancelledRef.current = false;
         setBusy(true);
         try {
-            const data = await api.creatorOnboardingTestChat(chatInput.trim());
+            const data = await api.creatorOnboardingTestChat(sent);
+            if (cancelledRef.current) return;
             setState(data);
+            setTestEngaged(true);
             setChatInput('');
-        } catch { setError('Chat failed.'); }
+        } catch {
+            if (cancelledRef.current) return;
+            // chatInput is left untouched on failure, so a retry just re-sends it.
+            setError('Chat failed.');
+            setRetryAction(() => () => { void sendChat(); });
+        }
         finally { setBusy(false); }
     };
 
@@ -773,7 +948,10 @@ export default function CreatorOnboardingScreen() {
                     : state?.test_drive?.complete
                         ? 'Here\'s the routine Max built for this subscriber.'
                         : 'Stress-test onboarding — answer as a real subscriber would.',
-                canNext: testMode === 'chat' ? (state?.test_chat || []).length >= 1 : !!state?.test_drive?.complete,
+                // Gate on the sticky testEngaged latch, not the currently-selected tab —
+                // once the creator has run the gauntlet or sent a chat message, Continue
+                // stays unlocked even if they flip tabs afterward.
+                canNext: testEngaged,
                 body: (
                     <View style={{ gap: 12 }}>
                         <View style={s.testModeRow}>
@@ -953,7 +1131,7 @@ export default function CreatorOnboardingScreen() {
                 ),
             },
         ];
-    }, [state, maxLabel, habits, habitTags, habitFilter, habitSearch, filteredHabits, voiceAnswer, correction, showCorrection, driveUrl, chatInput, welcomeMsg, introUrl, busy, docErr, testMode]);
+    }, [state, maxLabel, habits, habitTags, habitFilter, habitSearch, filteredHabits, voiceAnswer, correction, showCorrection, driveUrl, chatInput, welcomeMsg, introUrl, busy, docErr, testMode, testEngaged]);
 
     const current = steps[Math.min(step, steps.length - 1)];
     const isLast = step === steps.length - 1;
@@ -973,8 +1151,14 @@ export default function CreatorOnboardingScreen() {
             <View style={[s.frame, { paddingTop: insets.top + 14 }]}>
                 <Text style={s.kicker}>STUDIO SETUP · {step + 1}/{steps.length}</Text>
                 <View style={s.topRow}>
-                    <TouchableOpacity onPress={goBack} style={s.backBtn} hitSlop={12} accessibilityLabel="Back">
-                        <Ionicons name="chevron-back" size={22} color={INK} />
+                    <TouchableOpacity
+                        onPress={goBack}
+                        style={[s.backBtn, busy && s.backBtnDisabled]}
+                        hitSlop={12}
+                        disabled={busy}
+                        accessibilityLabel="Back"
+                    >
+                        <Ionicons name="chevron-back" size={22} color={busy ? MUTE : INK} />
                     </TouchableOpacity>
                     <ProgressBar index={step} total={steps.length} />
                 </View>
@@ -992,11 +1176,34 @@ export default function CreatorOnboardingScreen() {
                         </Animated.View>
                         <Animated.View style={[s.bodyBlock, bodyStyle]}>
                             {current.body}
-                            {error ? <Text style={s.error}>{error}</Text> : null}
+                            {error ? (
+                                retryAction ? (
+                                    <TouchableOpacity
+                                        onPress={() => {
+                                            const fn = retryAction;
+                                            setError(null);
+                                            setRetryAction(null);
+                                            fn();
+                                        }}
+                                        activeOpacity={0.75}
+                                        style={s.retryRow}
+                                    >
+                                        <Text style={s.error}>{error}</Text>
+                                        <Text style={s.retryLink}>Retry</Text>
+                                    </TouchableOpacity>
+                                ) : (
+                                    <Text style={s.error}>{error}</Text>
+                                )
+                            ) : null}
                         </Animated.View>
                     </ScrollView>
 
                     <View style={{ paddingBottom: insets.bottom + 16 }}>
+                        {longWait && busy ? (
+                            <TouchableOpacity onPress={cancelLongWait} activeOpacity={0.75} style={s.cancelWaitRow}>
+                                <Text style={s.cancelWaitText}>Taking longer than usual? Cancel</Text>
+                            </TouchableOpacity>
+                        ) : null}
                         <PrimaryButton label={ctaLabel} onPress={goNext} loading={busy} disabled={!current.canNext} />
                     </View>
                 </KeyboardAvoidingView>
@@ -1089,6 +1296,7 @@ const s = StyleSheet.create({
     kicker: { fontFamily: 'Matter-SemiBold', fontSize: 11, letterSpacing: 1.2, color: MUTE, marginBottom: 10, textAlign: 'center' },
     topRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
     backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: BACK_BG, alignItems: 'center', justifyContent: 'center', ...SOFT },
+    backBtnDisabled: { opacity: 0.4 },
     progressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: TRACK, overflow: 'hidden' },
     progressFill: { height: '100%', borderRadius: 3, backgroundColor: INK },
     scrollBody: { flexGrow: 1, justifyContent: 'center', paddingVertical: 16 },
@@ -1098,6 +1306,10 @@ const s = StyleSheet.create({
     titleItalic: { fontFamily: SERIF_I, fontStyle: 'italic' },
     sub: { fontFamily: 'Matter-Regular', fontSize: 15, color: SUB, marginTop: 12, lineHeight: 21, textAlign: 'center', maxWidth: 300, alignSelf: 'center' },
     error: { fontFamily: 'Matter-Medium', fontSize: 13.5, color: DANGER, marginTop: 18, lineHeight: 19, textAlign: 'center' },
+    retryRow: { alignItems: 'center', gap: 4 },
+    retryLink: { fontFamily: 'Matter-SemiBold', fontSize: 13.5, color: INK, textDecorationLine: 'underline' },
+    cancelWaitRow: { alignItems: 'center', paddingVertical: 10 },
+    cancelWaitText: { fontFamily: 'Matter-Medium', fontSize: 13, color: SUB, textDecorationLine: 'underline' },
 
     cta: { height: 54, borderRadius: 27, backgroundColor: INK, alignItems: 'center', justifyContent: 'center' },
     ctaDisabled: { backgroundColor: DISABLED },

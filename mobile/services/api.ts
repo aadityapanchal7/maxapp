@@ -1715,7 +1715,8 @@ class ApiService {
     }
 
     async analyzeCreatorKnowledge(): Promise<CreatorOnboardingState> {
-        const response = await this.client.post('creators/me/onboarding/analyze');
+        // Server-side Claude call runs 20-60s — give it headroom past the 12s default.
+        const response = await this.client.post('creators/me/onboarding/analyze', undefined, { timeout: 60_000 });
         return response.data;
     }
 
@@ -1749,9 +1750,10 @@ class ApiService {
     }
 
     async submitCreatorVoiceFeedback(sampleId: string, approved: boolean, correction?: string): Promise<CreatorOnboardingState> {
+        // Prepares the next voice draft server-side (Claude call) — needs headroom past the 12s default.
         const response = await this.client.post('creators/me/onboarding/voice/feedback', {
             sample_id: sampleId, approved, correction,
-        });
+        }, { timeout: 60_000 });
         return response.data;
     }
 
@@ -1774,7 +1776,8 @@ class ApiService {
     }
 
     async creatorOnboardingTestChat(message: string): Promise<CreatorOnboardingState & { reply: string }> {
-        const response = await this.client.post('creators/me/onboarding/test-chat', { message });
+        // Server-side Claude reply — needs headroom past the 12s default.
+        const response = await this.client.post('creators/me/onboarding/test-chat', { message }, { timeout: 60_000 });
         return response.data;
     }
 
@@ -1784,10 +1787,11 @@ class ApiService {
     }
 
     async submitTestDriveAnswer(stepId: string, answer: string): Promise<CreatorOnboardingState> {
+        // Final step generates the mock schedule via Claude — needs headroom past the 12s default.
         const response = await this.client.post('creators/me/onboarding/test-drive/answer', {
             step_id: stepId,
             answer,
-        });
+        }, { timeout: 60_000 });
         return response.data;
     }
 

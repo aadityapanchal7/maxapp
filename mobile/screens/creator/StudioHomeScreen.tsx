@@ -226,17 +226,28 @@ export default function StudioHomeScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Preview — the member view of this maxx (Updates | Course | Community). */}
+                {/* Preview — the member view of this maxx (Updates | Course | Community).
+                    Two entry points: the locked view real non-subscribers see, and the
+                    normal owner view (always unlocked). */}
                 <TouchableOpacity
                     style={[s.previewRow, !creator?.maxx_id && { opacity: 0.4 }]}
+                    disabled={!creator?.maxx_id}
+                    onPress={() => creator?.maxx_id && nav.navigate('CreatorMaxxHome', { maxxId: creator.maxx_id, previewLocked: true })}
+                    activeOpacity={0.85}
+                >
+                    <Ionicons name="lock-closed-outline" size={18} color={accent} />
+                    <Text style={s.previewText}>Preview as member (locked)</Text>
+                    <View style={{ flex: 1 }} />
+                    <Ionicons name="chevron-forward" size={15} color={MUTE} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[s.previewRowSecondary, !creator?.maxx_id && { opacity: 0.4 }]}
                     disabled={!creator?.maxx_id}
                     onPress={() => creator?.maxx_id && nav.navigate('CreatorMaxxHome', { maxxId: creator.maxx_id })}
                     activeOpacity={0.85}
                 >
-                    <Ionicons name="eye-outline" size={18} color={accent} />
-                    <Text style={s.previewText}>Preview as a member</Text>
-                    <View style={{ flex: 1 }} />
-                    <Ionicons name="chevron-forward" size={15} color={MUTE} />
+                    <Ionicons name="eye-outline" size={15} color={MUTE} />
+                    <Text style={s.previewSecondaryText}>View my page</Text>
                 </TouchableOpacity>
 
                 {/* Recent posts */}
@@ -291,6 +302,8 @@ const s = StyleSheet.create({
     linkCount: { fontFamily: fonts.sans, fontSize: 10, color: MUTE, marginTop: -3 },
     previewRow: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFFFFF', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 13, marginTop: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.06)' },
     previewText: { fontFamily: fonts.sansMedium, fontSize: 13.5, color: INK },
+    previewRowSecondary: { flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center', paddingVertical: 10, marginTop: 4 },
+    previewSecondaryText: { fontFamily: fonts.sansMedium, fontSize: 12.5, color: MUTE },
     section: { fontFamily: fonts.sansSemiBold, fontSize: 13, color: INK, marginTop: 26, marginBottom: 10, letterSpacing: 0.2 },
     empty: { fontFamily: fonts.sans, fontSize: 14, color: MUTE, marginTop: 4 },
     postRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFFFF', borderRadius: 14, padding: 12, marginBottom: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(0,0,0,0.05)' },

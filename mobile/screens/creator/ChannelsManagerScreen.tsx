@@ -4,7 +4,7 @@
  * card sheet (CourseEditor's rename-card pattern) with an "Announcements only"
  * switch. Archiving keeps messages server-side.
  */
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
     ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Platform, Pressable,
     ScrollView, StyleSheet, Switch, Text, TextInput, TouchableOpacity, View,
@@ -49,6 +49,9 @@ export default function ChannelsManagerScreen() {
     const [announcementsOnly, setAnnouncementsOnly] = useState(false);
     const [saving, setSaving] = useState(false);
     const [archiving, setArchiving] = useState(false);
+    // Dirty-check baseline — snapshot of the sheet's fields as opened.
+    const baselineRef = useRef<string>('');
+    const isDirty = () => JSON.stringify({ name, description, announcementsOnly }) !== baselineRef.current;
 
     const load = useCallback(async () => {
         try {
@@ -71,6 +74,7 @@ export default function ChannelsManagerScreen() {
         setName('');
         setDescription('');
         setAnnouncementsOnly(false);
+        baselineRef.current = JSON.stringify({ name: '', description: '', announcementsOnly: false });
         setSheetOpen(true);
     };
 
@@ -79,7 +83,21 @@ export default function ChannelsManagerScreen() {
         setName(c.name || '');
         setDescription(c.description || '');
         setAnnouncementsOnly(c.who_can_post === 'creator');
+        baselineRef.current = JSON.stringify({
+            name: c.name || '', description: c.description || '', announcementsOnly: c.who_can_post === 'creator',
+        });
         setSheetOpen(true);
+    };
+
+    const requestCloseSheet = () => {
+        if (isDirty()) {
+            Alert.alert('Discard changes?', undefined, [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Discard', style: 'destructive', onPress: () => setSheetOpen(false) },
+            ]);
+        } else {
+            setSheetOpen(false);
+        }
     };
 
     const save = async () => {
@@ -223,9 +241,9 @@ export default function ChannelsManagerScreen() {
             )}
 
             {/* ── Create/edit card sheet (rename-card pattern) ── */}
-            <Modal visible={sheetOpen} transparent animationType="fade" onRequestClose={() => setSheetOpen(false)}>
+            <Modal visible={sheetOpen} transparent animationType="fade" onRequestClose={requestCloseSheet}>
                 <View style={s.centerBackdrop}>
-                    <Pressable style={StyleSheet.absoluteFill} onPress={() => setSheetOpen(false)} />
+                    <Pressable style={StyleSheet.absoluteFill} onPress={requestCloseSheet} />
                     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.cardKav}>
                         <View style={s.card}>
                             <Text style={s.cardKicker}>{editingChannel ? 'EDIT CHANNEL' : 'NEW CHANNEL'}</Text>
