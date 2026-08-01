@@ -657,9 +657,13 @@ export default function HomeScreen() {
                                         style={[s.dayPill, pillStyle]}
                                         activeOpacity={0.85}
                                         onPress={() => setSelectedDate(d.date)}
-                                        onLayout={d.isToday ? (e) => {
+                                        onLayout={d.isToday && days.length > 0 ? (e) => {
                                             // Scroll the current day into view once per calendar
                                             // day, leaving ~96px of prior-day context to its left.
+                                            // Gated on real data (days.length > 0): the synthetic
+                                            // placeholder strip that renders while schedules load
+                                            // must not burn the once-per-day guard, or the real
+                                            // strip never auto-scrolls.
                                             if (scrolledToTodayRef.current === today) return;
                                             scrolledToTodayRef.current = today;
                                             const x = e.nativeEvent.layout.x;

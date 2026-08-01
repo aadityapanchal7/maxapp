@@ -208,7 +208,14 @@ def _read_doc_text(doc: dict, max_chars: int = DOC_MAX_CHARS) -> str:
     url = doc.get("url") or ""
     if not url.startswith("/uploads/"):
         return ""
-    path = os.path.join(os.path.dirname(__file__), "..", url.lstrip("/"))
+    # Containment: the url is creator-controlled (stored via PUT /docs), so a
+    # prefix check alone allows "/uploads/../.env"-style traversal. Resolve the
+    # real path and require it to live under the uploads dir.
+    uploads_root = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "uploads"))
+    path = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", url.lstrip("/")))
+    if not path.startswith(uploads_root + os.sep):
+        logger.warning("[creator_onboarding] rejected doc path outside uploads/: %r", url)
+        return ""
     if not os.path.isfile(path):
         return ""
     ext = os.path.splitext(path)[1].lower()
@@ -268,10 +275,15 @@ def _doc_context_block(creator: Creator, *, per_doc_chars: int = DOC_MAX_CHARS, 
     blocks: list[str] = []
     total = 0
     for d in docs[:20]:
-        filename = str(d.get("filename", "doc"))[:200]
+        # Delimiter integrity: filename and content are creator-controlled, so
+        # strip anything that could break out of the attribute or forge a
+        # closing tag ("</creator_document>" embedded in a doc would end the
+        # untrusted region and promote the rest to instruction-level text).
+        filename = re.sub(r'[<>"\n\r]', "", str(d.get("filename", "doc")))[:200]
         excerpt = _read_doc_text(d, max_chars=per_doc_chars)
         if not excerpt:
             continue
+        excerpt = re.sub(r"</?creator_document[^>]*>", "[doc-tag removed]", excerpt)
         block = f'<creator_document filename="{filename}">\n{excerpt}\n</creator_document>'
         if total + len(block) > total_cap:
             break
@@ -291,15 +303,25 @@ def _unwrap_json_response(text: str) -> str:
     bare `response` string out of it. A chat reply must never surface ``` or a
     raw JSON blob to a subscriber."""
     s = _strip_fences(text)
-    if s.startswith("{") and s.endswith("}"):
+    if s.startswith("{"):
         try:
             obj = json.loads(s)
-            if isinstance(obj, dict):
-                val = obj.get("response")
+        except Exception:
+            # Truncated/unbalanced JSON (e.g. cut by the token cap): salvage the
+            # first plausible reply field by regex rather than surfacing a blob.
+            m = re.search(r'"(?:response|reply|answer|message|text)"\s*:\s*"((?:[^"\\]|\\.)*)', s)
+            obj = None
+            if m:
+                try:
+                    s = json.loads(f'"{m.group(1)}"').strip() or s
+                except Exception:
+                    pass
+        if isinstance(obj, dict):
+            for key in ("response", "reply", "answer", "message", "text"):
+                val = obj.get(key)
                 if isinstance(val, str) and val.strip():
                     s = val.strip()
-        except Exception:
-            pass
+                    break
     return s.replace("```", "").strip()
 
 
@@ -419,32 +441,56 @@ async def analyze_knowledge(creator: Creator, db: AsyncSession) -> dict[str, Any
     if raw:
         try:
             obj = json.loads(_strip_fences(raw))
+        except Exception as e:
+            logger.warning("[creator_onboarding] analyze parse failed: %s", e)
+            obj = None
+        if isinstance(obj, dict):
             for h in (obj.get("habits") or [])[:50]:
                 if not isinstance(h, dict) or not h.get("title"):
                     continue
-                habits.append({
-                    "id": str(uuid.uuid4()),
-                    "title": str(h["title"])[:60],
-                    "description": str(h.get("description") or "")[:300],
-                    "duration_minutes": min(90, max(2, int(h.get("duration_minutes") or 10))),
-                    "frequency_type": h.get("frequency_type") or "daily",
-                    "frequency_n": int(h.get("frequency_n") or 1),
-                    "window": h.get("window") if h.get("window") in ("morning", "evening", "any") else "any",
-                    "tags": [str(t)[:24] for t in (h.get("tags") or [])[:5]],
-                    "conditions": [str(c)[:120] for c in (h.get("conditions") or ["All subscribers"])[:8]],
-                    "sample_questions": [str(q)[:200] for q in (h.get("sample_questions") or [])[:5]],
-                    "enabled": True,
-                })
+                # Per-habit isolation: one malformed field (e.g. duration "10-15")
+                # must not discard every remaining habit and the voice questions.
+                try:
+                    habits.append({
+                        "id": str(uuid.uuid4()),
+                        "title": str(h["title"])[:60],
+                        "description": str(h.get("description") or "")[:300],
+                        "duration_minutes": min(90, max(2, int(h.get("duration_minutes") or 10))),
+                        "frequency_type": h.get("frequency_type") or "daily",
+                        "frequency_n": int(h.get("frequency_n") or 1),
+                        "window": h.get("window") if h.get("window") in ("morning", "evening", "any") else "any",
+                        "tags": [str(t)[:24] for t in (h.get("tags") or [])[:5]],
+                        "conditions": [str(c)[:120] for c in (h.get("conditions") or ["All subscribers"])[:8]],
+                        "sample_questions": [str(q)[:200] for q in (h.get("sample_questions") or [])[:5]],
+                        "enabled": True,
+                    })
+                except (TypeError, ValueError) as e:
+                    logger.warning("[creator_onboarding] skipping malformed habit %r: %s", h.get("title"), e)
             vq = obj.get("voice_questions")
             if isinstance(vq, list) and len(vq) >= 5:
                 questions = [str(q)[:200] for q in vq[:VOICE_SAMPLE_TARGET]]
-        except Exception as e:
-            logger.warning("[creator_onboarding] analyze parse failed: %s", e)
 
-    if not habits:
+    # Honesty flag: the LLM analysis failed/degraded and we're serving canned
+    # content. Surfaced in the onboarding state so the wizard can tell the
+    # creator to retry instead of presenting generic habits as "their" analysis.
+    degraded = not habits
+    if degraded:
         habits = _default_habit_library(creator)
 
-    meta["protocols_pct"] = 100 if docs else 50
+    # The launch gate requires VOICE_PHASE1_COUNT (8) ANSWERED samples, so the
+    # question list must never be shorter than that — top up with defaults the
+    # list doesn't already contain (LLM sometimes returns 5-7 despite the ask).
+    if len(questions) < VOICE_SAMPLE_TARGET:
+        have = set(questions)
+        for q in DEFAULT_VOICE_QUESTIONS:
+            if len(questions) >= VOICE_SAMPLE_TARGET:
+                break
+            if q not in have:
+                questions.append(q)
+                have.add(q)
+
+    meta["protocols_pct"] = 100 if (docs and not degraded) else 50
+    meta["analysis_degraded"] = degraded
     meta["habit_library"] = habits
     meta["voice_questions"] = questions
     meta["analyzed_at"] = datetime.now(timezone.utc).isoformat()
@@ -452,8 +498,11 @@ async def analyze_knowledge(creator: Creator, db: AsyncSession) -> dict[str, Any
     _set_meta(creator, meta)
 
     # Additive upsert: never wipe existing voice sample rows (a re-analyze must
-    # not delete already-answered training data). Match by question text and
-    # only add genuinely-new questions after whatever's already queued.
+    # not delete already-answered training data). Match by question text, only
+    # add genuinely-new questions, and CAP the total queue at
+    # VOICE_SAMPLE_TARGET — LLM wording differs run-to-run, so without the cap
+    # every re-analyze would append ~20 near-duplicates and visibly regress
+    # voice progress (answered/len(samples)).
     existing = (
         await db.execute(
             select(CreatorVoiceSample).where(CreatorVoiceSample.creator_id == creator.id)
@@ -461,15 +510,24 @@ async def analyze_knowledge(creator: Creator, db: AsyncSession) -> dict[str, Any
     ).scalars().all()
     existing_questions = {s.question for s in existing}
     next_sort = max((int(s.sort or 0) for s in existing), default=-1) + 1
-    for q in questions[:VOICE_SAMPLE_TARGET]:
+    capacity = max(0, VOICE_SAMPLE_TARGET - len(existing))
+    for q in questions:
+        if capacity <= 0:
+            break
         if q in existing_questions:
             continue
         db.add(CreatorVoiceSample(
             creator_id=creator.id, question=q, sort=next_sort, status="pending",
         ))
         next_sort += 1
+        capacity -= 1
 
-    return {"protocols_pct": meta["protocols_pct"], "habit_count": len(habits), "voice_questions": len(questions)}
+    return {
+        "protocols_pct": meta["protocols_pct"],
+        "habit_count": len(habits),
+        "voice_questions": len(questions),
+        "analysis_degraded": degraded,
+    }
 
 
 async def next_voice_sample(creator: Creator, db: AsyncSession) -> Optional[CreatorVoiceSample]:
@@ -572,11 +630,13 @@ async def sync_habit_library(creator: Creator, db: AsyncSession) -> int:
     if len(library) < 2:
         library = _default_habit_library(creator)
 
+    # Load ALL rows regardless of status: uq_creator_habit_slug spans archived
+    # rows too, so a slug that was archived and later reappears in the library
+    # must REACTIVATE the archived row — inserting a fresh row with the same
+    # slug violates the unique constraint and bricks the sync.
     existing = (
         await db.execute(
-            select(CreatorHabit).where(
-                (CreatorHabit.creator_id == creator.id) & (CreatorHabit.status == "active")
-            )
+            select(CreatorHabit).where(CreatorHabit.creator_id == creator.id)
         )
     ).scalars().all()
     by_slug = {h.slug: h for h in existing}
@@ -612,7 +672,7 @@ async def sync_habit_library(creator: Creator, db: AsyncSession) -> int:
     # library, mirroring put_habits in api/creators.py — otherwise orphaned
     # duplicates keep surfacing as stale tasks for subscribers.
     for slug, row in by_slug.items():
-        if slug not in kept_slugs:
+        if slug not in kept_slugs and row.status == "active":
             row.status = "archived"
             row.updated_at = datetime.now(timezone.utc)
 
@@ -685,7 +745,9 @@ async def _generate_mock_schedule(creator: Creator, answers: dict) -> list[dict]
             "window": h.get("window"),
             "conditions": h.get("conditions"),
         }
-        for h in habits[:6] if h.get("enabled", True)
+        # Filter BEFORE slicing: slicing first makes enabled habits past the
+        # boundary invisible whenever earlier entries are disabled.
+        for h in [x for x in habits if x.get("enabled", True)][:6]
     ]
     # Also give the model the program's real phase/week/gating structure from the
     # creator's docs, so the 7-day arc reflects their actual sequencing (e.g. a
@@ -722,6 +784,24 @@ async def _generate_mock_schedule(creator: Creator, answers: dict) -> list[dict]
             days = obj.get("days") or []
         except Exception:
             pass
+    # Shape-guard the unvalidated LLM output BEFORE the sanitize loop touches it:
+    # a days array of strings, or tasks as strings, must degrade (coerce/drop),
+    # never raise AttributeError past the router's ValueError-only shield.
+    if isinstance(days, list):
+        days = [d for d in days if isinstance(d, dict)]
+        for day in days:
+            tasks = day.get("tasks")
+            if not isinstance(tasks, list):
+                day["tasks"] = []
+                continue
+            day["tasks"] = [
+                t if isinstance(t, dict) else {"title": str(t)[:120], "duration_min": 10, "window": "any"}
+                for t in tasks
+                if isinstance(t, dict) or (isinstance(t, str) and t.strip())
+            ]
+        days = [d for d in days if d.get("tasks")]
+    else:
+        days = []
     if not days:
         time_block = answers.get("schedule", "Morning")
         default_window = (
@@ -781,7 +861,8 @@ async def test_chat(creator: Creator, message: str, db: AsyncSession) -> str:
     habits = meta.get("habit_library") or []
     habit_lines = "\n".join(
         f"- {h.get('title')}: {(h.get('description') or '')[:160]}".strip().rstrip(":")
-        for h in habits[:8] if h.get("enabled", True)
+        # Filter before slicing so disabled entries can't crowd enabled ones out.
+        for h in [x for x in habits if x.get("enabled", True)][:8]
     )
     td = meta.get("test_drive") or {}
     schedule_ctx = ""
@@ -811,10 +892,23 @@ async def test_chat(creator: Creator, message: str, db: AsyncSession) -> str:
         max_tokens=300,
     )
     reply = _unwrap_json_response(reply or "")
+    # Persist exactly what the caller sees: an empty LLM reply must store the
+    # same stub it returns, or the transcript re-renders with a blank bubble.
+    if not reply:
+        reply = "Still learning your voice — teach me a few more answers first."
+    # Re-read meta AFTER the (up to 45s) LLM await: a concurrent request for the
+    # same creator may have committed meta changes meanwhile, and writing the
+    # stale pre-await copy back whole would silently clobber them.
+    try:
+        await db.refresh(creator, attribute_names=["onboarding_meta"])
+    except Exception:
+        pass  # detached/uncommitted creator (e.g. eval harness) — keep in-memory meta
+    meta = _meta(creator)
+    history = (meta.get("test_chat") or []) if isinstance(meta.get("test_chat"), list) else []
     history = (history + [{"role": "user", "text": message}, {"role": "max", "text": reply}])[-20:]
     meta["test_chat"] = history
     _set_meta(creator, meta)
-    return reply or "Still learning your voice — teach me a few more answers first."
+    return reply
 
 
 async def launch_creator(creator: Creator, db: AsyncSession, *, is_production: bool) -> None:
@@ -843,6 +937,14 @@ async def launch_creator(creator: Creator, db: AsyncSession, *, is_production: b
         raise ValueError(
             f"Need at least 2 enabled habits before launch (have {len(enabled_habits)}) — "
             "generic placeholder habits don't count"
+        )
+    # Enforce what the message above promises: a degraded analyze stores the 4
+    # generic default habits (enabled=True), which would sail through the count
+    # check while being exactly the placeholders the gate exists to reject.
+    if meta.get("analysis_degraded") and creator.knowledge_docs:
+        raise ValueError(
+            "Knowledge analysis didn't complete — re-run the analyze step so your "
+            "habits reflect your actual method before launching"
         )
 
     await sync_habit_library(creator, db)
@@ -895,6 +997,7 @@ def onboarding_state_dict(creator: Creator, samples: list[CreatorVoiceSample]) -
         "display_name": creator.display_name,
         "knowledge_docs": creator.knowledge_docs or [],
         "protocols_pct": protocols_pct(creator),
+        "analysis_degraded": bool(meta.get("analysis_degraded")),
         "voice_pct": voice_pct(creator, samples),
         "voice_phase": phase,
         "voice_samples_total": len(samples),

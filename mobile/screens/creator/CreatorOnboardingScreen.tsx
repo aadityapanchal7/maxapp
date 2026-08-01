@@ -226,11 +226,20 @@ export default function CreatorOnboardingScreen() {
     // Sticky "has the creator engaged the test drive at all" latch (stress-test
     // complete OR ever sent a chat message) — independent of which tab is open.
     const [testEngaged, setTestEngaged] = useState(false);
-    // Which step a busy request launched from, and whether it's been cancelled
-    // via the escape hatch — both guard goNext/voice/test-drive continuations
-    // against applying a stale result after the user has moved on.
+    // Which step a busy request launched from (goNext only) — combined with
+    // reqSeqRef below to guard goNext's continuations against applying a
+    // stale result after the user has moved off that step.
     const stepRef = useRef(step);
-    const cancelledRef = useRef(false);
+    // Monotonic request-token counter. Every async action below mints its own
+    // id by pre-incrementing this ref; the request is "stale" the instant any
+    // other action (a newer request from the same or a different handler, or
+    // an explicit cancel-bump) advances the counter past that id. A single
+    // shared boolean can't express "only THIS request was cancelled" — it
+    // re-arms and silently un-cancels whichever request happens to run next,
+    // which is exactly what let a late-resolving cancelled request resurrect
+    // itself. The counter has no such ambiguity: each request gets a unique
+    // id and only an exact match to the *current* counter value is fresh.
+    const reqSeqRef = useRef(0);
 
     const appendKnowledgeDoc = useCallback((doc: { filename: string; url: string; source?: string }) => {
         setState((prev) => prev ? {
@@ -356,11 +365,12 @@ export default function CreatorOnboardingScreen() {
         try { await api.setCreatorOnboardingStep(next); } catch { /* best-effort */ }
     };
 
-    // Aborts the current wait: a late-resolving request becomes a no-op (via
-    // cancelledRef), busy clears immediately, and the creator lands back on
-    // the same step with whatever they'd typed still in the fields.
+    // Aborts the current wait: bumping the token invalidates every in-flight
+    // request at once (whichever action started it), so each becomes a no-op
+    // when it resolves — busy clears immediately, and the creator lands back
+    // on the same step with whatever they'd typed still in the fields.
     const cancelLongWait = useCallback(() => {
-        cancelledRef.current = true;
+        reqSeqRef.current++;
         setLongWait(false);
         setBusy(false);
     }, []);
@@ -371,12 +381,14 @@ export default function CreatorOnboardingScreen() {
         setRetryAction(null);
         const key = STEP_KEYS[step];
         const fromStep = step;
-        cancelledRef.current = false;
+        const reqId = ++reqSeqRef.current;
         setBusy(true);
-        // Bail out of applying a result if the creator cancelled the wait, or
-        // (defense in depth) has already moved off the step this call started
-        // from — never force them forward on a stale response.
-        const stale = () => cancelledRef.current || stepRef.current !== fromStep;
+        // Bail out of applying a result if a newer request has started (via
+        // this or any other action, or an explicit cancel-bump), or —
+        // defense in depth — the creator has already moved off the step this
+        // call started from: never force them forward, clear busy, or
+        // surface an error for a stale response.
+        const stale = () => reqSeqRef.current !== reqId || stepRef.current !== fromStep;
         try {
             if (key === 'knowledge') {
                 const data = await api.analyzeCreatorKnowledge();
@@ -415,11 +427,11 @@ export default function CreatorOnboardingScreen() {
                 await persistStep(step + 1);
             }
         } catch (e: any) {
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setError(e?.response?.data?.detail || 'Something went wrong.');
-            setRetryAction(() => () => { void goNext(); });
+            setRetryAction(() => () => { void latestRef.current.goNext(); });
         } finally {
-            setBusy(false);
+            if (!stale()) setBusy(false);
         }
     };
 
@@ -577,20 +589,21 @@ export default function CreatorOnboardingScreen() {
         const cur = state?.test_drive?.current;
         if (!cur) return;
         setError(null); setRetryAction(null);
-        cancelledRef.current = false;
+        const reqId = ++reqSeqRef.current;
+        const stale = () => reqSeqRef.current !== reqId;
         setBusy(true);
         try {
             const data = await api.submitTestDriveAnswer(cur.id, answer);
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setState(data);
             // testEngaged flips to true reactively (see effect above) only once
             // state.test_drive.complete — a single answer isn't "engaged" yet.
         } catch {
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setError('Could not save answer.');
-            setRetryAction(() => () => { void submitTestDrive(answer); });
+            setRetryAction(() => () => { void latestRef.current.submitTestDrive(answer); });
         } finally {
-            setBusy(false);
+            if (!stale()) setBusy(false);
         }
     };
 
@@ -598,64 +611,82 @@ export default function CreatorOnboardingScreen() {
         const sample = state?.current_voice_sample;
         if (!sample || !voiceAnswer.trim()) return;
         setError(null); setRetryAction(null);
-        cancelledRef.current = false;
+        const reqId = ++reqSeqRef.current;
+        const stale = () => reqSeqRef.current !== reqId;
         setBusy(true);
         try {
             const data = await api.submitCreatorVoiceAnswer(sample.id, voiceAnswer.trim());
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setState(data);
             setVoiceAnswer('');
             setShowCorrection(false);
         } catch {
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setError('Could not save answer.');
-            setRetryAction(() => () => { void submitVoice(); });
+            setRetryAction(() => () => { void latestRef.current.submitVoice(); });
         }
-        finally { setBusy(false); }
+        finally { if (!stale()) setBusy(false); }
     };
 
     const voiceFeedback = async (approved: boolean) => {
         const sample = state?.current_voice_sample;
         if (!sample) return;
         setError(null); setRetryAction(null);
-        cancelledRef.current = false;
+        const reqId = ++reqSeqRef.current;
+        const stale = () => reqSeqRef.current !== reqId;
         setBusy(true);
         try {
             const data = await api.submitCreatorVoiceFeedback(
                 sample.id, approved, approved ? undefined : correction.trim(),
             );
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setState(data);
             setCorrection('');
             setShowCorrection(false);
         } catch {
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setError('Could not save feedback.');
-            setRetryAction(() => () => { void voiceFeedback(approved); });
+            setRetryAction(() => () => { void latestRef.current.voiceFeedback(approved); });
         }
-        finally { setBusy(false); }
+        finally { if (!stale()) setBusy(false); }
     };
 
     const sendChat = async () => {
         if (!chatInput.trim()) return;
         const sent = chatInput.trim();
         setError(null); setRetryAction(null);
-        cancelledRef.current = false;
+        const reqId = ++reqSeqRef.current;
+        const stale = () => reqSeqRef.current !== reqId;
         setBusy(true);
         try {
             const data = await api.creatorOnboardingTestChat(sent);
-            if (cancelledRef.current) return;
+            if (stale()) return;
             setState(data);
             setTestEngaged(true);
             setChatInput('');
         } catch {
-            if (cancelledRef.current) return;
-            // chatInput is left untouched on failure, so a retry just re-sends it.
+            if (stale()) return;
+            // chatInput is left untouched on failure, and retry dispatches
+            // through latestRef, so it re-sends whatever's in the box at
+            // Retry time (a corrected message, if the creator edited it).
             setError('Chat failed.');
-            setRetryAction(() => () => { void sendChat(); });
+            setRetryAction(() => () => { void latestRef.current.sendChat(); });
         }
-        finally { setBusy(false); }
+        finally { if (!stale()) setBusy(false); }
     };
+
+    // Keep the freshest handler closures reachable from a stored retryAction.
+    // retryAction is captured once, at the moment an error is caught — but a
+    // creator can edit a field (voiceAnswer, welcomeMsg, chatInput, …) before
+    // tapping Retry, and the retry must submit THAT value, not whatever was
+    // in scope when the error fired. Dispatching through this ref (updated
+    // every render) instead of calling the handler directly closes that gap:
+    // by the time Retry runs, latestRef.current points at the newest
+    // closures, which read current state.
+    const latestRef = useRef({ goNext, submitTestDrive, submitVoice, voiceFeedback, sendChat });
+    useEffect(() => {
+        latestRef.current = { goNext, submitTestDrive, submitVoice, voiceFeedback, sendChat };
+    });
 
     const t = useSharedValue(1);
     useEffect(() => {

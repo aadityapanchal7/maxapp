@@ -161,6 +161,9 @@ async def delete_doc(
     db: AsyncSession = Depends(get_db),
 ):
     creator = await _creator(current_user, db)
+    # Same guard as PUT /docs and upload-doc: a LIVE creator must not strip
+    # knowledge docs through the onboarding wizard (Studio owns live edits).
+    _reject_if_live(creator)
     docs = [d for d in (creator.knowledge_docs or []) if d.get("url") != body.url]
     creator.knowledge_docs = docs
     flag_modified(creator, "knowledge_docs")
@@ -443,6 +446,9 @@ async def launch(
 ):
     creator = await _creator(current_user, db)
     _reject_if_locked(creator)
+    # Re-launching a LIVE creator would re-run sync_habit_library from stale
+    # onboarding meta and silently archive habits edited later in Studio.
+    _reject_if_live(creator)
     try:
         await onboarding.launch_creator(creator, db, is_production=settings.is_production)
     except ValueError as e:

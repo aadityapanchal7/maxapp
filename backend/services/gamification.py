@@ -144,6 +144,18 @@ def rank_for_level(level: int) -> str:
     return name
 
 
+def _stored_level_floor(profile: dict) -> int:
+    """Grandfathering floor: the level already persisted for this user. The
+    curve got steeper (linear term added 2026-07), which would DEMOTE every
+    existing user's recomputed level/rank on their next app open. Levels are
+    additive-only like XP — display level never decreases; XP simply has to
+    catch up to the new curve before it climbs again."""
+    try:
+        return max(1, min(MAX_LEVEL, int(profile.get(LEVEL_KEY) or 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
 def award_xp(profile: dict, amount: int, today_iso: str) -> dict:
     """Add `amount` XP to `profile` IN PLACE (no commit). Lazily resets the
     per-day counter when the local date rolls over. Returns a summary with
@@ -152,7 +164,8 @@ def award_xp(profile: dict, amount: int, today_iso: str) -> dict:
     try:
         amount = max(0, int(amount))
         total_before = int(profile.get(XP_KEY) or 0)
-        level_before = level_from_xp(total_before)
+        floor = _stored_level_floor(profile)
+        level_before = max(level_from_xp(total_before), floor)
 
         # Daily reset: a new local day zeroes "earned today" before we add.
         if profile.get(LAST_AWARD_DATE_KEY) != today_iso:
@@ -166,8 +179,8 @@ def award_xp(profile: dict, amount: int, today_iso: str) -> dict:
         else:
             total_after = total_before
 
-        level_after = level_from_xp(total_after)
-        profile[LEVEL_KEY] = level_after
+        level_after = max(level_from_xp(total_after), floor)
+        profile[LEVEL_KEY] = level_after  # persists the high-water mark
         return {
             "xp_total": total_after,
             "xp_awarded": amount,
@@ -179,7 +192,7 @@ def award_xp(profile: dict, amount: int, today_iso: str) -> dict:
     except Exception as e:  # never break the caller's primary write
         logger.warning("award_xp no-op (non-fatal): %s", e)
         cur = int((profile or {}).get(XP_KEY) or 0) if isinstance(profile, dict) else 0
-        lvl = level_from_xp(cur)
+        lvl = max(level_from_xp(cur), _stored_level_floor(profile if isinstance(profile, dict) else {}))
         return {"xp_total": cur, "xp_awarded": 0, "xp_earned_today": 0,
                 "level_before": lvl, "level_after": lvl, "level_gained": 0}
 
@@ -211,7 +224,8 @@ def gamification_payload(profile: dict, today_iso: str) -> dict:
     try:
         profile = profile or {}
         total = int(profile.get(XP_KEY) or 0)
-        level = level_from_xp(total)
+        # Same grandfathering floor as award_xp: never display a demotion.
+        level = max(level_from_xp(total), _stored_level_floor(profile))
         earned_today = (
             int(profile.get(EARNED_TODAY_KEY) or 0)
             if profile.get(LAST_AWARD_DATE_KEY) == today_iso else 0

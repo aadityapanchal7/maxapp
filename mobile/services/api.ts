@@ -1716,7 +1716,10 @@ class ApiService {
 
     async analyzeCreatorKnowledge(): Promise<CreatorOnboardingState> {
         // Server-side Claude call runs 20-60s — give it headroom past the 12s default.
-        const response = await this.client.post('creators/me/onboarding/analyze', undefined, { timeout: 60_000 });
+        // Must exceed the server's 120s Anthropic budget for big-doc analyzes —
+        // a shorter client timeout aborts exactly the case the server budget
+        // exists for, then the retry burns the 10/hour analyze rate limit.
+        const response = await this.client.post('creators/me/onboarding/analyze', undefined, { timeout: 150_000 });
         return response.data;
     }
 
@@ -1743,9 +1746,11 @@ class ApiService {
     }
 
     async submitCreatorVoiceAnswer(sampleId: string, answer: string): Promise<CreatorOnboardingState> {
+        // Advancing the queue generates the NEXT voice draft server-side
+        // (45s Claude budget) — the 12s default axios timeout aborts it.
         const response = await this.client.post('creators/me/onboarding/voice/answer', {
             sample_id: sampleId, answer,
-        });
+        }, { timeout: 90_000 });
         return response.data;
     }
 
@@ -1787,11 +1792,12 @@ class ApiService {
     }
 
     async submitTestDriveAnswer(stepId: string, answer: string): Promise<CreatorOnboardingState> {
-        // Final step generates the mock schedule via Claude — needs headroom past the 12s default.
+        // Final step generates the mock schedule via Claude — the server gives
+        // that call a 90s budget, so the client must outlast it.
         const response = await this.client.post('creators/me/onboarding/test-drive/answer', {
             step_id: stepId,
             answer,
-        }, { timeout: 60_000 });
+        }, { timeout: 120_000 });
         return response.data;
     }
 

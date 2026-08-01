@@ -520,6 +520,17 @@ export default function MaxChatScreen() {
     // auto-scroll-to-end on content-size change is suppressed — otherwise any
     // re-measure (typing shimmer, image load, re-render) yanks them back down.
     const isAtBottomRef = useRef(true);
+    // A reply that arrives while the user is reading history above must not be
+    // silently missed — surface a "New reply" pill instead of yanking them down.
+    const [showJumpPill, setShowJumpPill] = useState(false);
+    const showJumpPillRef = useRef(false);
+    useEffect(() => {
+        const last = messages[messages.length - 1];
+        if (last && last.role === 'assistant' && !last.isTyping && !isAtBottomRef.current) {
+            showJumpPillRef.current = true;
+            setShowJumpPill(true);
+        }
+    }, [messages]);
     const inputRef = useRef<TextInput>(null);
     // Keys of assistant messages that have already played their typewriter
     // reveal. FlashList recycles rows on scroll, which remounts StreamingText;
@@ -1481,6 +1492,11 @@ export default function MaxChatScreen() {
                             const distanceFromBottom =
                                 contentSize.height - layoutMeasurement.height - contentOffset.y;
                             isAtBottomRef.current = distanceFromBottom < 120;
+                            // Reaching the bottom clears the new-reply pill.
+                            if (isAtBottomRef.current && showJumpPillRef.current) {
+                                showJumpPillRef.current = false;
+                                setShowJumpPill(false);
+                            }
                         }}
                         scrollEventThrottle={16}
                         // The list FRAME also shrinks (keyboard up, chip stack appears) —
@@ -1498,6 +1514,23 @@ export default function MaxChatScreen() {
                 {/* Chat is a TAB screen — the tab bar already owns the bottom
                     safe-area inset, so adding insets.bottom here double-counts it
                     and floats the input too high. Just a small gap above the bar. */}
+                {showJumpPill && (
+                    <TouchableOpacity
+                        style={styles.jumpPill}
+                        activeOpacity={0.85}
+                        accessibilityRole="button"
+                        accessibilityLabel="Jump to newest reply"
+                        onPress={() => {
+                            showJumpPillRef.current = false;
+                            setShowJumpPill(false);
+                            isAtBottomRef.current = true;
+                            flatListRef.current?.scrollToEnd({ animated: true });
+                        }}
+                    >
+                        <Text style={styles.jumpPillText}>New reply</Text>
+                        <Ionicons name="arrow-down" size={13} color={colors.background} />
+                    </TouchableOpacity>
+                )}
                 <View style={[styles.outerInputContainer, { paddingBottom: spacing.md }]}>
                     {/* Numeric question → slider widget. Mutually exclusive with
                         the quick-reply chip row below: when the backend asks
@@ -1859,6 +1892,18 @@ const styles = StyleSheet.create({
     },
     starterRowDivider: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderLight },
     starterText: { flex: 1, fontFamily: fonts.serif, fontSize: 17, color: colors.foreground, letterSpacing: -0.2 },
+    jumpPill: {
+        alignSelf: 'center',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        backgroundColor: colors.foreground,
+        borderRadius: 999,
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        marginBottom: spacing.sm,
+    },
+    jumpPillText: { color: colors.background, fontFamily: fonts.sansMedium, fontSize: 13 },
     outerInputContainer: {
         paddingHorizontal: 12,
         paddingTop: 6,
