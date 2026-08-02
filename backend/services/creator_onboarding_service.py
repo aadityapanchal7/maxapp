@@ -137,6 +137,44 @@ _CHAT_SYSTEM = (
 DOC_MAX_CHARS = 12000
 UNSUPPORTED_DOC_MARKER = "[unsupported file type — could not extract text]"
 
+# ── Pooled-connection release around long model calls ────────────────────────
+# Supavisor transaction-mode pooling gives this process only
+# pool_size + max_overflow connections (5 + 5), and a SQLAlchemy session keeps
+# its connection checked out for the life of its transaction. Awaiting a
+# 45-120s model call mid-transaction therefore pins one of those ten slots for
+# the whole call, so ~10 concurrent creator requests exhaust the pool and every
+# OTHER request in the app starts failing on pool_timeout (5s) — an app-wide
+# outage, not merely slow onboarding.
+#
+# Ending the transaction before the await hands the connection back; the
+# session transparently checks out a new one on its next query, and
+# expire_on_commit=False keeps already-loaded attributes readable in between.
+# In analyze / test-drive / test-chat the ORM mutations all happen AFTER the
+# model call (meta is staged in local dicts), so the commit persists nothing
+# new — it only frees the slot. The one path where it does change behaviour is
+# POST /voice/answer, which records the creator's answer and then generates the
+# NEXT draft: that answer now commits before the model call instead of being
+# held hostage to it, so a failing/timing-out generation can no longer roll
+# back work the creator already typed. That is the desirable direction.
+#
+# The eval harness runs these same functions against the PROD database behind a
+# strict never-write rail, and by the time it reaches generate_voice_draft it
+# has pending db.add() rows — committing there would persist test data. It
+# flips this False so the release degrades to a no-op.
+RELEASE_DB_DURING_LLM = True
+
+
+async def _release_db_conn(db: Optional[AsyncSession]) -> None:
+    """Hand this session's pooled connection back before a long model await."""
+    if db is None or not RELEASE_DB_DURING_LLM:
+        return
+    try:
+        await db.commit()
+    except Exception as e:
+        # A failed release must not take down the request: worst case we keep
+        # holding the connection, which is exactly the old behaviour.
+        logger.warning("[creator_onboarding] pre-LLM connection release failed: %s", e)
+
 
 def _meta(creator: Creator) -> dict:
     m = creator.onboarding_meta
@@ -411,6 +449,8 @@ async def analyze_knowledge(creator: Creator, db: AsyncSession) -> dict[str, Any
     habits: list[dict] = []
     questions: list[str] = [q.format(condition="a health concern") for q in DEFAULT_VOICE_QUESTIONS]
 
+    # Prompt is fully built above — free the pooled connection for the ~120s call.
+    await _release_db_conn(db)
     raw = await claude_service.simple_completion(
         user_prompt=(
             f"Max: {creator.maxx_id}. Creator: {creator.display_name}. Topic: {topic}.\n"
@@ -561,6 +601,8 @@ async def generate_voice_draft(creator: Creator, sample: CreatorVoiceSample, db:
         f"Q: {s.question}\nA: {s.creator_answer}" for s in reversed(prior) if s.creator_answer
     )
     doc_context = _doc_context_block(creator, per_doc_chars=6000, total_cap=12000)
+    # Prior samples already read — don't hold the connection through the call.
+    await _release_db_conn(db)
     draft = await claude_service.simple_completion(
         user_prompt=(
             f"You are {creator.display_name}, creator of {creator.maxx_id}.\n"
@@ -720,7 +762,7 @@ async def test_drive_answer(creator: Creator, step_id: str, answer: str, db: Asy
     td["step_index"] = step_idx
 
     if step_idx >= len(TEST_DRIVE_STEPS):
-        schedule = await _generate_mock_schedule(creator, answers)
+        schedule = await _generate_mock_schedule(creator, answers, db)
         td["schedule"] = schedule
         td["complete"] = True
 
@@ -729,7 +771,9 @@ async def test_drive_answer(creator: Creator, step_id: str, answer: str, db: Asy
     return test_drive_state(creator)
 
 
-async def _generate_mock_schedule(creator: Creator, answers: dict) -> list[dict]:
+async def _generate_mock_schedule(
+    creator: Creator, answers: dict, db: Optional[AsyncSession] = None
+) -> list[dict]:
     meta = _meta(creator)
     habits = meta.get("habit_library") or []
     # Pass the full habit objects (not just titles) so the model grounds the
@@ -753,6 +797,8 @@ async def _generate_mock_schedule(creator: Creator, answers: dict) -> list[dict]
     # creator's docs, so the 7-day arc reflects their actual sequencing (e.g. a
     # "start 2-step, add actives after N clear days" gate) instead of a flat repeat.
     doc_context = _doc_context_block(creator, per_doc_chars=5000, total_cap=10000)
+    # `db` is optional here (pure helper), but release it when the caller has one.
+    await _release_db_conn(db)
     raw = await claude_service.simple_completion(
         user_prompt=(
             f"Creator max: {creator.maxx_id} by {creator.display_name}.\n"
@@ -813,7 +859,12 @@ async def _generate_mock_schedule(creator: Creator, answers: dict) -> list[dict]
                 tasks.append({
                     "title": h.get("title"),
                     "duration_min": h.get("duration_minutes") or 10,
-                    "window": h.get("window") if h.get("window") in ("morning", "evening", "any") else default_window,
+                    # "any" means the habit states NO preference — that's exactly
+                    # when the subscriber's stated availability should win. Testing
+                    # membership against a tuple that includes "any" kept "any" and
+                    # silently discarded default_window, so a subscriber who said
+                    # "Morning before work" got a whole week of vague "any" blocks.
+                    "window": h.get("window") if h.get("window") in ("morning", "evening") else default_window,
                 })
             days.append({
                 "day": label,
@@ -868,6 +919,8 @@ async def test_chat(creator: Creator, message: str, db: AsyncSession) -> str:
     schedule_ctx = ""
     if td.get("schedule"):
         schedule_ctx = f"\nSubscriber's mock schedule: {json.dumps(td['schedule'][:3])}"
+    # Voice samples already read — free the connection for the model round-trip.
+    await _release_db_conn(db)
     # NOTE: this uses _CHAT_SYSTEM, not _ASSIST — _ASSIST demands RAW JSON,
     # which is exactly why this endpoint used to leak ```json envelopes to
     # subscribers despite the user prompt asking for plain text.

@@ -109,6 +109,14 @@ def _install_read_doc_text_shim() -> None:
 
     cos._read_doc_text = _mock_read_doc_text
 
+    # DANGER RAIL: production releases its pooled connection before each model
+    # call by COMMITTING the open transaction. In this harness the session
+    # carries pending db.add() rows (voice samples from analyze, habits from
+    # sync) by the time generate_voice_draft runs, so that commit would persist
+    # synthetic creators into PROD. Disable the release here — the harness is
+    # single-threaded and has no pool pressure to relieve.
+    cos.RELEASE_DB_DURING_LLM = False
+
 
 # ── DB write-safety verification ────────────────────────────────────────────
 async def _row_counts() -> dict[str, int]:
