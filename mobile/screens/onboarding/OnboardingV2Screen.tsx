@@ -629,11 +629,20 @@ export default function OnboardingV2Screen() {
                 if (typeof a.showerTime === 'string') setShowerTime(a.showerTime);
                 if (typeof a.workoutMin === 'number') setWorkoutMin(a.workoutMin);
                 if (typeof a.weekendShift === 'boolean') setWeekendShift(a.weekendShift);
-                if (typeof d.step === 'number' && d.step >= 0) setStep(d.step);
                 // Resume into the phase the user left — unless the navigator
                 // explicitly routed here with a phase param (hand-off wins).
                 if (!route?.params?.phase && (d.phase === 'intro' || d.phase === 'schedule')) {
                     setPhase(d.phase);
+                }
+                // Only restore the step INDEX when the draft's phase matches the
+                // phase we're actually resuming into: step indices are relative
+                // to a phase's own slice, so an intro draft's step applied to
+                // the schedule phase (post-claim hand-off) silently skipped its
+                // first questions (day-shape / work / meals).
+                const effectivePhase =
+                    route?.params?.phase ?? (d.phase === 'intro' || d.phase === 'schedule' ? d.phase : 'intro');
+                if (typeof d.step === 'number' && d.step >= 0 && d.phase === effectivePhase) {
+                    setStep(d.step);
                 }
             })
             .catch(() => undefined)

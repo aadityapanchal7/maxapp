@@ -151,9 +151,19 @@ export default function CreateAccountScreen() {
     const onGoogleSuccess = (u?: { id: string; is_paid?: boolean; onboarding?: { completed?: boolean } }) => {
         if (!u || u.id === anonIdRef.current) { goForward('google'); return; }
         track('onboarding_step', { step: 'signed_in_existing', method: 'google' });
-        // Paid account: treatAsFull flips, the navigator remounts onto Main — any
-        // manual navigate here would race the remount. Do nothing.
-        if (u.is_paid) return;
+        // Paid AND onboarded: treatAsFull flips, the navigator remounts onto
+        // Main — any manual navigate here would race the remount. Do nothing.
+        // Paid but onboarding INCOMPLETE (a V4 buyer who quit before finishing
+        // the schedule questions, now signing back in): treatAsFull stays
+        // false, so NO remount happens — a bare return would leave them parked
+        // on this form with nothing occurring. Resume their onboarding instead,
+        // clearing the anon funnel history like the unpaid branch below.
+        if (u.is_paid) {
+            if (u.onboarding?.completed !== true) {
+                nav.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+            }
+            return;
+        }
         // Unpaid but onboarded (legacy account): straight to the paywall.
         if (u.onboarding?.completed === true) { nav.navigate('Payment'); return; }
         // Unpaid, onboarding NOT done: run onboarding — clear the anon funnel

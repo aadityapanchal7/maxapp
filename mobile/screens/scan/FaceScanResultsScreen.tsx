@@ -983,6 +983,17 @@ export default function FaceScanResultsScreen() {
     // stops redirecting back here) and land on Main. Programs are picked later in
     // the marketplace — there's no longer a dedicated picker step.
     const advancePostPay = useCallback(async () => {
+        // Guard BEFORE any side effect: in the funnel stack there is no 'Main',
+        // so the reset below would be a silent no-op — and we'd have consumed
+        // the post-subscription flag for a reveal the user never saw. If we
+        // can't exit, back out of this screen instead and leave the flag for
+        // HomeScreen's redirect after the paid stack remounts.
+        const routeNames: string[] = ((navigation.getState?.() as any)?.routeNames) ?? [];
+        if (!routeNames.includes('Main')) {
+            setAdvancing(false); // release the spinner — we are NOT exiting via reset
+            if (navigation.canGoBack()) navigation.goBack();
+            return;
+        }
         try { await api.dismissPostSubscriptionOnboarding(); } catch (e) { console.error(e); }
         try { await refreshUser(); } catch (e) { console.error(e); }
         navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
@@ -997,6 +1008,18 @@ export default function FaceScanResultsScreen() {
         setAdvancing(true);
         advancePostPay();
     }, [hydrating, scan, postPayParam, isPaid, isScanUser, advancePostPay]);
+
+    // Watchdog on the advancing spinner (same principle as the gate watchdog
+    // above): advancePostPay's exit can fail without throwing — a navigation
+    // reset to a route the mounted stack doesn't have is a silent no-op — and
+    // advancedRef is latched, so nothing would ever clear the spinner. Never
+    // render an unescapable full-screen loader: release it after 8s so the
+    // no-scan fallback (with its retry/back affordances) shows instead.
+    useEffect(() => {
+        if (!(advancing && !scan)) return;
+        const t = setTimeout(() => setAdvancing(false), 8_000);
+        return () => clearTimeout(t);
+    }, [advancing, scan]);
 
     const overallScore = parseOverall(a);
     const base = overallScore ?? 5;

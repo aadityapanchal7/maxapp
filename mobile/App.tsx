@@ -235,6 +235,17 @@ function AppNavigator() {
         let tries = 0;
         const go = () => {
             if (navRef.isReady()) {
+                // Funnel V4 buys MID-funnel (onboarding incomplete), so the
+                // mounted stack can be the funnel stack — which has no 'Main'.
+                // FaceScanResults' postPay exit resets to 'Main'; dispatching it
+                // there makes that reset a silent no-op and strands the user on
+                // an unescapable spinner over the account form. Only dispatch
+                // when the PAID stack (with 'Main') is actually mounted;
+                // otherwise HomeScreen's post_subscription_onboarding redirect
+                // runs the reveal after onboarding completes and the stack
+                // remounts.
+                const names: string[] = (navRef.getRootState()?.routeNames as string[] | undefined) ?? [];
+                if (!names.includes('Main') || !names.includes('FaceScanResults')) return;
                 navRef.dispatch(CommonActions.navigate({ name: 'FaceScanResults', params: { postPay: true } }));
             } else if (tries++ < 20) {
                 setTimeout(go, 150);
