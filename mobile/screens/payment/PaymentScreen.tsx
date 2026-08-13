@@ -189,7 +189,15 @@ export default function PaymentScreen() {
             return;
         }
         try {
-            await sub.subscribePremium();
+            // subscribePremium resolves TRUE only for a verified entitlement.
+            // A cancelled or failed purchase resolves FALSE and must leave the
+            // user right here on the paywall — never forward into account
+            // creation. (The hooks' own error paths surface the alert.)
+            const purchased = await sub.subscribePremium();
+            if (!purchased) {
+                track('purchase_not_completed', { plan: 'premium' });
+                return;
+            }
             track('purchase_success', { plan: 'premium' });
             afterPurchase();
         } catch (e: any) {

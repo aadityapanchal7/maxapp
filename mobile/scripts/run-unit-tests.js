@@ -40,32 +40,46 @@ let passed = 0;
 let failed = 0;
 const failures = [];
 
-for (const f of files) {
-    const full = path.join(testsDir, f);
-    try {
-        const mod = require(full);
-        const tests = mod.tests || {};
-        for (const [name, fn] of Object.entries(tests)) {
-            try {
-                fn();
-                passed += 1;
-                console.log(`  ✓ ${f} — ${name}`);
-            } catch (err) {
-                failed += 1;
-                failures.push(`${f} — ${name}: ${err && err.message}`);
-                console.log(`  ✗ ${f} — ${name}`);
+// AWAIT each test. A synchronous `fn()` would count an async test as passed the
+// instant it returned its (still-pending) promise, so a REJECTED assertion would
+// surface as an unhandled rejection while the suite reported green — vacuously
+// passing tests are worse than no tests.
+async function run() {
+    for (const f of files) {
+        const full = path.join(testsDir, f);
+        try {
+            const mod = require(full);
+            const tests = mod.tests || {};
+            for (const [name, fn] of Object.entries(tests)) {
+                try {
+                    await fn();
+                    passed += 1;
+                    console.log(`  ✓ ${f} — ${name}`);
+                } catch (err) {
+                    failed += 1;
+                    failures.push(`${f} — ${name}: ${err && err.message}`);
+                    console.log(`  ✗ ${f} — ${name}`);
+                }
             }
+        } catch (err) {
+            failed += 1;
+            failures.push(`${f} (load): ${err && err.stack ? err.stack : err}`);
+            console.log(`  ✗ ${f} (failed to load)`);
         }
-    } catch (err) {
-        failed += 1;
-        failures.push(`${f} (load): ${err && err.stack ? err.stack : err}`);
-        console.log(`  ✗ ${f} (failed to load)`);
+    }
+
+    console.log(`\n${passed} passed, ${failed} failed`);
+    if (failed > 0) {
+        console.log('\nFailures:');
+        for (const x of failures) console.log(`  - ${x}`);
+        process.exit(1);
     }
 }
 
-console.log(`\n${passed} passed, ${failed} failed`);
-if (failed > 0) {
-    console.log('\nFailures:');
-    for (const x of failures) console.log(`  - ${x}`);
+// A rejected promise that escapes must FAIL the run, never pass silently.
+process.on('unhandledRejection', (err) => {
+    console.error('\nUnhandled rejection in test run:', err);
     process.exit(1);
-}
+});
+
+run();

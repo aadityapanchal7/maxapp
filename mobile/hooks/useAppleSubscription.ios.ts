@@ -17,10 +17,17 @@ import {
 import { APPLE_IAP_BASIC_SKU, APPLE_IAP_PREMIUM_SKU } from '../constants/appleIap';
 import { useAuth } from '../context/AuthContext';
 import { prefetchMainTabData } from '../lib/prefetchMainTabData';
+import { createPurchaseOutcome, type PurchaseOutcome } from '../lib/purchaseOutcome';
 import { queryKeys } from '../lib/queryClient';
 import { markPostPayPending } from '../lib/postPayNav';
 import { reconcileOwnedSubscriptions } from '../lib/entitlementReconciler';
 import api from '../services/api';
+
+// Backstop only. Apple reports cancel/failure through onPurchaseError within
+// seconds; this exists so a StoreKit callback that never arrives can't leave the
+// paywall's await hanging forever. Long enough to never fire during a real
+// purchase (password prompts, 2FA, Ask-to-Buy can be slow).
+const PURCHASE_OUTCOME_TIMEOUT_MS = 5 * 60_000;
 
 type Tier = 'basic' | 'premium';
 
@@ -45,6 +52,25 @@ export function useAppleSubscription() {
     const recoveringRef = useRef(false);
     const [products, setProducts] = useState<Product[]>([]);
 
+    // ── Real purchase outcome ───────────────────────────────────────────────
+    // react-native-iap's requestPurchase() resolves as soon as the request is
+    // HANDED TO StoreKit — not when the purchase completes. Awaiting it therefore
+    // reported "success" while Apple's sheet was still open, so a CANCELLED or
+    // FAILED purchase still walked the user forward into account creation.
+    // The true outcome only ever arrives via onPurchaseSuccess/onPurchaseError,
+    // so subscribeTier returns a promise that those listeners settle.
+    // See lib/purchaseOutcome.ts (unit-tested in __tests__/purchaseOutcome.test.ts).
+    const purchaseOutcomeRef = useRef<PurchaseOutcome | null>(null);
+
+    /** Settle the in-flight purchase promise exactly once. No-ops for StoreKit
+     *  replays/restores, which have no waiting caller. */
+    const settlePurchase = useCallback((ok: boolean) => {
+        const pending = purchaseOutcomeRef.current;
+        if (!pending) return;
+        purchaseOutcomeRef.current = null;
+        pending.settle(ok);
+    }, []);
+
     const { connected, requestPurchase, finishTransaction } =
         useIAP({
             onPurchaseSuccess: async (purchase: Purchase) => {
@@ -62,6 +88,10 @@ export function useAppleSubscription() {
                         console.warn('[AppleIAP] finishTransaction error (non-fatal):', err);
                     }
                 };
+
+                // Only a fully verified, non-expired entitlement counts as a
+                // purchase for the awaiting caller — every other exit settles false.
+                let verified = false;
 
                 try {
                     if (!tid) {
@@ -115,7 +145,12 @@ export function useAppleSubscription() {
                     await refreshUser();
                     void queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
                     prefetchMainTabData(queryClient);
+                    verified = true;
                 } finally {
+                    // Settling in `finally` guarantees exactly one settle on every
+                    // path — including an unexpected throw — so the caller can
+                    // never hang waiting on a purchase that already resolved.
+                    settlePurchase(verified);
                     requestInFlightRef.current = false;
                     setLoading(null);
                     pendingSkuRef.current = null;
@@ -125,7 +160,12 @@ export function useAppleSubscription() {
                 requestInFlightRef.current = false;
                 setLoading(null);
                 pendingSkuRef.current = null;
-                if (error.code === ErrorCode.UserCancelled) return;
+                if (error.code === ErrorCode.UserCancelled) {
+                    // The user backed out of Apple's sheet: NOT a purchase. The
+                    // caller must stay on the paywall.
+                    settlePurchase(false);
+                    return;
+                }
 
                 // FAILSAFE: the Apple ID already owns this subscription (new
                 // phone / reinstall / different app account) — StoreKit refuses
@@ -146,14 +186,17 @@ export function useAppleSubscription() {
                                 await refreshUser();
                                 void queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
                                 prefetchMainTabData(queryClient);
+                                settlePurchase(true); // entitlement is real — proceed
                                 return;
                             }
+                            settlePurchase(false);
                             Alert.alert(
                                 'Subscription found',
                                 "Your Apple ID already has a Max subscription, but it couldn't be activated for this account. Tap Restore Purchases below, or try again in a moment.",
                             );
                         } catch (e) {
                             console.warn('[AppleIAP] already-owned reconcile failed:', e);
+                            settlePurchase(false);
                             Alert.alert(
                                 'Subscription found',
                                 'Your Apple ID already has a Max subscription. Tap Restore Purchases to activate it on this account.',
@@ -164,6 +207,7 @@ export function useAppleSubscription() {
                 }
 
                 console.error('[AppleIAP] Purchase error:', error.code, error.message);
+                settlePurchase(false);
                 Alert.alert('Purchase error', error.message || 'Something went wrong.');
             },
         });
@@ -311,6 +355,20 @@ export function useAppleSubscription() {
             setLoading(tier);
             pendingSkuRef.current = sku;
             console.log('[AppleIAP] Requesting purchase:', sku);
+
+            // Arm the outcome promise BEFORE requesting, so a listener that fires
+            // synchronously still finds somewhere to report to.
+            const outcome = createPurchaseOutcome(PURCHASE_OUTCOME_TIMEOUT_MS, () => {
+                // StoreKit never reported back — release the UI so the paywall
+                // isn't left stuck on "Processing…".
+                console.warn('[AppleIAP] No purchase outcome within timeout — treating as not purchased.');
+                purchaseOutcomeRef.current = null;
+                requestInFlightRef.current = false;
+                setLoading(null);
+                pendingSkuRef.current = null;
+            });
+            purchaseOutcomeRef.current = outcome;
+
             try {
                 await requestPurchase({
                     type: 'subs',
@@ -321,8 +379,12 @@ export function useAppleSubscription() {
                         },
                     },
                 });
-                return true;
+                // NOTE: requestPurchase resolving means the request reached
+                // StoreKit — NOT that the user bought anything. Wait for the
+                // listeners to report the real outcome.
+                return await outcome.promise;
             } catch (e: unknown) {
+                settlePurchase(false);
                 requestInFlightRef.current = false;
                 setLoading(null);
                 pendingSkuRef.current = null;
@@ -334,7 +396,7 @@ export function useAppleSubscription() {
                 return false;
             }
         },
-        [user?.id, requestPurchase, connected, products, loadProducts],
+        [user?.id, requestPurchase, connected, products, loadProducts, settlePurchase],
     );
 
     const subscribeBasic = useCallback(
