@@ -104,6 +104,19 @@ function AppNavigator() {
         [navRef],
     );
 
+    // Flush a deferred deep link. ONE implementation, used by every flush site:
+    // this previously existed twice and the copies diverged — the NavigationContainer
+    // onReady copy passed the raw ref object ({ route, params }) to navigate(),
+    // which React Navigation rejects ("You need to specify name or key when calling
+    // navigate() with an object"). onReady runs BEFORE the parent effect, so every
+    // cold start from a notification tap threw before the app rendered.
+    const flushPendingDeepLink = useCallback(() => {
+        const pending = pendingDeepLinkRef.current;
+        if (!pending || !navRef.isReady()) return;
+        navRef.dispatch(CommonActions.navigate({ name: pending.route, params: pending.params }));
+        pendingDeepLinkRef.current = null;
+    }, [navRef]);
+
     // Referral deep links (maxapp://referral/<CODE>): pre-fill the code on the
     // paywall. No-op when the `referrals` flag is OFF, so it's inert today.
     useEffect(() => {
@@ -215,12 +228,8 @@ function AppNavigator() {
     // only exists in the paid stack), which is exactly when a cold-start tap
     // becomes navigable.
     useEffect(() => {
-        const pending = pendingDeepLinkRef.current;
-        if (pending && navRef.isReady()) {
-            navRef.dispatch(CommonActions.navigate({ name: pending.route, params: pending.params }));
-            pendingDeepLinkRef.current = null;
-        }
-    }, [isAuthenticated, isPaid, user?.id, navRef]);
+        flushPendingDeepLink();
+    }, [isAuthenticated, isPaid, user?.id, flushPendingDeepLink]);
 
     // Post-purchase routing: when a verified purchase flips isPaid, the paid
     // stack remounts and we drop the user straight into the post-pay flow
@@ -377,12 +386,10 @@ function AppNavigator() {
             ref={navRef}
             key={isAuthenticated ? 'auth' : 'guest'}
             onReady={() => {
-                const pending = pendingDeepLinkRef.current;
-                if (pending && navRef.isReady()) {
-                    navRef.navigate(pending as never);
-                    pendingDeepLinkRef.current = null;
-                }
-                flushWidgetHome();
+                // Never let a bad deep link take down boot: onReady throwing
+                // propagates to the root error boundary before anything renders.
+                try { flushPendingDeepLink(); } catch (e) { console.warn('[DeepLink] flush failed:', e); }
+                try { flushWidgetHome(); } catch (e) { console.warn('[Widget] flush failed:', e); }
             }}
             // Remember which paid-app tab the user is on so a reload/relaunch
             // restores it instead of bouncing to the default tab. Scoped + safe:

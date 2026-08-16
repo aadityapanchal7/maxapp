@@ -38,7 +38,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.exc import IntegrityError
-from db import get_db
+from db import get_db, release_conn
 from middleware.auth_middleware import require_paid_user, get_current_user
 from middleware.rate_limit import rate_limit
 from services.storage_service import storage_service
@@ -354,6 +354,14 @@ async def upload_scan_triple(
     await db.commit()
     await db.refresh(scan_row)
     scan_id = str(scan_row.id)
+
+    # The scan row is already persisted above; db.refresh() re-opened a
+    # transaction, which would otherwise pin one of this process's few pooled
+    # connections for the ENTIRE 75s vision analysis. A handful of concurrent
+    # scans would then exhaust the pool and fail every other endpoint in the
+    # app (including boot) on pool_timeout. Hand the connection back — the
+    # session transparently re-acquires one for the writes after the analysis.
+    await release_conn(db)
 
     try:
         analysis = await asyncio.wait_for(

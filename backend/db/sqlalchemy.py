@@ -158,6 +158,28 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+async def release_conn(db: AsyncSession) -> None:
+    """Hand this session's pooled connection back before a LONG external await
+    (LLM/vision call, third-party HTTP).
+
+    A SQLAlchemy session keeps its connection checked out for the life of its
+    transaction, and this process only has pool_size + max_overflow connections
+    total. Awaiting a 30-120s model call mid-transaction therefore pins one of
+    those few slots for the whole call, so a handful of concurrent requests can
+    exhaust the pool and make EVERY endpoint (including boot) fail on
+    pool_timeout — an app-wide outage, not merely a slow feature.
+
+    Ending the transaction returns the connection; the session transparently
+    checks out a new one on its next query, and expire_on_commit=False keeps
+    already-loaded objects usable in between. Call this only where pending work
+    is safe to persist (it commits).
+    """
+    try:
+        await db.commit()
+    except Exception as e:  # never let connection hygiene break the request
+        logger.warning("release_conn failed (non-fatal): %s", e)
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Dependency injection for database sessions
