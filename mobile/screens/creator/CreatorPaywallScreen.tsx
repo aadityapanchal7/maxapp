@@ -15,6 +15,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { useCreatorPurchase } from '../../hooks/useCreatorPurchase';
 import { queryClient, queryKeys } from '../../lib/queryClient';
 import { fonts } from '../../theme/dark';
 import { hexA } from '../../utils/scheduleAggregation';
@@ -36,6 +37,7 @@ export default function CreatorPaywallScreen() {
     const route = useRoute<any>();
     const insets = useSafeAreaInsets();
     const { user, isPaid, refreshUser } = useAuth();
+    const { purchaseCreatorSubscription } = useCreatorPurchase();
     const maxxId: string = route.params?.maxxId;
 
     const [creator, setCreator] = useState<any>(null);
@@ -72,13 +74,12 @@ export default function CreatorPaywallScreen() {
     const moreCount = Math.max(0, Number(course?.lesson_count || 0) - shownCount);
 
     /**
-     * Restore (Apple 3.1.2). PaymentScreen's restore lives inside the heavy
-     * useIAP()-backed hook (store connection + purchase listeners), which this
-     * screen deliberately avoids — the purchase path here dynamic-imports
-     * react-native-iap only at buy time (see useCreatorPurchase). Mirror that:
-     * look for THIS creator's SKU among the Apple ID's purchases and re-verify
-     * with the backend; if nothing is found (or off-iOS/dev), fall through to
-     * Apple's own subscription manager.
+     * Restore (Apple 3.1.2). Looks for THIS creator's SKU among the Apple ID's
+     * purchases and re-verifies with the backend; if nothing is found (or
+     * off-iOS/dev), falls through to Apple's own subscription manager. Kept as
+     * its own one-off dynamic import of react-native-iap (rather than reusing
+     * useCreatorPurchase's listeners) since restoring is a pull, not something
+     * StoreKit reports back through onPurchaseSuccess/onPurchaseError.
      */
     const restore = async () => {
         if (restoring) return;
@@ -122,11 +123,12 @@ export default function CreatorPaywallScreen() {
             if (SHOW_DEV) {
                 res = await api.devActivateCreatorSubscription(maxxId);
             } else {
-                // Production: run the real IAP purchase against creator.apple_product_id,
-                // then verify. The per-creator SKU must exist in App Store Connect.
-                const { subscribeToCreatorProduct } = await import('../../hooks/useCreatorPurchase');
-                const tid = await subscribeToCreatorProduct(creator.apple_product_id, user?.id ?? '');
-                res = await api.verifyCreatorSubscription(maxxId, tid, creator.apple_product_id);
+                // Production: run the real IAP purchase against creator.apple_product_id;
+                // useCreatorPurchase verifies with the backend internally once
+                // StoreKit reports the REAL outcome (never the requestPurchase()
+                // return value — v14 resolves that before the user has paid).
+                // The per-creator SKU must exist in App Store Connect.
+                res = await purchaseCreatorSubscription(maxxId, creator.apple_product_id, user?.id ?? '');
             }
             await refreshUser();
             // dev-activate / IAP verify create the schedule server-side too —

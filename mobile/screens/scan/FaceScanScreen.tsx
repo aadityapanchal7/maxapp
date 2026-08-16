@@ -133,10 +133,22 @@ export default function FaceScanScreen() {
             );
             return;
         }
+        // Choose the target from the MOUNTED stack rather than assuming
+        // 'FeaturesIntro' exists: this branch is also reached by a PAID user's
+        // first-ever scan taken from the Scan tab (funnel V4 off / onboarding
+        // already complete), where FaceScan is registered on the paid stack —
+        // which has 'Main', not 'FeaturesIntro'. React Navigation drops a
+        // RESET whose route names aren't registered on this navigator
+        // (silent no-op), which previously stranded the user on
+        // AnalyzingScreen forever. Read the actually-mounted route names
+        // instead of re-deriving the stack from auth flags (isPaid alone
+        // would still mis-target for an onboarded free-tier user).
+        const routeNames: string[] = ((navigation.getState?.() as any)?.routeNames) ?? [];
+        const introRoute = routeNames.includes('FeaturesIntro') ? 'FeaturesIntro' : 'Main';
         navigation.dispatch(
             CommonActions.reset({
                 index: 1,
-                routes: [{ name: 'FeaturesIntro' }, resultsRoute],
+                routes: [{ name: introRoute }, resultsRoute],
             }),
         );
     }, [navigation, isScanUser, user?.first_scan_completed, funnelV4]);
@@ -531,7 +543,15 @@ export default function FaceScanScreen() {
             // the pending flag set until results mounts means any interruption
             // still recovers straight to results on the next launch.
             navigateToResults();
-            didLeaveScan = true;
+            // Only treat this as having left the screen if the navigator's
+            // active route actually changed. `navigateToResults` can still
+            // silently no-op (a reset dispatched with a route name absent
+            // from the mounted stack), and trusting `didLeaveScan` blindly in
+            // that case would leave `analyzing` stuck true forever — the
+            // AnalyzingScreen spinner hang this guards against.
+            const navStateAfter = navigation.getState?.() as any;
+            const activeRouteName = navStateAfter?.routes?.[navStateAfter.index]?.name;
+            didLeaveScan = activeRouteName !== 'FaceScan';
         } catch (err: unknown) {
             console.error(err);
             await clearPendingFaceScanSubmit().catch(() => undefined);

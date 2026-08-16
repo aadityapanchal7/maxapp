@@ -35,6 +35,8 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from db import release_conn
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -287,6 +289,24 @@ _TABLE_READY = False
 # In-flight guard: prevents concurrent LLM calls for the same task key.
 _IN_FLIGHT: set[str] = set()
 
+# Per-task_key in-process lock so concurrent get_task_guide() calls for the
+# SAME task (e.g. the boot prefetch stampede hitting one popular task, or a
+# client double-firing) share a single _generate_guide() call instead of each
+# running their own ~44s LLM round trip. Single uvicorn worker, so a plain
+# in-memory dict is sufficient -- no cross-process coordination needed.
+# Mirrors the _get_user_chat_lock pattern in api/chat.py.
+_GUIDE_LOCKS: dict[str, asyncio.Lock] = {}
+_GUIDE_LOCKS_GUARD: asyncio.Lock = asyncio.Lock()
+
+
+async def _get_guide_lock(task_key: str) -> asyncio.Lock:
+    async with _GUIDE_LOCKS_GUARD:
+        lock = _GUIDE_LOCKS.get(task_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _GUIDE_LOCKS[task_key] = lock
+        return lock
+
 
 async def _ensure_table(db: AsyncSession) -> None:
     global _TABLE_READY
@@ -522,10 +542,38 @@ async def get_task_guide(
     if cached and cached.get("_v") == _PAYLOAD_V:
         guide = cached
     else:
-        guide = await _generate_guide(title, description, maxx_id, duration)
-        guide["duration_minutes"] = guide.get("duration_minutes") or duration
-        _stamp(guide, maxx_id)
-        await _cache_set(task_key, guide, db)
+        # Hand the connection back before we wait on / run the LLM call.
+        # Nothing is pending: _ensure_table's own commit (if it ran at all --
+        # at most once ever, process-wide, long before this request) already
+        # happened, and the schedule lookup + cache lookup above are both
+        # read-only SELECTs.
+        await release_conn(db)
+
+        # In-process in-flight guard, keyed on task_key. On boot the client
+        # prefetches a guide per distinct task (20-60 requests). A
+        # _PAYLOAD_V bump makes every one of those a simultaneous cache miss,
+        # so without this guard each request independently fires its own
+        # ~44s LLM call (22s Claude + 22s OpenAI fallback) while holding a
+        # pooled connection -- a combined LLM+pool stampede. The lock
+        # serializes concurrent requests for the SAME task_key so only the
+        # first one generates; everyone else waits on the lock (holding NO
+        # connection while they wait, since we already released above) and
+        # then reuses what it wrote.
+        lock = await _get_guide_lock(task_key)
+        async with lock:
+            # Re-check: another request may have generated + cached this
+            # exact task_key while we were waiting for the lock.
+            cached = await _cache_get(task_key, db)
+            if cached and cached.get("_v") == _PAYLOAD_V:
+                guide = cached
+            else:
+                # The re-check SELECT just above re-acquired a connection.
+                # Release it again so the LLM call itself never holds one.
+                await release_conn(db)
+                guide = await _generate_guide(title, description, maxx_id, duration)
+                guide["duration_minutes"] = guide.get("duration_minutes") or duration
+                _stamp(guide, maxx_id)
+                await _cache_set(task_key, guide, db)
 
     resolved = await _resolve_for_user(guide, maxx_id, user_id, db, task_key=task_key)
     return {"task_key": task_key, "title": title, **resolved}

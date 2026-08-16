@@ -326,7 +326,13 @@ def _is_anonymous_email(email: str | None) -> bool:
 @router.post(
     "/anon",
     response_model=TokenResponse,
-    dependencies=[Depends(rate_limit(limit=30, window_s=3600, scope="anon"))],
+    # Raised from 30/hr: this mints the account behind EVERY "Get started" tap,
+    # so a per-IP cap this low locks a whole shared-IP cohort (carrier-grade
+    # NAT — campus/corporate wifi, T-Mobile) out of onboarding for a full hour
+    # once >30 new installs land behind the same IP — i.e. it blocks the
+    # funnel at launch scale. Still capped, just not at a level real cohorts
+    # blow through immediately.
+    dependencies=[Depends(rate_limit(limit=300, window_s=3600, scope="anon"))],
 )
 async def anon_signup(db: AsyncSession = Depends(get_db)):
     """Mint a credential-less FREE-tier account so the funnel can run before sign-up.

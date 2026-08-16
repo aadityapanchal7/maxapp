@@ -18,7 +18,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
-from db import get_db, get_rds_db_optional
+from db import get_db, get_rds_db_optional, release_conn
 from middleware.auth_middleware import get_current_user
 from middleware.rate_limit import rate_limit
 from models.leaderboard import ChatRequest, ChatResponse
@@ -2355,6 +2355,19 @@ async def _get_user_chat_lock(user_id: str) -> _asyncio_chat_lock.Lock:
         return lock
 
 
+# Pool-exhaustion belt-and-suspenders: this process has only pool_size +
+# max_overflow = 20 pooled DB connections total (db/sqlalchemy.py), and a
+# single chat turn can await an LLM/agent call for up to ~100s. The
+# release_conn() calls placed before every long LLM await in this module are
+# the primary fix, but a missed release on some future code path must never
+# be able to pin the WHOLE pool by itself. Capping how many chat turns may be
+# inside an LLM-dispatching call at once, process-wide, bounds the damage: at
+# most _CHAT_LLM_CONCURRENCY connections can be pinned by chat even in the
+# worst case, leaving the rest free for every other endpoint (incl. boot).
+_CHAT_LLM_CONCURRENCY = 8
+_CHAT_LLM_SEMAPHORE = _asyncio_chat_lock.Semaphore(_CHAT_LLM_CONCURRENCY)
+
+
 def _spawn_background_task(coro) -> None:
     """Fire-and-forget a coroutine off the request's critical path."""
     task = asyncio.create_task(coro)
@@ -2868,6 +2881,13 @@ async def process_chat_message(
             _recall_block = "FROM EARLIER CHATS: " + " | ".join(str(r) for r in _recall_items[:3])
             _rag_user_profile = (_rag_user_profile + "\n" + _recall_block).strip()
 
+        # Hand the connection back before this LLM call. Nothing is pending:
+        # every earlier branch in this function that wrote a ChatHistory row
+        # already committed and returned; the only write that could still be
+        # open here is touch_last_message(commit=False) from turn start (a
+        # standalone conversation recency/title bump), which is safe to
+        # persist early on its own.
+        await release_conn(db)
         fast_response, fast_chunks = await answer_from_rag(
             message=message_text,
             maxx_hints=turn_intent.get("maxx_hints") or [],
@@ -2966,6 +2986,12 @@ async def process_chat_message(
                         f"Prose context:\n{fast_response}\n\n"
                         "Emit ONLY the [VISUAL_BLOCK] marker."
                     )
+                    # The db.commit() a few lines above (persisting the
+                    # fast_response ChatHistory rows) already released the
+                    # connection and nothing has queried `db` since -- this
+                    # call is a defensive no-op guard against a future edit
+                    # inserting a db read between that commit and here.
+                    await release_conn(db)
                     _tbl_resp = await _tbl_llm.ainvoke(
                         [SystemMessage(content=_tbl_system), HumanMessage(content=_tbl_human)]
                     )
@@ -3025,6 +3051,11 @@ async def process_chat_message(
                                 f"Existing response for context:\n{fast_response}\n\n"
                                 f"Emit ONLY the missing block(s) as [VISUAL_BLOCK] markers. No other text."
                             )
+                            # Same defensive guard as the table safety net
+                            # above -- the connection is already released by
+                            # the earlier commit; this just protects against
+                            # a future edit reintroducing a pending db read.
+                            await release_conn(db)
                             _mb_resp = await _mb_llm.ainvoke(
                                 [SystemMessage(content=_mb_system), HumanMessage(content=_mb_human)]
                             )
@@ -3735,6 +3766,12 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         tools = _mk_tools()
         lc_history = history_dicts_to_lc_messages(history[-CHAT_HISTORY_WINDOW:])
         try:
+            # Hand the connection back before the main agent call (up to
+            # ~100s: call_timeout plus provider fallbacks). The user turn was
+            # just committed a few lines above (user_turn_persisted branch)
+            # and nothing between there and here touches `db`, so there is
+            # nothing pending to lose -- this is a pure release.
+            await release_conn(db)
             response_text, modify_schedule_ran = await run_chat_agent(
                 message=message,
                 lc_history=lc_history,
@@ -3771,6 +3808,16 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                             "results — answer the user's question grounded in these, no preamble):\n\n"
                             f"{web_snips}"
                         )
+                        # Release again before this second agent call. The
+                        # first run_chat_agent call above may have
+                        # re-acquired a connection internally (its tools run
+                        # on this same `db`) and left it holding a
+                        # transaction open; whatever those tool calls wrote
+                        # is a complete, deliberately-executed action (e.g. a
+                        # schedule mutation the agent decided to make), so
+                        # it's safe to commit now rather than leave it
+                        # pinned through another ~100s call.
+                        await release_conn(db)
                         response_text2, _ = await run_chat_agent(
                             message=forced_msg,
                             lc_history=lc_history,
@@ -3828,6 +3875,11 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                         f"Build the weekly breakdown table for this request: {message_text}. "
                         "Emit ONLY the [VISUAL_BLOCK] marker. Start your response with [VISUAL_BLOCK]."
                     )
+                    # Same reasoning as the release before the web-search
+                    # safety net's agent re-run: hand back whatever the
+                    # agent call(s) above re-acquired before this secondary
+                    # LLM call.
+                    await release_conn(db)
                     _table_resp = await _table_llm.ainvoke(
                         [SystemMessage(content=_table_system), HumanMessage(content=_table_human)]
                     )
@@ -3903,6 +3955,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
                             f"User's follow-up question: {message_text}\n\n"
                             "Answer the timing question specifically using the user's stated schedule."
                         )
+                        # Same reasoning as the other safety-net releases
+                        # above: hand back whatever got re-acquired by the
+                        # calls preceding this one before this LLM call.
+                        await release_conn(db)
                         _timing_resp = await _timing_llm.ainvoke(
                             [SystemMessage(content=_timing_system), HumanMessage(content=_timing_human)]
                         )
@@ -3942,6 +3998,10 @@ Ask ONE question at a time. Your very first response must ask the concern questi
         and _user_requests_schedule_change(message_text)
     ):
         try:
+            # adapt_schedule makes its own LLM call internally (up to
+            # llm_timeout_seconds * 3 on provider fallback); release first so
+            # the safety-net path doesn't pin a connection through it too.
+            await release_conn(db)
             adapt_result = await schedule_service.adapt_schedule(
                 user_id=user_id,
                 schedule_id=active_schedule["id"],
@@ -4445,6 +4505,16 @@ async def _handle_generic_schedule_modification(
     summaries: list[str] = []
     op_count = 0
     for sched in targets:
+        # Hand the connection back before each per-schedule LLM adapt call.
+        # First iteration: nothing pending (only the SELECT above ran).
+        # Later iterations: this commits the PRIOR schedule's already
+        # db.flush()-validated update + schedule_generation_log row from
+        # adapt_and_persist. Each iteration writes a different, independent
+        # UserSchedule row, and the except below already tolerates partial
+        # per-schedule failure (summaries report "couldn't apply" per max),
+        # so committing incrementally instead of once at the end doesn't
+        # change the function's correctness contract.
+        await release_conn(db)
         try:
             res = await adapt_and_persist(
                 user_id=user_id,
@@ -4721,6 +4791,13 @@ async def _generate_after_intake(
     from services.schedule_runtime import ScheduleLimitError, generate_and_persist
 
     try:
+        # Hand the connection back before the generation LLM call. Both
+        # callers satisfy this function's documented contract ("the caller
+        # has already COMMITTED the collected answers") right before calling
+        # in: one path commits immediately above its call site, the other
+        # (retry) has done no writes yet this request when it calls in. So
+        # nothing is pending here either way.
+        await release_conn(db)
         result = await generate_and_persist(
             user_id=user_id,
             maxx_id=maxx_id,
@@ -4892,6 +4969,14 @@ async def _run_onboarding_questioner_impl(
         if capacity_block is not None:
             return capacity_block, [], None, False, None
         state = await _apply_slot_prefill(user_id, new_max, state, db)
+        # Hand the connection back before the plan-build LLM call. The only
+        # thing that could be pending here is _apply_slot_prefill's
+        # merge_context upsert (idempotent JSONB merge into
+        # user_schedule_context) -- self-contained and correct to persist
+        # regardless of whether the LLM plan build below succeeds, since
+        # _try_build_llm_plan never raises into this caller (it swallows its
+        # own errors and returns None on failure).
+        await release_conn(db)
         # Rung 1: LLM-ordered plan (flag-gated; None in shadow/off/failure).
         plan_pending = await _try_build_llm_plan(user_id, new_max, state, db)
         if plan_pending is not None:
@@ -5424,6 +5509,17 @@ async def _send_message_locked(
             conversation_id=conv_id,
         )
 
+    # Hand the connection back before the LLM-dispatching branches below. The
+    # only thing that could still be pending here is the Tier-0 fact
+    # extractor's merge_context upsert from turn start (self-contained,
+    # idempotent JSONB merge) -- safe to commit early. From this point on,
+    # every branch that can make a long LLM/agent call also runs behind
+    # _CHAT_LLM_SEMAPHORE, so a missed release anywhere downstream still
+    # can't let chat pin more than _CHAT_LLM_CONCURRENCY connections at once
+    # -- and a request queued on that semaphore holds no connection while it
+    # waits, since we release right here before ever reaching it.
+    await release_conn(db)
+
     # NEW: deterministic onboarding questioner. Owns the conversation when
     # the user is collecting required fields for a doc-driven max schedule.
     # Returns None to fall through to the legacy/agent path.
@@ -5431,11 +5527,12 @@ async def _send_message_locked(
     # None), but never let a driver failure 500 the whole turn — None routes to
     # the legacy/agent fallback below.
     try:
-        driver_out = await _run_onboarding_questioner(
-            user_id=user_id,
-            message_text=data.message,
-            db=db,
-        )
+        async with _CHAT_LLM_SEMAPHORE:
+            driver_out = await _run_onboarding_questioner(
+                user_id=user_id,
+                message_text=data.message,
+                db=db,
+            )
     except Exception:
         logger.exception("onboarding questioner call site failed; degrading to agent path")
         try:
@@ -5450,9 +5547,10 @@ async def _send_message_locked(
     # routine). Returns None for specific/known questions -> agent answers.
     broad_mcq = None
     if driver_out is None:
-        broad_mcq = await _broad_question_mcq(
-            user_id=user_id, message_text=data.message, db=db,
-        )
+        async with _CHAT_LLM_SEMAPHORE:
+            broad_mcq = await _broad_question_mcq(
+                user_id=user_id, message_text=data.message, db=db,
+            )
     driver_multi = False
     driver_progress: Optional[dict] = None
     if driver_out is not None:
@@ -5507,9 +5605,10 @@ async def _send_message_locked(
         # edits the regex detector won't ("cancel gym on tuesdays",
         # "skip everything tomorrow", "move tret to mondays only") by
         # routing to the diff-format LLM adapter.
-        mod_out = await _handle_generic_schedule_modification(
-            user_id=user_id, message_text=data.message, db=db,
-        )
+        async with _CHAT_LLM_SEMAPHORE:
+            mod_out = await _handle_generic_schedule_modification(
+                user_id=user_id, message_text=data.message, db=db,
+            )
         if mod_out is not None:
             response_text, choices, iw = mod_out
             try:
@@ -5520,18 +5619,19 @@ async def _send_message_locked(
             except Exception:
                 await db.rollback()
         else:
-            response_text, choices = await process_chat_message(
-                user_id=user_id,
-                message_text=data.message,
-                db=db,
-                rds_db=rds_db,
-                init_context=data.init_context,
-                chat_intent=data.chat_intent,
-                attachment_url=data.attachment_url,
-                attachment_type=data.attachment_type,
-                conversation_id=data.conversation_id,
-                reply_to_message_id=data.reply_to_message_id,
-            )
+            async with _CHAT_LLM_SEMAPHORE:
+                response_text, choices = await process_chat_message(
+                    user_id=user_id,
+                    message_text=data.message,
+                    db=db,
+                    rds_db=rds_db,
+                    init_context=data.init_context,
+                    chat_intent=data.chat_intent,
+                    attachment_url=data.attachment_url,
+                    attachment_type=data.attachment_type,
+                    conversation_id=data.conversation_id,
+                    reply_to_message_id=data.reply_to_message_id,
+                )
             # Flush the brief cache so the NEXT turn's broad-question gate
             # sees this turn's user message (stored inside process_chat_message).
             try:

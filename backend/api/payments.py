@@ -182,10 +182,15 @@ async def _assert_claimable(user_id: str, claims: dict, db: AsyncSession) -> Non
     Hard-rejecting that (the old behavior) locked paying users out of the app
     forever, since the client can only ever replay the same transaction.
 
-    Policy: a mismatched token is fine as long as NO OTHER account currently
-    holds this subscription. If someone else actively holds it, refuse — that's
-    the case the original guard existed for (a replayed/stolen transaction id
-    must never take an entitlement away from its active owner).
+    Policy: a mismatched token is fine as long as NO OTHER *claimed* account
+    currently holds this subscription. If the current holder is still an
+    unclaimed anon account (Funnel V4 purchases happen on an anon account,
+    which becomes unreachable if a reinstall or "Sign in" logout wipes its
+    session before /auth/claim — StoreKit then refuses to re-sell and every
+    verify would 400 forever), release that holder and let the caller adopt.
+    Only refuse when the current holder is a real, credentialed account —
+    that's the case the original guard existed for (a replayed/stolen
+    transaction id must never take an entitlement away from its active owner).
     """
     from services import apple_iap_service as apple
 
@@ -200,11 +205,20 @@ async def _assert_claimable(user_id: str, claims: dict, db: AsyncSession) -> Non
         )).scalars().first()
 
     if holder is not None and str(holder.id) != str(user_id):
-        logger.warning(
-            "Apple IAP: token mismatch AND actively held by another account "
-            "(txn=%s holder=%s caller=%s) — refusing", original, holder.id, user_id,
-        )
-        raise ValueError("account_token_mismatch")
+        from api.auth import _is_anonymous_email
+
+        if _is_anonymous_email(holder.email):
+            logger.info(
+                "Apple IAP: holder %s is an unclaimed anon account — releasing "
+                "so caller %s can adopt (txn=%s)", holder.id, user_id, original,
+            )
+            await _deactivate_user(str(holder.id), db)
+        else:
+            logger.warning(
+                "Apple IAP: token mismatch AND actively held by another claimed "
+                "account (txn=%s holder=%s caller=%s) — refusing", original, holder.id, user_id,
+            )
+            raise ValueError("account_token_mismatch")
 
     logger.info(
         "Apple IAP: adopting unclaimed subscription across app accounts "
@@ -464,7 +478,12 @@ class AppleVerifyRequest(BaseModel):
 
 @router.post(
     "/apple/verify",
-    dependencies=[Depends(rate_limit(limit=20, window_s=300, scope="apple_verify"))],
+    # Per-user budget (rate_limit keys on the caller's JWT sub when present —
+    # see middleware/rate_limit.py). Raised from 20: shared-IP cohorts
+    # (carrier-grade NAT — T-Mobile/campus/corporate) and StoreKit replaying
+    # unfinished transactions on every launch must not 429 legitimate buyers
+    # right after Apple charged them.
+    dependencies=[Depends(rate_limit(limit=30, window_s=300, scope="apple_verify"))],
 )
 async def apple_verify(
     body: AppleVerifyRequest,

@@ -366,15 +366,22 @@ function getExpoDevBundlerHost(): string | null {
  *   the app is never silently dead (SDK 54 dev client doesn't expose debuggerHost outside
  *   Expo Go when npx expo start is run without --lan).
  */
+// Belt-and-braces fallback: EXPO_PUBLIC_* is inlined into the bundle at
+// `eas update`/`eas build` time. If a production OTA ever ships without it set
+// (e.g. the `ota` script's inline env got dropped and there's no tracked
+// .env), resolveApiBaseUrl() used to THROW at module scope — since API_BASE_URL
+// is computed at import time, that crashed the entire bundle for every user
+// before a single screen could render. Fail-soft beats a fatal at import.
+const PRODUCTION_API_BASE_URL_FALLBACK = 'https://maxapp-api.onrender.com/api/';
+
 function resolveApiBaseUrl(): string {
     const envValue = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
-    // Fail fast in production builds: shipping with EXPO_PUBLIC_API_BASE_URL unset
-    // would silently point the app at localhost and every request would fail.
     if (!envValue && !__DEV__) {
-        throw new Error(
+        console.error(
             'EXPO_PUBLIC_API_BASE_URL is not set for this production build. ' +
-            'Configure it in the EAS build profile before shipping.'
+            `Falling back to ${PRODUCTION_API_BASE_URL_FALLBACK} — configure it in the EAS build/update profile.`
         );
+        return PRODUCTION_API_BASE_URL_FALLBACK;
     }
     const fromEnv = envValue || 'http://localhost:8000/api/';
 
@@ -1469,10 +1476,20 @@ class ApiService {
 
     /** iOS StoreKit: verify transaction with backend (`POST /api/payments/apple/verify`). */
     async verifyAppleIapTransaction(transactionId: string, productId?: string): Promise<{ status: string; tier?: string }> {
-        const response = await this.client.post('payments/apple/verify', {
-            transaction_id: transactionId,
-            product_id: productId,
-        });
+        const response = await this.client.post(
+            'payments/apple/verify',
+            {
+                transaction_id: transactionId,
+                product_id: productId,
+            },
+            // The backend's Apple Server API call legitimately takes 30-60s (it
+            // tries the production host, then falls back to sandbox, each with
+            // its own 30s timeout). The 12s axios default aborted client-side
+            // while the backend was still processing (and often succeeding),
+            // which finalized the StoreKit transaction and alerted "Purchase
+            // error" to a user who had just paid successfully.
+            { timeout: 70_000 },
+        );
         return response.data;
     }
 

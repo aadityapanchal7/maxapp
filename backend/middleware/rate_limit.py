@@ -18,6 +18,9 @@ from collections import defaultdict, deque
 from typing import Deque, Dict
 
 from fastapi import Request, HTTPException
+from jose import jwt
+
+from config import settings
 
 
 _LOCK = threading.Lock()
@@ -33,6 +36,55 @@ def _client_ip(request: Request) -> str:
     if xff:
         return xff
     return request.client.host if request.client else "unknown"
+
+
+def _sub_from_bearer(request: Request) -> str | None:
+    """Best-effort JWT `sub` extraction from an Authorization bearer header.
+
+    Never raises: a missing header, non-bearer scheme, malformed token, bad
+    signature, or any other decode problem returns None so the caller falls
+    back to IP-based keying. This is identity extraction for rate-limit
+    bucketing, not an auth decision — expiry is intentionally NOT enforced
+    (a merely-expired-but-validly-signed token still names a real,
+    previously-issued caller and should keep its own budget), but signature
+    verification still is, so nobody can mint fresh buckets without the JWT
+    secret.
+    """
+    try:
+        auth_header = request.headers.get("authorization") or ""
+        if not auth_header.lower().startswith("bearer "):
+            return None
+        token = auth_header.split(" ", 1)[1].strip()
+        if not token:
+            return None
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            options={"verify_exp": False},
+        )
+        sub = payload.get("sub")
+        return str(sub) if sub else None
+    except Exception:
+        return None
+
+
+def _rate_limit_key(scope: str, request: Request) -> str:
+    """Key by the authenticated caller when possible, else by client IP.
+
+    Carrier-grade NAT (campus wifi, T-Mobile, corporate networks) puts
+    thousands of distinct users behind one IP. Keying purely on IP lets one
+    shared-IP cohort exhaust a bucket sized for a single person — e.g.
+    StoreKit replaying unfinished transactions on every launch 429ing
+    everyone behind that IP right after Apple charged them. When the request
+    carries a decodable access token, key on its `sub` (the user id) instead
+    so each user gets their own budget; unauthenticated requests (no/invalid
+    bearer token) keep the previous IP-keyed behavior.
+    """
+    sub = _sub_from_bearer(request)
+    if sub:
+        return f"{scope}:u:{sub}"
+    return f"{scope}:ip:{_client_ip(request)}"
 
 
 def _check(key: str, limit: int, window_s: float) -> None:
@@ -65,11 +117,13 @@ def _check(key: str, limit: int, window_s: float) -> None:
 
 def rate_limit(*, limit: int, window_s: float, scope: str):
     """FastAPI dependency factory: limit `scope` to `limit` hits per `window_s`
-    seconds, keyed by client IP. Usage:
+    seconds. Keyed by the authenticated caller (JWT `sub`) when the request
+    carries a decodable bearer token, else by client IP — see
+    `_rate_limit_key`. Usage:
 
         @router.post("/login", dependencies=[Depends(rate_limit(limit=10, window_s=60, scope="login"))])
     """
     async def _dep(request: Request) -> None:
-        _check(f"{scope}:{_client_ip(request)}", limit, window_s)
+        _check(_rate_limit_key(scope, request), limit, window_s)
 
     return _dep

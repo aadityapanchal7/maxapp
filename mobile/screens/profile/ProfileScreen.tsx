@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, TextInput, ActivityIndicator, Animated, Pressable, Platform, useWindowDimensions, Keyboard } from 'react-native'
 import { LinearGradient } from 'expo-linear-gradient';
-import { Alert } from '../../components/InAppAlert';
+import { Alert, InAppAlertHost } from '../../components/InAppAlert';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -906,6 +906,11 @@ export default function ProfileScreen() {
                         )}
                     </Pressable>
                 </Pressable>
+                {/* Host an alert layer INSIDE this viewer modal so the delete-photo
+                    confirm (Alert.alert in deleteProgressPhoto) renders ABOVE it — a
+                    root-level host's modal would present BEHIND this one, making the
+                    confirm dialog invisible and the Delete button appear dead. */}
+                <InAppAlertHost />
             </Modal>
         </View>
     );

@@ -10,7 +10,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build:web": "expo export --platform web",
-    "ota": "eas update --branch production --clear-cache",
+    "ota": "EXPO_PUBLIC_API_BASE_URL=https://maxapp-api.onrender.com/api/ eas update --branch production --clear-cache",
     "test": "node scripts/run-unit-tests.js",
     "postinstall": "npx patch-package"
   },

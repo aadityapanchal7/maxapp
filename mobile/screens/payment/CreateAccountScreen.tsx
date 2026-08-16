@@ -160,7 +160,14 @@ export default function CreateAccountScreen() {
         // clearing the anon funnel history like the unpaid branch below.
         if (u.is_paid) {
             if (u.onboarding?.completed !== true) {
-                nav.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+                // Resume at the SCHEDULE phase, not the intro quiz — this is a
+                // paying customer, not a fresh signup. Resetting to bare
+                // 'Onboarding' (no phase param) routed them through the intro
+                // quiz and back into the results gate / hard paywall instead
+                // of finishing their schedule questions. continueToSchedule()
+                // also guards on the mounted stack's route names (see its
+                // own comment above).
+                continueToSchedule('replace');
             }
             return;
         }

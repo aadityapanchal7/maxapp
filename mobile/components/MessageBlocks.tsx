@@ -24,14 +24,28 @@ const GOOD = '#2F9E60';
 const CHAT_INK = '#0D0D0D';
 const CHAT_MUTE = '#8E8E93';
 
+// The backend's _extract_visual_blocks only validates that `type` is an
+// allowed string and `data` is a dict/list — every interior leaf (table
+// cells, comparison pros/cons, timeline/flowchart labels, stat-card values,
+// checklist texts) is raw, unvalidated LLM JSON. If any leaf is an
+// object/array/null, React throws "Objects are not valid as a React child"
+// and crashes the whole chat UI mid-conversation. Every rendered leaf below
+// is passed through this so a malformed leaf renders as blank text instead
+// of crashing the screen.
+const txt = (v: any) => (typeof v === 'string' || typeof v === 'number' ? String(v) : '');
+
 function BlockTitle({ title }: { title?: string | null }) {
-    if (!title) return null;
-    return <Text style={s.blockTitle}>{title}</Text>;
+    const t = txt(title);
+    if (!t) return null;
+    return <Text style={s.blockTitle}>{t}</Text>;
 }
 
 function TableBlock({ block }: { block: VisualBlock }) {
     const columns: string[] = Array.isArray(block.data?.columns) ? block.data.columns : [];
-    const rows: string[][] = Array.isArray(block.data?.rows) ? block.data.rows : [];
+    // A row itself (not just a cell) is raw LLM JSON and can be a non-array
+    // (object/string/null) despite the string[][] annotation below — filter
+    // those out before indexing into them, or `r[ci]` on a null row throws.
+    const rows: string[][] = (Array.isArray(block.data?.rows) ? block.data.rows : []).filter(Array.isArray);
     if (!columns.length || !rows.length) return null;
     return (
         <View style={s.card}>
@@ -40,14 +54,14 @@ function TableBlock({ block }: { block: VisualBlock }) {
                 <View>
                     <View style={[s.tr, s.trHead]}>
                         {columns.map((c, i) => (
-                            <Text key={i} style={[s.th, i === 0 && s.cellFirst]} numberOfLines={2}>{c}</Text>
+                            <Text key={i} style={[s.th, i === 0 && s.cellFirst]} numberOfLines={2}>{txt(c)}</Text>
                         ))}
                     </View>
                     {rows.map((r, ri) => (
                         <View key={ri} style={[s.tr, ri % 2 === 1 && s.trAlt]}>
                             {columns.map((_, ci) => (
                                 <Text key={ci} style={[s.td, ci === 0 && s.cellFirst]} numberOfLines={4}>
-                                    {r[ci] ?? ''}
+                                    {txt(r[ci])}
                                 </Text>
                             ))}
                         </View>
@@ -65,23 +79,26 @@ function ComparisonBlock({ block }: { block: VisualBlock }) {
         <View style={s.card}>
             <BlockTitle title={block.title} />
             <View style={s.cmpRow}>
-                {options.slice(0, 3).map((o, i) => (
-                    <View key={i} style={[s.cmpCol, i > 0 && s.cmpDivider]}>
-                        <Text style={s.cmpName}>{o?.name ?? `Option ${i + 1}`}</Text>
-                        {(Array.isArray(o?.pros) ? o.pros : []).map((p: string, pi: number) => (
-                            <View key={`p${pi}`} style={s.cmpLine}>
-                                <Ionicons name="add-circle" size={13} color={GOOD} style={s.cmpIcon} />
-                                <Text style={s.cmpPt}>{p}</Text>
-                            </View>
-                        ))}
-                        {(Array.isArray(o?.cons) ? o.cons : []).map((c: string, ci: number) => (
-                            <View key={`c${ci}`} style={s.cmpLine}>
-                                <Ionicons name="remove-circle" size={13} color={MUTE} style={s.cmpIcon} />
-                                <Text style={[s.cmpPt, { color: SUB }]}>{c}</Text>
-                            </View>
-                        ))}
-                    </View>
-                ))}
+                {options.slice(0, 3).map((o, i) => {
+                    const name = txt(o?.name) || `Option ${i + 1}`;
+                    return (
+                        <View key={i} style={[s.cmpCol, i > 0 && s.cmpDivider]}>
+                            <Text style={s.cmpName}>{name}</Text>
+                            {(Array.isArray(o?.pros) ? o.pros : []).map((p: unknown, pi: number) => (
+                                <View key={`p${pi}`} style={s.cmpLine}>
+                                    <Ionicons name="add-circle" size={13} color={GOOD} style={s.cmpIcon} />
+                                    <Text style={s.cmpPt}>{txt(p)}</Text>
+                                </View>
+                            ))}
+                            {(Array.isArray(o?.cons) ? o.cons : []).map((c: unknown, ci: number) => (
+                                <View key={`c${ci}`} style={s.cmpLine}>
+                                    <Ionicons name="remove-circle" size={13} color={MUTE} style={s.cmpIcon} />
+                                    <Text style={[s.cmpPt, { color: SUB }]}>{txt(c)}</Text>
+                                </View>
+                            ))}
+                        </View>
+                    );
+                })}
             </View>
         </View>
     );
@@ -93,18 +110,21 @@ function TimelineBlock({ block }: { block: VisualBlock }) {
     return (
         <View style={s.card}>
             <BlockTitle title={block.title} />
-            {steps.map((st, i) => (
-                <View key={i} style={s.tlRow}>
-                    <View style={s.tlRail}>
-                        <View style={s.tlDot} />
-                        {i < steps.length - 1 ? <View style={s.tlLine} /> : null}
+            {steps.map((st, i) => {
+                const detail = txt(st?.detail);
+                return (
+                    <View key={i} style={s.tlRow}>
+                        <View style={s.tlRail}>
+                            <View style={s.tlDot} />
+                            {i < steps.length - 1 ? <View style={s.tlLine} /> : null}
+                        </View>
+                        <View style={s.tlBody}>
+                            <Text style={s.tlLabel}>{txt(st?.label)}</Text>
+                            {detail ? <Text style={s.tlDetail}>{detail}</Text> : null}
+                        </View>
                     </View>
-                    <View style={s.tlBody}>
-                        <Text style={s.tlLabel}>{st?.label ?? ''}</Text>
-                        {st?.detail ? <Text style={s.tlDetail}>{st.detail}</Text> : null}
-                    </View>
-                </View>
-            ))}
+                );
+            })}
         </View>
     );
 }
@@ -117,19 +137,22 @@ function FlowchartBlock({ block }: { block: VisualBlock }) {
     return (
         <View style={s.card}>
             <BlockTitle title={block.title} />
-            {norm.map((st, i) => (
-                <View key={i}>
-                    <View style={s.fcNode}>
-                        <Text style={s.fcLabel}>{st?.label ?? ''}</Text>
-                        {st?.note ? <Text style={s.fcNote}>{st.note}</Text> : null}
-                    </View>
-                    {i < norm.length - 1 ? (
-                        <View style={s.fcArrow}>
-                            <Ionicons name="arrow-down" size={15} color={MUTE} />
+            {norm.map((st, i) => {
+                const note = txt(st?.note);
+                return (
+                    <View key={i}>
+                        <View style={s.fcNode}>
+                            <Text style={s.fcLabel}>{txt(st?.label)}</Text>
+                            {note ? <Text style={s.fcNote}>{note}</Text> : null}
                         </View>
-                    ) : null}
-                </View>
-            ))}
+                        {i < norm.length - 1 ? (
+                            <View style={s.fcArrow}>
+                                <Ionicons name="arrow-down" size={15} color={MUTE} />
+                            </View>
+                        ) : null}
+                    </View>
+                );
+            })}
         </View>
     );
 }
@@ -142,16 +165,19 @@ function StatCardsBlock({ block }: { block: VisualBlock }) {
     // opaque card — the glass floats on the white chat surface.
     return (
         <View style={s.statStack}>
-            {cards.slice(0, 4).map((c, i) => (
-                <LiquidGlass key={i} radius={13} spec={0.85} style={s.statPill} contentStyle={s.statPillContent}>
-                    <View style={s.statLine}>
-                        <Text style={s.statValueLine} numberOfLines={1}>{c?.value ?? ''}</Text>
-                        <Text style={s.statLabelLine} numberOfLines={1}>
-                            {c?.label ?? ''}{c?.hint ? `  ·  ${c.hint}` : ''}
-                        </Text>
-                    </View>
-                </LiquidGlass>
-            ))}
+            {cards.slice(0, 4).map((c, i) => {
+                const hint = txt(c?.hint);
+                return (
+                    <LiquidGlass key={i} radius={13} spec={0.85} style={s.statPill} contentStyle={s.statPillContent}>
+                        <View style={s.statLine}>
+                            <Text style={s.statValueLine} numberOfLines={1}>{txt(c?.value)}</Text>
+                            <Text style={s.statLabelLine} numberOfLines={1}>
+                                {txt(c?.label)}{hint ? `  ·  ${hint}` : ''}
+                            </Text>
+                        </View>
+                    </LiquidGlass>
+                );
+            })}
         </View>
     );
 }
@@ -170,7 +196,7 @@ function ChecklistBlock({ block }: { block: VisualBlock }) {
                         size={17}
                         color={it?.done ? GOOD : MUTE}
                     />
-                    <Text style={s.clText}>{it?.text ?? ''}</Text>
+                    <Text style={s.clText}>{txt(it?.text)}</Text>
                 </View>
             ))}
         </View>

@@ -69,14 +69,21 @@ function maxxIcon(id?: string): any | null {
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────
+// In-app navigation passes {scheduleId, taskId, maxxId}. A task-reminder PUSH
+// notification instead passes the backend's route_params shape —
+// {task_uuid, maxx, title}, with no scheduleId at all — so both id fields are
+// optional here and the screen below accepts either naming (see the param
+// extraction in TaskGuideScreen).
 type RouteParams = {
     TaskGuide: {
-        scheduleId: string;
-        taskId: string;
+        scheduleId?: string;
+        taskId?: string;
         maxxId?: string;
         moduleColor?: string;
         moduleLabel?: string;
         done?: boolean;
+        task_uuid?: string;
+        maxx?: string;
     };
 };
 
@@ -308,10 +315,22 @@ export default function TaskGuideScreen() {
     const { height: winH } = useWindowDimensions();
     const navigation = useNavigation<any>();
     const route = useRoute<RouteProp<RouteParams, 'TaskGuide'>>();
-    const { scheduleId, taskId, maxxId } = route.params;
+    // In-app navigation sends {scheduleId, taskId}; a task-reminder PUSH sends
+    // the backend's route_params shape instead — {task_uuid, maxx, title}, no
+    // scheduleId at all — so a direct destructure left both undefined and the
+    // guide query (enabled: !!(scheduleId && taskId)) never ran, permanently
+    // stranding the user on this screen. Accept both shapes; a push carrying a
+    // task id but no schedule id can never resolve (the guide endpoint is
+    // schedule-scoped: schedules/:scheduleId/tasks/:taskId/guide) — surface
+    // that plainly instead of hanging on a spinner that will never clear.
+    const p: any = route.params ?? {};
+    const taskId: string | undefined = p.taskId ?? p.task_uuid;
+    const maxxId: string | undefined = p.maxxId ?? p.maxx;
+    const scheduleId: string | undefined = p.scheduleId ?? p.schedule_id;
+    const unresolvable = !scheduleId && !!taskId;
     const maxImg = maxxIcon(maxxId);
 
-    const { data: guide, isLoading, isError } = useTaskGuide(scheduleId, taskId);
+    const { data: guide, isLoading, isError } = useTaskGuide(scheduleId ?? '', taskId ?? '');
 
     const scrollY = useSharedValue(0);
     const lastPage = useRef(0);
@@ -350,6 +369,8 @@ export default function TaskGuideScreen() {
                             <ActivityIndicator color={MUTE} />
                             <Text style={s.dim}>Preparing your guide…</Text>
                         </>
+                    ) : unresolvable ? (
+                        <Text style={s.dim}>This guide link is missing its schedule — open it from today's schedule instead.</Text>
                     ) : (
                         <Text style={s.dim}>Couldn't load guide. Try again.</Text>
                     )}

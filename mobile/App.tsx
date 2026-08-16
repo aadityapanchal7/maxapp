@@ -408,7 +408,7 @@ function AppNavigator() {
 }
 
 export default function App() {
-    const [fontsLoaded] = useFonts({
+    const [fontsLoaded, fontError] = useFonts({
         'Matter-Regular': require('./assets/fonts/Matter-Regular.ttf'),
         'Matter-Medium': require('./assets/fonts/Matter-Medium.ttf'),
         'Matter-SemiBold': require('./assets/fonts/Matter-SemiBold.ttf'),
@@ -426,6 +426,24 @@ export default function App() {
         'PlayfairDisplay-Regular': require('./assets/fonts/Fraunces-Regular.ttf'),
         'PlayfairDisplay-Italic': require('./assets/fonts/Fraunces-Italic.ttf'),
     });
+
+    // Boot watchdog: `useFonts` can reject (bad/missing font asset) or, on some
+    // devices, simply never resolve — neither case was captured before (only
+    // `fontsLoaded` gated the splash/render), so either failure mode hung the
+    // native splash screen forever with no way forward. The app must ALWAYS
+    // reach a usable screen: after 8s, stop waiting on fonts regardless of
+    // outcome (RN silently falls back to a system font for an unregistered
+    // fontFamily, so proceeding without them degrades gracefully, not fatally).
+    const [bootTimedOut, setBootTimedOut] = useState(false);
+    useEffect(() => {
+        if (fontsLoaded || fontError) return;
+        const t = setTimeout(() => setBootTimedOut(true), 8000);
+        return () => clearTimeout(t);
+    }, [fontsLoaded, fontError]);
+    useEffect(() => {
+        if (fontError) console.warn('[Boot] font load failed:', fontError);
+    }, [fontError]);
+    const fontsReady = fontsLoaded || !!fontError || bootTimedOut;
 
     // Restore the persisted React Query cache BEFORE the provider tree mounts,
     // so the first paint of data screens shows last-known data instead of
@@ -466,15 +484,16 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (fontsLoaded && cacheHydrated) {
+        if (fontsReady && cacheHydrated) {
             void SplashScreen.hideAsync().catch(() => undefined);
         }
-    }, [fontsLoaded, cacheHydrated]);
+    }, [fontsReady, cacheHydrated]);
 
-    // Native: keep the OS splash visible until fonts AND the restored cache are
-    // ready (matches MaxLoadingView look via assets/splash.png).
+    // Native: keep the OS splash visible until fonts (or the boot watchdog)
+    // AND the restored cache are ready (matches MaxLoadingView look via
+    // assets/splash.png).
     // Web: no native splash — show the same React loading UI.
-    if (!fontsLoaded || !cacheHydrated) {
+    if (!fontsReady || !cacheHydrated) {
         if (Platform.OS === 'web') {
             return <MaxLoadingView />;
         }

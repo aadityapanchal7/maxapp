@@ -11,7 +11,7 @@ import {
     Modal,
     Pressable,
 } from 'react-native'
-import { Alert } from '../../components/InAppAlert';
+import { Alert, InAppAlertHost } from '../../components/InAppAlert';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -586,6 +586,11 @@ export default function ProgressArchiveScreen() {
                         </Pressable>
                     </ScrollView>
                 </Pressable>
+                {/* Host an alert layer INSIDE this viewer modal so the delete-photo
+                    confirm (Alert.alert in deletePhoto) renders ABOVE it — a
+                    root-level host's modal would present BEHIND this one, making the
+                    confirm dialog invisible and the Delete button appear dead. */}
+                <InAppAlertHost />
             </Modal>
 
             {/* ── Compare modal ──────────────────────────────────────────── */}

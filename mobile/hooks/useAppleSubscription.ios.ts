@@ -77,7 +77,21 @@ export function useAppleSubscription() {
                 if (Platform.OS !== 'ios') return;
                 const p = purchase as { transactionId?: string; id?: string; productId?: string };
                 const tid = String(p.transactionId ?? p.id ?? '').trim();
-                const isUserInitiated = pendingSkuRef.current !== null;
+                const incomingProductId = p.productId || undefined;
+                // Capture the armed sku SYNCHRONOUSLY, before any `await` below —
+                // pendingSkuRef can be reassigned by a NEW subscribeTier() call
+                // while this listener is still mid-flight (e.g. a stray/replayed
+                // transaction is being verified when the user starts a second
+                // purchase), so every later use in this invocation reads this
+                // captured snapshot, never the live ref. This event resolves the
+                // LIVE in-flight purchase only if it's for the same product the
+                // caller is actually waiting on (or the SDK reported no productId
+                // at all, in which case there's nothing to disambiguate against).
+                // A replayed/stray transaction for a DIFFERENT product must still
+                // be verified+finalized below, but must NEVER settle or clear a
+                // different, still-pending purchase.
+                const armedSku = pendingSkuRef.current;
+                const isArmedMatch = armedSku !== null && (!incomingProductId || incomingProductId === armedSku);
 
                 // Always attempt to finalize the transaction at the end so
                 // StoreKit stops replaying it on every launch, even when the
@@ -107,8 +121,8 @@ export function useAppleSubscription() {
                     }
                     processedTids.current.add(tid);
 
-                    const productId = p.productId || pendingSkuRef.current || undefined;
-                    console.log('[AppleIAP] Verifying transaction:', tid, 'product:', productId);
+                    const productId = incomingProductId || armedSku || undefined;
+                    console.log('[AppleIAP] Verifying transaction:', tid, 'product:', productId, 'armedMatch:', isArmedMatch);
 
                     let result: { status?: string; tier?: string } | undefined;
                     try {
@@ -116,7 +130,28 @@ export function useAppleSubscription() {
                     } catch (e: unknown) {
                         console.error('[AppleIAP] Purchase verification failed:', e);
                         await finalize();
-                        if (isUserInitiated) {
+                        // The client can time out here well before the backend is
+                        // done — it tries Apple's production Server API host, then
+                        // sandbox, sequentially (legitimately up to ~60s). Re-check
+                        // the account before deciding to alert: if the backend
+                        // actually finished and granted the entitlement, a charged
+                        // user must NEVER see "Purchase error".
+                        let freshlyEntitled = false;
+                        if (isArmedMatch) {
+                            try {
+                                const freshUser = await refreshUser();
+                                freshlyEntitled = !!freshUser?.is_paid;
+                            } catch (refreshErr) {
+                                console.warn('[AppleIAP] refreshUser after verify failure failed:', refreshErr);
+                            }
+                        }
+                        if (freshlyEntitled) {
+                            console.log('[AppleIAP] Verify call failed/timed out but entitlement is active — treating as purchased.');
+                            markPostPayPending();
+                            void queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
+                            prefetchMainTabData(queryClient);
+                            verified = true;
+                        } else if (isArmedMatch) {
                             const d = (e as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
                             const msg =
                                 typeof d === 'string'
@@ -138,25 +173,40 @@ export function useAppleSubscription() {
 
                     // Mark BEFORE refreshUser so the flag is already set when
                     // refreshUser flips isPaid and App.tsx's effect fires. Only
-                    // for a real user-initiated purchase — never a StoreKit
-                    // replay/restore — so existing subscribers aren't dropped
-                    // into the post-pay flow on launch.
-                    if (isUserInitiated) markPostPayPending();
+                    // for the purchase the caller is actually waiting on — never a
+                    // StoreKit replay/restore of an unrelated transaction — so
+                    // existing subscribers aren't dropped into the post-pay flow
+                    // on launch.
+                    if (isArmedMatch) markPostPayPending();
                     await refreshUser();
                     void queryClient.invalidateQueries({ queryKey: queryKeys.maxes });
                     prefetchMainTabData(queryClient);
                     verified = true;
                 } finally {
-                    // Settling in `finally` guarantees exactly one settle on every
-                    // path — including an unexpected throw — so the caller can
-                    // never hang waiting on a purchase that already resolved.
-                    settlePurchase(verified);
-                    requestInFlightRef.current = false;
-                    setLoading(null);
-                    pendingSkuRef.current = null;
+                    // Settling — and clearing the in-flight refs — only happens
+                    // for the event that corresponds to the ARMED purchase. A
+                    // non-matching replay must never resolve (or clear the state
+                    // of) a different purchase that's still awaiting its own
+                    // outcome; it stays pending until ITS OWN onPurchaseSuccess/
+                    // onPurchaseError arrives (or the timeout backstop fires).
+                    if (isArmedMatch) {
+                        settlePurchase(verified);
+                        requestInFlightRef.current = false;
+                        setLoading(null);
+                        pendingSkuRef.current = null;
+                    }
                 }
             },
-            onPurchaseError: (error: { code?: string; message: string }) => {
+            onPurchaseError: (error: { code?: string; message: string; productId?: string | null }) => {
+                const armedSku = pendingSkuRef.current;
+                const isArmedMatch = armedSku !== null && (!error.productId || error.productId === armedSku);
+                if (!isArmedMatch) {
+                    // Not the purchase we're waiting on (or nothing is in
+                    // flight) — a stray/replayed error must not touch the live
+                    // request's state or surface a confusing alert.
+                    console.warn('[AppleIAP] Ignoring non-matching purchase error:', error.code, error.productId);
+                    return;
+                }
                 requestInFlightRef.current = false;
                 setLoading(null);
                 pendingSkuRef.current = null;
