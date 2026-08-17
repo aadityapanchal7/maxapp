@@ -1,9 +1,17 @@
 /**
  * ReferralCodeScreen — the step right before the paywall. Enter a referral code
- * (caps-only) and Apply → "Approved". On a full free comp (e.g. CASH99) the
- * bottom button redeems server-side and routes PAST the payment screen straight
- * into the app. No code → continue to checkout as normal. The client never
+ * (caps-only) and Apply → "Approved". On a full free comp (e.g. CASH99, 1 week
+ * of premium) the bottom button redeems server-side and routes PAST the payment
+ * screen. No code → continue to checkout as normal. The client never
  * self-grants — a comp only routes forward after the server confirms entitlement.
+ *
+ * Funnel V4 (pay-BEFORE-account): the visitor here is normally still the
+ * anonymous funnel account — that's expected, NOT a bounce condition. After a
+ * comp redeems mid-funnel the navigator can't remount into the paid stack
+ * (onboarding incomplete keeps treatAsFull false), so the comp path continues
+ * the funnel explicitly to CreateAccount, exactly like PaymentScreen's
+ * afterPurchase. Post-onboarding entries (courses / manage-subscription
+ * upsells) still ride the remount + post-pay flag.
  *
  * Centered, "Craft"-aesthetic layout (cream canvas, serif display title) to match
  * Landing / the paywall.
@@ -27,7 +35,7 @@ export default function ReferralCodeScreen() {
     const nav = useNavigation<any>();
     const route = useRoute<any>();
     const insets = useSafeAreaInsets();
-    const { isAnonymous } = useAuth();
+    const { user } = useAuth();
     const referralsEnabled = useFlag('referrals');
     const initialCode: string | undefined = route?.params?.referralCode;
 
@@ -42,21 +50,9 @@ export default function ReferralCodeScreen() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [referralsEnabled]);
 
-    // Guest gate: an unclaimed anonymous "guest" must create/claim an account before
-    // the paywall — never let a guest reach referral/payment (or the app) as anon.
-    // Debounced: right after claiming (from CreateAccount) the auth state can lag one
-    // render, so isAnonymous is briefly still true when we arrive here. Only bounce a
-    // guest back if they're STILL anon after the transition settles — otherwise a
-    // just-claimed user gets kicked back into CreateAccount in a loop.
-    const isAnonRef = useRef(isAnonymous);
-    isAnonRef.current = isAnonymous;
-    useEffect(() => {
-        if (!isAnonymous) return;
-        const t = setTimeout(() => {
-            if (isAnonRef.current) nav.replace('CreateAccount', route?.params);
-        }, 600);
-        return () => clearTimeout(t);
-    }, [isAnonymous]);
+    // NOTE (funnel V4): the old account-first guest gate that bounced anonymous
+    // users to CreateAccount is gone — under pay-before-account the funnel user
+    // IS anonymous at this step, and the account is claimed AFTER payment/comp.
 
     // No code (or a discount-only code): continue to the paywall, passing any
     // params (e.g. a pre-filled referralCode) straight through.
@@ -72,7 +68,6 @@ export default function ReferralCodeScreen() {
         goPayment();
     };
 
-    if (isAnonymous) return <View style={styles.root} />;  // redirecting an anon guest to CreateAccount
     if (!referralsEnabled) return <View style={styles.root} />;  // redirecting to Payment (referrals off)
 
     return (
@@ -99,14 +94,21 @@ export default function ReferralCodeScreen() {
                         initialCode={initialCode}
                         onValidated={(res) => setCompReady(res.valid && res.free)}
                         onComped={() => {
-                            // A full comp makes the user PAID, so the field's
-                            // refreshUser() flips isPaid and REMOUNTS the navigator
-                            // into the paid stack — a direct navigate() here races and
-                            // loses to that remount (the screen just froze). Set the
-                            // same one-shot post-pay flag the real IAP purchase path
-                            // uses (BEFORE the field refreshes); App.tsx then routes to
-                            // FaceScanResults (or Home) once the paid stack has mounted.
+                            // Set the same one-shot post-pay flag the real IAP
+                            // purchase path uses (BEFORE the field's refreshUser
+                            // flips isPaid).
                             markPostPayPending();
+                            // Funnel V4: mid-funnel (onboarding incomplete) the
+                            // navigator does NOT remount into the paid stack, so
+                            // waiting for a remount would freeze this screen.
+                            // Continue the funnel explicitly — claim the account
+                            // next, exactly like PaymentScreen.afterPurchase.
+                            // (onComped fires before refreshUser, so this navigate
+                            // wins cleanly; CreateAccount exists in the funnel
+                            // stack.) Post-onboarding users keep the remount path.
+                            if (user?.onboarding?.completed !== true) {
+                                nav.navigate('CreateAccount', route?.params);
+                            }
                         }}
                     />
 

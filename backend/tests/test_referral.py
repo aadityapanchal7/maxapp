@@ -202,6 +202,55 @@ async def test_free_comp_grants_entitlement_and_bypasses_paywall(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_default_comp_cash99_is_time_boxed_to_one_week(monkeypatch):
+    """CASH99 (built-in launch comp) = 1 week of premium from redemption, NOT a
+    lifetime grant — the entitlement must carry a subscription_end_date ~7 days
+    out even though the code row itself never expires."""
+    user = _user()
+    code = _code(code="CASH99", kind="free_comp", granted_tier="premium",
+                 campaign="launch", expires_at=None)
+    _patch_loaders(monkeypatch, code)
+    calls = _patch_activate(monkeypatch)
+    db = _FakeDB(user)
+    before = datetime.now(timezone.utc)
+    out = await R.redeem_code(db, user, "CASH99", "ios")
+    after = datetime.now(timezone.utc)
+    assert out["result"] == "comped" and out["free"] is True
+    end = calls["subscription_end_date"]
+    assert end is not None, "CASH99 must be time-boxed, not lifetime"
+    assert before + timedelta(days=R.DEFAULT_COMP_GRANT_DAYS) <= end <= after + timedelta(days=R.DEFAULT_COMP_GRANT_DAYS)
+
+
+@pytest.mark.asyncio
+async def test_bespoke_free_comp_without_expiry_stays_unlimited(monkeypatch):
+    """Only the built-in DEFAULT_COMP_CODES get the 7-day box — a bespoke comp
+    code with no expiry keeps its existing unlimited semantics."""
+    user = _user()
+    code = _code(code="VIPFOREVER", kind="free_comp", granted_tier="premium", expires_at=None)
+    _patch_loaders(monkeypatch, code)
+    calls = _patch_activate(monkeypatch)
+    db = _FakeDB(user)
+    out = await R.redeem_code(db, user, "VIPFOREVER", "ios")
+    assert out["result"] == "comped"
+    assert calls["subscription_end_date"] is None
+
+
+@pytest.mark.asyncio
+async def test_default_comp_respects_sooner_code_expiry(monkeypatch):
+    """If CASH99's row somehow carries an expiry SOONER than 7 days out, the
+    sooner date wins (never grant past the code's own window)."""
+    user = _user()
+    soon = datetime.now(timezone.utc) + timedelta(days=2)
+    code = _code(code="CASH99", kind="free_comp", granted_tier="premium", expires_at=soon)
+    _patch_loaders(monkeypatch, code)
+    calls = _patch_activate(monkeypatch)
+    db = _FakeDB(user)
+    out = await R.redeem_code(db, user, "CASH99", "ios")
+    assert out["result"] == "comped"
+    assert calls["subscription_end_date"] == soon
+
+
+@pytest.mark.asyncio
 async def test_redeem_disabled_flag_blocks(monkeypatch):
     monkeypatch.setattr(R.settings, "referrals_enabled", False, raising=False)
     user = _user()

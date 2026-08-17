@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -235,12 +235,20 @@ async def redeem_code(db: AsyncSession, user: User, code: str, platform: Optiona
     # 3) Apply the effect.
     if full_comp:
         from api.payments import _activate_user
+        # Comp duration: the built-in launch codes (e.g. CASH99) are a 1-WEEK
+        # free trial, not a lifetime grant — time-box to 7 days from redemption.
+        # A code's own expires_at still wins when it's sooner. Other free_comp
+        # codes keep their existing semantics (expires_at or unlimited).
+        comp_end = _as_aware(row.expires_at)
+        if row.code in {normalize_code(c) for c in DEFAULT_COMP_CODES}:
+            week_end = datetime.now(timezone.utc) + timedelta(days=DEFAULT_COMP_GRANT_DAYS)
+            comp_end = min(comp_end, week_end) if comp_end else week_end
         await _activate_user(
             str(uid), None, db,
             subscription_tier=(row.granted_tier if row.granted_tier in ("basic", "premium") else "premium"),
             billing_provider="referral_comp",          # marks a comp (not stripe/apple)
             subscription_status="comped",
-            subscription_end_date=_as_aware(row.expires_at),  # time-boxed if the code expires
+            subscription_end_date=comp_end,
         )
 
     # 4) Attribution (always), reward hook (flag-gated).
@@ -334,6 +342,11 @@ def _discount_redemption_targets(row: ReferralCode, platform: Optional[str]) -> 
 # idempotently on startup so they exist in every environment without an ops
 # step (and survive DB resets). Add codes here to mint new comps.
 DEFAULT_COMP_CODES = ("CASH99",)
+# Built-in comps are a time-boxed trial: 1 week of premium from the moment of
+# redemption, after which the entitlement lapses (auth_middleware treats an
+# expired subscription_end_date as unentitled). One redemption per user, so the
+# week can't be re-minted by re-entering the code.
+DEFAULT_COMP_GRANT_DAYS = 7
 
 
 async def ensure_default_codes(db: AsyncSession) -> None:

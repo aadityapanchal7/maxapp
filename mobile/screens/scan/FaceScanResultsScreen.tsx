@@ -1072,7 +1072,9 @@ export default function FaceScanResultsScreen() {
     // to the account step. Legacy locked-results paths keep their old routing.
     const goPayment = () => {
         if (gateV4) {
-            navigation.navigate(isPaid || isFreeTier ? 'CreateAccount' : 'Payment');
+            // Referral/promo step sits in front of the paywall (a full comp like
+            // CASH99 redeems there and routes past Payment entirely).
+            navigation.navigate(isPaid || isFreeTier ? 'CreateAccount' : 'ReferralCode');
             return;
         }
         navigation.navigate(isAnon ? 'CreateAccount' : 'ReferralCode');

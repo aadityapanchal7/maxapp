@@ -1303,8 +1303,10 @@ export default function OnboardingV2Screen() {
                 // processing loader if the background analysis hasn't landed.
                 void api.saveOnboarding(introPayload() as any).catch(() => {});
                 track('onboarding_step', { step: 'intro_done' });
-                // Skipped the scan → nothing to gate on; straight to the paywall.
-                if (scanSkipped) navigation.navigate('Payment');
+                // Skipped the scan → nothing to gate on; referral/promo step,
+                // then the paywall (a full comp like CASH99 redeems there and
+                // routes past Payment entirely).
+                if (scanSkipped) navigation.navigate('ReferralCode');
                 else navigation.navigate('FaceScanResults', { gateV4: true });
                 return;
             }

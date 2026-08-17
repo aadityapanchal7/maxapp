@@ -85,25 +85,6 @@ function AppNavigator() {
     // navigation is ready. Covers the cold-start-from-tap case.
     const pendingDeepLinkRef = useRef<{ route: string; params?: Record<string, unknown> } | null>(null);
 
-    const goToNotificationData = useCallback(
-        (data: unknown) => {
-            const d = (data ?? {}) as { route?: unknown; params?: unknown };
-            const route = d.route;
-            if (typeof route !== 'string' || !NOTIFICATION_DEEP_LINK_ROUTES.has(route)) return;
-            const params =
-                d.params && typeof d.params === 'object' ? (d.params as Record<string, unknown>) : undefined;
-            // Report the tap so the backend's adaptive backoff counts an "open".
-            void api.notificationOpened();
-            if (navRef.isReady()) {
-                navRef.dispatch(CommonActions.navigate({ name: route, params }));
-                pendingDeepLinkRef.current = null;
-            } else {
-                pendingDeepLinkRef.current = { route, params };
-            }
-        },
-        [navRef],
-    );
-
     // Flush a deferred deep link. ONE implementation, used by every flush site:
     // this previously existed twice and the copies diverged — the NavigationContainer
     // onReady copy passed the raw ref object ({ route, params }) to navigate(),
@@ -113,9 +94,42 @@ function AppNavigator() {
     const flushPendingDeepLink = useCallback(() => {
         const pending = pendingDeepLinkRef.current;
         if (!pending || !navRef.isReady()) return;
+        // Only flush when the MOUNTED stack actually has the target route —
+        // dispatching into the wrong stack (e.g. ReferralCode while the guest
+        // stack is up) is a dropped action AND loses the parked link. Keep it
+        // parked instead; this re-runs on every auth/paid flip, which is
+        // exactly when the right stack mounts.
+        const names: string[] = (navRef.getRootState()?.routeNames as string[] | undefined) ?? [];
+        if (!names.includes(pending.route)) return;
         navRef.dispatch(CommonActions.navigate({ name: pending.route, params: pending.params }));
         pendingDeepLinkRef.current = null;
     }, [navRef]);
+
+    /** Navigate now if the mounted stack has the route, else park for the flush. */
+    const navigateOrPark = useCallback((routeName: string, params?: Record<string, unknown>) => {
+        const names: string[] = navRef.isReady()
+            ? ((navRef.getRootState()?.routeNames as string[] | undefined) ?? [])
+            : [];
+        if (names.includes(routeName)) {
+            navRef.dispatch(CommonActions.navigate({ name: routeName, params }));
+        } else {
+            pendingDeepLinkRef.current = { route: routeName, params };
+        }
+    }, [navRef]);
+
+    const goToNotificationData = useCallback(
+        (data: unknown) => {
+            const d = (data ?? {}) as { route?: unknown; params?: unknown };
+            const route = d.route;
+            if (typeof route !== 'string' || !NOTIFICATION_DEEP_LINK_ROUTES.has(route)) return;
+            const params =
+                d.params && typeof d.params === 'object' ? (d.params as Record<string, unknown>) : undefined;
+            // Report the tap so the backend's adaptive backoff counts an "open".
+            void api.notificationOpened();
+            navigateOrPark(route, params);
+        },
+        [navigateOrPark],
+    );
 
     // Referral deep links (maxapp://referral/<CODE>): pre-fill the code on the
     // paywall. No-op when the `referrals` flag is OFF, so it's inert today.
@@ -126,8 +140,12 @@ function AppNavigator() {
             const code = parseReferralCode(url);
             if (!code) return;
             const params = { referralCode: code };
-            if (navRef.isReady()) (navRef as any).navigate('Payment', params);
-            else pendingDeepLinkRef.current = { route: 'Payment', params };
+            // ReferralCode (not Payment): the paywall no longer hosts the code
+            // field — the dedicated page pre-fills + auto-validates initialCode.
+            // navigateOrPark: a logged-out user's guest stack doesn't register
+            // ReferralCode, so navigating would silently drop the action AND
+            // lose the code — park it until the funnel stack mounts instead.
+            navigateOrPark('ReferralCode', params);
         };
         const sub = Linking.addEventListener('url', (e) => mounted && handle(e.url));
         void Linking.getInitialURL().then((u) => mounted && handle(u)).catch(() => undefined);
@@ -135,7 +153,7 @@ function AppNavigator() {
             mounted = false;
             sub.remove();
         };
-    }, [navRef]);
+    }, [navigateOrPark]);
 
     // Home Screen widget deep links (cannon://today | cannon://home | bare
     // cannon://): open the app to the Home tab. Handles warm foreground taps,
