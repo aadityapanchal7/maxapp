@@ -14,7 +14,7 @@
  * choice is presentation only. Hard paywall: no free tier entry point.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -82,7 +82,7 @@ export default function PaymentScreen() {
     const navigation = useNavigation<any>();
     const route = useRoute<any>();
     const insets     = useSafeAreaInsets();
-    const { user, refreshUser, isAnonymous, isFreeTier } = useAuth();
+    const { user, refreshUser, isAnonymous, isFreeTier, isPaid } = useAuth();
 
     // Funnel V4: the paywall comes BEFORE account creation — anonymous users
     // purchase (Apple IAP is Apple-ID-scoped; the entitlement attaches to this
@@ -152,6 +152,33 @@ export default function PaymentScreen() {
             navigation.goBack();
         }
     };
+
+    // An ENTITLED user must never be asked to pay. If isPaid reads true while
+    // this screen is up — a referral comp redeemed on the ReferralCode screen
+    // behind us, a restore, the foreground entitlement reconciler — leave via
+    // the same routing a purchase uses. CRITICAL: local isPaid can be a STALE
+    // hydrated cache (e.g. an expired comp before the fresh /users/me lands),
+    // so confirm with the server before exiting; on any doubt, keep the
+    // paywall. One-shot so the exit navigation can't loop.
+    const paidExitRef = useRef(false);
+    useEffect(() => {
+        if (!isPaid || paidExitRef.current) return;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const fresh = await refreshUser();
+                if (cancelled || paidExitRef.current) return;
+                if (fresh?.is_paid) {
+                    paidExitRef.current = true;
+                    afterPurchase();
+                }
+            } catch {
+                // Could not verify — do NOT skip the paywall on cache alone.
+            }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isPaid]);
 
     const [devBusy, setDevBusy] = useState<'premium' | null>(null);
     const devBypass = async () => {
@@ -328,6 +355,20 @@ export default function PaymentScreen() {
                     {payNow ? 'Cancel anytime in Settings' : 'No payment due today · cancel anytime'}
                 </Text>
 
+                {/* A referral code must be usable from EVERY paywall, not just the
+                    funnel step — a full comp (e.g. CASH99) redeems there and this
+                    screen's isPaid auto-exit closes the paywall without payment. */}
+                <TouchableOpacity
+                    style={s.referralLinkWrap}
+                    onPress={() => navigation.navigate('ReferralCode', route?.params)}
+                    hitSlop={8}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Enter a referral code"
+                >
+                    <Text style={s.referralLink}>Have a referral code?</Text>
+                </TouchableOpacity>
+
                 {/* Legal footer */}
                 <View style={s.legalRow}>
                     <TouchableOpacity onPress={() => navigation.navigate('LegalDocument', { document: 'terms' })} hitSlop={8} activeOpacity={0.7}>
@@ -454,6 +495,14 @@ const s = StyleSheet.create({
         fontFamily: 'Matter-Medium',
         fontSize: 13,
         color: MUTED,
+        letterSpacing: 0.1,
+    },
+    referralLinkWrap: { alignSelf: 'center', marginTop: 14 },
+    referralLink: {
+        fontFamily: 'Matter-Medium',
+        fontSize: 13.5,
+        color: MUTED,
+        textDecorationLine: 'underline',
         letterSpacing: 0.1,
     },
 
