@@ -139,7 +139,9 @@ async def validate_code(db: AsyncSession, code: str, user_id: Optional[str] = No
         uid = UUID(str(user_id))
         if row.owner_user_id and row.owner_user_id == uid:
             return {"valid": False, "kind": row.kind, "reason": "self_referral", "message": _REASON_MESSAGE["self_referral"]}
-        if await _existing_redemption(db, row.id, uid):
+        # Built-in launch comps (CASH99) are re-redeemable: each redemption
+        # grants a fresh 1-week window, so a prior use never invalidates entry.
+        if not _is_default_comp(row) and await _existing_redemption(db, row.id, uid):
             return {"valid": False, "kind": row.kind, "reason": "already_used", "message": _REASON_MESSAGE["already_used"]}
 
     free = row.kind == "free_comp" or (
@@ -154,6 +156,11 @@ async def validate_code(db: AsyncSession, code: str, user_id: Optional[str] = No
     else:
         msg = "code applied."
     return {"valid": True, "kind": row.kind, "free": free, "discount": discount, "message": msg, "reason": None}
+
+
+def _is_default_comp(row: ReferralCode) -> bool:
+    """Built-in launch comp (e.g. CASH99): re-redeemable, each grant = 1 week."""
+    return row.code in {normalize_code(c) for c in DEFAULT_COMP_CODES}
 
 
 def _is_full_comp(row: ReferralCode) -> bool:
@@ -184,15 +191,26 @@ async def redeem_code(db: AsyncSession, user: User, code: str, platform: Optiona
     if row.owner_user_id and row.owner_user_id == uid:
         raise ReferralError("self_referral", _REASON_MESSAGE["self_referral"])
 
-    # Idempotency / one-per-user (fast path before any mutation).
+    # Idempotency / one-per-user (fast path before any mutation). Built-in
+    # launch comps (CASH99) are exempt: they're re-redeemable, each redemption
+    # granting a fresh 1-week window.
+    default_comp = _is_default_comp(row)
     existing = await _existing_redemption(db, row.id, uid)
-    if existing:
+    if existing and not default_comp:
         return _result_payload(row, existing.result, existing.id, platform, idempotent=True)
 
     full_comp = _is_full_comp(row)
-    # Don't comp someone who is already a paying/comped subscriber.
-    if full_comp and bool(user.is_paid):
-        raise ReferralError("already_entitled", _REASON_MESSAGE["already_entitled"])
+    # Don't comp over a CURRENTLY-ACTIVE store subscription — a comp overwrites
+    # the subscription fields, which must never stomp a live Apple/Stripe plan.
+    # An EXPIRED subscriber (store or comp) and an active comp holder may both
+    # redeem: is_paid alone stays True after expiry, so the old blanket
+    # `is_paid` check wrongly locked out exactly the users a comp is for.
+    if full_comp:
+        end = _as_aware(user.subscription_end_date)
+        currently_entitled = bool(user.is_paid) and (end is None or end > datetime.now(timezone.utc))
+        via_comp = (user.billing_provider or "") == "referral_comp"
+        if currently_entitled and not via_comp:
+            raise ReferralError("already_entitled", _REASON_MESSAGE["already_entitled"])
 
     # Decide the audited result up front.
     if full_comp:
@@ -216,21 +234,34 @@ async def redeem_code(db: AsyncSession, user: User, code: str, platform: Optiona
         await db.rollback()
         raise ReferralError("max_reached", _REASON_MESSAGE["max_reached"])
 
-    # 2) Insert the audit row — the unique (code_id, user_id) makes this the
-    #    one-per-user gate even under a race that beat the fast-path check.
-    redemption = ReferralRedemption(
-        code_id=row.id, user_id=uid, kind_at_redemption=row.kind,
-        result=result, platform=platform,
-    )
-    db.add(redemption)
-    try:
-        await db.flush()
-    except IntegrityError:
-        await db.rollback()
-        existing = await _existing_redemption(db, row.id, uid)
-        if existing:
-            return _result_payload(row, existing.result, existing.id, platform, idempotent=True)
-        raise ReferralError("already_used", _REASON_MESSAGE["already_used"])
+    # 2) Audit row. The unique (code_id, user_id) is the one-per-user gate for
+    #    normal codes, even under a race that beat the fast-path check. For a
+    #    re-redeemable default comp, REUSE the existing row (unique constraint
+    #    forbids a second) — the re-grant itself is the effect that matters.
+    if existing and default_comp:
+        redemption = existing
+        redemption.result = result
+        redemption.platform = platform
+        redemption.kind_at_redemption = row.kind
+    else:
+        redemption = ReferralRedemption(
+            code_id=row.id, user_id=uid, kind_at_redemption=row.kind,
+            result=result, platform=platform,
+        )
+        db.add(redemption)
+        try:
+            await db.flush()
+        except IntegrityError:
+            await db.rollback()
+            existing = await _existing_redemption(db, row.id, uid)
+            if existing:
+                if default_comp:
+                    # Race with our own first redemption — reuse and re-grant.
+                    redemption = existing
+                else:
+                    return _result_payload(row, existing.result, existing.id, platform, idempotent=True)
+            else:
+                raise ReferralError("already_used", _REASON_MESSAGE["already_used"])
 
     # 3) Apply the effect.
     if full_comp:

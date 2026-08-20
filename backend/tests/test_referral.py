@@ -251,6 +251,84 @@ async def test_default_comp_respects_sooner_code_expiry(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_default_comp_is_re_redeemable_with_fresh_week(monkeypatch):
+    """CASH99 can be redeemed UNLIMITED times by the same user: a prior
+    redemption row must not short-circuit to the cached payload, and each
+    re-redemption re-grants a fresh 7-day window (reusing the audit row)."""
+    user = _user(is_paid=True, billing_provider="referral_comp",
+                 subscription_end_date=datetime.now(timezone.utc) - timedelta(days=1))  # expired comp
+    code = _code(code="CASH99", kind="free_comp", granted_tier="premium", campaign="launch")
+    prior = ReferralRedemption(id=uuid4(), code_id=code.id, user_id=user.id,
+                               kind_at_redemption="free_comp", result="comped", platform="ios")
+    _patch_loaders(monkeypatch, code, existing=prior)
+    calls = _patch_activate(monkeypatch)
+    db = _FakeDB(user)
+    before = datetime.now(timezone.utc)
+    out = await R.redeem_code(db, user, "CASH99", "ios")
+    assert out["result"] == "comped"
+    assert not out.get("idempotent"), "re-redemption must RE-GRANT, not return the cached result"
+    end = calls["subscription_end_date"]
+    assert end is not None and end >= before + timedelta(days=R.DEFAULT_COMP_GRANT_DAYS - 1)
+    # audit row reused, never a second insert (unique constraint forbids it)
+    assert not any(isinstance(o, ReferralRedemption) for o in db.added)
+
+
+@pytest.mark.asyncio
+async def test_default_comp_allows_expired_store_subscriber(monkeypatch):
+    """A LAPSED Apple/Stripe subscriber may redeem a comp — is_paid stays True
+    after expiry, and the old blanket is_paid check wrongly locked them out."""
+    user = _user(is_paid=True, billing_provider="apple",
+                 subscription_end_date=datetime.now(timezone.utc) - timedelta(days=3))
+    code = _code(code="CASH99", kind="free_comp", granted_tier="premium")
+    _patch_loaders(monkeypatch, code)
+    calls = _patch_activate(monkeypatch)
+    out = await R.redeem_code(_FakeDB(user), user, "CASH99", "ios")
+    assert out["result"] == "comped"
+    assert calls["subscription_end_date"] is not None
+
+
+@pytest.mark.asyncio
+async def test_comp_still_refused_for_active_store_subscriber(monkeypatch):
+    """A CURRENTLY-ACTIVE store subscription must never be stomped by a comp."""
+    user = _user(is_paid=True, billing_provider="apple",
+                 subscription_end_date=datetime.now(timezone.utc) + timedelta(days=20))
+    code = _code(code="CASH99", kind="free_comp", granted_tier="premium")
+    _patch_loaders(monkeypatch, code)
+    _patch_activate(monkeypatch)
+    with pytest.raises(R.ReferralError) as e:
+        await R.redeem_code(_FakeDB(user), user, "CASH99", "ios")
+    assert e.value.reason == "already_entitled"
+
+
+@pytest.mark.asyncio
+async def test_bespoke_comp_keeps_one_per_user(monkeypatch):
+    """Non-default comps keep the one-per-user gate: a second redeem returns
+    the cached idempotent payload and never re-activates."""
+    user = _user()
+    code = _code(code="VIPCODE", kind="free_comp", granted_tier="premium")
+    prior = ReferralRedemption(id=uuid4(), code_id=code.id, user_id=user.id,
+                               kind_at_redemption="free_comp", result="comped", platform="ios")
+    _patch_loaders(monkeypatch, code, existing=prior)
+    calls = _patch_activate(monkeypatch)
+    out = await R.redeem_code(_FakeDB(user), user, "VIPCODE", "ios")
+    assert out.get("idempotent") is True
+    assert "subscription_end_date" not in calls, "cached path must not re-activate"
+
+
+@pytest.mark.asyncio
+async def test_validate_allows_reentry_of_default_comp(monkeypatch):
+    """validate() must not report already_used for CASH99 — the UI's Apply
+    button has to light up on re-entry."""
+    user = _user()
+    code = _code(code="CASH99", kind="free_comp", granted_tier="premium")
+    prior = ReferralRedemption(id=uuid4(), code_id=code.id, user_id=user.id,
+                               kind_at_redemption="free_comp", result="comped", platform="ios")
+    _patch_loaders(monkeypatch, code, existing=prior)
+    out = await R.validate_code(_FakeDB(user), "CASH99", user_id=str(user.id))
+    assert out["valid"] is True and out["free"] is True
+
+
+@pytest.mark.asyncio
 async def test_redeem_disabled_flag_blocks(monkeypatch):
     monkeypatch.setattr(R.settings, "referrals_enabled", False, raising=False)
     user = _user()
