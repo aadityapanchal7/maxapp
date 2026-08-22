@@ -1572,7 +1572,11 @@ class ApiService {
     /** Server-authoritative redeem. Free comps grant entitlement (caller should
      *  refreshUser() and route past the paywall); discounts return platform targets. */
     async redeemReferral(code: string, platform: 'ios' | 'web'): Promise<ReferralRedeemResult> {
-        const response = await this.client.post('referral/redeem', { code, platform });
+        // Redeem does several DB round-trips server-side (count guard, audit
+        // row, entitlement activation, attribution). The 12s default aborted
+        // slow-but-successful redemptions, and the caller then routed a
+        // freshly-comped user to the PAYWALL. Give it real headroom.
+        const response = await this.client.post('referral/redeem', { code, platform }, { timeout: 30_000 });
         return response.data;
     }
 

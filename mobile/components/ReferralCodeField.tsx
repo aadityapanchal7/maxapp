@@ -103,6 +103,20 @@ export const ReferralCodeField = forwardRef<ReferralCodeHandle, {
             setMessage(res.message || 'code applied.');
             return false;
         } catch (e: any) {
+            // The request can FAIL client-side (timeout, network blip) after the
+            // server already granted the comp. Before declaring failure, re-check
+            // the account: if the entitlement actually flipped, this IS a
+            // successful redemption — a comped user must never be bounced to the
+            // paywall by a transient error.
+            try {
+                const fresh = await refreshUser();
+                if (fresh?.is_paid) {
+                    setStatus('comped');
+                    setMessage('premium is on us, welcome in.');
+                    onComped?.();
+                    return true;
+                }
+            } catch { /* fall through to the honest error */ }
             const detail = e?.response?.data?.detail;
             setStatus('error');
             setMessage(detail?.message || "couldn't redeem that code.");

@@ -64,6 +64,10 @@ export default function ReferralCodeScreen() {
         if (compReady) {
             const comped = await fieldRef.current?.redeem();
             if (comped) return; // onComped already routed us into the app
+            // A validated comp that failed to redeem (transient error) must NOT
+            // silently fall through to the paywall — the field is showing the
+            // error; let the user retry (or tap "I don't have a code" to skip).
+            return;
         }
         goPayment();
     };
@@ -95,19 +99,32 @@ export default function ReferralCodeScreen() {
                         onValidated={(res) => setCompReady(res.valid && res.free)}
                         onComped={() => {
                             // Set the same one-shot post-pay flag the real IAP
-                            // purchase path uses (BEFORE the field's refreshUser
-                            // flips isPaid).
+                            // purchase path uses (so a stack remount, if one
+                            // happens, also routes to the reveal).
                             markPostPayPending();
-                            // Funnel V4: mid-funnel (onboarding incomplete) the
-                            // navigator does NOT remount into the paid stack, so
-                            // waiting for a remount would freeze this screen.
-                            // Continue the funnel explicitly — claim the account
-                            // next, exactly like PaymentScreen.afterPurchase.
-                            // (onComped fires before refreshUser, so this navigate
-                            // wins cleanly; CreateAccount exists in the funnel
-                            // stack.) Post-onboarding users keep the remount path.
+                            // ALWAYS route actively — never wait for a navigator
+                            // remount. A remount only happens when treatAsFull
+                            // FLIPS; a user who was already in the full stack
+                            // (free tier, resumed paid-incomplete, upsell entry)
+                            // gets no remount and used to sit stuck here until
+                            // an app restart.
                             if (user?.onboarding?.completed !== true) {
+                                // Mid-funnel: claim the account next, exactly
+                                // like PaymentScreen.afterPurchase.
                                 nav.navigate('CreateAccount', route?.params);
+                                return;
+                            }
+                            // Onboarded: straight to the post-pay reveal (the
+                            // screen is registered in BOTH stacks, so this works
+                            // whether or not a remount follows; if one does, the
+                            // post-pay flag re-routes to the same place).
+                            const names: string[] = ((nav.getState?.() as any)?.routeNames) ?? [];
+                            if (names.includes('FaceScanResults')) {
+                                nav.navigate('FaceScanResults', { postPay: true });
+                            } else if (names.includes('Main')) {
+                                nav.navigate('Main');
+                            } else if (nav.canGoBack()) {
+                                nav.goBack();
                             }
                         }}
                     />
