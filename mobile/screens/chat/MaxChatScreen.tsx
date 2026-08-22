@@ -9,7 +9,6 @@ import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { useAudioRecorder, RecordingPresets, requestRecordingPermissionsAsync } from 'expo-audio';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useQueryClient } from '@tanstack/react-query';
 import api, { type VisualBlock, type MethodConfidence } from '../../services/api';
 import MessageBlocks from '../../components/MessageBlocks';
@@ -475,7 +474,6 @@ export default function MaxChatScreen() {
     // MaxChatScreen is a bottom-tab child, so the keyboard avoider must offset by
     // the tab bar height — otherwise the composer (and its Send button) hides
     // BEHIND the keyboard when typing a reply, e.g. a custom onboarding answer.
-    const tabBarHeight = useBottomTabBarHeight();
     const queryClient = useQueryClient();
     const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
     const chatHistoryQuery = useChatHistoryQuery(activeConversationId);
@@ -1408,13 +1406,15 @@ export default function MaxChatScreen() {
 
     return (
         <View style={styles.container}>
-            {/* keyboardVerticalOffset = the bottom tab bar height. This screen
-                is a tab child, so the OS keyboard rises over the tab bar; without
-                this offset the composer + Send button sit BEHIND the keyboard
-                (you can't reach Send to send a typed/custom answer). A hardcoded
-                0 hid it; a hardcoded 90 over-corrected — the live tab bar height
-                is exactly right on every device. */}
-            <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={tabBarHeight}>
+            {/* keyboardVerticalOffset history: with the OLD docked tab bar the
+                screen was clipped above the bar and offset=tabBarHeight was
+                needed (0 hid the composer behind the keyboard). The floating
+                pill-bar redesign made tab screens extend to the window bottom,
+                so KAV's own frame math now fully covers the keyboard — keeping
+                the offset double-counted the bar and floated the composer a
+                full tab-bar of empty space above the keyboard. Offset must be
+                0 under the pill bar. (Sim-verified after the redesign.) */}
+            <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
                 <View style={[cg.header, { paddingTop: Math.max(insets.top + 6, 44) }]}>
                     <TouchableOpacity
                         style={cg.headerBtn}

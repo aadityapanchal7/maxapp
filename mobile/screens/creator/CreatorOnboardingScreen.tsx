@@ -1074,7 +1074,10 @@ export default function CreatorOnboardingScreen() {
                             </>
                         )}
                         <TouchableOpacity
-                            onPress={() => api.resetCreatorOnboardingTest().then(setState)}
+                            onPress={() =>
+                                api.resetCreatorOnboardingTest().then(setState).catch(() =>
+                                    setError('Could not reset the test drive — try again.'))
+                            }
                             activeOpacity={0.85}
                             style={s.resetLink}
                         >
@@ -1102,7 +1105,13 @@ export default function CreatorOnboardingScreen() {
                                 return (
                                     <TouchableOpacity
                                         key={tier}
-                                        onPress={() => api.setCreatorOnboardingPricing(tier).then(setState)}
+                                        // .catch matters: price_tier gates this step's
+                                        // Continue — a silently-failed save left the
+                                        // button permanently disabled with no feedback.
+                                        onPress={() =>
+                                            api.setCreatorOnboardingPricing(tier).then(setState).catch(() =>
+                                                setError('Could not save your price — try again.'))
+                                        }
                                         activeOpacity={0.85}
                                     >
                                         <LiquidGlass

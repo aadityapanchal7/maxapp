@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Platform, Linking } from 'react-native'
 import { Alert } from '../../components/InAppAlert';
-import { useNavigation, useFocusEffect, CommonActions } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -197,12 +197,23 @@ export default function ManageSubscriptionScreen() {
                     setActionBusy(immediate ? 'cancel-now' : 'cancel-end');
                     try {
                         await api.cancelSubscription(immediate);
-                        await refreshUser();
-                        await loadStatus();
-                        if (immediate) {
-                            navigation.dispatch(
-                                CommonActions.reset({ index: 0, routes: [{ name: 'ReferralCode' }] }),
-                            );
+                        // The cancel SUCCEEDED past this line — a transient
+                        // failure in the follow-up refreshes must NOT surface
+                        // "Could not cancel" (retrying then 404s on the already-
+                        // cleared subscription, compounding the confusion).
+                        try {
+                            // Refresh the screen's own status FIRST, then flip
+                            // auth LAST: on an immediate cancel refreshUser()
+                            // drops isPaid, treatAsFull flips, and the navigator
+                            // REMOUNTS into the funnel stack — that remount IS
+                            // the exit. The old manual reset here was dispatched
+                            // after the remount on the unmounted navigator's
+                            // prop and silently dropped, stranding the user on a
+                            // stale screen until an app restart.
+                            await loadStatus();
+                            await refreshUser();
+                        } catch (refreshErr) {
+                            console.warn('[ManageSubscription] post-cancel refresh failed (cancel itself succeeded):', refreshErr);
                         }
                     } catch (e: unknown) {
                         const msg =

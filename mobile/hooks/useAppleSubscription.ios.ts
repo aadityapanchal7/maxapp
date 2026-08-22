@@ -49,6 +49,15 @@ export function useAppleSubscription() {
     const pendingSkuRef = useRef<string | null>(null);
     const requestInFlightRef = useRef(false);
     const processedTids = useRef<Set<string>>(new Set());
+    // Transactions with a verify CURRENTLY in flight. onPurchaseSuccess marks
+    // processedTids BEFORE verifying (session-long dedupe) while the recovery
+    // effect marks AFTER (failed verifies stay retryable) — deliberately
+    // opposite orderings, which left a window where both paths (StoreKit's
+    // post-update replay + the recovery sweep) verified the SAME transaction
+    // concurrently. This set closes the window without changing either
+    // path's retry semantics: entries are added synchronously pre-await and
+    // removed in finally.
+    const verifyingTids = useRef<Set<string>>(new Set());
     const recoveringRef = useRef(false);
     const [products, setProducts] = useState<Product[]>([]);
 
@@ -119,7 +128,14 @@ export function useAppleSubscription() {
                         await finalize();
                         return;
                     }
+                    if (verifyingTids.current.has(tid)) {
+                        // The recovery sweep is already verifying this exact
+                        // transaction — let it finish; it also finalizes.
+                        console.log('[AppleIAP] Verify already in flight for', tid);
+                        return;
+                    }
                     processedTids.current.add(tid);
+                    verifyingTids.current.add(tid);
 
                     const productId = incomingProductId || armedSku || undefined;
                     console.log('[AppleIAP] Verifying transaction:', tid, 'product:', productId, 'armedMatch:', isArmedMatch);
@@ -183,6 +199,7 @@ export function useAppleSubscription() {
                     prefetchMainTabData(queryClient);
                     verified = true;
                 } finally {
+                    verifyingTids.current.delete(tid);
                     // Settling — and clearing the in-flight refs — only happens
                     // for the event that corresponds to the ARMED purchase. A
                     // non-matching replay must never resolve (or clear the state
@@ -328,7 +345,8 @@ export function useAppleSubscription() {
                 for (const purchase of purchases) {
                     const p = purchase as { transactionId?: string; id?: string; productId?: string };
                     const tid = String(p.transactionId ?? p.id ?? '').trim();
-                    if (!tid || processedTids.current.has(tid)) continue;
+                    if (!tid || processedTids.current.has(tid) || verifyingTids.current.has(tid)) continue;
+                    verifyingTids.current.add(tid);
                     try {
                         await api.verifyAppleIapTransaction(tid, p.productId || undefined);
                         // Only a SUCCESSFUL verify consumes the transaction. A
@@ -341,6 +359,8 @@ export function useAppleSubscription() {
                         await refreshUser();
                     } catch (err) {
                         console.warn('[AppleIAP] recover verify failed (left retryable):', tid, err);
+                    } finally {
+                        verifyingTids.current.delete(tid);
                     }
                 }
             } catch (e) {
@@ -480,6 +500,7 @@ export function useAppleSubscription() {
         setRestoring(true);
         let restoredActive = false;
         let attempted = 0;
+        let ownedByOtherAccount = false;
         try {
             // Normalise to an array — `react-native-iap` has been observed to
             // resolve to `undefined` when there are no prior purchases on the
@@ -501,6 +522,14 @@ export function useAppleSubscription() {
                     }
                 } catch (err) {
                     console.warn('[AppleIAP] restore verify failed for', tid, err);
+                    // Ownership refusal: the sub is held by a DIFFERENT claimed
+                    // Max account (classic reinstall-as-new-anon). Remember it —
+                    // telling this user "subscription expired, subscribe again"
+                    // is false and re-subscribing just hits AlreadyOwned again.
+                    const detail = String((err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail ?? '');
+                    if (/different max account|another max account|account_token_mismatch/i.test(detail)) {
+                        ownedByOtherAccount = true;
+                    }
                 } finally {
                     try { await finishTransaction({ purchase }); } catch {}
                     processedTids.current.add(tid);
@@ -513,6 +542,13 @@ export function useAppleSubscription() {
 
             if (restoredActive) {
                 Alert.alert('Purchases restored', 'Your subscription has been restored on this device.');
+            } else if (ownedByOtherAccount) {
+                // The truth, with the actual way out — NOT "subscribe again"
+                // (which would just bounce off StoreKit's AlreadyOwned forever).
+                Alert.alert(
+                    'Subscription on another account',
+                    'Your Apple ID has an active Max subscription, but it belongs to a different Max account. Sign in with the account you originally subscribed on to keep using it.',
+                );
             } else if (attempted === 0) {
                 Alert.alert(
                     'Nothing to restore',

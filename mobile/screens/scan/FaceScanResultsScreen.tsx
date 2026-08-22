@@ -1105,8 +1105,16 @@ export default function FaceScanResultsScreen() {
             return;
         }
         if (isScanUser) { navigation.reset({ index: 0, routes: [{ name: 'FaceScan' }] }); return; }
-        if (navigation.canGoBack()) navigation.goBack();
-        else navigation.navigate('Main');
+        if (navigation.canGoBack()) { navigation.goBack(); return; }
+        // Fallback target must exist in the MOUNTED stack: for an onboarded
+        // unpaid user this screen is the stack's INITIAL route (canGoBack is
+        // always false) and 'Main' isn't registered — navigate('Main') was a
+        // silent no-op, i.e. a permanently dead Back button on every relaunch.
+        const names: string[] = ((navigation.getState?.() as any)?.routeNames) ?? [];
+        if (names.includes('Main')) navigation.navigate('Main');
+        else if (names.includes('ReferralCode')) navigation.navigate('ReferralCode');
+        // else: genuinely nowhere to go (initial route of the funnel) — no-op
+        // is honest here; the primary CTA is the way forward.
     };
 
     useEffect(() => {
@@ -1232,6 +1240,11 @@ export default function FaceScanResultsScreen() {
                 {treatAsPaid ? (
                     <TouchableOpacity style={s.fetchSkipBtn} onPress={() => {
                         advancedRef.current = true; setAdvancing(true);
+                        // Scan-only users mount in ScanOnlyNavigator, which has
+                        // no 'Main' — the unconditional navigate was a silent
+                        // no-op, leaving them with no working exit if retry also
+                        // kept failing. Same guard the rest of this file uses.
+                        if (isScanUser) { navigation.reset({ index: 0, routes: [{ name: 'FaceScan' }] }); return; }
                         if (postPayParam) advancePostPay(); else navigation.navigate('Main');
                     }} activeOpacity={0.85}>
                         <Text style={s.fetchSkipText}>Skip for now</Text>

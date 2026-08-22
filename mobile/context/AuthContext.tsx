@@ -2,12 +2,12 @@
  * Auth Context - Global authentication state
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { AppState, type AppStateStatus, Platform } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
 import { getItemAsync } from '../services/storage';
 import { ensureFirstRunClean } from '../lib/firstRunGuard';
-import api, { subscribeAuthLost } from '../services/api';
+import api, { subscribeAuthLost, subscribeEntitlementLost } from '../services/api';
 import { clearFaceScanDraft, clearPendingFaceScanSubmit } from '../lib/faceScanDraft';
 import { clearOnboardingDraft } from '../lib/onboardingDraft';
 import { clearRestoredTab } from '../lib/navState';
@@ -331,6 +331,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         return unsubscribe;
     }, [queryClient]);
+
+    // Entitlement lapsed mid-session (any endpoint 402'd): re-fetch the user so
+    // isPaid reflects reality — the treatAsFull flip remounts onto the unpaid
+    // stack, giving every gated action the same graceful "subscription ended"
+    // exit instead of per-screen error roulette. Single-flight via the ref.
+    const entitlementResyncInFlight = useRef(false);
+    useEffect(() => {
+        const unsubscribe = subscribeEntitlementLost(() => {
+            if (entitlementResyncInFlight.current) return;
+            entitlementResyncInFlight.current = true;
+            void (async () => {
+                try {
+                    await refreshUser();
+                } catch {
+                    /* transient — the next 402 retriggers */
+                } finally {
+                    entitlementResyncInFlight.current = false;
+                }
+            })();
+        });
+        return unsubscribe;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // Auto-refresh iOS APNs push token on launch for users who've opted into push.
     // Tokens can rotate (reinstall, restore, iOS refresh), so re-registering keeps

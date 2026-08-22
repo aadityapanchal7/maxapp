@@ -18,6 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import api from '../../services/api';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../lib/queryClient';
 import { CachedImage } from '../../components/CachedImage';
 import { colors, spacing, borderRadius, fonts } from '../../theme/dark';
 import { formatFaceRatingLabel } from '../../utils/faceRatingLabel';
@@ -80,6 +82,7 @@ const getImageWidth = (width: number) =>
 
 export default function ProgressArchiveScreen() {
     const navigation = useNavigation<any>();
+    const queryClient = useQueryClient();
     const { width: winWidth } = useWindowDimensions();
     const insets = useSafeAreaInsets();
 
@@ -265,6 +268,10 @@ export default function ProgressArchiveScreen() {
                         setPhotos(updated);
                         if (updated.length === 0) setViewerVisible(false);
                         else setSelectedIndex(prev => Math.min(prev, updated.length - 1));
+                        // ProfileScreen caches the same grid under this key with
+                        // no focus-refetch — without invalidating, the deleted
+                        // photo kept showing there until staleTime lapsed.
+                        void queryClient.invalidateQueries({ queryKey: queryKeys.profileProgressPhotos });
                     } catch { Alert.alert('Error', 'Could not delete photo.'); }
                 },
             },

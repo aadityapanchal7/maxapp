@@ -556,7 +556,25 @@ async def apple_verify(
                     "Apple IAP entitlement sync failed: user=%s tid=%s err=%s",
                     current_user["id"], tid, e,
                 )
-                raise HTTPException(status_code=400, detail=str(e))
+                # Map internal codes to copy a human can act on — the client
+                # shows this detail verbatim in an alert, and users were seeing
+                # literal "account_token_mismatch".
+                _VERIFY_ERROR_COPY = {
+                    "account_token_mismatch": (
+                        "This subscription belongs to a different Max account. "
+                        "Sign in with the account you originally subscribed on "
+                        "to keep using it."
+                    ),
+                    "unknown_product": (
+                        "That purchase isn't recognized. If you were charged, "
+                        "contact support and we'll sort it out."
+                    ),
+                    "missing_original": (
+                        "Apple returned an incomplete receipt. Please try again "
+                        "in a moment."
+                    ),
+                }
+                raise HTTPException(status_code=400, detail=_VERIFY_ERROR_COPY.get(str(e), str(e)))
 
             tier = apple.tier_for_product_id(claims.get("productId") or "")
             logger.info("Apple IAP verified OK: user=%s tid=%s tier=%s", current_user["id"], tid, tier)
@@ -746,6 +764,33 @@ async def apple_server_notifications(
             u = await db.get(User, UUID(user_id_str))
             if u:
                 u.subscription_status = "past_due"
+                # Apple grace period / billing retry: while Apple is retrying the
+                # charge, the subscriber remains ENTITLED per Apple — but our
+                # gate refuses purely on subscription_end_date, which has already
+                # passed (that's why the renewal failed). Without extending it, a
+                # paying user with a transient card decline is locked out for the
+                # entire retry window (days). Honor gracePeriodExpiresDate from
+                # the notification's signedRenewalInfo. Trust it only when the
+                # request authenticated via the shared-secret URL — the same
+                # trust rule the grant fallback above uses.
+                if authenticated_via_secret:
+                    try:
+                        signed_renewal = data.get("signedRenewalInfo")
+                        if signed_renewal:
+                            renewal = apple.decode_notification_transaction(signed_renewal)
+                            grace_ms = renewal.get("gracePeriodExpiresDate")
+                            if grace_ms:
+                                grace_dt = datetime.fromtimestamp(int(grace_ms) / 1000, tz=timezone.utc)
+                                cur = u.subscription_end_date
+                                cur_aware = cur if (cur is None or cur.tzinfo) else cur.replace(tzinfo=timezone.utc)
+                                if cur_aware is None or grace_dt > cur_aware:
+                                    u.subscription_end_date = grace_dt
+                                    logger.info(
+                                        "ASN billing-retry grace honored: user=%s entitled until %s",
+                                        user_id_str, grace_dt.isoformat(),
+                                    )
+                    except Exception as e:
+                        logger.warning("ASN renewal-info decode failed (non-fatal): %s", e)
                 await db.commit()
     except Exception as e:
         logger.exception("ASN handler error: %s", e)
@@ -851,6 +896,13 @@ async def get_subscription_status(
         "subscription_id"
     )
     paid = bool(user_row.is_paid) if user_row else bool(current_user.get("is_paid"))
+    # Date-aware, matching the ACTUAL access gate (auth_middleware.is_entitled):
+    # raw is_paid stays True after expiry, so without this the manage screen
+    # shows "active" while every gated endpoint is already 402-ing.
+    from middleware.auth_middleware import _subscription_expired
+    end_dt = user_row.subscription_end_date if user_row else current_user.get("subscription_end_date")
+    if paid and _subscription_expired(end_dt):
+        paid = False
 
     if user_row and (user_row.billing_provider or "").lower() == "apple":
         end_iso = _dt_iso(user_row.subscription_end_date)

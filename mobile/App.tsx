@@ -326,6 +326,17 @@ function AppNavigator() {
             const pending = await getPendingFaceScanSubmit().catch(() => null);
             if (!pending || pending.userId !== user.id) return;
 
+            // Reset target must come from the MOUNTED stack, not from isPaid:
+            // (a) this effect's closure captured a stale isPaid (it's not in the
+            // dep array), and (b) stack membership is keyed on treatAsFull —
+            // a paid-mid-funnel or free-tier user has no 'Main' route, so an
+            // isPaid-based reset was a silent no-op and the recovery never
+            // landed anywhere.
+            const homeRoute = () => {
+                const names: string[] = (navRef.getRootState()?.routeNames as string[] | undefined) ?? [];
+                return names.includes('Main') ? 'Main' : 'FeaturesIntro';
+            };
+
             recoveryRunning.current = true;
             try {
                 const delays = [0, 1500, 3000, 4500];
@@ -340,7 +351,7 @@ function AppNavigator() {
                                 // FeaturesIntro only exists in the UNPAID stack; a paid
                             // user's stack has 'Main' instead. Resetting to a route
                             // absent from the active stack no-ops/errors, so branch.
-                            CommonActions.reset({ index: 1, routes: [{ name: isPaid ? 'Main' : 'FeaturesIntro' }, { name: 'FaceScanResults' }] }),
+                            CommonActions.reset({ index: 1, routes: [{ name: homeRoute() }, { name: 'FaceScanResults' }] }),
                             );
                             return;
                         }
@@ -356,7 +367,7 @@ function AppNavigator() {
                                 // FeaturesIntro only exists in the UNPAID stack; a paid
                             // user's stack has 'Main' instead. Resetting to a route
                             // absent from the active stack no-ops/errors, so branch.
-                            CommonActions.reset({ index: 1, routes: [{ name: isPaid ? 'Main' : 'FeaturesIntro' }, { name: 'FaceScanResults' }] }),
+                            CommonActions.reset({ index: 1, routes: [{ name: homeRoute() }, { name: 'FaceScanResults' }] }),
                             );
                             return;
                         }
@@ -376,7 +387,7 @@ function AppNavigator() {
                             // FeaturesIntro only exists in the UNPAID stack; a paid
                             // user's stack has 'Main' instead. Resetting to a route
                             // absent from the active stack no-ops/errors, so branch.
-                            CommonActions.reset({ index: 1, routes: [{ name: isPaid ? 'Main' : 'FeaturesIntro' }, { name: 'FaceScanResults' }] }),
+                            CommonActions.reset({ index: 1, routes: [{ name: homeRoute() }, { name: 'FaceScanResults' }] }),
                         );
                     }
                 } catch { /* no scan */ }

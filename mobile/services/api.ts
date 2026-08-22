@@ -450,6 +450,37 @@ function emitAuthLost(): void {
     }
 }
 
+/**
+ * Entitlement-lost pub/sub: fired when any endpoint returns 402 (subscription
+ * expired server-side while the app was open). Before this existed, each
+ * screen's own error handling decided the outcome — usually a generic error
+ * toast over stale premium UI, with no consistent route back to the paywall.
+ * AuthContext subscribes and refreshes the user: the isPaid flip remounts the
+ * navigator onto the unpaid stack, which IS the graceful "your subscription
+ * ended" experience, uniformly for every gated action.
+ */
+const entitlementLostListeners = new Set<AuthLostListener>();
+let lastEntitlementLostAt = 0;
+export function subscribeEntitlementLost(listener: AuthLostListener): () => void {
+    entitlementLostListeners.add(listener);
+    return () => {
+        entitlementLostListeners.delete(listener);
+    };
+}
+function emitEntitlementLost(): void {
+    // Debounce: a screen full of gated queries can 402 in a burst.
+    const now = Date.now();
+    if (now - lastEntitlementLostAt < 5_000) return;
+    lastEntitlementLostAt = now;
+    for (const l of Array.from(entitlementLostListeners)) {
+        try {
+            l();
+        } catch {
+            /* listener errors must not crash the interceptor */
+        }
+    }
+}
+
 class ApiService {
     private client: AxiosInstance;
     private accessToken: string | null = null;
@@ -501,6 +532,12 @@ class ApiService {
                 const cfg = error.config as
                     | ({ _retry?: boolean; _netRetries?: number } & typeof error.config)
                     | undefined;
+                // 402 = entitlement expired server-side (subscription lapsed
+                // mid-session). Notify auth so the whole app degrades to the
+                // paywall consistently instead of per-screen error roulette.
+                if (error.response?.status === 402) {
+                    emitEntitlementLost();
+                }
                 if (error.response?.status === 401 && cfg && !cfg._retry) {
                     cfg._retry = true;
                     // If a previous refresh just failed, skip straight to reject so

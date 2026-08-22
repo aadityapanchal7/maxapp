@@ -32,7 +32,7 @@ export default function InAppNotificationsScreen() {
                     <Ionicons name="chevron-back" size={24} color="#111" />
                 </TouchableOpacity>
                 <Text style={s.title}>Notifications</Text>
-                <TouchableOpacity onPress={() => api.markAllInboxRead().then(load)} hitSlop={12}>
+                <TouchableOpacity onPress={() => api.markAllInboxRead().then(load).catch(() => undefined)} hitSlop={12}>
                     <Text style={s.markAll}>Mark all read</Text>
                 </TouchableOpacity>
             </View>
