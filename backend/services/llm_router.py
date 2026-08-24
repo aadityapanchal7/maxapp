@@ -103,36 +103,66 @@ async def llm_analyze_triple_full(
 ) -> Dict[str, Any]:
     from services.llm_provider import use_openai, use_gemini, use_claude
 
+    # Order the FULL provider set by the configured primary, then try every one.
+    # Two reasons this is a chain and not a pair:
+    #  1. A single exhausted key (e.g. OpenAI 402/429 "no credits") must never be
+    #     able to hand every user a scan result — there is always another vendor.
+    #  2. The providers do NOT raise on API failure: analyze_triple_full catches
+    #     internally and RETURNS default_full_triple_dict(), a well-formed dict of
+    #     flat 5.0s tagged source="fallback". An exception-only fallback chain is
+    #     therefore dead code — the primary always looks like a success. That bug
+    #     shipped 30 of 32 production scans as dummy scores. _is_fallback() below
+    #     is what actually advances the chain.
+    ALL = [
+        ("claude", _call_claude_triple),
+        ("gemini", _call_gemini_triple),
+        ("openai", _call_openai_triple),
+    ]
     if use_claude():
-        primary = _call_claude_triple
-        fallback = _call_gemini_triple
-        primary_name, fallback_name = "claude", "gemini"
+        primary_name = "claude"
     elif use_openai():
-        primary = _call_openai_triple
-        fallback = _call_gemini_triple
-        primary_name, fallback_name = "openai", "gemini"
+        primary_name = "openai"
     else:
-        # Default to Gemini (covers gemini + huggingface + unrecognised providers)
         if not (use_openai() or use_gemini() or use_claude()):
             logger.warning("LLM_PROVIDER not set to a vision provider for face scan; defaulting to gemini")
-        primary = _call_gemini_triple
-        fallback = _call_openai_triple
-        primary_name, fallback_name = "gemini", "openai"
+        primary_name = "gemini"
+    chain = sorted(ALL, key=lambda p: 0 if p[0] == primary_name else 1)
 
-    try:
-        return await primary(front, left, right, onboarding_json)
-    except Exception as primary_err:
-        logger.warning(
-            "Vision primary provider %s failed (%s: %s); trying %s",
-            primary_name,
-            type(primary_err).__name__,
-            primary_err,
-            fallback_name,
-        )
+    def _is_fallback(result: Any) -> bool:
+        """A provider's internal give-up sentinel — dummy 5.0s, not a real rating."""
+        return isinstance(result, dict) and str(result.get("source") or "") == "fallback"
+
+    last_fallback: Optional[Dict[str, Any]] = None
+    first_err: Optional[Exception] = None
+
+    for name, call in chain:
         try:
-            return await fallback(front, left, right, onboarding_json)
-        except Exception as fallback_err:
-            logger.exception(
-                "Vision fallback provider %s also failed: %s", fallback_name, fallback_err
+            result = await call(front, left, right, onboarding_json)
+        except Exception as err:
+            if first_err is None:
+                first_err = err
+            logger.warning(
+                "Vision provider %s raised (%s: %s); trying next",
+                name, type(err).__name__, err,
             )
-            raise primary_err
+            continue
+        if _is_fallback(result):
+            # Keep the first one so a total outage still returns a shaped result.
+            if last_fallback is None:
+                last_fallback = result
+            logger.warning(
+                "Vision provider %s returned its fallback sentinel (%s); trying next",
+                name, str(result.get("preview_blurb") or "")[:120],
+            )
+            continue
+        if name != primary_name:
+            logger.info("Vision analysis served by %s (primary %s unavailable)", name, primary_name)
+        return result
+
+    logger.error(
+        "ALL vision providers failed for face scan (chain: %s) — returning fallback scores",
+        ", ".join(n for n, _ in chain),
+    )
+    if last_fallback is not None:
+        return last_fallback
+    raise first_err or RuntimeError("All vision providers failed")
