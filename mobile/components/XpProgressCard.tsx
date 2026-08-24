@@ -2,8 +2,9 @@
  * XpProgressCard — the primary XP + rank surface (Profile). Shows the earned
  * RANK (with its ivory-marble + gold 3D icon, gently floating), the current
  * level, a progress bar toward the next level, and today's XP. Craft palette:
- * cream card, ink text, muted-gold progress fill. Renders nothing until the
- * gamification block loads (cold-start invisible).
+ * cream card, ink text, glassy-black progress fill (shared with the Profile
+ * maxes bar). Renders nothing until the gamification block loads (cold-start
+ * invisible).
  */
 import React, { useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -12,6 +13,7 @@ import { Image } from 'expo-image';
 import Animated, {
     Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming,
 } from 'react-native-reanimated';
+import GlassBar from './glass/GlassBar';
 import { fonts } from '../theme/dark';
 import type { Gamification } from '../services/api';
 
@@ -20,7 +22,6 @@ const SUB = '#6B6B6B';
 const MUTE = '#9A9A9A';
 const CARD = '#F1F1EF';
 const TRACK = '#E4E3E0';
-const GOLD = '#C29A4E'; // muted editorial gold
 
 // The 3D rank icons (Higgsfield ivory-marble + gold, keyed to transparent).
 const RANK_ICONS: Record<string, any> = {
@@ -88,7 +89,7 @@ export default function XpProgressCard({ data }: { data: Gamification | null | u
             </View>
 
             <View style={s.barTrack}>
-                <View style={[s.barFill, { width: `${pct * 100}%` }]} />
+                <GlassBar style={[s.barFill, { width: `${pct * 100}%` }]} radius={6} />
             </View>
 
             <Text style={s.progressText}>
@@ -115,7 +116,8 @@ const s = StyleSheet.create({
     today: { fontFamily: fonts.sansSemiBold, fontSize: 12, color: '#8A6D2E', marginTop: 6 },
     iconWrap: { width: 72, height: 72, alignItems: 'center', justifyContent: 'center' },
     icon: { width: 72, height: 72 },
-    barTrack: { height: 8, borderRadius: 4, backgroundColor: TRACK, overflow: 'hidden' },
-    barFill: { height: '100%', borderRadius: 4, backgroundColor: GOLD },
+    // 12pt, not the old 8: glass needs thickness to read as a rod (see GlassBar).
+    barTrack: { height: 12, borderRadius: 6, backgroundColor: TRACK, overflow: 'hidden' },
+    barFill: { height: '100%', borderRadius: 6 },
     progressText: { fontFamily: fonts.sans, fontSize: 12.5, color: MUTE, marginTop: 9 },
 });

@@ -152,6 +152,30 @@ export const shadows = {
     },
 };
 
+// ─── Glassy black (Profile progress surfaces) ─────────────────────────────────
+// Polished-obsidian ramp: a charcoal highlight edge falling to near-black. Used
+// by BOTH profile progress bars (the maxes segment row and the XP bar) so they
+// read as one material — hence living here rather than in either screen.
+const GLASS_BLACK_STOPS: ReadonlyArray<readonly [number, number, number]> = [
+    [66, 66, 74],   // charcoal — the lit edge of the glass
+    [36, 36, 43],
+    [18, 18, 22],
+    [8, 8, 10],     // near-black
+];
+
+/** Colour at position `t` (0→1) along the glassy-black ramp. */
+export function glassBlackAt(t: number): string {
+    const c = Math.max(0, Math.min(1, t));
+    // Position along the stop list, then lerp between the two stops we land on.
+    const pos = c * (GLASS_BLACK_STOPS.length - 1);
+    const i = Math.min(Math.floor(pos), GLASS_BLACK_STOPS.length - 2);
+    const f = pos - i;
+    const [r0, g0, b0] = GLASS_BLACK_STOPS[i];
+    const [r1, g1, b1] = GLASS_BLACK_STOPS[i + 1];
+    const mix = (a: number, b: number) => Math.round(a + f * (b - a));
+    return `rgb(${mix(r0, r1)}, ${mix(g0, g1)}, ${mix(b0, b1)})`;
+}
+
 export const fonts = {
     serif: 'Fraunces',
     serifSemiBold: 'Fraunces-SemiBold',

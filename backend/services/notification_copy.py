@@ -254,7 +254,9 @@ def _slots(
 ) -> tuple[dict, set]:
     """Build the format-slot dict and the set of available signal keys."""
     available: set = set()
-    nm = (name or "").strip()
+    # Lowercased to match the copy voice — every template is lowercase
+    # editorial ("morning, chad." — never "morning, Chad.").
+    nm = (name or "").strip().lower()
     if nm:
         available.add("name")
     tk = (task or "").strip().lower()

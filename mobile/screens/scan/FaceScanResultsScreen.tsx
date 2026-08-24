@@ -1070,8 +1070,16 @@ export default function FaceScanResultsScreen() {
     // V4 gate: the paywall is the next step (account comes after purchase) —
     // unless this is a resumed already-paid/free-tier user, who skips straight
     // to the account step. Legacy locked-results paths keep their old routing.
+    //
+    // Derived from STATE, not just the route param: every unparameterized entry
+    // (App.tsx's runRecovery reset, an initial-route mount after relaunch)
+    // arrives with gateV4 undefined, and the legacy branch below then sent anon
+    // users — which is EVERY V4 funnel user — to pre-pay CreateAccount, skipping
+    // ReferralCode AND the paywall entirely (browse-only free tier granted
+    // downstream = silent revenue leak). Onboarding incomplete ⇒ V4 gate.
+    const v4Gate = gateV4 || user?.onboarding?.completed !== true;
     const goPayment = () => {
-        if (gateV4) {
+        if (v4Gate) {
             // Referral/promo step sits in front of the paywall (a full comp like
             // CASH99 redeems there and routes past Payment entirely).
             navigation.navigate(isPaid || isFreeTier ? 'CreateAccount' : 'ReferralCode');

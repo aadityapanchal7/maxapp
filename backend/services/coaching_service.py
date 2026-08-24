@@ -1139,7 +1139,7 @@ class CoachingService:
             context_str = "No context yet."
 
         user = await db.get(User, UUID(user_id))
-        name = (user.first_name or user.email.split("@")[0]) if user else "there"
+        name = ((user.first_name or user.email.split("@")[0]) if user else "there").strip().lower()
 
         fitmax_result = await db.execute(
             select(UserSchedule).where(
@@ -1251,7 +1251,7 @@ class CoachingService:
         if not context_str:
             context_str = "No context yet."
         user = await db.get(User, UUID(user_id))
-        name = (user.first_name or user.email.split("@")[0]) if user else "there"
+        name = ((user.first_name or user.email.split("@")[0]) if user else "there").strip().lower()
 
         bed_tmpl = await asyncio.to_thread(
             resolve_prompt, PromptKey.COACHING_BEDTIME, _COACHING_BEDTIME_FALLBACK

@@ -77,7 +77,7 @@ import { useFlag } from '../constants/featureFlags';
 const Stack = createNativeStackNavigator();
 
 export function RootNavigator() {
-    const { user, isLoading, isAuthenticated, isPaid, isScanUser, isFreeTier } = useAuth();
+    const { user, isLoading, isAuthenticated, isPaid, isScanUser, isFreeTier, sessionRestorePending } = useAuth();
     // Pivot flags: onboardingV2 = free-until-marketplace funnel (completed
     // unpaid users land on Main, not the legacy tier paywall); revealV2 swaps
     // the reveal behind its existing route name.
@@ -91,6 +91,14 @@ export function RootNavigator() {
     const RevealComponent = revealV2 ? RevealV2Screen : RoutineRevealScreen;
 
     if (isLoading) {
+        return <MaxLoadingView />;
+    }
+    // A durable session exists but the boot restore hasn't landed yet (cold
+    // backend wake, brief offline). Hold the loading view — mounting the guest
+    // stack here dumps a session-holder (possibly a just-paid mid-funnel anon
+    // user with NO credentials to sign back in) onto Landing. AuthContext's
+    // resume loop retries and caps this, so it cannot spin forever.
+    if (!user && sessionRestorePending) {
         return <MaxLoadingView />;
     }
 
@@ -135,8 +143,23 @@ export function RootNavigator() {
                 ? 'Admin'
                 : !treatAsFull
                     ? !onboardingCompleted
-                        ? wizardFinished
-                            ? 'RoutineReveal'
+                        // Funnel V4 buyer who died between paywall and claim (jetsam
+                        // behind the Apple sheet, swipe-kill during the ~60s verify,
+                        // transient boot-restore failure): they are PAID but have no
+                        // credentials yet. Resume at the account-claim step — never at
+                        // the front of the funnel. Plain isPaid, NOT a quiz-progress
+                        // marker: the quiz draft is client-side only, so the server's
+                        // onboarding is empty at purchase time (verified live — the
+                        // priority_order gate never fired and buyers resumed at
+                        // ScanOffer). CreateAccountScreen handles every sub-state:
+                        // unclaimed anons get the form; already-claimed users are
+                        // forwarded into Onboarding{phase:'schedule'}, which defaults
+                        // sanely even with no local draft (reinstall + entitlement
+                        // adopted by the launch reconciler before any quiz).
+                        ? isPaid
+                            ? 'CreateAccount'
+                            : wizardFinished
+                                ? 'RoutineReveal'
                             // Funnel V4: first thing after "Get started" is the
                             // scan OFFER (yes → capture, whose analysis then loads
                             // behind the question run; no → straight to questions).

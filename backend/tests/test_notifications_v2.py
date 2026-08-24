@@ -204,9 +204,35 @@ def test_planner_caps_and_prioritizes():
     sel = plan_day(ctx, _day_candidates())
     assert len(sel) <= ctx.cap
     cats = [c.category for c in sel]
-    # tip (lowest priority) is dropped before any task-due when the day fills
-    assert "tip" not in cats
-    assert cats.count(CAT_TASK_DUE) == 3
+    # 8:00 / 8:30 / 9:00 all sit inside one min-interval span — the cluster
+    # collapses to its 8:00 leader so the reminder fires ON TIME instead of the
+    # tail being dragged late by spacing.
+    assert cats.count(CAT_TASK_DUE) == 1
+    task_due = next(c for c in sel if c.category == CAT_TASK_DUE)
+    assert task_due.task_uuid == "t1"
+    assert task_due.params["send_min"] == 8 * 60
+
+
+def test_planner_cluster_collapse_frees_cap_for_evening_tasks():
+    """Two tight clusters (4 tasks pre-7am, 2 at night) — the old '5 earliest'
+    selection spent the whole cap on the morning cluster (whose tail then
+    drifted hours late) and left the evening silent. Each cluster now sends one
+    on-time reminder and the evening keeps its slot."""
+    cands = [
+        Candidate(CAT_TASK_DUE, 5 * 60 + 5, task_uuid="am1"),
+        Candidate(CAT_TASK_DUE, 5 * 60 + 20, task_uuid="am2"),
+        Candidate(CAT_TASK_DUE, 5 * 60 + 47, task_uuid="am3"),
+        Candidate(CAT_TASK_DUE, 6 * 60 + 7, task_uuid="am4"),
+        Candidate(CAT_TASK_DUE, 21 * 60 + 30, task_uuid="pm1"),
+        Candidate(CAT_TASK_DUE, 21 * 60 + 50, task_uuid="pm2"),
+        Candidate("morning_preview", 5 * 60),
+        Candidate("evening_recap", 21 * 60),
+    ]
+    ctx = _ctx(now_min=5 * 60, wake_min=5 * 60, cap=5)
+    sel = plan_day(ctx, cands)
+    fired = {c.task_uuid: c.params["send_min"] for c in sel if c.category == CAT_TASK_DUE}
+    # one leader per cluster, each AT its own scheduled minute
+    assert fired == {"am1": 5 * 60 + 5, "pm1": 21 * 60 + 30}
 
 
 def test_planner_respects_window_and_interval():

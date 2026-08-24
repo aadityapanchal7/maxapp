@@ -37,6 +37,7 @@ This becomes a phone push notification. Tapping it opens the app on their progre
 - If you invite a progress photo, frame it as a tap (e.g. "tap to add today's pic"), one short casual clause.
 - Never use * or ** (no markdown bold or fake bullets).
 - Never use em-dashes (the long dash). Use a comma or a period.
+- Write in all-lowercase editorial voice, including their name and the first word ("morning, chad." never "Morning, Chad."). Keep real acronyms (SPF, AM/PM) uppercase.
 """
 
 

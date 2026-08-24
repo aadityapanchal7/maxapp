@@ -13,6 +13,7 @@ import SectionLabel from '../../components/SectionLabel';
 import AchievementBadge from '../../components/achievements/AchievementBadge';
 import { StreakMilestoneCallout } from '../../components/StreakMilestoneCallout';
 import XpProgressCard from '../../components/XpProgressCard';
+import GlassBar from '../../components/glass/GlassBar';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { formatFaceRatingLabel } from '../../utils/faceRatingLabel';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -175,17 +176,6 @@ function ProgressCalendar({
     );
 }
 
-// Orange→blue (bone #F59E0B → hair #3B82F6) interpolation, so the 5 tracking
-// tabs together read as one continuous gradient underlay (each tab shows its
-// own slice).
-function segGradColor(t: number): string {
-    const c = Math.max(0, Math.min(1, t));
-    const r = Math.round(245 + c * (59 - 245));
-    const g = Math.round(158 + c * (130 - 158));
-    const b = Math.round(11 + c * (246 - 11));
-    return `rgb(${r}, ${g}, ${b})`;
-}
-
 const cal = StyleSheet.create({
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
     navBtn: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center' },
@@ -233,8 +223,10 @@ const p = StyleSheet.create({
     maxChipDot: { width: 6, height: 6, borderRadius: 3 },
     maxChipText: { fontFamily: 'Matter-Medium', fontSize: 12.5, color: INK, letterSpacing: -0.1 },
     segRow: { flexDirection: 'row', gap: 5 },
-    seg: { flex: 1, height: 5, borderRadius: 3 },
-    segOff: { backgroundColor: 'rgba(0,0,0,0.08)' },
+    // 10pt, not the old 5: glass needs thickness to read — at 5pt the luminous
+    // rims alone would consume half the bar and it would just look grey.
+    seg: { flex: 1, height: 10, borderRadius: 5 },
+    segOff: { backgroundColor: 'rgba(0,0,0,0.07)', borderRadius: 5 },
 
     daysRow: { flexDirection: 'row', gap: 7, marginBottom: 16 },
     dayPill: { flex: 1, height: 52, borderRadius: 16, backgroundColor: '#F2F1EF', alignItems: 'center', justifyContent: 'center', gap: 6 },
@@ -660,12 +652,15 @@ export default function ProfileScreen() {
                         <View style={p.segRow}>
                             {Array.from({ length: totalMaxes }).map((_, i) =>
                                 i < maxesActive ? (
-                                    <LinearGradient
+                                    <GlassBar
                                         key={i}
-                                        colors={[segGradColor(i / totalMaxes), segGradColor((i + 1) / totalMaxes)]}
-                                        start={{ x: 0, y: 0 }}
-                                        end={{ x: 1, y: 0 }}
+                                        from={i / totalMaxes}
+                                        to={(i + 1) / totalMaxes}
                                         style={p.seg}
+                                        radius={5}
+                                        // rising stagger → the reflection travels
+                                        // the row as one light, left to right
+                                        sweepDelayMs={i * 220}
                                     />
                                 ) : (
                                     <View key={i} style={[p.seg, p.segOff]} />

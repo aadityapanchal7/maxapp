@@ -196,21 +196,54 @@ def plan_day(ctx: PlannerContext, candidates: list[Candidate]) -> list[Candidate
             by_key[c.dedup_key] = c
     deduped = list(by_key.values())
 
+    # 2b. Cluster-collapse task-dues. Tasks scheduled within one min-interval of
+    #    the previous kept task can never fire at their own time — step 4's
+    #    spacing would drag them minutes-to-hours late ("06:02 skin photo" at
+    #    09:35), and with the cap they'd crowd out the evening's tasks entirely.
+    #    So each tight cluster sends ONE reminder, at its first task's time; the
+    #    morning-preview push already lists the rest of the lineup.
+    task_dues = sorted((c for c in deduped if c.category == CAT_TASK_DUE), key=lambda c: c.at_min)
+    leaders: list[Candidate] = []
+    for c in task_dues:
+        if leaders and c.at_min < leaders[-1].at_min + ctx.min_interval_min:
+            continue
+        leaders.append(c)
+    deduped = [c for c in deduped if c.category != CAT_TASK_DUE] + leaders
+
     # 3. Inclusion by locked priority, capped. (Priority asc, then time asc.)
     ranked = sorted(deduped, key=lambda c: (c.priority, c.at_min))
     chosen = ranked[: max(0, ctx.cap)]
 
-    # 4. Time-order the chosen set and space them by min-interval; anything that
-    #    can't fit before sleep is dropped (a strict ceiling, never crammed).
-    chosen_by_time = sorted(chosen, key=lambda c: c.at_min)
-    out: list[Candidate] = []
-    last_send: Optional[int] = None
-    for c in chosen_by_time:
+    # 4. Assign send times. Task-dues are ANCHORS: a task reminder is only
+    #    worth sending at the task's own minute (clustering above guarantees
+    #    anchors are already >= min-interval apart). Ambient pushes (preview /
+    #    streak / recap / tips) fit into the gaps between anchors — shifted
+    #    later when needed, dropped when no gap fits — so they can never drag a
+    #    task reminder off its time. Anything past sleep is dropped, never
+    #    crammed.
+    anchors = sorted((c for c in chosen if c.category == CAT_TASK_DUE), key=lambda c: c.at_min)
+    ambient = sorted((c for c in chosen if c.category != CAT_TASK_DUE), key=lambda c: c.at_min)
+
+    timed: list[tuple[int, Candidate]] = [(c.at_min, c) for c in anchors]
+    for c in ambient:
         send_min = c.at_min
-        if last_send is not None and send_min < last_send + ctx.min_interval_min:
-            send_min = last_send + ctx.min_interval_min
+        while True:
+            # respect whatever is already scheduled around this slot
+            prev = max((t for t, _ in timed if t <= send_min), default=None)
+            if prev is not None and send_min < prev + ctx.min_interval_min:
+                send_min = prev + ctx.min_interval_min
+                continue
+            nxt = min((t for t, _ in timed if t > send_min), default=None)
+            if nxt is not None and nxt < send_min + ctx.min_interval_min:
+                send_min = nxt + ctx.min_interval_min  # jump past the anchor and retry
+                continue
+            break
         if not in_window(send_min, ctx.wake_min, ctx.sleep_min):
             continue  # pushed past the window — drop rather than send while asleep
+        timed.append((send_min, c))
+
+    out: list[Candidate] = []
+    for send_min, c in sorted(timed, key=lambda tc: tc[0]):
         params = dict(c.params or {})
         params["send_min"] = send_min
         out.append(
@@ -225,7 +258,6 @@ def plan_day(ctx: PlannerContext, candidates: list[Candidate]) -> list[Candidate
                 template_id=c.template_id,
             )
         )
-        last_send = send_min
     return out
 
 

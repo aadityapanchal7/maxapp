@@ -657,12 +657,19 @@ class ApiService {
                 // Permanent auth failure: user deleted, key rotated, or token expired.
                 // Clear everything and notify the app so the authenticated stack unmounts —
                 // otherwise React Query retries keep hammering /auth/refresh forever.
+                // ONLY a server verdict (401/403 from POST auth/refresh) is permanent.
+                // 'No refresh token' can be a transient SecureStore read flake (e.g.
+                // keychain busy behind the Face-ID/payment sheet) — destroying the
+                // session on it dumped mid-purchase anon users, who have no
+                // credentials to sign back in with, onto Landing. Back off and let a
+                // later request retry the read instead.
                 const status = e?.response?.status;
-                const isAuthFail = status === 401 || status === 403 || e?.message === 'No refresh token';
-                if (isAuthFail) {
+                if (status === 401 || status === 403) {
                     this.refreshFailedUntil = Date.now() + 60_000;
                     await this.clearTokens().catch(() => undefined);
                     emitAuthLost();
+                } else if (e?.message === 'No refresh token') {
+                    this.refreshFailedUntil = Date.now() + 60_000;
                 }
                 throw e;
             } finally {

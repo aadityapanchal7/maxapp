@@ -97,6 +97,14 @@ interface User {
 interface AuthContextType {
     user: User | null;
     isLoading: boolean;
+    /**
+     * True while a durable session token exists on disk but the boot restore
+     * hasn't succeeded yet (cold backend, brief offline). The navigator shows
+     * a loading view instead of Landing — dumping a session-holder (often a
+     * just-PAID mid-funnel anon user with no credentials to log back in) on
+     * Landing reads as "the app forgot my purchase".
+     */
+    sessionRestorePending: boolean;
     isAuthenticated: boolean;
     isPaid: boolean;
     isPremium: boolean;
@@ -157,6 +165,11 @@ async function resetGoogleNativeSession(): Promise<void> {
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    // See AuthContextType.sessionRestorePending. Starts true (a token may be on
+    // disk); resolved by checkAuth (no token / restore success) or capped after
+    // repeated resume failures so a genuinely-down backend still reaches Landing.
+    const [sessionRestorePending, setSessionRestorePending] = useState(true);
+    const resumeFailuresRef = useRef(0);
     const [freeTierChosen, setFreeTierChosen] = useState(false);
     const queryClient = useQueryClient();
 
@@ -208,6 +221,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // and before we read the token here. See lib/firstRunGuard.
             await ensureFirstRunClean();
             const token = await getItemAsync('access_token');
+            if (!token) setSessionRestorePending(false);   // genuinely signed out — Landing is correct
             if (token) {
                 // Generous timeout + one retry on the boot restore so a cold-Render
                 // wake or a transient blip resumes the session instead of throwing
@@ -241,6 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                     /* ignore — worst case is a brief stale flash, refetch fixes it */
                 }
                 setUser(userData);
+                setSessionRestorePending(false);
             }
         } catch (e: any) {
             // Only DESTROY the durable tokens on a DEFINITIVE auth failure
@@ -256,6 +271,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const status = e?.response?.status;
             if (status === 403) {
                 await api.clearTokens();
+                setSessionRestorePending(false);   // definitive — no session to wait on
+            } else {
+                // Transient restore failure with tokens intact: keep the loading
+                // view up (not Landing) while the resume effect retries. Cap the
+                // wait so a genuinely-down backend still reaches Landing.
+                resumeFailuresRef.current += 1;
+                if (resumeFailuresRef.current >= 3) setSessionRestorePending(false);
             }
             // 401 is deliberately NOT cleared here: the refresh interceptor is
             // the authority — when the refresh token is definitively rejected it
@@ -317,6 +339,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const unsubscribe = subscribeAuthLost(() => {
             setUser(null);
+            setSessionRestorePending(false);   // definitive — don't hold the loading view
             try {
                 queryClient.clear();
             } catch {
@@ -544,6 +567,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         () => ({
             user,
             isLoading,
+            sessionRestorePending,
             isAuthenticated: !!user,
             isPaid: user?.is_paid ?? false,
             isPremium: user?.is_admin || (user?.is_paid && subscriptionTier === 'premium') || false,
@@ -573,7 +597,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             refreshUser,
             deleteAccount,
         }),
-        [user, isLoading, freeTierChosen, chooseFreeTier, subscriptionTier, login, signup, fauxSignup, fauxSkipSignup, fauxFreshSignup, devToggleAdmin, startAnon, claimAccount, signInWithGoogle, signInWithGoogleDev, signInWithApple, logout, refreshUser, deleteAccount],
+        [user, isLoading, sessionRestorePending, freeTierChosen, chooseFreeTier, subscriptionTier, login, signup, fauxSignup, fauxSkipSignup, fauxFreshSignup, devToggleAdmin, startAnon, claimAccount, signInWithGoogle, signInWithGoogleDev, signInWithApple, logout, refreshUser, deleteAccount],
     );
 
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -323,6 +323,12 @@ function AppNavigator() {
 
         const runRecovery = async () => {
             if (recoveryRunning.current) return;
+            // Mid-funnel (V4), the wizard's own gate polls the scan while the
+            // quiz runs — this reset would destroy quiz progress AND land on
+            // FaceScanResults with no params, whose legacy routing then skipped
+            // the paywall for anon users. Recovery is for COMPLETED users whose
+            // upload got orphaned outside the funnel.
+            if (user?.onboarding?.completed !== true) return;
             const pending = await getPendingFaceScanSubmit().catch(() => null);
             if (!pending || pending.userId !== user.id) return;
 
