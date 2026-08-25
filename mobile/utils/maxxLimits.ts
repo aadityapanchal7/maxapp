@@ -31,7 +31,3 @@ export function maxHomeMaxxesForUser(user: TierUser): number {
     return maxActiveSchedulesForUser(user);
 }
 
-/** Whether the user can see the per-maxx chapter library (TOC + reader). */
-export function canAccessCourseDocs(user: TierUser): boolean {
-    return isPremium(user);
-}

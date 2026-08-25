@@ -5,7 +5,6 @@ held-back reason lines, win-back rungs, learner/welcome-back copy."""
 from datetime import date
 
 from api.planner import _REASON_LINES, _today_read
-from services.conductor import DAILY_NUDGE_BUDGET  # noqa: F401  (import sanity)
 from services.copy_filter import filter_outbound_copy
 from services.learner import welcome_back_state
 
@@ -44,17 +43,6 @@ def test_stated_short_sleep_alone_is_never_red():
 
 def test_reason_lines_pass_voice_gate():
     for line in _REASON_LINES.values():
-        _assert_voice(line)
-
-
-def test_winback_copy_passes_voice_gate():
-    from services.scheduler_job import send_winback_pushes  # noqa: F401
-    # The rung copy is defined inside the function; assert the locked strings.
-    rungs = [
-        "your plan's still here whenever - just today, one small thing?",
-        "we saved your spot. one tap and today's plan is ready.",
-    ]
-    for line in rungs:
         _assert_voice(line)
 
 

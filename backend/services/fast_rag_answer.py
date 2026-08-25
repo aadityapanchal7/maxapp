@@ -491,65 +491,6 @@ def _scrub_leakage(text: str) -> str:
     return out
 
 
-async def _answer_without_evidence(
-    *,
-    message: str,
-    maxx_hints: Optional[list[str]],
-    active_maxx: Optional[str],
-    user_context_str: Optional[str],
-    response_length: Optional[str],
-) -> str:
-    """DEPRECATED: legacy no-evidence LLM fallback, retained for backward compatibility.
-
-    Current product behavior is strict evidence-only mode in `answer_from_rag`,
-    which returns a fixed miss message when retrieval is empty.
-    """
-    # Use the Max persona prompt (Supabase-loaded with in-code fallback) so
-    # the no-evidence answer feels native to the bot, not like a separate
-    # template-mode reply. The strict RAG_ANSWER_SYSTEM_PROMPT is for
-    # evidence-grounded turns only — it's calibrated to refuse when docs
-    # are thin, which is the wrong shape for a foundational-knowledge turn.
-    persona_prompt = resolve_prompt(PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT)
-    system_prompt = persona_prompt + _length_suffix(response_length) + _NATIVE_KNOWLEDGE_SUFFIX + CHAT_VISUAL_GRAMMAR
-
-    logger.info(
-        "[fast_rag] native-knowledge fallback fired: maxx_hints=%s active_maxx=%s msg=%r",
-        maxx_hints, active_maxx, (message or "")[:120],
-    )
-
-    length_key = _effective_response_length(message, response_length)
-    # Generous budget — native answers naturally expand without citation tax.
-    max_tokens = (
-        180 if length_key == "concise"
-        else 1800 if length_key == "plan"
-        else 1000 if length_key == "detailed"
-        else 700
-    )
-    llm = get_chat_llm_with_fallback(max_tokens=max_tokens, temperature=0.3)
-    from langchain_core.messages import HumanMessage, SystemMessage
-
-    context_block = ""
-    if user_context_str:
-        context_block = (
-            f"USER CONTEXT (use this to personalize the answer):\n"
-            f"{user_context_str.strip()}\n\n"
-        )
-
-    human = (
-        f"{context_block}"
-        f"User question:\n{message.strip()}"
-    )
-    try:
-        resp = await llm.ainvoke([SystemMessage(content=system_prompt), HumanMessage(content=human)])
-        text = getattr(resp, "content", resp)
-        if isinstance(text, list):
-            text = "\n".join(str(x) for x in text)
-        return _scrub_leakage(str(text or "").strip())
-    except Exception as e:
-        logger.warning("fast rag native-knowledge fallback failed: %s", e)
-        return ""
-
-
 async def answer_from_chunks(
     *,
     message: str,

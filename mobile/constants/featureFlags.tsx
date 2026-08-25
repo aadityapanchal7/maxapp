@@ -13,29 +13,19 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../services/api';
 
 export type FlagName =
-    | 'newNav'
-    | 'todayV2'
-    | 'onboardingV2'
-    | 'revealV2'
-    | 'streakV2'
     | 'faceScan'
     | 'personalizedUI'
     | 'referrals'
     | 'mainAppTour';
 
 const DEFAULT_FLAGS: Record<FlagName, boolean> = {
-    newNav: false,
-    todayV2: false,
-    onboardingV2: true,
-    revealV2: true,
-    streakV2: true,
     faceScan: true,
     // Referral / promo codes. Must match the backend `referrals_enabled` flag.
     referrals: true,
     // Tasteful, additive on-screen personalization; each surface degrades to
     // today's copy when its signal is absent, so ON is cold-start-identical.
     personalizedUI: true,
-    // Post-onboarding main-app SpotlightTour.
+    // Post-onboarding first-run walkthrough (features/mainTour).
     mainAppTour: true,
 };
 
@@ -87,9 +77,3 @@ export function getFlag(name: FlagName): boolean {
     return CURRENT[name] ?? DEFAULT_FLAGS[name];
 }
 
-export function allFlags(): Record<FlagName, boolean> {
-    return { ...CURRENT };
-}
-
-/** No-op kept for compatibility — flags are controlled from the backend now. */
-export function setFlag(_name: FlagName, _value: boolean) {}

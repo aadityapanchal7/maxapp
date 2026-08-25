@@ -11,14 +11,6 @@ export const MAXX_BRAND_FALLBACK: Record<string, string> = {
     coloringmax: '#BC7A3C',
 };
 
-export const MAXX_ICON_FALLBACK: Record<string, string> = {
-    hairmax: 'cut-outline',
-    bonemax: 'body-outline',
-    heightmax: 'resize-outline',
-    skinmax: 'sparkles-outline',
-    fitmax: 'fitness-outline',
-    coloringmax: 'color-palette-outline',
-};
 
 export function resolveMaxxBrand(id: string, apiColor?: string | null): string {
     const key = String(id || '').toLowerCase().trim();

@@ -21,10 +21,6 @@ import OnairosConnectModal from '../../components/OnairosConnectModal';
 import { useOnairosConfig } from '../../hooks/useOnairosConfig';
 import { colors, spacing, borderRadius, typography, fonts } from '../../theme/dark';
 import { maxHomeMaxxesForUser } from '../../utils/maxxLimits';
-import { getMaxxDisplayDescription, getMaxxDisplayLabel } from '../../utils/maxxDisplay';
-import { resolveMaxxBrand } from '../../utils/maxxBrand';
-import { useMaxxesQuery } from '../../hooks/useAppQueries';
-import { MaxxProgramRow } from '../../components/MaxxProgramRow';
 import {
   PRIORITY_LABELS,
   type PriorityKey,
@@ -42,14 +38,6 @@ import {
   inferFitEquipmentFromOnboarding,
 } from '../../constants/profileLifestyleQuestionnaire';
 import { isHHMM, toMin } from '../../components/planner/plannerModel';
-
-const GOALS = [
-  { id: 'bonemax', label: 'Bonemax', icon: 'body-outline' },
-  { id: 'heightmax', label: 'Heightmax', icon: 'resize-outline' },
-  { id: 'skinmax', label: 'Skinmax', icon: 'sparkles-outline' },
-  { id: 'hairmax', label: 'Hairmax', icon: 'cut-outline' },
-  { id: 'fitmax', label: 'Fitmax', icon: 'fitness-outline' },
-];
 
 const ACTIVITY_LEVELS = [
   { id: 'sedentary', label: 'Sedentary', desc: 'Little to no exercise' },
@@ -103,23 +91,12 @@ export default function EditPersonalScreen() {
   const isWide = width > 600;
   const { user, refreshUser } = useAuth();
   const { enabled: onairosEnabled } = useOnairosConfig();
-  const maxxesQuery = useMaxxesQuery();
   const [loading, setLoading] = useState(false);
   // Onairos modal — opens from the "external personalization" card.
   // Connecting refreshes user data; coaching_service picks up the new
   // traits on the next chat turn (no client-side cache to bust).
   const [onairosVisible, setOnairosVisible] = useState(false);
 
-  const onlyGoals = route.params?.onlyGoals === true;
-
-  const maxesById = useMemo(() => {
-    const m = new Map<string, { id?: string; label?: string; color?: string; icon?: string; description?: string }>();
-    for (const x of maxxesQuery.data?.maxes ?? []) {
-      const id = String(x.id || '').toLowerCase();
-      if (id) m.set(id, x);
-    }
-    return m;
-  }, [maxxesQuery.data?.maxes]);
 
   const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>((user?.onboarding?.unit_system as any) || 'imperial');
   const [selectedGoals, setSelectedGoals] = useState<string[]>(user?.onboarding?.goals || []);
@@ -223,26 +200,6 @@ export default function EditPersonalScreen() {
       base.timezone ||
       (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC');
 
-    if (onlyGoals) {
-      const maxG = maxHomeMaxxesForUser(user);
-      const onboardingData = {
-        ...base,
-        goals: (selectedGoals || []).slice(0, maxG),
-        timezone: tz,
-        completed: true,
-      };
-      try {
-        await api.saveOnboarding(onboardingData as any);
-        await refreshUser();
-        Alert.alert('Success', 'Your Maxxes were updated.');
-        navigation.goBack();
-      } catch (error: any) {
-        Alert.alert('Error', error?.response?.data?.detail || 'Could not save changes.');
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
 
     // Spread `base` so any older onboarding keys (skin/hair/training/etc.)
     // saved by previous app versions persist for downstream services that
@@ -371,7 +328,7 @@ export default function EditPersonalScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.foreground} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{onlyGoals ? 'Your Maxxes' : 'Edit lifestyle'}</Text>
+        <Text style={styles.headerTitle}>Edit lifestyle</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -381,143 +338,12 @@ export default function EditPersonalScreen() {
           contentContainerStyle={[
             styles.content,
             isWide && styles.contentWide,
-            onlyGoals && styles.onlyGoalsContent,
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {!onlyGoals ? (
-            <Text style={styles.lead}>Update your profile. Changes take effect when you save.</Text>
-          ) : null}
+          <Text style={styles.lead}>Update your profile. Changes take effect when you save.</Text>
 
-          {/* "Your Maxxes" header is intentionally hidden on the edit-lifestyle
-              path — that picker lives on the Profile → "Your Maxxes" screen
-              (onlyGoals=true), so showing it here was duplicate UX. */}
-          {onlyGoals && (
-            <Text style={styles.goalsLimitHint}>
-              Up to {maxHomeMaxxesForUser(user)} on your home screen
-              {user?.is_paid && (user?.subscription_tier || '').toLowerCase() === 'premium'
-                ? ' (Premium)'
-                : user?.is_paid
-                  ? ' (Basic)'
-                  : ' (free)'}
-            </Text>
-          )}
-          {onlyGoals && (
-            <View
-              style={[
-                styles.goalsListBleed,
-                isWide ? { marginHorizontal: -spacing.xxl } : { marginHorizontal: -spacing.xl },
-              ]}
-            >
-            {GOALS.map((goal, idx) => {
-              const selected = selectedGoals.includes(goal.id);
-              const maxG = maxHomeMaxxesForUser(user);
-              const apiMax = maxesById.get(goal.id);
-              const merged = { id: goal.id, label: goal.label, ...apiMax };
-              const brand = resolveMaxxBrand(goal.id, apiMax?.color);
-              const label = getMaxxDisplayLabel(merged);
-              const desc = getMaxxDisplayDescription(merged) ?? apiMax?.description;
-
-              const onPress = () =>
-                setSelectedGoals((prev) => {
-                  if (prev.includes(goal.id)) return prev.filter((g) => g !== goal.id);
-                  if (prev.length >= maxG) {
-                    Alert.alert(
-                      'Limit reached',
-                      `Your plan allows up to ${maxG} Maxxes on Home. Remove one to add another.`,
-                    );
-                    return prev;
-                  }
-                  return [...prev, goal.id];
-                });
-
-              // "Your Maxxes" — same editorial row pattern as ModuleSelect:
-              // unselected = no chrome; selected = subtle accent-tinted card
-              // with a filled accent number badge.
-              if (onlyGoals) {
-                const num = String(idx + 1).padStart(2, '0');
-                const onTint = `${brand}1A`; // ~10%
-                const onBorder = `${brand}4D`; // ~30%
-                return (
-                  <TouchableOpacity
-                    key={goal.id}
-                    onPress={onPress}
-                    activeOpacity={0.7}
-                    accessibilityRole="checkbox"
-                    accessibilityState={{ checked: selected }}
-                    style={[
-                      ygStyles.row,
-                      selected && { backgroundColor: onTint, borderColor: onBorder },
-                    ]}
-                  >
-                    <View
-                      style={[
-                        ygStyles.numBadge,
-                        selected
-                          ? { backgroundColor: brand, borderColor: brand }
-                          : { borderColor: colors.border },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          ygStyles.numText,
-                          { color: selected ? colors.buttonText : brand },
-                        ]}
-                      >
-                        {num}
-                      </Text>
-                    </View>
-                    <View style={ygStyles.copy}>
-                      <Text style={ygStyles.title}>{label}</Text>
-                      {!!desc && (
-                        <Text style={ygStyles.desc} numberOfLines={2}>
-                          {desc}
-                        </Text>
-                      )}
-                    </View>
-                  </TouchableOpacity>
-                );
-              }
-
-              // Default ("edit lifestyle") — keep the existing MaxxProgramRow.
-              return (
-                <MaxxProgramRow
-                  key={goal.id}
-                  tintHex={brand}
-                  iconName={(apiMax?.icon || goal.icon) as string}
-                  title={label}
-                  description={desc}
-                  accent="stripe"
-                  selected={selected}
-                  selectedVariant="brand"
-                  brandColor={brand}
-                  style={{ marginBottom: spacing.sm }}
-                  accessibilityRole="checkbox"
-                  accessibilityState={{ checked: selected }}
-                  onPress={onPress}
-                  trailing={
-                    <View
-                      style={[
-                        styles.goalRowCheck,
-                        selected && { borderColor: brand, backgroundColor: brand },
-                      ]}
-                    >
-                      <Ionicons
-                        name={selected ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={22}
-                        color={selected ? colors.foreground : colors.textMuted}
-                      />
-                    </View>
-                  }
-                />
-              );
-            })}
-            </View>
-          )}
-
-          {!onlyGoals && (
-            <>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Body</Text>
                 <View style={styles.unitToggle}>
@@ -704,8 +530,6 @@ export default function EditPersonalScreen() {
                   ))}
                 </View>
               ) : null}
-            </>
-          )}
 
           <View style={{ height: 100 }} />
         </ScrollView>
@@ -713,7 +537,7 @@ export default function EditPersonalScreen() {
 
       <View style={styles.footer}>
         <TouchableOpacity style={[styles.saveBtn, loading && { opacity: 0.7 }]} onPress={handleSave} disabled={loading}>
-          {loading ? <ActivityIndicator color={colors.background} /> : <Text style={styles.saveBtnText}>{onlyGoals ? 'Save Maxxes' : 'Save all changes'}</Text>}
+          {loading ? <ActivityIndicator color={colors.background} /> : <Text style={styles.saveBtnText}>Save all changes</Text>}
         </TouchableOpacity>
       </View>
 
@@ -820,37 +644,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     marginTop: spacing.xl,
   },
-  goalsLimitHint: {
-    fontSize: 11,
-    color: colors.textMuted,
-    lineHeight: 15,
-    marginBottom: spacing.sm,
-    opacity: 0.7,
-  },
-  onlyGoalsContent: {
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xxl,
-  },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: spacing.xl, marginBottom: spacing.md },
   /** Cancels scroll horizontal padding so rows span screen width (with inner lg inset). */
-  goalsListBleed: {
-    paddingHorizontal: spacing.lg,
-  },
-  goalRowCheckSelectedUniform: {
-    borderColor: colors.foreground,
-    backgroundColor: colors.surface,
-  },
-  goalRowCheck: {
-    width: 36,
-    height: 36,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.card,
-    flexShrink: 0,
-  },
   unitToggle: {
     flexDirection: 'row',
     backgroundColor: colors.card,
@@ -1098,49 +893,3 @@ const styles = StyleSheet.create({
 });
 
 /* "Your Maxxes" editorial row — mirrors ModuleSelect. */
-const ygStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    paddingVertical: spacing.lg,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-    borderRadius: borderRadius.lg,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    backgroundColor: 'transparent',
-  },
-  numBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    marginRight: spacing.md,
-    marginTop: 2,
-  },
-  numText: {
-    fontFamily: fonts.sansSemiBold,
-    fontSize: 12,
-    letterSpacing: 1.4,
-  },
-  copy: {
-    flex: 1,
-    paddingTop: 1,
-  },
-  title: {
-    fontFamily: fonts.serif,
-    fontSize: 24,
-    fontWeight: '400',
-    letterSpacing: -0.5,
-    lineHeight: 30,
-    color: colors.foreground,
-  },
-  desc: {
-    ...typography.bodySmall,
-    color: colors.textSecondary,
-    marginTop: 4,
-    lineHeight: 19,
-  },
-});

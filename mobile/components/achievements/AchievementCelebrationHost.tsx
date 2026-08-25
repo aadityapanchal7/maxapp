@@ -37,10 +37,10 @@ const SUPPRESS_ROUTES = new Set<string>([
 
 function useCurrentRouteName(): string | undefined {
     const [name, setName] = useState<string | undefined>(
-        () => (navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined),
+        () => (navigationRef.isReady() ? (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name : undefined),
     );
     useEffect(() => {
-        const update = () => setName(navigationRef.isReady() ? navigationRef.getCurrentRoute()?.name : undefined);
+        const update = () => setName(navigationRef.isReady() ? (navigationRef.getCurrentRoute() as { name?: string } | undefined)?.name : undefined);
         update();
         // The container ref is ready by the time this host mounts (user is in
         // the app), so the 'state' subscription fires on every navigation.

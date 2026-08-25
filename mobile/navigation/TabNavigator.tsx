@@ -1,21 +1,16 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Platform, View, Text, TouchableOpacity, Modal } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, Platform, View, TouchableOpacity } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LiquidGlassFill } from '../components/glass/LiquidGlass';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing, shadows, fonts, borderRadius } from '../theme/dark';
+import { colors, spacing, shadows } from '../theme/dark';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { queryClient } from '../lib/queryClient';
 import { prefetchMainTabData } from '../lib/prefetchMainTabData';
-import { useAuth } from '../context/AuthContext';
-// Deep import (pinned v4.0.0): the public API doesn't surface the live `spot`,
-// which the safety watchdog needs to detect a zero-spot trap.
-import api from '../services/api';
-
 import HomeScreen from '../screens/home/HomeScreen';
 import MaxChatScreen from '../screens/chat/MaxChatScreen';
 import ForumsHomeV2Screen from '../screens/forums/ForumsHomeV2Screen';
@@ -24,12 +19,8 @@ import SubforumThreadsV2Screen from '../screens/forums/SubforumThreadsV2Screen';
 import ThreadV2Screen from '../screens/forums/ThreadV2Screen';
 import NewThreadV2Screen from '../screens/forums/NewThreadV2Screen';
 import ForumNotificationsV2Screen from '../screens/forums/ForumNotificationsV2Screen';
-import MasterScheduleScreen from '../screens/courses/MasterScheduleScreen';
 import DayPlannerScreen from '../screens/profile/DayPlannerScreen';
 import MarketplaceScreen from '../screens/marketplace/MarketplaceScreen';
-import YouScreen from '../screens/you/YouScreen';
-import TodayV2Screen from '../screens/today/TodayScreen';
-import { useFlag } from '../constants/featureFlags';
 import { getRestoredTab, pickInitialTab } from '../lib/navState';
 
 const Tab = createBottomTabNavigator();
@@ -163,219 +154,15 @@ function ForumsStack() {
     );
 }
 
-function PremiumGateModal({
-    visible,
-    onClose,
-    onUpgrade,
-}: {
-    visible: boolean;
-    onClose: () => void;
-    onUpgrade: () => void;
-}) {
-    return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <TouchableOpacity style={modal.overlay} activeOpacity={1} onPress={onClose}>
-                <TouchableOpacity style={modal.card} activeOpacity={1} onPress={() => {}}>
-                    <View style={modal.iconWrap}>
-                        <Ionicons name="scan-outline" size={28} color={colors.foreground} />
-                    </View>
-                    <Text style={modal.title}>Premium Feature</Text>
-                    <Text style={modal.body}>
-                        Face scans are only available for Premium subscribers. Upgrade to unlock daily AI-powered face analysis.
-                    </Text>
-                    <TouchableOpacity
-                        style={modal.upgradeBtn}
-                        onPress={onUpgrade}
-                        activeOpacity={0.8}
-                    >
-                        <Text style={modal.upgradeBtnText}>Upgrade to Premium</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={modal.dismissBtn}
-                        onPress={onClose}
-                        activeOpacity={0.65}
-                    >
-                        <Text style={modal.dismissText}>Not now</Text>
-                    </TouchableOpacity>
-                </TouchableOpacity>
-            </TouchableOpacity>
-        </Modal>
-    );
-}
-
-const modal = StyleSheet.create({
-    overlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.4)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 32,
-    },
-    card: {
-        width: '100%',
-        maxWidth: 320,
-        backgroundColor: colors.background,
-        borderRadius: borderRadius['2xl'],
-        paddingVertical: 36,
-        paddingHorizontal: 28,
-        alignItems: 'center',
-    },
-    iconWrap: {
-        width: 56,
-        height: 56,
-        borderRadius: 28,
-        backgroundColor: colors.surface,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 20,
-    },
-    title: {
-        fontFamily: fonts.serif,
-        fontSize: 22,
-        fontWeight: '400',
-        color: colors.foreground,
-        letterSpacing: -0.3,
-        marginBottom: 10,
-        textAlign: 'center',
-    },
-    body: {
-        fontSize: 14,
-        fontFamily: fonts.sans,
-        color: colors.textSecondary,
-        lineHeight: 21,
-        textAlign: 'center',
-        marginBottom: 28,
-        letterSpacing: 0.1,
-    },
-    upgradeBtn: {
-        width: '100%',
-        height: 46,
-        borderRadius: borderRadius.full,
-        backgroundColor: colors.foreground,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 14,
-    },
-    upgradeBtnText: {
-        fontSize: 14,
-        fontFamily: fonts.sansMedium,
-        fontWeight: '500',
-        color: colors.buttonText,
-        letterSpacing: 0.3,
-    },
-    dismissBtn: {
-        paddingVertical: 6,
-    },
-    dismissText: {
-        fontSize: 13,
-        fontFamily: fonts.sansMedium,
-        fontWeight: '500',
-        color: colors.textMuted,
-        letterSpacing: 0.2,
-    },
-});
-
 // The first-run walkthrough (features/mainTour) is rendered by HomeScreen —
 // an anchor-free overlay, so this navigator carries no tour machinery anymore.
 
-// The 4-tab pivot nav (spec 3.1): Today / Explore / Coach / You. No Forums
-// registration, no ScanTab remnant, no duplicate Planner tab - the week
-// editor lives under You (ONE source of truth). Route names that other code
-// navigates to are preserved: MasterScheduleTab, Explore, Chat.
-function NewTabNavigator({ insets }: { insets: { bottom: number } }) {
-    // Today v2 ships behind its own flag; the 1457-line MasterScheduleScreen
-    // stays the fallback so newNav can ship without todayV2.
-    const todayV2 = useFlag('todayV2');
-    const TodayComponent = todayV2 ? TodayV2Screen : MasterScheduleScreen;
-    return (
-        <Tab.Navigator
-            // Restore the tab the user left (lib/navState); falls back to the
-            // first tab when there's nothing valid to restore.
-            initialRouteName={pickInitialTab(getRestoredTab(), [
-                'MasterScheduleTab', 'Explore', 'ScanCenter', 'Chat', 'YouTab',
-            ])}
-            screenOptions={{
-                headerShown: false,
-                tabBarBackground: () => <TabBarFrost />,
-                tabBarStyle: [
-                    styles.tabBarGlass,
-                    { height: 52 + insets.bottom, paddingBottom: insets.bottom, overflow: 'visible' as any },
-                ],
-                tabBarActiveTintColor: colors.foreground,
-                tabBarInactiveTintColor: colors.textMuted,
-                tabBarLabelStyle: styles.tabLabel,
-            }}
-        >
-            <Tab.Screen
-                name="MasterScheduleTab"
-                component={TodayComponent}
-                options={{
-                    title: 'Today',
-                    tabBarLabel: 'Today',
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons name="today-outline" size={22} color={color} />
-                    ),
-                }}
-            />
-            <Tab.Screen
-                name="Explore"
-                component={MarketplaceScreen}
-                options={{
-                    title: 'Explore',
-                    tabBarLabel: 'Explore',
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons name="compass-outline" size={22} color={color} />
-                    ),
-                }}
-            />
-            <Tab.Screen
-                name="ScanCenter"
-                component={ScanPlaceholder}
-                options={{
-                    tabBarLabel: 'Scan',
-                    tabBarButton: () => <ScanCenterButton />,
-                }}
-            />
-            <Tab.Screen
-                name="Chat"
-                component={MaxChatScreen}
-                options={{
-                    title: 'Coach',
-                    tabBarLabel: 'Coach',
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons name="chatbubble-outline" size={22} color={color} />
-                    ),
-                }}
-            />
-            <Tab.Screen
-                name="YouTab"
-                component={YouScreen}
-                options={{
-                    title: 'You',
-                    tabBarLabel: 'You',
-                    tabBarIcon: ({ color }) => (
-                        <Ionicons name="person-outline" size={22} color={color} />
-                    ),
-                }}
-            />
-        </Tab.Navigator>
-    );
-}
-
 export default function TabNavigator() {
     const insets = useSafeAreaInsets();
-    const { isPaid, isPremium, refreshUser } = useAuth();
-    const [showGate, setShowGate] = useState(false);
-    const navigation = useNavigation<any>();
-    const newNav = useFlag('newNav');
 
     useEffect(() => {
         prefetchMainTabData(queryClient);
     }, []);
-
-    if (newNav) {
-        return <NewTabNavigator insets={insets} />;
-    }
 
     return (
         <>
@@ -471,15 +258,6 @@ export default function TabNavigator() {
                     }}
                 />
             </Tab.Navigator>
-
-            <PremiumGateModal
-                visible={showGate}
-                onClose={() => setShowGate(false)}
-                onUpgrade={() => {
-                    setShowGate(false);
-                    navigation.navigate('ManageSubscription' as never);
-                }}
-            />
         </>
     );
 }

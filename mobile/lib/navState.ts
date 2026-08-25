@@ -18,14 +18,12 @@ import { STORAGE_KEYS } from './resilienceKeys';
  *    so the funnel is never skipped — this only restores intra-app position.
  */
 
-// Union of tab route names across both navigator variants (newNav + legacy).
+// Tab route names of the live navigator (see navigation/TabNavigator).
 const VALID_TABS = new Set<string>([
     'Home',
     'MasterScheduleTab',
-    'PlannerTab',
     'Explore',
     'Chat',
-    'YouTab',
     'Forums',
 ]);
 

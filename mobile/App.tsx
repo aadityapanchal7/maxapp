@@ -29,9 +29,6 @@ import { StripeProviderGate } from './components/StripeProviderGate';
 import { reconcileOwnedSubscriptions } from './lib/entitlementReconciler';
 import { InAppAlertHost } from './components/InAppAlert';
 import DevDrawer from './components/DevDrawer';
-import { TamaguiProvider } from 'tamagui';
-import tamaguiConfig from './tamagui.config';
-import PlannerMockups from './screens/_mocks/PlannerMockups';
 import api from './services/api';
 import { useFlag } from './constants/featureFlags';
 import {
@@ -50,8 +47,6 @@ void SplashScreen.preventAutoHideAsync().catch(() => undefined);
 // app or crash-loop it at boot. Idempotent.
 installGlobalErrorHandlers();
 
-// DEV: set true to render the planner redesign mockups (design review only).
-const SHOW_PLANNER_MOCKS = false;
 
 
 // Routes a push notification is allowed to deep-link into. Keep this an
@@ -535,16 +530,6 @@ export default function App() {
         return null;
     }
 
-    if (__DEV__ && SHOW_PLANNER_MOCKS) {
-        return (
-            <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
-                <TamaguiProvider config={tamaguiConfig} defaultTheme="light">
-                    <PlannerMockups />
-                </TamaguiProvider>
-            </GestureHandlerRootView>
-        );
-    }
-
     const webContainerStyle: ViewStyle =
         Platform.OS === 'web' ? { maxWidth: 1200, width: '100%', alignSelf: 'center' } : {};
 
@@ -555,9 +540,8 @@ export default function App() {
                 screen; onReset clears the in-memory cache (the boundary itself
                 clears the boot-restored blobs) so recovery doesn't immediately
                 re-throw on the same poisoned state. Uses plain RN components, so
-                it renders even if Tamagui/providers are what failed. */}
+                it renders even if a provider is what failed. */}
             <AppErrorBoundary label="root" onReset={() => { try { queryClient.clear(); } catch { /* ignore */ } }}>
-                <TamaguiProvider config={tamaguiConfig} defaultTheme="light">
                 <StripeProviderGate>
                     <QueryClientProvider client={queryClient}>
                         <SafeAreaProvider style={{ flex: 1, backgroundColor: colors.background }}>
@@ -574,7 +558,6 @@ export default function App() {
                         </SafeAreaProvider>
                     </QueryClientProvider>
                 </StripeProviderGate>
-                </TamaguiProvider>
             </AppErrorBoundary>
         </GestureHandlerRootView>
     );

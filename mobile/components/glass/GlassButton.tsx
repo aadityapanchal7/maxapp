@@ -15,10 +15,10 @@ import {
     ActivityIndicator,
     StyleSheet,
     Text,
+    View,
     type StyleProp,
     type ViewStyle,
 } from 'react-native';
-import { View } from 'tamagui';
 import { LiquidGlassFill } from './LiquidGlass';
 
 type Variant = 'primary' | 'glass' | 'ghost';
@@ -53,12 +53,14 @@ export function GlassButton({
 
     const content = (
         <View
-            height={isGhost ? 44 : 54}
-            alignItems="center"
-            justifyContent="center"
-            paddingHorizontal={20}
-            borderRadius={radius}
-            style={{ borderCurve: 'continuous' }}
+            style={{
+                height: isGhost ? 44 : 54,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 20,
+                borderRadius: radius,
+                borderCurve: 'continuous',
+            }}
         >
             {loading ? (
                 <ActivityIndicator color={textColor} />
@@ -80,11 +82,13 @@ export function GlassButton({
                 {...a11yProps}
             >
                 <View
-                    borderRadius={radius}
-                    overflow="hidden"
-                    borderWidth={1}
-                    borderColor="$glassBorder"
-                    style={{ borderCurve: 'continuous' }}
+                    style={{
+                        borderRadius: radius,
+                        borderCurve: 'continuous',
+                        overflow: 'hidden',
+                        borderWidth: 1,
+                        borderColor: '#E8E0D3',
+                    }}
                 >
                     {/* Canonical liquid-glass optics behind the label — same
                         material, speculars and rim as every other glass surface. */}
@@ -117,7 +121,7 @@ export function GlassButton({
             style={[styles.shadow, style, dimStyle]}
             {...a11yProps}
         >
-            <View backgroundColor="$ink" borderRadius={radius} style={{ borderCurve: 'continuous' }}>
+            <View style={{ backgroundColor: '#1C1A17', borderRadius: radius, borderCurve: 'continuous' }}>
                 {content}
             </View>
         </TouchableOpacity>

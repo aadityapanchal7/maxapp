@@ -12,9 +12,7 @@ import { colors } from '../theme/dark';
 import LoginScreen from '../screens/auth/LoginScreen';
 import SignupScreen from '../screens/auth/SignupScreen';
 import ForgotPasswordScreen from '../screens/auth/ForgotPasswordScreen';
-import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 import FeaturesIntroScreen from '../screens/onboarding/FeaturesIntroScreen';
-import RoutineRevealScreen from '../screens/onboarding/RoutineRevealScreen';
 import FaceScanScreen from '../screens/scan/FaceScanScreen';
 import FaceScanResultsScreen from '../screens/scan/FaceScanResultsScreen';
 import GoogleCalendarConnectScreen from '../screens/integrations/GoogleCalendarConnectScreen';
@@ -78,17 +76,12 @@ const Stack = createNativeStackNavigator();
 
 export function RootNavigator() {
     const { user, isLoading, isAuthenticated, isPaid, isScanUser, isFreeTier, sessionRestorePending } = useAuth();
-    // Pivot flags: onboardingV2 = free-until-marketplace funnel (completed
-    // unpaid users land on Main, not the legacy tier paywall); revealV2 swaps
-    // the reveal behind its existing route name.
-    const onboardingV2 = useFlag('onboardingV2');
-    const revealV2 = useFlag('revealV2');
     // Face-scan kill switch: when off, the legacy pre-pay funnel skips
     // FeaturesIntro + FaceScan and sends a completed-but-unpaid user straight
     // to the paywall (Payment). Flip the flag on to restore the scan funnel.
     const faceScan = useFlag('faceScan');
-    const OnboardingComponent = onboardingV2 ? OnboardingV2Screen : OnboardingScreen;
-    const RevealComponent = revealV2 ? RevealV2Screen : RoutineRevealScreen;
+    const OnboardingComponent = OnboardingV2Screen;
+    const RevealComponent = RevealV2Screen;
 
     if (isLoading) {
         return <MaxLoadingView />;
@@ -109,7 +102,6 @@ export function RootNavigator() {
     // server-side. Relaunching in that window resumes at the reveal → scan-offer
     // step instead of dropping the user back to step 0 of the wizard.
     const wizardFinished =
-        onboardingV2 &&
         typeof (user?.onboarding as any)?.wake_time === 'string' &&
         Array.isArray((user?.onboarding as any)?.priority_order);
 
@@ -165,7 +157,7 @@ export function RootNavigator() {
                             // behind the question run; no → straight to questions).
                             // Once a scan exists (resume paths), the wizard picks
                             // up from its draft.
-                            : onboardingV2 && faceScan && !firstScanDone
+                            : faceScan && !firstScanDone
                                 ? 'ScanOffer'
                                 : 'Onboarding'
                         : !faceScan

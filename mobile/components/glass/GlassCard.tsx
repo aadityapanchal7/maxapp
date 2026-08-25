@@ -7,14 +7,20 @@
  * Two layers: the outer view carries the shadow (needs overflow visible); the
  * inner view clips content to the rounded shape. borderCurve 'continuous'
  * gives the iOS squircle corner.
+ *
+ * Plain react-native Views (was tamagui — its only consumers were this file
+ * and GlassButton, so the dependency was dropped; token values are inlined:
+ * $glass #FFFFFF, $glassBorder #E8E0D3).
  */
 import React from 'react';
-import { View } from 'tamagui';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 
-type GlassCardProps = React.ComponentProps<typeof View> & {
+type GlassCardProps = {
+    children?: React.ReactNode;
     intensity?: number;
     tint?: 'light' | 'dark' | 'default';
     radius?: number;
+    style?: StyleProp<ViewStyle>;
 };
 
 export function GlassCard({
@@ -22,25 +28,31 @@ export function GlassCard({
     intensity: _intensity,
     tint: _tint,
     radius = 18,
-    ...rest
+    style,
 }: GlassCardProps) {
     return (
         <View
-            borderRadius={radius}
-            shadowColor="#2E2A20"
-            shadowOpacity={0.07}
-            shadowRadius={18}
-            shadowOffset={{ width: 0, height: 8 }}
-            style={{ borderCurve: 'continuous' }}
-            {...rest}
+            style={[
+                {
+                    borderRadius: radius,
+                    borderCurve: 'continuous',
+                    shadowColor: '#2E2A20',
+                    shadowOpacity: 0.07,
+                    shadowRadius: 18,
+                    shadowOffset: { width: 0, height: 8 },
+                },
+                style,
+            ]}
         >
             <View
-                backgroundColor="$glass"
-                borderRadius={radius}
-                overflow="hidden"
-                borderWidth={1}
-                borderColor="$glassBorder"
-                style={{ borderCurve: 'continuous' }}
+                style={{
+                    backgroundColor: '#FFFFFF',
+                    borderRadius: radius,
+                    borderCurve: 'continuous',
+                    overflow: 'hidden',
+                    borderWidth: 1,
+                    borderColor: '#E8E0D3',
+                }}
             >
                 {children}
             </View>
