@@ -50,7 +50,12 @@ export default function FirstRunWalkthrough({
     visible, maxxLabel, firstTask, onOpenFirstTask, onOpenChat, onFinish,
 }: Props) {
     const insets = useSafeAreaInsets();
-    const [idx, setIdx] = useState(0);
+    // Current step tracked by KEY, not index: the steps array is LIVE (the
+    // "start with this" step inserts itself when the funnel-completion pass
+    // lands the first task), and an index would swap the card's content under
+    // the user mid-read. A key keeps the visible card stable while new steps
+    // slot in around it.
+    const [stepKey, setStepKey] = useState('plan');
 
     const steps = useMemo<Step[]>(() => {
         const s: Step[] = [];
@@ -85,7 +90,8 @@ export default function FirstRunWalkthrough({
         return s;
     }, [maxxLabel, firstTask]);
 
-    const step = steps[Math.min(idx, steps.length - 1)];
+    const idx = Math.max(0, steps.findIndex((s) => s.key === stepKey));
+    const step = steps[idx];
 
     // Entrance / step-change animation: card slides up + fades.
     const anim = useRef(new Animated.Value(0)).current;
@@ -95,12 +101,12 @@ export default function FirstRunWalkthrough({
         Animated.timing(anim, {
             toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true,
         }).start();
-    }, [visible, idx, anim]);
+    }, [visible, stepKey, anim]);
 
     if (!visible) return null;
 
     const advance = () => {
-        if (idx < steps.length - 1) setIdx(idx + 1);
+        if (idx < steps.length - 1) setStepKey(steps[idx + 1].key);
         else onFinish();
     };
 

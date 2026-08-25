@@ -796,8 +796,16 @@ async def save_onboarding(
     # max is REQUIRED — mark the auto-enroll intent IN THE SAME COMMIT as
     # `completed` so a process death between commit and the background task
     # still leaves a durable marker for /schedules/active/full to re-kick.
-    if (
+    # ONLY when `completed` NEWLY flips: an already-completed user re-saving
+    # lifestyle edits (this same endpoint) must never be auto-enrolled — a
+    # veteran who deliberately paused every schedule would get their top quiz
+    # pick rebuilt uninvited.
+    newly_completed = (
         onboarding_data.get("completed") is True
+        and _existing_ob.get("completed") is not True
+    )
+    if (
+        newly_completed
         and (onboarding_data.get("goals") or onboarding_data.get("priority_order"))
         and not onboarding_data.get("funnel_auto_enrolled")
     ):
@@ -814,8 +822,10 @@ async def save_onboarding(
 
     # Kick the post-funnel pass (auto-enroll top pick + seed the funnel chat).
     # Fire-and-forget with its own session — generation is LLM-backed (~up to
-    # 60s) and must never block the funnel's final tap.
-    if onboarding_data.get("completed") is True:
+    # 60s) and must never block the funnel's final tap. Only on the completion
+    # flip (or an unfinished retry marker) — never on routine lifestyle edits
+    # by long-completed users.
+    if newly_completed or onboarding_data.get("funnel_auto_enroll_pending"):
         try:
             from services.funnel_completion import kick_funnel_completion
             kick_funnel_completion(str(user_uuid))

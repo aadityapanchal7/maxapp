@@ -482,10 +482,19 @@ export default function HomeScreen() {
     // with quiz picks has zero schedules; stops the moment rows land.
     const settlePollCount = useRef(0);
     useEffect(() => {
-        const ob = user?.onboarding as { completed?: boolean; goals?: unknown[] } | undefined;
+        const ob = user?.onboarding as {
+            completed?: boolean;
+            goals?: unknown[];
+            funnel_auto_enroll_pending?: boolean;
+            funnel_auto_enrolled?: string;
+        } | undefined;
         const eligible =
             ob?.completed === true &&
             Array.isArray(ob?.goals) && ob.goals.length > 0 &&
+            // Funnel-era users only (the completion pass stamps these) — a
+            // veteran who deliberately paused every schedule must not trigger
+            // 90s of background refetching on every Home visit.
+            !!(ob?.funnel_auto_enroll_pending || ob?.funnel_auto_enrolled) &&
             schedulesQuery.isSuccess &&
             ((schedulesQuery.data?.schedules as unknown[] | undefined)?.length ?? 0) === 0;
         if (!eligible || settlePollCount.current >= 22) return;

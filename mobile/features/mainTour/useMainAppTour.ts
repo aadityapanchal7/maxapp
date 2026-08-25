@@ -13,6 +13,31 @@ import api from '../../services/api';
 // spotlight tour on purpose: users who saw THAT must not also see THIS.
 export const MAIN_TOUR_SEEN_KEY = 'main_app_tour_seen_v1';
 
+// ── Cross-tree visibility signal ─────────────────────────────────────────────
+// The auto-enroll pass earns "First Steps" DURING the walkthrough, and the
+// achievement celebration host would stack its overlay on top of ours — two
+// scrims, two CTAs, on the user's very first screen. The host subscribes here
+// and holds celebrations until the walkthrough closes (its queue survives).
+let _walkthroughVisible = false;
+const _visListeners = new Set<(v: boolean) => void>();
+
+function setWalkthroughVisible(v: boolean) {
+    if (_walkthroughVisible === v) return;
+    _walkthroughVisible = v;
+    _visListeners.forEach((l) => l(v));
+}
+
+/** Reactive: true while the first-run walkthrough overlay is on screen. */
+export function useWalkthroughVisible(): boolean {
+    const [v, setV] = useState(_walkthroughVisible);
+    useEffect(() => {
+        _visListeners.add(setV);
+        setV(_walkthroughVisible);
+        return () => { _visListeners.delete(setV); };
+    }, []);
+    return v;
+}
+
 /**
  * Visibility brain for the first-run walkthrough (the guided-first-actions
  * overlay that replaced the react-native-spotlight-tour spotlight tour).
@@ -70,13 +95,19 @@ export function useFirstRunWalkthrough(opts: { redirectPending: boolean }) {
             // finish handler. Local first (authoritative), server best-effort.
             AsyncStorage.setItem(MAIN_TOUR_SEEN_KEY, '1').catch(() => {});
             api.completeMainAppTour().catch(() => {});
+            setWalkthroughVisible(true);
             setVisible(true);
         });
         return () => task.cancel();
     }, [enabled, isPaid, isFocused, seenLocally, user?.onboarding, redirectPending, visible]);
 
+    // Belt-and-braces: if the hosting screen unmounts with the overlay up,
+    // release the celebration hold too.
+    useEffect(() => () => setWalkthroughVisible(false), []);
+
     const finish = useCallback(() => {
         setVisible(false);
+        setWalkthroughVisible(false);
         // Converge the server flag + refresh so `main_app_tour_completed`
         // reaches this device's user object (and any other device).
         void api.completeMainAppTour().then(() => refreshUser()).catch(() => {});

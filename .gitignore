@@ -36,3 +36,4 @@ backend/_sim_backend.py
 
 # Ralph loop runtime state (per-session, never commit)
 **/ralph-loop.local.md
+mobile/.devclient-archive/
