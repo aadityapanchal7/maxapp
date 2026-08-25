@@ -46,7 +46,13 @@ rds_engine = create_async_engine(
 # (the same thing a mis-configured environment yields), so callers take their
 # fallback path with zero latency. One probe per cooldown re-opens the circuit
 # by itself, so recovery needs no deploy.
-_RDS_COOLDOWN_SECONDS = 120.0
+#
+# 10 minutes, not 1: while the host is down exactly ONE request per worker per
+# cooldown pays the 2s probe, so the "unlucky user" rate is ~6/hour instead of
+# ~30/hour. If RDS is retired for good, drop AWS_RDS_PASSWORD from the
+# environment and the probe stops entirely (every caller already has a
+# first-class fallback).
+_RDS_COOLDOWN_SECONDS = 600.0
 _rds_open_until: float = 0.0        # monotonic deadline; 0 = circuit closed
 _rds_probe_lock = asyncio.Lock()
 
