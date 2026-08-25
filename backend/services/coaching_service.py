@@ -601,11 +601,7 @@ class CoachingService:
         if not messages:
             return ""
         convo = "\n".join(f"{m['role']}: {m['content']}" for m in messages[-20:])
-        tmpl = await asyncio.to_thread(
-            resolve_prompt,
-            PromptKey.COACHING_MEMORY_COMPRESS,
-            _COACHING_MEMORY_COMPRESS_FALLBACK,
-        )
+        tmpl = resolve_prompt(PromptKey.COACHING_MEMORY_COMPRESS, _COACHING_MEMORY_COMPRESS_FALLBACK,)
         prompt = tmpl.format(convo=convo)
         try:
             return await asyncio.to_thread(sync_llm_plain_text, prompt)
@@ -625,9 +621,7 @@ class CoachingService:
         if len(messages) < 10:
             return
         convo = "\n".join(f"{m['role']}: {m['content']}" for m in messages[-30:])
-        tmpl = await asyncio.to_thread(
-            resolve_prompt, PromptKey.COACHING_TONE_DETECT, _COACHING_TONE_DETECT_FALLBACK
-        )
+        tmpl = resolve_prompt(PromptKey.COACHING_TONE_DETECT, _COACHING_TONE_DETECT_FALLBACK)
         prompt = tmpl.format(convo=convo)
         try:
             text = await asyncio.to_thread(sync_llm_plain_text, prompt)
@@ -1167,11 +1161,7 @@ class CoachingService:
 
         fitmax_prompt = None
         if fitmax_schedule:
-            fit_tmpl = await asyncio.to_thread(
-                resolve_prompt,
-                PromptKey.COACHING_FITMAX_CHECK_IN,
-                _COACHING_FITMAX_CHECK_IN_FALLBACK,
-            )
+            fit_tmpl = resolve_prompt(PromptKey.COACHING_FITMAX_CHECK_IN, _COACHING_FITMAX_CHECK_IN_FALLBACK,)
             fitmax_prompt = fit_tmpl.format(
                 name=name,
                 check_in_type=check_in_type,
@@ -1183,11 +1173,7 @@ class CoachingService:
         missed_line = (
             f"\nThey missed {missed_today} task(s) today." if missed_today > 0 else ""
         )
-        gen_tmpl = await asyncio.to_thread(
-            resolve_prompt,
-            PromptKey.COACHING_CHECK_IN_GENERAL,
-            _COACHING_CHECK_IN_GENERAL_FALLBACK,
-        )
+        gen_tmpl = resolve_prompt(PromptKey.COACHING_CHECK_IN_GENERAL, _COACHING_CHECK_IN_GENERAL_FALLBACK,)
         prompt = gen_tmpl.format(
             name=name,
             context_str=context_str,
@@ -1253,9 +1239,7 @@ class CoachingService:
         user = await db.get(User, UUID(user_id))
         name = ((user.first_name or user.email.split("@")[0]) if user else "there").strip().lower()
 
-        bed_tmpl = await asyncio.to_thread(
-            resolve_prompt, PromptKey.COACHING_BEDTIME, _COACHING_BEDTIME_FALLBACK
-        )
+        bed_tmpl = resolve_prompt(PromptKey.COACHING_BEDTIME, _COACHING_BEDTIME_FALLBACK)
         base = bed_tmpl.format(name=name, context_snippet=context_str[:2500])
         if channel == "push":
             prompt = base + PUSH_OUTBOUND_LLM_APPENDIX

@@ -147,9 +147,7 @@ class OpenAIService:
                 ms = user_context["active_maxx_schedule"]
                 context_str += f"\nActive {ms.get('maxx_id')} schedule exists."
 
-        chat_prompt = await asyncio.to_thread(
-            resolve_prompt, PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT
-        )
+        chat_prompt = resolve_prompt(PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT)
         if context_str:
             chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
         _sms_extra = sms_chat_appendix(delivery_channel)
@@ -184,9 +182,7 @@ class OpenAIService:
         if not (settings.openai_api_key or "").strip():
             return default_umax_triple_dict("Set OPENAI_API_KEY on the API server for AI ratings.")
 
-        triple_intro = await asyncio.to_thread(
-            resolve_prompt, PromptKey.UMAX_TRIPLE_SYSTEM, UMAX_TRIPLE_SYSTEM_PROMPT
-        )
+        triple_intro = resolve_prompt(PromptKey.UMAX_TRIPLE_SYSTEM, UMAX_TRIPLE_SYSTEM_PROMPT)
         user_text = triple_intro + "\n\nRespond with JSON only matching: overall_score (number), metrics (array of {id,label,score,summary}), preview_blurb (string)."
 
         try:
@@ -210,9 +206,7 @@ class OpenAIService:
             return default_full_triple_dict("Set OPENAI_API_KEY on the API server for AI ratings.")
 
         ctx = (onboarding_json or "{}").strip()[:12000]
-        full_intro = await asyncio.to_thread(
-            resolve_prompt, PromptKey.TRIPLE_FULL_SYSTEM, TRIPLE_FULL_SYSTEM_PROMPT
-        )
+        full_intro = resolve_prompt(PromptKey.TRIPLE_FULL_SYSTEM, TRIPLE_FULL_SYSTEM_PROMPT)
         user_text = full_intro + "\n\nUSER ONBOARDING JSON:\n" + ctx + "\n\nRespond with JSON only matching the full scan schema from your instructions."
 
         try:

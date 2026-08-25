@@ -1,4 +1,4 @@
-﻿"""
+"""
 Nutrition service - external food lookup for calorie/macro estimation.
 Uses OpenFoodFacts as primary source with sensible fallbacks.
 """

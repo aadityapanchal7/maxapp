@@ -2803,11 +2803,7 @@ ANTI-REDUNDANCY (CRITICAL):
 Call generate_maxx_schedule once when you have skin_concern + outside_today (wake/sleep never from user chat). maxx_id=\"skinmax\".]\n\n{message}"""
         elif maxx_id == "bonemax":
             _bone_pre = _bonemax_onboarding_known_block(onboarding)
-            bone_sys = await asyncio.to_thread(
-                resolve_prompt,
-                PromptKey.BONEMAX_NEW_SCHEDULE_SYSTEM,
-                BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT,
-            )
+            bone_sys = resolve_prompt(PromptKey.BONEMAX_NEW_SCHEDULE_SYSTEM, BONEMAX_NEW_SCHEDULE_SYSTEM_PROMPT,)
             message = f"{_bone_pre}{bone_sys}\n\n{message}"
         elif maxx_id == "fitmax":
             _wt = _normalize_clock_hhmm(onboarding.get("wake_time")) or "07:00"

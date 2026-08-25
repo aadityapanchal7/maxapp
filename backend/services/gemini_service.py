@@ -851,9 +851,7 @@ class GeminiService:
         Uses fallback if structured output fails
         """
         try:
-            system_prompt = await asyncio.to_thread(
-                resolve_prompt, PromptKey.FACE_ANALYSIS_SYSTEM, FACE_ANALYSIS_SYSTEM_PROMPT
-            )
+            system_prompt = resolve_prompt(PromptKey.FACE_ANALYSIS_SYSTEM, FACE_ANALYSIS_SYSTEM_PROMPT)
             # Prepare images
             images = [
                 {"mime_type": "image/jpeg", "data": front_image},
@@ -932,9 +930,7 @@ class GeminiService:
         if not settings.gemini_api_key or not str(settings.gemini_api_key).strip():
             return default_umax_triple_dict("Set GEMINI_API_KEY on the API server for AI ratings.")
 
-        triple_intro = await asyncio.to_thread(
-            resolve_prompt, PromptKey.UMAX_TRIPLE_SYSTEM, UMAX_TRIPLE_SYSTEM_PROMPT
-        )
+        triple_intro = resolve_prompt(PromptKey.UMAX_TRIPLE_SYSTEM, UMAX_TRIPLE_SYSTEM_PROMPT)
         parts: List[Any] = [
             triple_intro,
             "FRONT:",
@@ -997,9 +993,7 @@ class GeminiService:
             return default_full_triple_dict("Set GEMINI_API_KEY on the API server for AI ratings.")
 
         ctx = (onboarding_json or "{}").strip()[:12000]
-        full_intro = await asyncio.to_thread(
-            resolve_prompt, PromptKey.TRIPLE_FULL_SYSTEM, TRIPLE_FULL_SYSTEM_PROMPT
-        )
+        full_intro = resolve_prompt(PromptKey.TRIPLE_FULL_SYSTEM, TRIPLE_FULL_SYSTEM_PROMPT)
         parts: List[Any] = [
             full_intro,
             ctx,
@@ -1167,9 +1161,7 @@ class GeminiService:
                 context_str += f"\nActive {ms.get('maxx_id')} schedule exists."
 
         # Build chat prompt
-        chat_prompt = await asyncio.to_thread(
-            resolve_prompt, PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT
-        )
+        chat_prompt = resolve_prompt(PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT)
         if context_str:
             chat_prompt += f"\n\n## USER CONTEXT:\n{context_str}"
         _sms_extra = sms_chat_appendix(delivery_channel)

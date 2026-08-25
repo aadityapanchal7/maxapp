@@ -468,9 +468,7 @@ async def build_agent_system_prompt(
     delivery_channel: str,
 ) -> str:
     """Build the full system prompt for the agent (same logic as _lc_chat in llm_router)."""
-    chat_prompt = await asyncio.to_thread(
-        resolve_prompt, PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT
-    )
+    chat_prompt = resolve_prompt(PromptKey.MAX_CHAT_SYSTEM, MAX_CHAT_SYSTEM_PROMPT)
 
     context_str = user_context.get("coaching_context", "") if user_context else ""
     # Unified per-user brief injection: what Max already knows (so it never

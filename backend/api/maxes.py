@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +23,14 @@ from models.rds_models import Maxx
 from services.maxx_guidelines import MAXX_GUIDELINES, get_maxx_guideline
 
 router = APIRouter(prefix="/maxes", tags=["Maxes"])
+
+# The maxx catalog is GLOBAL (5 rows, identical for every user) and only changes
+# on a deploy or an RDS seed. Home, Explore, Profile and the prefetcher all pull
+# it, so un-cached it was a per-user round trip for constant data. 15-minute TTL;
+# an RDS re-seed shows up within that window.
+_LIST_TTL_SECONDS = 900.0
+_list_cache: dict | None = None
+_list_cached_at: float = 0.0
 
 
 # Display metadata kept here (not in MAXX_GUIDELINES) — matches scripts/sync_maxes_guidelines_to_rds.py.
@@ -40,16 +50,26 @@ async def list_maxes(
 ):
     """Return all active maxxes. RDS-backed when available, falls back to
     services.maxx_guidelines (the same data RDS is seeded from) otherwise."""
+    global _list_cache, _list_cached_at
+    if _list_cache is not None and (time.monotonic() - _list_cached_at) < _LIST_TTL_SECONDS:
+        return _list_cache
+
+    payload: dict | None = None
     if rds_db is not None:
         try:
             result = await rds_db.execute(select(Maxx).where(Maxx.is_active == True))
             rows = result.scalars().all()
             if rows:
-                return {"maxes": [_serialize_row(m) for m in rows]}
+                payload = {"maxes": [_serialize_row(m) for m in rows]}
         except Exception:
             # Connection / query failure — degrade gracefully.
             pass
-    return {"maxes": [_serialize_fallback(mid) for mid in _DISPLAY]}
+    if payload is None:
+        payload = {"maxes": [_serialize_fallback(mid) for mid in _DISPLAY]}
+
+    _list_cache = payload
+    _list_cached_at = time.monotonic()
+    return payload
 
 
 @router.get("/{maxx_id}")

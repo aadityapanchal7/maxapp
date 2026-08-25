@@ -481,9 +481,7 @@ class ScheduleService:
         if num_days == DEFAULT_COURSE_SCHEDULE_DAYS and guidelines.get("recommended_days"):
             num_days = guidelines["recommended_days"]
 
-        gen_tmpl = await asyncio.to_thread(
-            resolve_prompt, PromptKey.SCHEDULE_GENERATION, SCHEDULE_GENERATION_PROMPT
-        )
+        gen_tmpl = resolve_prompt(PromptKey.SCHEDULE_GENERATION, SCHEDULE_GENERATION_PROMPT)
         prompt = gen_tmpl.format(
             module_title=module.get("title", ""),
             module_description=module.get("description", ""),
@@ -932,9 +930,7 @@ class ScheduleService:
             protocol_section = build_protocol_prompt_section(guideline, concern)
             height_track_footer = ""
 
-        maxx_tmpl = await asyncio.to_thread(
-            resolve_prompt, PromptKey.MAXX_SCHEDULE, MAXX_SCHEDULE_PROMPT
-        )
+        maxx_tmpl = resolve_prompt(PromptKey.MAXX_SCHEDULE, MAXX_SCHEDULE_PROMPT)
         user_history_context = await self._build_maxx_history_context(db, user_id, maxx_id)
 
         prompt = maxx_tmpl.format(
@@ -2948,9 +2944,7 @@ class ScheduleService:
                 if task.get("status") == "skipped":
                     skipped_types.append(task.get("task_type", "unknown"))
 
-        adapt_tmpl = await asyncio.to_thread(
-            resolve_prompt, PromptKey.SCHEDULE_ADAPTATION, SCHEDULE_ADAPTATION_PROMPT
-        )
+        adapt_tmpl = resolve_prompt(PromptKey.SCHEDULE_ADAPTATION, SCHEDULE_ADAPTATION_PROMPT)
         max_out = max(1024, int(settings.schedule_adapt_max_output_tokens or 16384))
         adapt_timeout_s = float(
             getattr(settings, "schedule_adapt_timeout_seconds", 0) or 0

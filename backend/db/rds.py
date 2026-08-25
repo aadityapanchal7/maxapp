@@ -3,11 +3,17 @@ SQLAlchemy Database Connection Manager for AWS RDS
 Async PostgreSQL for shared/multi-user data
 """
 
+import asyncio
+import logging
+import time
+
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy import text
 from typing import AsyncGenerator
 
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 # Create async engine for AWS RDS. Real RDS requires SSL; a LOCAL stand-in
@@ -23,11 +29,47 @@ rds_engine = create_async_engine(
     pool_timeout=10,
     pool_pre_ping=True,
     connect_args={
-        "timeout": 10,
+        # 2s, not 10. RDS is an OPTIONAL enrichment store — every endpoint that
+        # touches it has a first-class fallback. When the host is unreachable
+        # (security group change, instance retired) a 10s connect timeout turned
+        # `GET /maxes` — which Home, Explore and Profile all fetch — into a
+        # 10.8s request. The wait buys nothing: we fall back either way.
+        "timeout": 2,
         **({} if _RDS_IS_LOCAL else {"ssl": "require"}),
         "server_settings": {"application_name": "maxapp_rds"},
     },
 )
+
+# ─── Circuit breaker ─────────────────────────────────────────────────────────
+# Even a 2s timeout is 2s of a user's life, paid on EVERY request, while RDS is
+# down. After a failure we stop dialling for a cooldown and yield None instantly
+# (the same thing a mis-configured environment yields), so callers take their
+# fallback path with zero latency. One probe per cooldown re-opens the circuit
+# by itself, so recovery needs no deploy.
+_RDS_COOLDOWN_SECONDS = 120.0
+_rds_open_until: float = 0.0        # monotonic deadline; 0 = circuit closed
+_rds_probe_lock = asyncio.Lock()
+
+
+def _rds_circuit_open() -> bool:
+    return time.monotonic() < _rds_open_until
+
+
+def _trip_rds_circuit(exc: BaseException) -> None:
+    global _rds_open_until
+    first = not _rds_circuit_open()
+    _rds_open_until = time.monotonic() + _RDS_COOLDOWN_SECONDS
+    if first:
+        logger.warning(
+            "RDS unreachable (%s: %s) — serving fallbacks for %.0fs before retrying.",
+            type(exc).__name__, exc, _RDS_COOLDOWN_SECONDS,
+        )
+
+
+def rds_circuit_state() -> dict:
+    """Diagnostics for /health — is RDS being skipped, and for how long."""
+    remaining = max(0.0, _rds_open_until - time.monotonic())
+    return {"open": remaining > 0, "cooldown_remaining_s": round(remaining, 1)}
 
 # Session factory
 RDSSessionLocal = async_sessionmaker(
@@ -70,7 +112,33 @@ async def get_rds_db_optional() -> AsyncGenerator["AsyncSession | None", None]:
         yield None
         return
 
-    async with RDSSessionLocal() as session:
+    # Circuit open → behave exactly like "not configured": instant None, and
+    # the endpoint serves its fallback. No dial, no timeout, no user-visible wait.
+    if _rds_circuit_open():
+        yield None
+        return
+
+    # Connect EAGERLY rather than letting the first query inside the endpoint
+    # raise: a lazily-connected session hands the failure to the caller's
+    # try/except, which swallows it WITHOUT tripping the breaker — so every
+    # subsequent request would pay the timeout again.
+    #
+    # Only the CONNECT is wrapped. FastAPI injects endpoint exceptions back into
+    # this generator at the `yield`, so a try/except spanning the yield would
+    # both mis-trip the breaker and try to yield twice.
+    session = RDSSessionLocal()
+    try:
+        await session.connection()
+    except Exception as e:
+        _trip_rds_circuit(e)
+        try:
+            await session.close()
+        except Exception:
+            pass
+        yield None
+        return
+
+    async with session:
         yield session
 
 
