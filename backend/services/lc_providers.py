@@ -136,14 +136,16 @@ _LLM_FALLBACK_EXCEPTIONS = _llm_fallback_exception_types()
 # Per-provider builders
 # ---------------------------------------------------------------------------
 
-def _build_gemini_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatModel:
+def _build_gemini_llm(
+    max_tokens: int, temperature: float = 0.7, model_override: Optional[str] = None
+) -> BaseChatModel:
     from langchain_google_genai import ChatGoogleGenerativeAI
 
     key = (settings.gemini_api_key or "").strip()
     if not key:
         raise ValueError("GEMINI_API_KEY is not set")
 
-    model = (settings.gemini_model or "gemini-2.5-flash").strip()
+    model = (model_override or settings.gemini_model or "gemini-2.5-flash").strip()
     return ChatGoogleGenerativeAI(
         model=model,
         google_api_key=key,
@@ -155,6 +157,23 @@ def _build_gemini_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatMode
         # time on quota / 429 errors before the fallback fires.
         max_retries=0,
     )
+
+
+def _gemini_chat_primary(max_tokens: int, temperature: float = 0.7) -> Optional[BaseChatModel]:
+    """The latency-tuned gemini used for the CONVERSATIONAL chat paths only.
+
+    settings.gemini_chat_model (default flash-lite: thinking off, much faster
+    end-to-end) — schedule/JSON generation keeps settings.gemini_model. Returns
+    None when no distinct chat model is configured.
+    """
+    chat_model = (settings.gemini_chat_model or "").strip()
+    if not chat_model or chat_model == (settings.gemini_model or "").strip():
+        return None
+    try:
+        return _build_gemini_llm(max_tokens, temperature=temperature, model_override=chat_model)
+    except Exception as e:
+        logger.warning("[lc_providers] gemini chat-model build failed (%s); using default", e)
+        return None
 
 
 def _build_openai_llm(max_tokens: int, temperature: float = 0.7) -> BaseChatModel:
@@ -320,6 +339,11 @@ def get_chat_llm_with_fallback(max_tokens: int = 768, temperature: float = 0.7) 
     logger.debug("[lc_providers] primary=%s max_tokens=%d", primary_name, max_tokens)
 
     primary = get_primary_llm(max_tokens, temperature=temperature)
+    if primary_name == "gemini":
+        # Conversational path: prefer the latency-tuned chat model. Fallbacks
+        # (incl. any gemini inside another provider's chain) keep the default
+        # quality model — they only fire when something is already wrong.
+        primary = _gemini_chat_primary(max_tokens, temperature=temperature) or primary
     fallbacks = _build_fallback_list(primary_name, max_tokens, temperature=temperature)
 
     if not fallbacks:
@@ -354,6 +378,10 @@ def get_chat_llm_with_tools_and_fallback(
                  primary_name, len(tools))
 
     primary_llm = get_primary_llm(max_tokens)
+    if primary_name == "gemini":
+        # Same latency-tuned chat model for the agent's tool-calling steps —
+        # this is where per-call thinking overhead compounds (up to 6 steps).
+        primary_llm = _gemini_chat_primary(max_tokens) or primary_llm
     primary_with_tools = primary_llm.bind_tools(tools)
 
     fallback_llms = _build_fallback_list(primary_name, max_tokens)

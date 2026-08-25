@@ -11,9 +11,8 @@ import Svg, { Circle } from 'react-native-svg';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
-import { AttachStep } from 'react-native-spotlight-tour';
-import { TOUR_STEP } from '../../features/mainTour/mainTourSteps';
-import { useMainAppTour } from '../../features/mainTour/useMainAppTour';
+import { useFirstRunWalkthrough } from '../../features/mainTour/useMainAppTour';
+import FirstRunWalkthrough from '../../features/mainTour/FirstRunWalkthrough';
 import { colors, spacing, typography, fonts, borderRadius } from '../../theme/dark';
 import { normalizeMaxxTintHex } from '../../components/MaxxProgramRow';
 import { buildMaxxMaps, mergeSchedules, normalizeMaxxId, moduleColorForSchedule, type MergedScheduleTask } from '../../utils/scheduleAggregation';
@@ -244,7 +243,7 @@ export default function HomeScreen() {
     const navigation = useNavigation<any>();
     const insets = useSafeAreaInsets();
     const queryClient = useQueryClient();
-    const { user } = useAuth();
+    const { user, refreshUser } = useAuth();
     const maxesQuery = useMaxxesQuery();
     const schedulesQuery = useActiveSchedulesFullQuery();
 
@@ -269,10 +268,6 @@ export default function HomeScreen() {
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(18)).current;
     const postPayRedirected = useRef(false);
-    // Measured host around step 0's tour anchor — drives a SAFE tour start
-    // (focus + non-zero measure), replacing the old blind 600ms timer.
-    const tourAnchorRef = useRef<View | null>(null);
-
     const maxes = maxesQuery.data?.maxes ?? [];
     const loading = maxesQuery.isPending && !maxesQuery.data;
     const schedulesLoading = schedulesQuery.isPending && !schedulesQuery.data;
@@ -440,19 +435,30 @@ export default function HomeScreen() {
             const ob = user?.onboarding as { post_subscription_onboarding?: boolean } | undefined;
             if (!ob?.post_subscription_onboarding || postPayRedirected.current) return;
             postPayRedirected.current = true;
+            // The scan is OPTIONAL. A skipper has no scan row, so the reveal
+            // redirect would just transit FaceScanResults' no-scan spinner (or
+            // its 8s "Couldn't load your scan" watchdog screen) before bouncing
+            // back here. Skip the reveal entirely: clear the server flag so the
+            // first-run walkthrough can start, and never show a scan-results
+            // surface to someone who chose not to scan.
+            if (!user?.first_scan_completed) {
+                void api.dismissPostSubscriptionOnboarding()
+                    .then(() => refreshUser())
+                    .catch(() => { postPayRedirected.current = false; });   // retry next focus
+                return;
+            }
             navigation.navigate('FaceScanResults', { postPay: true });
-        }, [user?.onboarding, navigation, faceScan]),
+        }, [user?.onboarding, user?.first_scan_completed, navigation, faceScan, refreshUser]),
     );
 
-    // Post-onboarding guided tour: starts only when Home is focused AND step 0's
-    // anchor has measured a non-zero spot AND no post-pay redirect is pending.
+    // First-run walkthrough (replaced the spotlight tour): shows only when Home
+    // is focused and no post-pay redirect is pending. Anchor-free — see
+    // features/mainTour/FirstRunWalkthrough.
     const tourRedirectPending =
         faceScan &&
         !!(user?.onboarding as { post_subscription_onboarding?: boolean } | undefined)?.post_subscription_onboarding &&
         !postPayRedirected.current;
-    const { onAnchorLayout: onTourAnchorLayout } = useMainAppTour(tourAnchorRef, {
-        redirectPending: tourRedirectPending,
-    });
+    const walkthrough = useFirstRunWalkthrough({ redirectPending: tourRedirectPending });
 
     useEffect(() => {
         Animated.parallel([
@@ -460,6 +466,36 @@ export default function HomeScreen() {
             Animated.timing(slideAnim, { toValue: 0, duration: 500, useNativeDriver: true }),
         ]).start();
     }, [fadeAnim, slideAnim]);
+
+    // Today's first still-pending task — the walkthrough's "start with this"
+    // action. Null while the funnel-completion pass is still building the plan.
+    const walkthroughFirstRow = useMemo(
+        () => (byDate[today] || []).find((r) => r.status !== 'completed') ?? null,
+        [byDate, today],
+    );
+
+    // Funnel-completion settle: the server builds the first max in the
+    // BACKGROUND after onboarding completes (services.funnel_completion), so a
+    // brand-new user lands here seconds before their schedule exists. The
+    // cached schedules query would show the empty state until a manual
+    // refresh — banned. Poll the query (bounded: ~90s) while a completed user
+    // with quiz picks has zero schedules; stops the moment rows land.
+    const settlePollCount = useRef(0);
+    useEffect(() => {
+        const ob = user?.onboarding as { completed?: boolean; goals?: unknown[] } | undefined;
+        const eligible =
+            ob?.completed === true &&
+            Array.isArray(ob?.goals) && ob.goals.length > 0 &&
+            schedulesQuery.isSuccess &&
+            ((schedulesQuery.data?.schedules as unknown[] | undefined)?.length ?? 0) === 0;
+        if (!eligible || settlePollCount.current >= 22) return;
+        const id = setInterval(() => {
+            settlePollCount.current += 1;
+            if (settlePollCount.current >= 22) { clearInterval(id); return; }
+            void queryClient.invalidateQueries({ queryKey: queryKeys.schedulesActiveFull });
+        }, 4000);
+        return () => clearInterval(id);
+    }, [user?.onboarding, schedulesQuery.isSuccess, schedulesQuery.data, queryClient]);
 
     const personalizedUI = useFlag('personalizedUI');
     const pers = usePersonalization();
@@ -603,15 +639,8 @@ export default function HomeScreen() {
                         </View>
                     </View>
 
-                    {/* ── HEADER + DAY STRIP ──────────────────────────────────────
-                        The tour's "Your progress" step highlights BOTH the DAY X/365
-                        header and the day strip, so the spotlight covers the whole
-                        progress block (not just the pills). tourAnchorRef gives the
-                        starter a real non-zero rect to measure before it starts (never
-                        a zero spot); collapsable=false keeps it measurable on iOS. ── */}
-                    <View ref={tourAnchorRef} collapsable={false} onLayout={onTourAnchorLayout}>
-                    <AttachStep index={TOUR_STEP.PROGRESS} fill>
-                        <View>
+                    {/* ── HEADER + DAY STRIP ── */}
+                    <View>
                             <View style={s.header}>
                                 <Text style={s.kicker} numberOfLines={1}>
                                     {(activeDisplayLabel || 'TODAY').toUpperCase()}
@@ -678,13 +707,10 @@ export default function HomeScreen() {
                                 );
                             })}
                         </ScrollView>
-                        </View>
-                    </AttachStep>
                     </View>
 
                     {/* ── HABITS ── */}
-                    <AttachStep index={TOUR_STEP.PROGRAMS} fill>
-                        <View style={s.section}>
+                    <View style={s.section}>
                             <Text style={s.sectionLabel}>HABITS</Text>
 
                             {displaySchedulesError ? (
@@ -732,7 +758,6 @@ export default function HomeScreen() {
                                 );
                             })}
                         </View>
-                    </AttachStep>
 
                     {/* ── EMPTY: no programs yet ── */}
                     {activeMaxxes.length === 0 && !schedulesLoading && (
@@ -756,6 +781,28 @@ export default function HomeScreen() {
 
                 </Animated.View>
             </ScrollView>
+
+            <FirstRunWalkthrough
+                visible={walkthrough.visible}
+                maxxLabel={activeMaxxes.find((m) => !m.isCourse)?.label ?? activeMaxxes[0]?.label ?? null}
+                firstTask={walkthroughFirstRow
+                    ? { title: walkthroughFirstRow.title, time: formatTimeTo12Hour(walkthroughFirstRow.time) }
+                    : null}
+                onOpenFirstTask={() => {
+                    const row = walkthroughFirstRow;
+                    if (!row) return;
+                    navigation.navigate('TaskGuide', {
+                        scheduleId: row.scheduleId,
+                        taskId: row.task_id,
+                        maxxId: maxxIdBySchedule[row.scheduleId],
+                        moduleColor: row.moduleColor,
+                        moduleLabel: row.moduleLabel,
+                        done: false,
+                    });
+                }}
+                onOpenChat={() => navigation.navigate('Chat')}
+                onFinish={walkthrough.finish}
+            />
         </View>
     );
 }

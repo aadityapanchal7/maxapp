@@ -1,14 +1,17 @@
 appId: com.cannon.mobile
 ---
-# U7: with mainAppTour ON + the zero-rect measure retry, the walkthrough presents
-# on a fresh post-pay Home. clearState resets the main_app_tour_seen AsyncStorage
-# flag so the tour is eligible. (Selector rules: text: for labels; Modal pills by
-# point — Guest~19% / Onboarding~50% / Paid~81% at y~91%. Run as ONE flow.)
+# U7: with mainAppTour ON, the first-run walkthrough (guided first-actions
+# overlay — replaced the spotlight tour) presents on a fresh post-pay Home.
+# clearState resets the main_app_tour_seen AsyncStorage flag so it's eligible.
+# (Selector rules: text: for labels; Modal pills by point — Guest~19% /
+# Onboarding~50% / Paid~81% at y~91%. Run as ONE flow.)
 - launchApp: { clearState: true }
 - extendedWaitUntil: { visible: "max", timeout: 120000 }   # guest landing
 - tapOn: { text: "Open dev drawer" }
 - waitForAnimationToEnd: { timeout: 2500 }
 - tapOn: { point: "81%,91%" }                              # Paid -> fresh post-pay Home
 - extendedWaitUntil: { visible: "DAY", timeout: 60000 }
-- assertVisible: "Your progress"                           # the tour step-0 tooltip
+- assertVisible: "your plan is live"                       # walkthrough step 0
+- tapOn: { text: "show me" }
+- assertVisible: "getting started"                         # still in the walkthrough
 - takeScreenshot: main_tour_presents_pass

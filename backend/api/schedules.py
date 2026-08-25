@@ -152,6 +152,16 @@ async def get_all_active_schedules_full(
     """Full schedule documents for all active modules (master schedule / merged week view)."""
     schedules = await schedule_service.get_all_active_schedules(current_user["id"], db)
     user_row = await db.get(User, UUID(current_user["id"]))
+    # Self-heal a dropped funnel-completion pass: the auto-enroll intent is
+    # committed WITH onboarding.completed, so if the fire-and-forget task died
+    # (deploy, crash), the marker survives and this hot read re-kicks it.
+    # Single-flight inside kick_funnel_completion keeps this free when racing.
+    try:
+        if (user_row.onboarding or {}).get("funnel_auto_enroll_pending"):
+            from services.funnel_completion import kick_funnel_completion
+            kick_funnel_completion(current_user["id"])
+    except Exception:
+        pass
     streak = await sync_master_schedule_streak(user_row, schedules, db)
     # Award any newly-earned badges off the freshly-synced day-state and hand
     # them back so the client can fire a celebration. Best-effort, never fatal.

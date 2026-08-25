@@ -109,6 +109,13 @@ class Settings(BaseSettings):
     # Google Gemini -- still required for face-scan vision (HF TGI text endpoint can't do images)
     gemini_api_key: str = Field(default="")
     gemini_model: str = Field(default="gemini-2.5-flash")
+    # Chat-only model override. The conversational coach is latency-critical
+    # (a user is watching a typing indicator through up to 6 agent tool-steps),
+    # while schedule/JSON generation is background and quality-critical — so
+    # they get separate knobs. flash-lite ships with thinking OFF by default
+    # (the old langchain-google-genai 2.0.x stack can't set thinking_budget),
+    # which is most of the speedup. Empty = use gemini_model for chat too.
+    gemini_chat_model: str = Field(default="gemini-2.5-flash-lite")
     # Anthropic Claude -- used for face-scan vision when LLM_PROVIDER=claude
     anthropic_api_key: str = Field(default="")
     anthropic_model: str = Field(default="claude-haiku-4-5")

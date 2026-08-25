@@ -12,11 +12,8 @@ import { useNavigation } from '@react-navigation/native';
 import { queryClient } from '../lib/queryClient';
 import { prefetchMainTabData } from '../lib/prefetchMainTabData';
 import { useAuth } from '../context/AuthContext';
-import { SpotlightTourProvider, AttachStep, useSpotlightTour } from 'react-native-spotlight-tour';
 // Deep import (pinned v4.0.0): the public API doesn't surface the live `spot`,
 // which the safety watchdog needs to detect a zero-spot trap.
-import { SpotlightTourContext } from 'react-native-spotlight-tour/dist/lib/SpotlightTour.context';
-import { TOUR_STEPS, TOUR_STEP } from '../features/mainTour/mainTourSteps';
 import api from '../services/api';
 
 import HomeScreen from '../screens/home/HomeScreen';
@@ -278,41 +275,8 @@ const modal = StyleSheet.create({
     },
 });
 
-// The main-app tour is now started from HomeScreen via `useMainAppTour`, which
-// gates `start()` on Home actually being focused AND step 0's anchor having
-// measured a non-zero spot (so the library can never land on a zero-spot
-// full-screen touch-trap). The old blind 600ms `setTimeout` here fired
-// regardless of focus/measure and caused the "frozen screen" bug; it has been
-// removed. The SpotlightTourProvider + AttachStep anchors below stay as-is.
-
-// Safety watchdog: even though the start is gated, this is the last line of
-// defence against an unescapable backdrop. If the active step's measured spot
-// stays zero past a short grace window (its anchor never mounted/measured),
-// abort the tour gracefully — stop() fires onStop, which restores tappability
-// AND persists completion so it can't re-fire. Without this, a zero spot leaves
-// a full-screen backdrop whose tooltip (and Skip button) never fades in.
-const TOUR_ZERO_SPOT_GRACE_MS = 1200;
-
-function TourSafetyGuard() {
-    const { current, spot } = useContext(SpotlightTourContext);
-    const { stop } = useSpotlightTour();
-    const spotRef = useRef(spot);
-    spotRef.current = spot;
-
-    useEffect(() => {
-        if (current === undefined) return; // tour not running
-        const id = setTimeout(() => {
-            const s = spotRef.current;
-            if (!s || s.width <= 0 || s.height <= 0) {
-                // Zero spot after the grace window → unescapable backdrop. Bail.
-                stop();
-            }
-        }, TOUR_ZERO_SPOT_GRACE_MS);
-        return () => clearTimeout(id);
-    }, [current, stop]);
-
-    return null;
-}
+// The first-run walkthrough (features/mainTour) is rendered by HomeScreen —
+// an anchor-free overlay, so this navigator carries no tour machinery anymore.
 
 // The 4-tab pivot nav (spec 3.1): Today / Explore / Coach / You. No Forums
 // registration, no ScanTab remnant, no duplicate Planner tab - the week
@@ -409,35 +373,12 @@ export default function TabNavigator() {
         prefetchMainTabData(queryClient);
     }, []);
 
-    const handleTourStop = useCallback(async () => {
-        try {
-            await api.completeMainAppTour();
-            await refreshUser();
-        } catch { /* non-fatal */ }
-    }, [refreshUser]);
-
     if (newNav) {
         return <NewTabNavigator insets={insets} />;
     }
 
     return (
         <>
-            <SpotlightTourProvider
-                steps={TOUR_STEPS}
-                overlayColor="black"
-                overlayOpacity={0.65}
-                // MUST stay false. The spotlight cutout (CircleShape/RectShape)
-                // animates SVG geometry props — cx/cy/r and Rect x/y/width/height
-                // via react-native-svg's AnimatedCircle/AnimatedRect — which the
-                // native animated driver does not support. Setting nativeDriver
-                // true makes those Animated.Values throw ("not supported by the
-                // native animated module") and breaks the cutout. The tooltip
-                // fade is opacity-only so it would be native-safe, but the prop is
-                // global to the provider, so the geometry animation wins: leave it.
-                nativeDriver={false}
-                onBackdropPress="continue"
-                onStop={handleTourStop}
-            >
             <Tab.Navigator
                 // Restore the tab the user left (lib/navState); falls back to
                 // Home when there's nothing valid to restore.
@@ -484,11 +425,7 @@ export default function TabNavigator() {
                         tabBarLabel: 'Planner',
                         tabBarButtonTestID: 'tab-planner',
                         tabBarIcon: ({ color }) => (
-                            <AttachStep index={TOUR_STEP.SCHEDULE_TAB}>
-                                <View style={styles.tourIconWrap}>
-                                    <Ionicons name="map-outline" size={22} color={color} />
-                                </View>
-                            </AttachStep>
+                            <Ionicons name="map-outline" size={22} color={color} />
                         ),
                     }}
                 />
@@ -508,11 +445,7 @@ export default function TabNavigator() {
                         tabBarLabel: 'Explore',
                         tabBarButtonTestID: 'tab-explore',
                         tabBarIcon: ({ color }) => (
-                            <AttachStep index={TOUR_STEP.EXPLORE_TAB}>
-                                <View style={styles.tourIconWrap}>
-                                    <Ionicons name="compass-outline" size={22} color={color} />
-                                </View>
-                            </AttachStep>
+                            <Ionicons name="compass-outline" size={22} color={color} />
                         ),
                     }}
                 />
@@ -522,11 +455,7 @@ export default function TabNavigator() {
                     options={{
                         tabBarButtonTestID: 'tab-chat',
                         tabBarIcon: ({ color }) => (
-                            <AttachStep index={TOUR_STEP.CHAT_TAB}>
-                                <View style={styles.tourIconWrap}>
-                                    <Ionicons name="chatbubble-outline" size={22} color={color} />
-                                </View>
-                            </AttachStep>
+                            <Ionicons name="chatbubble-outline" size={22} color={color} />
                         ),
                     }}
                 />
@@ -542,8 +471,6 @@ export default function TabNavigator() {
                     }}
                 />
             </Tab.Navigator>
-            <TourSafetyGuard />
-            </SpotlightTourProvider>
 
             <PremiumGateModal
                 visible={showGate}
@@ -578,11 +505,5 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: '500',
         letterSpacing: 0.2,
-    },
-    tourIconWrap: {
-        width: 28,
-        height: 28,
-        alignItems: 'center' as const,
-        justifyContent: 'center' as const,
     },
 });
