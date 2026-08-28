@@ -89,7 +89,9 @@ export default function SettingsScreen() {
         queryFn: () => api.getGoogleStatus(),
         staleTime: 60_000,
     });
-    const showCalendarRow = googleStatusQ.data?.calendar_link_enabled === true;
+    // `!== false` (not `=== true`) so the row stays put while the status query
+    // is in flight — matching DayPlannerScreen. `=== true` made it pop in late.
+    const showCalendarRow = googleStatusQ.data?.calendar_link_enabled !== false;
 
     const openSupport = () => {
         const q = `subject=${encodeURIComponent('Max support')}`;
@@ -181,7 +183,13 @@ export default function SettingsScreen() {
                     {showCalendarRow ? (
                         <Row
                             label="Google Calendar"
-                            hint={googleStatusQ.data?.connected ? 'Connected' : 'Link your calendar'}
+                            hint={
+                                googleStatusQ.data?.connected
+                                    ? (googleStatusQ.data?.routine_sync_enabled
+                                        ? 'Connected · syncing routine'
+                                        : 'Connected')
+                                    : 'Link your calendar'
+                            }
                             onPress={() => navigation.navigate('GoogleCalendarConnect')}
                         />
                     ) : null}

@@ -127,6 +127,19 @@ async def generate_schedule(
 
     user_state = merged_user_state(onboarding or {}, persistent_ctx, extras or {})
 
+    # Callers (schedule_runtime) normally supply this; fetch it here when they
+    # didn't so direct callers, evals and the LLM path stay calendar-aware too.
+    if "calendar_busy_by_date" not in user_state:
+        try:
+            from datetime import timedelta as _cal_td
+            from services.calendar_busy import calendar_busy_by_date as _cal_fetch
+            _cal_start = local_today_date(user_state)
+            user_state["calendar_busy_by_date"] = await _cal_fetch(
+                user_id, _cal_start, _cal_start + _cal_td(days=35), db
+            )
+        except Exception:
+            user_state["calendar_busy_by_date"] = {}
+
     # Fold in unified personalization signals (diet, culture, work, comms style)
     # so generated content respects who the user actually is — vegetarian macros,
     # culturally-familiar food references, etc. Only fills keys the caller left
@@ -204,6 +217,7 @@ async def generate_schedule(
                 user_ctx=user_state,
                 expected_day_count=cadence_days,
                 daily_task_budget=(min_tasks, max_tasks),
+                start_date=local_today_date(user_state),
             )
             from services.human_time import humanize_days
             humanize_days(fixed_days, user_state)
@@ -355,6 +369,10 @@ def _build_prompt(
     for k, v in user_state.items():
         if v in (None, "", [], {}):
             continue
+        # Machine-only key: a per-date busy map is bulky and the model never
+        # needs it (the validator enforces the placement deterministically).
+        if k == "calendar_busy_by_date":
+            continue
         state_lines.append(f"  {k}: {v}")
     state_block = "\n".join(state_lines)
 
@@ -446,6 +464,7 @@ async def _llm_then_validate(
             user_ctx=user_state,
             expected_day_count=cadence_days,
             daily_task_budget=daily_budget,
+            start_date=local_today_date(user_state),
         )
         last_errors = errors
         days = fixed_days

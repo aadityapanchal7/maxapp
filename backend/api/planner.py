@@ -448,6 +448,13 @@ async def skip_task(
     flag_modified(sched, "days")
     sched.updated_at = datetime.utcnow()
     await db.commit()
+    # A skipped task's calendar event should disappear, not sit there implying
+    # you still owe it.
+    try:
+        from services.gcal_mirror import kick_gcal_mirror
+        kick_gcal_mirror(str(uid))
+    except Exception:
+        pass
     return {"skipped": True, "task_id": task_id}
 
 
@@ -811,6 +818,7 @@ async def feasibility(
     from services.schedule_validator import (
         _WEEKDAY_NAMES,
         _busy_intervals_from_ctx,
+        _calendar_busy_for_date,
         _effective_day_ctx,
     )
     from api.marketplace import _SEED_COURSES
@@ -876,6 +884,19 @@ async def feasibility(
                 spans.append((t_min, t_min + dur))
         existing_by_weekday[wd_name] = (spans, int(entry.get("task_count") or 0))
 
+    # Map each weekday to its NEXT real date so the sim can consult the user's
+    # actual calendar — otherwise the "will this fit?" chip promises room that a
+    # Tuesday of meetings doesn't have.
+    from datetime import timedelta as _feas_td
+    from services.calendar_busy import calendar_busy_by_date as _feas_cal
+    from services.schedule_streak import local_today_date as _feas_today
+    _f_today = _feas_today(ob)
+    _f_busy_map = await _feas_cal(uid, _f_today, _f_today + _feas_td(days=7), db)
+    _next_date_for_wd: dict[str, str] = {}
+    for _off in range(7):
+        _d = _f_today + _feas_td(days=_off)
+        _next_date_for_wd.setdefault(_WEEKDAY_NAMES[_d.weekday()], _d.isoformat())
+
     ghost_week: list[dict[str, Any]] = []
     fittable_days = 0
     for wd in _WEEKDAY_NAMES:
@@ -885,6 +906,9 @@ async def feasibility(
         busy = list(_busy_intervals_from_ctx(eff))
         task_spans, existing_count = existing_by_weekday.get(wd, ([], 0))
         busy.extend(task_spans)
+        _wd_iso = _next_date_for_wd.get(wd)
+        if _wd_iso:
+            busy.extend(_calendar_busy_for_date({"calendar_busy_by_date": _f_busy_map}, _wd_iso))
         busy.sort()
         slots: list[str] = []
         # A day with no cap headroom cannot take another program's session

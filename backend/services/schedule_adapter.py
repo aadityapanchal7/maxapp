@@ -158,6 +158,17 @@ async def adapt_schedule(
 
     persistent_ctx = await get_context(user_id, db)
     user_state = merged_user_state(onboarding or {}, persistent_ctx)
+    # Chat-driven edits must respect real commitments too.
+    try:
+        from datetime import timedelta as _cal_td
+        from services.calendar_busy import calendar_busy_by_date as _cal_fetch
+        from services.schedule_streak import local_today_date as _cal_today
+        _ad_start = _cal_today(user_state)
+        user_state["calendar_busy_by_date"] = await _cal_fetch(
+            user_id, _ad_start, _ad_start + _cal_td(days=35), db
+        )
+    except Exception:
+        pass
     eligible = eligible_tasks(maxx_id, user_state, intensity_cap=1.0)
 
     prompt = _build_adapt_prompt(
@@ -267,7 +278,12 @@ def _build_adapt_prompt(
         for t in eligible
     )
 
-    state_block = "\n".join(f"  {k}: {v}" for k, v in user_state.items() if v not in (None, "", [], {}) and not k.startswith("_"))
+    state_block = "\n".join(
+        f"  {k}: {v}" for k, v in user_state.items()
+        if v not in (None, "", [], {})
+        and not k.startswith("_")
+        and k != "calendar_busy_by_date"  # machine-only; enforced by the validator
+    )
 
     # Long-term user facts (diet/allergies/etc.) — same source the chat
     # agent uses. Inject into the adapter so e.g. "swap tret for something

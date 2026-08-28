@@ -30,6 +30,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Switch,
   useWindowDimensions,
 } from 'react-native'
 import { Alert } from '../../components/InAppAlert';
@@ -290,6 +291,7 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
   const [calConnecting, setCalConnecting] = useState(false);
   const [calDisconnecting, setCalDisconnecting] = useState(false);
   const [calResyncing, setCalResyncing] = useState(false);
+  const [routineSyncBusy, setRoutineSyncBusy] = useState(false);
   const calPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleCalConnect = useCallback(async () => {
@@ -311,6 +313,9 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
       if (calPollRef.current) { clearInterval(calPollRef.current); calPollRef.current = null; }
       qc.invalidateQueries({ queryKey: ['googleStatus'] });
       qc.invalidateQueries({ queryKey: ['plannerToday'] });
+      // Connecting reflows the plan around real commitments server-side, so the
+      // cached schedule is now stale.
+      invalidateSchedules();
     } catch (e: any) {
       const status = e?.response?.status;
       const detail = status ? `HTTP ${status}` : e?.message ? String(e.message) : 'no response (network)';
@@ -329,6 +334,8 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
       await api.disconnectGoogle();
       qc.invalidateQueries({ queryKey: ['googleStatus'] });
       qc.invalidateQueries({ queryKey: ['plannerToday'] });
+      // Plans reclaim the time those events were holding.
+      invalidateSchedules();
     } catch {
       Alert.alert('Error', 'Could not disconnect. Please try again.');
     } finally {
@@ -339,7 +346,7 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
   const handleCalResync = useCallback(async () => {
     try {
       setCalResyncing(true);
-      await api.resyncGoogleCalendar();
+      await api.googleSyncNow();
       qc.invalidateQueries({ queryKey: ['googleStatus'] });
       qc.invalidateQueries({ queryKey: ['plannerToday'] });
     } catch {
@@ -348,6 +355,38 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
       setCalResyncing(false);
     }
   }, [qc]);
+
+  // "Add routine to Google Calendar". Two paths: users who granted write access
+  // flip straight away; users who linked before this existed hold a read-only
+  // grant and must re-consent first (Google can't widen a scope silently).
+  const handleRoutineSyncToggle = useCallback(async (next: boolean) => {
+    if (routineSyncBusy) return;
+    setRoutineSyncBusy(true);
+    try {
+      if (next && !googleStatusQ.data?.write_scope_granted) {
+        calPollRef.current = setInterval(() => {
+          qc.invalidateQueries({ queryKey: ['googleStatus'] });
+        }, 3000);
+        await openGoogleCalendarAuth(false, true);
+        if (calPollRef.current) { clearInterval(calPollRef.current); calPollRef.current = null; }
+        const fresh = await api.getGoogleStatus();
+        qc.setQueryData(['googleStatus'], fresh);
+        if (!fresh.write_scope_granted) return;  // user cancelled consent
+      }
+      await api.setGoogleRoutineSync(next);
+      qc.invalidateQueries({ queryKey: ['googleStatus'] });
+      qc.invalidateQueries({ queryKey: ['plannerToday'] });
+    } catch (e: any) {
+      Alert.alert(
+        next ? 'Could not turn on calendar sync' : 'Could not turn off calendar sync',
+        'Please try again.',
+      );
+      qc.invalidateQueries({ queryKey: ['googleStatus'] });
+    } finally {
+      if (calPollRef.current) { clearInterval(calPollRef.current); calPollRef.current = null; }
+      setRoutineSyncBusy(false);
+    }
+  }, [qc, routineSyncBusy, googleStatusQ.data?.write_scope_granted]);
 
   // Stop polling + dismiss the auth sheet once connected. Keys off the RAW
   // connected flag (not calConnected, which is gated on calendar_link_enabled)
@@ -888,8 +927,8 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
                 <Text style={styles.calTitle}>Google Calendar</Text>
                 <Text style={styles.calSub}>
                   {calConnected
-                    ? 'Your calendar events appear on the planner.'
-                    : 'See your real events alongside Max tasks.'}
+                    ? 'Max plans your routine around your calendar events.'
+                    : 'Max plans around your real events instead of on top of them.'}
                 </Text>
               </View>
             </View>
@@ -920,6 +959,28 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
                   </TouchableOpacity>
                 ) : null}
 
+                {googleStatusQ.data?.write_enabled ? (
+                  <View style={styles.calToggleRow}>
+                    <View style={{ flex: 1, paddingRight: 12 }}>
+                      <Text style={styles.calToggleLabel}>Add routine to Google Calendar</Text>
+                      <Text style={styles.calToggleSub}>
+                        Puts your Max tasks on their own "Max" calendar, and keeps them
+                        in step when your plan changes.
+                      </Text>
+                    </View>
+                    {routineSyncBusy ? (
+                      <ActivityIndicator size="small" color={colors.textMuted} />
+                    ) : (
+                      <Switch
+                        value={!!googleStatusQ.data?.routine_sync_enabled}
+                        onValueChange={handleRoutineSyncToggle}
+                        trackColor={{ true: ACCENT }}
+                        accessibilityLabel="Add routine to Google Calendar"
+                      />
+                    )}
+                  </View>
+                ) : null}
+
                 <TouchableOpacity
                   style={styles.calDisconnectBtn}
                   activeOpacity={0.7}
@@ -934,7 +995,7 @@ export default function DayPlannerScreen({ embedded = false }: { embedded?: bool
             ) : (
               <>
                 <Text style={styles.calBody}>
-                  Read-only access to your primary calendar (next 60 days). Syncs every 30 minutes. Data stays on Max servers.
+                  Max reads your primary calendar (next 60 days) and builds your routine around what's already there. Syncs every 30 minutes. Data stays on Max servers.
                 </Text>
 
                 <TouchableOpacity
@@ -1437,6 +1498,25 @@ const styles = StyleSheet.create({
   calSyncTime: {
     fontFamily: fonts.sans,
     fontSize: 12.5,
+    color: colors.textMuted,
+  },
+  calToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(0,0,0,0.08)',
+    marginBottom: 4,
+  },
+  calToggleLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.foreground,
+    marginBottom: 2,
+  },
+  calToggleSub: {
+    fontSize: 12,
+    lineHeight: 16,
     color: colors.textMuted,
   },
   calDisconnectBtn: {

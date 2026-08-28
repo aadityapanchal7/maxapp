@@ -103,7 +103,22 @@ async def generate_and_persist(
             f"{maxx_id} is not in your programs. Enter it in Explore first."
         )
 
-    extras = {"wake_time": wake_time, "sleep_time": sleep_time}
+    # The user's real calendar for the generation horizon. Fetched ONCE here and
+    # threaded through user_ctx so the validator/collision passes can place the
+    # routine around actual meetings instead of on top of them. Fails open to {}.
+    from datetime import timedelta as _cal_td
+    from services.calendar_busy import calendar_busy_by_date
+    from services.schedule_streak import local_today_date as _cal_today
+    _gen_today = _cal_today(ob_ctx)
+    calendar_busy = await calendar_busy_by_date(
+        user_uuid, _gen_today, _gen_today + _cal_td(days=35), db
+    )
+
+    extras = {
+        "wake_time": wake_time,
+        "sleep_time": sleep_time,
+        "calendar_busy_by_date": calendar_busy,
+    }
     result = await _generate(
         user_id=user_id, maxx_id=maxx_id, db=db,
         onboarding=ob_ctx,
@@ -132,12 +147,21 @@ async def generate_and_persist(
     # provenance...) even when this is the user's only program (no merge pass).
     from services.task_fields import normalize_days
     normalize_days(days, maxx_id)
+    # humanize_days (inside _generate) re-spaces tasks with no knowledge of the
+    # calendar, so re-assert the invariant now that days carry real dates. Near
+    # no-op when nothing drifted back into a meeting.
+    from services.calendar_busy import apply_calendar_busy
+    days = apply_calendar_busy(days, calendar_busy)
     # user_ctx for the busy-window eviction step: the merge re-packs the morning
     # and can shove a task into a fixed obligation; pass the user's rhythm +
     # obligations (with resolved wake/sleep) so reconcile can clear them. Routed
     # through merged_user_state so face-scan gap-fills (e.g. a scan-derived
     # priority_order) reach the collision trimmer's maxx-priority tie-break.
-    recon_ctx = merged_user_state(ob_ctx, None, {"wake_time": wake_time, "sleep_time": sleep_time})
+    recon_ctx = merged_user_state(ob_ctx, None, {
+        "wake_time": wake_time,
+        "sleep_time": sleep_time,
+        "calendar_busy_by_date": calendar_busy,
+    })
     other_actives = await _load_other_active_days(user_uuid, db, except_maxx=maxx_id)
     if other_actives:
         bundle = {**other_actives, maxx_id: days}
@@ -192,6 +216,14 @@ async def generate_and_persist(
         task_count=sum(len(d.get("tasks") or []) for d in days),
         validator_retries=result.validator_retries,
     )
+
+    # Routine changed → bring the user's Google Calendar in line. The kick is
+    # debounced and single-flight, so a multi-program regeneration reconciles once.
+    try:
+        from services.gcal_mirror import kick_gcal_mirror
+        kick_gcal_mirror(user_id)
+    except Exception:
+        pass
 
     return {
         "id": str(schedule_row.id),
@@ -328,17 +360,26 @@ async def generate_first_routine_if_absent(
         cadence_days = int(sd.get("cadence_days", 14))
         budget = sd.get("daily_task_budget") or [2, 6]
 
+        from datetime import timedelta as _cal_td2
+        from services.calendar_busy import apply_calendar_busy, calendar_busy_by_date
         from services.schedule_streak import local_today_date as _ltd
+        _starter_today = _ltd(state)
+        _starter_busy = await calendar_busy_by_date(
+            user_uuid, _starter_today, _starter_today + _cal_td2(days=35), db
+        )
+        if _starter_busy:
+            state["calendar_busy_by_date"] = _starter_busy
         days = expand_skeleton(
             maxx_id=maxx_id, user_state=state, wake=wake, sleep=sleep,
             cadence_days=cadence_days, exclude_fields=missing,
-            start_date=_ltd(state),
+            start_date=_starter_today,
         )
         days = _drop_tasks_referencing(days, missing, maxx_id)
         _ok, _errs, days = validate_and_fix(
             maxx_id=maxx_id, days=days, wake_time=wake, sleep_time=sleep,
             user_ctx=state, expected_day_count=cadence_days,
             daily_task_budget=tuple(budget),
+            start_date=_starter_today,
         )
         from services.human_time import humanize_days
         humanize_days(days, state)
@@ -351,10 +392,13 @@ async def generate_first_routine_if_absent(
             )
             return None
 
-        from datetime import date as _date, timedelta as _td
-        today = _date.today()
+        from datetime import timedelta as _td
+        # User-local, not server-local: an evening-US user generating at 21:00
+        # local is already "tomorrow" in UTC, which would shift every date by a day.
+        today = _starter_today
         for i, d in enumerate(days):
             d["date"] = (today + _td(days=i)).isoformat()
+        days = apply_calendar_busy(days, _starter_busy)
 
         doc_title = (doc.display_name if doc else maxx_id) + " Plan"
         schedule_row = UserSchedule(
@@ -462,6 +506,13 @@ async def regenerate_active_schedules(
     out: list[dict] = []
     from services.schedule_streak import local_today_date as _ltd2
     today = _ltd2(state)
+    # Real calendar for the regen horizon, fetched once for ALL modules and
+    # carried on `state` so validate_and_fix + the post-regen reconcile both
+    # place around genuine commitments.
+    from services.calendar_busy import apply_calendar_busy, calendar_busy_by_date
+    _regen_busy = await calendar_busy_by_date(user_uuid, today, today + _td(days=35), db)
+    if _regen_busy:
+        state["calendar_busy_by_date"] = _regen_busy
     for sched in actives:
         mid = sched.maxx_id or ""
         if only_max and mid != only_max:
@@ -486,6 +537,10 @@ async def regenerate_active_schedules(
                 wake_time=wake, sleep_time=sleep,
                 user_ctx=state, expected_day_count=cadence_days,
                 daily_task_budget=tuple(budget),
+                # Explicit anchor: without it the pass falls back to the SERVER's
+                # today, so an evening-US user gets the wrong weekday's windows —
+                # harmless-ish for weekly rules, wrong for per-date calendar busy.
+                start_date=today,
             )
             from services.human_time import humanize_days
             humanize_days(fixed_new, state)
@@ -496,6 +551,11 @@ async def regenerate_active_schedules(
         # Stamp dates so master view + UI calendars stay correct.
         for i, d in enumerate(fixed_new):
             d["date"] = (today + _td(days=i)).isoformat()
+
+        # Re-assert the no-meeting-collision invariant after humanize_days.
+        # This is the ONLY calendar guard for single-program users: the
+        # cross-module reconcile below early-returns when there are <2 actives.
+        fixed_new = apply_calendar_busy(fixed_new, _regen_busy)
 
         # Per-schedule habit prefs live in schedule_context:
         #   excluded_catalog_ids  — series-delete ("remove this recurring task")
@@ -557,6 +617,8 @@ async def regenerate_active_schedules(
             }
             if len(bundle) >= 2:
                 recon_ctx = merged_user_state(onboarding, persistent)
+                if _regen_busy:
+                    recon_ctx["calendar_busy_by_date"] = _regen_busy
                 bundle = reconcile_schedules(bundle, user_ctx=recon_ctx, start_date=today)
                 for s in actives:
                     if s.maxx_id in bundle:
@@ -567,6 +629,15 @@ async def regenerate_active_schedules(
 
     if any(s["changed"] for s in out):
         await db.flush()
+
+    # Routine changed → bring the user's Google Calendar in line. The kick is
+    # debounced and single-flight, so a multi-program regeneration reconciles once.
+    try:
+        from services.gcal_mirror import kick_gcal_mirror
+        kick_gcal_mirror(user_id)
+    except Exception:
+        pass
+
     return out
 
 
@@ -866,6 +937,14 @@ async def adapt_and_persist(
         feedback=feedback,
         diff_ops=result.ops_applied,
     )
+
+    # Routine changed → bring the user's Google Calendar in line. The kick is
+    # debounced and single-flight, so a multi-program regeneration reconciles once.
+    try:
+        from services.gcal_mirror import kick_gcal_mirror
+        kick_gcal_mirror(user_id)
+    except Exception:
+        pass
 
     return {
         "id": str(schedule_row.id),

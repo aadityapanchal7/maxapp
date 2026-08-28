@@ -14,11 +14,17 @@ import api from '../services/api';
 // (SFSafariViewController), which reliably opens; the caller's status poll then
 // detects the connection. Either way the button always DOES something rather
 // than silently no-op-ing.
+// `includeWrite` additionally requests permission to create a "Max" calendar
+// and put the routine in it. Existing users linked before routine-sync existed
+// and hold a read-only grant, so enabling it re-runs consent — Google always
+// re-prompts here (the backend sends prompt=consent), and the extra scope is
+// calendar.app.created: write access to calendars WE make, never the user's own.
 export async function openGoogleCalendarAuth(
     includeGmail = false,
+    includeWrite = false,
 ): Promise<void> {
     const returnUrl = Linking.createURL('google-connected');
-    const { auth_url } = await api.getGoogleAuthUrl(includeGmail, returnUrl);
+    const { auth_url } = await api.getGoogleAuthUrl(includeGmail, returnUrl, includeWrite);
     if (!auth_url) {
         throw new Error('The server did not return a Google sign-in URL.');
     }

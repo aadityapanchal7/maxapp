@@ -467,6 +467,21 @@ async def _run_column_migrations():
     others.
     """
     migrations = [
+        # --- Google Calendar routine mirror -------------------------------- #
+        "ALTER TABLE calendar_connections ADD COLUMN IF NOT EXISTS app_calendar_id VARCHAR",
+        """CREATE TABLE IF NOT EXISTS gcal_event_links (
+            id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+            event_key uuid NOT NULL,
+            gcal_calendar_id varchar(255) NOT NULL,
+            gcal_event_id varchar(64) NOT NULL,
+            event_date date NOT NULL,
+            fingerprint varchar(32) NOT NULL,
+            last_pushed_at timestamptz,
+            created_at timestamptz NOT NULL DEFAULT now(),
+            CONSTRAINT uq_gcal_links_user_event_key UNIQUE (user_id, event_key)
+        )""",
+        "CREATE INDEX IF NOT EXISTS idx_gcal_links_user_date ON gcal_event_links (user_id, event_date)",
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'app'",
         "ALTER TABLE user_progress_photos ADD COLUMN IF NOT EXISTS face_rating DOUBLE PRECISION",
         "ALTER TABLE user_schedules ADD COLUMN IF NOT EXISTS schedule_type VARCHAR DEFAULT 'course'",

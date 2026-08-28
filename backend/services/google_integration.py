@@ -49,6 +49,10 @@ DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json"
 
 SCOPE_CALENDAR = "https://www.googleapis.com/auth/calendar.readonly"
 SCOPE_GMAIL = "https://www.googleapis.com/auth/gmail.readonly"
+# Write access to calendars THIS APP CREATED — never the user's own.
+# Narrower than calendar.events (which grants write on `primary`), so a bug
+# in the mirror can only ever damage the "Max" calendar we made.
+SCOPE_CALENDAR_APP = "https://www.googleapis.com/auth/calendar.app.created"
 
 SYNC_WINDOW_DAYS = 60   # ~2 months; re-sync nudge fires when < RESYNC_NUDGE_DAYS remain
 RESYNC_NUDGE_DAYS = 7   # /status returns needs_resync=True when coverage drops below this
@@ -139,10 +143,12 @@ def gmail_scan_available() -> bool:
 # OAuth
 # ---------------------------------------------------------------------------
 
-def build_auth_url(state: str, include_gmail: bool) -> str:
+def build_auth_url(state: str, include_gmail: bool, include_write: bool = False) -> str:
     scopes = [SCOPE_CALENDAR]
     if include_gmail and gmail_scan_available():
         scopes.append(SCOPE_GMAIL)
+    if include_write and getattr(settings, "gcal_write_enabled", False):
+        scopes.append(SCOPE_CALENDAR_APP)
     params = {
         "client_id": settings.google_client_id,
         "redirect_uri": settings.google_redirect_uri,
@@ -303,8 +309,15 @@ async def sync_google_calendar(user_id, db: AsyncSession) -> dict[str, int]:
     )
 
     synced = 0
+    fresh_rows: list[dict] = []
     for ev in items:
         if ev.get("status") == "cancelled":
+            continue
+        # Never re-ingest the routine WE wrote. Today this can't happen (we read
+        # only `primary`, we write to a dedicated calendar), but if the read ever
+        # widens, ingesting our own tasks as busy time would make the plan
+        # collide with itself and shrink on every regeneration.
+        if ((ev.get("extendedProperties") or {}).get("private") or {}).get("maxapp"):
             continue
         starts = _parse_gcal_time(ev.get("start") or {})
         ends = _parse_gcal_time(ev.get("end") or {})
@@ -324,9 +337,72 @@ async def sync_google_calendar(user_id, db: AsyncSession) -> dict[str, int]:
             status="confirmed",
         ))
         synced += 1
+        fresh_rows.append({
+            "starts_at": starts, "ends_at": ends,
+            "status": "confirmed", "is_busy": (transparency == "opaque"),
+            "all_day": "date" in (ev.get("start") or {}),
+            "external_event_id": str(ev.get("id") or ""), "raw": {},
+        })
     conn.last_synced_at = datetime.utcnow()
     await db.commit()
+
+    # Did their real commitments actually MOVE? This runs every 30 minutes and
+    # again on every app foreground, so a plain "we synced" trigger would
+    # regenerate plans constantly. Fingerprinting only the events that can
+    # displace a task means an unchanged calendar costs nothing.
+    try:
+        await _maybe_regen_on_calendar_drift(user_id, fresh_rows, db)
+    except Exception as e:
+        logger.warning("calendar drift check failed for %s: %s", user_id, e)
+
     return {"synced": synced}
+
+
+_DRIFT_DEBOUNCE_MINUTES = 15
+
+
+async def _maybe_regen_on_calendar_drift(user_id, rows: list[dict], db) -> None:
+    """Reflow active plans when the user's real calendar has changed shape."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from models.sqlalchemy_models import User, UserSchedule
+    from services.calendar_busy import busy_fingerprint
+
+    user = await db.get(User, user_id)
+    if user is None:
+        return
+    prof = dict(user.profile or {})
+    fp = busy_fingerprint(rows)
+    if prof.get("gcal_busy_fp") == fp:
+        return  # calendar unchanged — nothing to do
+
+    now = datetime.utcnow()
+    last = prof.get("gcal_drift_regen_at")
+    if last:
+        try:
+            if (now - datetime.fromisoformat(last)).total_seconds() < _DRIFT_DEBOUNCE_MINUTES * 60:
+                return
+        except Exception:
+            pass
+
+    has_active = (await db.execute(
+        select(UserSchedule.id).where(
+            (UserSchedule.user_id == user_id) & (UserSchedule.is_active.is_(True))
+        ).limit(1)
+    )).first() is not None
+
+    prof["gcal_busy_fp"] = fp
+    if has_active:
+        prof["gcal_drift_regen_at"] = now.isoformat()
+    user.profile = prof
+    flag_modified(user, "profile")
+    await db.commit()
+
+    if not has_active:
+        return
+    from services.schedule_runtime import regenerate_active_schedules
+    await regenerate_active_schedules(user_id=str(user_id), db=db, reason="calendar_drift")
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------

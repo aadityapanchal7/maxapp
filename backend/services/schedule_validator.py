@@ -533,7 +533,8 @@ def validate_and_fix(
     # day's waking window. Deliberately runs AFTER coherence (re-running
     # coherence here could pull a pre-workout back into a busy block). Strict
     # no-op when the user has set no per-weekday overrides and no busy windows.
-    if _has_weekly_overrides(user_ctx) or _busy_intervals_from_ctx(user_ctx):
+    if (_has_weekly_overrides(user_ctx) or _busy_intervals_from_ctx(user_ctx)
+            or bool(user_ctx.get("calendar_busy_by_date"))):
         fixed_days = _apply_day_windows(
             fixed_days, user_ctx,
             start_date=start_date or _date.today(),
@@ -1157,6 +1158,33 @@ def _busy_intervals_from_ctx(user_ctx: dict[str, Any]) -> list[tuple[int, int]]:
     return [(s, e) for s, e in merged]
 
 
+def _calendar_busy_for_date(user_ctx: dict[str, Any], iso_date: str) -> list[tuple[int, int]]:
+    """This DATE's real calendar events as (start_min, end_min).
+
+    Distinct from `_busy_intervals_from_ctx`, which returns the user's WEEKLY
+    recurring commitments. Calendar events are one-off, so they are keyed by
+    absolute date and must never ride in the per-weekday cache.
+    """
+    if not isinstance(user_ctx, dict) or not iso_date:
+        return []
+    by_date = user_ctx.get("calendar_busy_by_date")
+    if not isinstance(by_date, dict):
+        return []
+    spans = by_date.get(iso_date)
+    if not isinstance(spans, list):
+        return []
+    out: list[tuple[int, int]] = []
+    for sp in spans:
+        if not isinstance(sp, dict):
+            continue
+        st = _parse_time_field(sp.get("start"))
+        en = _parse_time_field(sp.get("end"))
+        if st is None or en is None or en <= st:
+            continue
+        out.append((st, en))
+    return out
+
+
 _WEEKDAY_NAMES = (
     "monday", "tuesday", "wednesday", "thursday",
     "friday", "saturday", "sunday",
@@ -1368,7 +1396,8 @@ def _apply_day_windows(
         if not tasks:
             continue
 
-        weekday_name = _WEEKDAY_NAMES[(start_date + _timedelta(days=di)).weekday()]
+        day_date = start_date + _timedelta(days=di)
+        weekday_name = _WEEKDAY_NAMES[day_date.weekday()]
         day_wake_min, day_sleep_min, busy, window_override = _params(weekday_name)
 
         # Build this day's effective busy list. When the day wakes later than
@@ -1376,6 +1405,11 @@ def _apply_day_windows(
         eff_busy = list(busy)
         if window_override and day_wake_min > global_wake_min:
             eff_busy.append((0, day_wake_min))
+        # The user's REAL calendar for this specific date (meetings, class,
+        # flights). Weekly obligations come from _params above; these don't
+        # recur, so they're keyed by date and merged in here.
+        cal_busy = _calendar_busy_for_date(user_ctx, (day.get("date") or day_date.isoformat()))
+        eff_busy.extend(cal_busy)
         eff_busy = _merge_intervals(eff_busy)
 
         if not eff_busy and not window_override:

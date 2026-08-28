@@ -409,6 +409,11 @@ class ScheduleService:
         schedule.is_active = False
         schedule.updated_at = datetime.utcnow()
         await db.commit()
+        try:
+            from services.gcal_mirror import kick_gcal_mirror
+            kick_gcal_mirror(user_id)
+        except Exception:
+            pass
         label = getattr(schedule, "maxx_id", None) or getattr(schedule, "course_title", None) or "schedule"
         return {"status": "stopped", "label": label}
 
@@ -427,6 +432,11 @@ class ScheduleService:
             schedule.is_active = False
             schedule.updated_at = datetime.utcnow()
         await db.commit()
+        try:
+            from services.gcal_mirror import kick_gcal_mirror
+            kick_gcal_mirror(user_id)
+        except Exception:
+            pass
         return {"status": "stopped", "maxx_id": maxx_id}
 
     async def generate_schedule(
@@ -2811,6 +2821,11 @@ class ScheduleService:
 
         # Return immediately with stats. Streak sync is deferred to background/on-demand to avoid
         # blocking on expensive multi-schedule merge operation. Mobile handles optimistic UI.
+        try:
+            from services.gcal_mirror import kick_gcal_mirror
+            kick_gcal_mirror(user_id)
+        except Exception:
+            pass
         return {"status": "completed", "completion_stats": stats}
 
     def _recalc_completion_stats_from_days(self, days: list) -> dict:
@@ -2861,6 +2876,11 @@ class ScheduleService:
 
         # Return immediately with stats. Streak sync is deferred to background/on-demand to avoid
         # blocking on expensive multi-schedule merge operation. Mobile handles optimistic UI.
+        try:
+            from services.gcal_mirror import kick_gcal_mirror
+            kick_gcal_mirror(user_id)
+        except Exception:
+            pass
         return {"status": "pending", "completion_stats": stats}
 
     def _fallback_adapt_changes_summary(
@@ -3147,6 +3167,11 @@ class ScheduleService:
         flag_modified(schedule, "days")
         schedule.updated_at = datetime.utcnow()
         await db.commit()
+        try:
+            from services.gcal_mirror import kick_gcal_mirror
+            kick_gcal_mirror(user_id)
+        except Exception:
+            pass
         return {
             "status": "updated",
             "scope": "series" if series else "instance",
@@ -3226,6 +3251,11 @@ class ScheduleService:
         flag_modified(schedule, "days")
         schedule.updated_at = datetime.utcnow()
         await db.commit()
+        try:
+            from services.gcal_mirror import kick_gcal_mirror
+            kick_gcal_mirror(user_id)
+        except Exception:
+            pass
         return {
             "status": "deleted",
             "scope": "series" if series else "instance",

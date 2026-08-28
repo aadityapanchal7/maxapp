@@ -14,6 +14,7 @@ import {
     ActivityIndicator,
     ScrollView,
     Linking,
+    Switch,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import { Alert } from '../../components/InAppAlert';
@@ -33,6 +34,7 @@ export default function GoogleCalendarConnectScreen() {
     const qc = useQueryClient();
     const [connecting, setConnecting] = useState(false);
     const [disconnecting, setDisconnecting] = useState(false);
+    const [routineSyncBusy, setRoutineSyncBusy] = useState(false);
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const statusQ = useQuery({
@@ -102,6 +104,29 @@ export default function GoogleCalendarConnectScreen() {
         }
     };
 
+    // Users who linked before routine-sync existed hold a read-only grant, so
+    // turning this on re-runs consent for the narrow write scope first.
+    const handleRoutineSync = async (next: boolean) => {
+        if (routineSyncBusy) return;
+        setRoutineSyncBusy(true);
+        try {
+            if (next && !status?.write_scope_granted) {
+                await openGoogleCalendarAuth(false, true);
+                const fresh = await api.getGoogleStatus();
+                qc.setQueryData(STATUS_QK, fresh);
+                if (!fresh.write_scope_granted) return;  // consent cancelled
+            }
+            await api.setGoogleRoutineSync(next);
+            qc.invalidateQueries({ queryKey: STATUS_QK });
+            qc.invalidateQueries({ queryKey: ['plannerToday'] });
+        } catch {
+            Alert.alert('Error', 'Could not change calendar sync. Please try again.');
+            qc.invalidateQueries({ queryKey: STATUS_QK });
+        } finally {
+            setRoutineSyncBusy(false);
+        }
+    };
+
     if (statusQ.isLoading) {
         // The status fetch retries with backoff on a bad connection — keep the
         // back chevron visible so this spinner is never a screen with no exit.
@@ -129,7 +154,7 @@ export default function GoogleCalendarConnectScreen() {
                 <Ionicons name="calendar" size={40} color={colors.foreground} style={{ marginBottom: 12 }} />
                 <Text style={styles.title}>Google Calendar</Text>
                 <Text style={styles.subtitle}>
-                    See your real calendar events alongside your Max tasks — read-only, always up to date.
+                    Max builds your routine around what's already on your calendar — instead of on top of it.
                 </Text>
             </View>
 
@@ -139,6 +164,26 @@ export default function GoogleCalendarConnectScreen() {
                         <Ionicons name="checkmark-circle" size={20} color="#4CAF50" />
                         <Text style={styles.connectedText}>Connected</Text>
                     </View>
+                    {status?.write_enabled ? (
+                        <View style={styles.toggleRow}>
+                            <View style={{ flex: 1, paddingRight: 12 }}>
+                                <Text style={styles.toggleLabel}>Add routine to Google Calendar</Text>
+                                <Text style={styles.toggleSub}>
+                                    Your Max tasks get their own "Max" calendar, kept in step
+                                    with your plan.
+                                </Text>
+                            </View>
+                            {routineSyncBusy ? (
+                                <ActivityIndicator size="small" color={colors.textMuted} />
+                            ) : (
+                                <Switch
+                                    value={!!status?.routine_sync_enabled}
+                                    onValueChange={handleRoutineSync}
+                                    accessibilityLabel="Add routine to Google Calendar"
+                                />
+                            )}
+                        </View>
+                    ) : null}
                     {status?.last_synced_at ? (
                         <Text style={styles.hint}>
                             Last synced {new Date(status.last_synced_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -159,7 +204,7 @@ export default function GoogleCalendarConnectScreen() {
             ) : (
                 <View style={styles.card}>
                     <Text style={styles.hint}>
-                        Max will read your primary calendar (next 60 days) to show events on your planner. Syncs every 30 minutes. Calendar data stays on Max servers — not shared.
+                        Max reads your primary calendar (next 60 days) and plans your routine around your events. Syncs every 30 minutes. Calendar data stays on Max servers — not shared.
                     </Text>
                     <TouchableOpacity
                         style={[styles.btn, connecting && styles.btnDisabled]}
@@ -197,6 +242,25 @@ const styles = StyleSheet.create({
     title: { fontSize: 24, fontFamily: fonts.serifSemiBold, color: colors.foreground, marginBottom: 8 },
     subtitle: { fontSize: 15, color: colors.textMuted, textAlign: 'center', lineHeight: 22 },
     card: { backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, padding: 20, marginTop: 8 },
+    toggleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 16,
+        paddingTop: 14,
+        borderTopWidth: StyleSheet.hairlineWidth,
+        borderTopColor: 'rgba(255,255,255,0.12)',
+    },
+    toggleLabel: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: colors.foreground,
+        marginBottom: 2,
+    },
+    toggleSub: {
+        fontSize: 12,
+        lineHeight: 16,
+        color: colors.textMuted,
+    },
     connectedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
     connectedText: { fontSize: 16, fontFamily: fonts.sansMedium, color: colors.foreground },
     hint: { fontSize: 13, color: colors.textMuted, lineHeight: 20 },

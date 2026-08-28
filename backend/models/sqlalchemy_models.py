@@ -6,6 +6,7 @@ from sqlalchemy import (
     Column,
     String,
     Boolean,
+    Date,
     DateTime,
     Numeric,
     Text,
@@ -571,6 +572,10 @@ class CalendarConnection(Base):
     # Fernet-encrypted token blob (replaces plaintext tokens). Nullable so
     # legacy rows (plaintext) still work via the tokens_decrypted property.
     tokens_encrypted = Column(LargeBinary, nullable=True)
+    # Id of the dedicated "Max" calendar we create in the user's account for the
+    # routine mirror. Null until the user opts in. Kept here (not on the user)
+    # because it dies with the connection.
+    app_calendar_id = Column(String(255), nullable=True)
     last_synced_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
@@ -616,6 +621,38 @@ class CalendarEvent(Base):
     __table_args__ = (
         Index("idx_calendar_events_user_id", user_id),
         Index("idx_calendar_events_starts_at", starts_at),
+    )
+
+
+class GcalEventLink(Base):
+    """One row per Max task we have mirrored into the user's Google Calendar.
+
+    This is the memory that makes the mirror idempotent. `event_key` is a uuid5
+    of (user, program, catalog_id, date) — deliberately NOT the task's
+    `task_id`, which is regenerated on every expansion, nor `task_uuid`, which
+    is keyed on day_index and therefore points at a different date after a plan
+    re-anchors. `fingerprint` lets a reconcile skip untouched events, so the
+    steady state costs zero Google API calls.
+
+    Links live here rather than on `calendar_events` because that table is
+    delete-and-reinserted wholesale every 30 minutes by the ingest job — any
+    link stored there would evaporate.
+    """
+    __tablename__ = "gcal_event_links"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"), nullable=False)
+    event_key = Column(UUID(as_uuid=True), nullable=False)
+    gcal_calendar_id = Column(String(255), nullable=False)
+    gcal_event_id = Column(String(64), nullable=False)
+    event_date = Column(Date, nullable=False)
+    fingerprint = Column(String(32), nullable=False)
+    last_pushed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "event_key", name="uq_gcal_links_user_event_key"),
+        Index("idx_gcal_links_user_date", user_id, event_date),
     )
 
 

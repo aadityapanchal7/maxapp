@@ -16,14 +16,17 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from config import settings
 from db import get_db
 from middleware.auth_middleware import get_current_user
-from models.sqlalchemy_models import CalendarConnection, CalendarEvent
+from models.sqlalchemy_models import CalendarConnection, CalendarEvent, User
 from services.google_integration import (
     build_auth_url,
     exchange_code,
+    SCOPE_CALENDAR_APP,
+    _fresh_access_token,
     gmail_scan_available,
     google_oauth_available,
     maps_available,
@@ -106,6 +109,15 @@ async def status(
         synced_through = synced_through_dt.isoformat()
         days_remaining = (synced_through_dt - datetime.now(timezone.utc)).days
         needs_resync = days_remaining < RESYNC_NUDGE_DAYS
+    # Write capability is a separate axis from "connected": a user who linked
+    # their calendar before routine-sync existed holds a read-only grant and
+    # must re-consent before we can create events for them.
+    write_enabled = bool(getattr(settings, "gcal_write_enabled", False))
+    write_scope_granted = bool(
+        connected and conn and SCOPE_CALENDAR_APP in str((conn.tokens_decrypted or {}).get("scope") or "")
+    )
+    user_row = await db.get(User, uid)
+    prof = dict((user_row.profile or {}) if user_row else {})
     return {
         "oauth_available": google_oauth_available(),
         "maps_available": maps_available(),
@@ -115,12 +127,18 @@ async def status(
         "last_synced_at": conn.last_synced_at.isoformat() if conn and conn.last_synced_at else None,
         "synced_through": synced_through,
         "needs_resync": needs_resync,
+        "write_enabled": write_enabled,
+        "write_scope_granted": write_scope_granted,
+        "needs_write_upgrade": bool(write_enabled and connected and not write_scope_granted),
+        "routine_sync_enabled": bool(prof.get("gcal_routine_sync")),
+        "max_calendar_id": (conn.app_calendar_id if conn else None),
     }
 
 
 @router.get("/connect")
 async def connect(
     include_gmail: bool = Query(default=False),
+    include_write: bool = Query(default=False),
     return_url: str | None = Query(default=None),
     current_user: dict = Depends(get_current_user),
 ):
@@ -132,7 +150,7 @@ async def connect(
         raise HTTPException(status_code=503, detail="Google OAuth is not configured")
     uid = str(_uid(current_user))
     ru = return_url if (return_url and return_url.startswith(_APP_SCHEME)) else None
-    return {"auth_url": build_auth_url(_sign_state(uid, ru), include_gmail)}
+    return {"auth_url": build_auth_url(_sign_state(uid, ru), include_gmail, include_write)}
 
 
 @router.get("/callback")
@@ -157,6 +175,27 @@ async def callback(
         await sync_google_calendar(UUID(user_id), db)
     except Exception:
         pass  # initial sync is best-effort; the poll job catches up
+
+    # Now that we can see their real commitments, reflow existing plans around
+    # them — otherwise a user who connects after enrolling keeps a routine that
+    # was built blind to their calendar until something else triggers a regen.
+    try:
+        from services.schedule_runtime import regenerate_active_schedules
+        await regenerate_active_schedules(
+            user_id=UUID(user_id), db=db, reason="calendar_connected"
+        )
+        await db.commit()
+    except Exception:
+        pass
+
+    # First populate of the Max calendar (no-op unless they've opted in and
+    # granted write scope).
+    try:
+        from services.gcal_mirror import kick_gcal_mirror
+        kick_gcal_mirror(user_id)
+    except Exception:
+        pass
+
     if return_url:
         # 302 to cannon://google-connected — ASWebAuthenticationSession sees the
         # app-scheme redirect and dismisses itself, handing control back to Max.
@@ -231,6 +270,21 @@ async def disconnect(
     )).scalars().first()
     if conn is None:
         return {"disconnected": True}
+
+    # Tear the Max calendar down FIRST — it needs a live token, and the revoke
+    # below kills that. Leaving it behind would strand a calendar the user can
+    # no longer have us clean up.
+    try:
+        from services.gcal_mirror import teardown_mirror
+        access = None
+        try:
+            access = await _fresh_access_token(conn, db)
+        except Exception:
+            pass
+        await teardown_mirror(str(uid), conn, access, db)
+    except Exception:
+        pass
+
     # Best-effort revoke with Google
     refresh_token = conn.tokens_decrypted.get("refresh_token")
     if refresh_token:
@@ -252,8 +306,95 @@ async def disconnect(
     conn.is_active = False
     conn.tokens = None
     conn.tokens_encrypted = None
+    conn.app_calendar_id = None
+
+    # Forget the opt-in so a future reconnect starts from consent, not from a
+    # stale "yes" the user gave before disconnecting.
+    user_row = await db.get(User, uid)
+    if user_row is not None:
+        prof = dict(user_row.profile or {})
+        if prof.pop("gcal_routine_sync", None) is not None or prof.pop("gcal_busy_fp", None) is not None:
+            user_row.profile = prof
+            flag_modified(user_row, "profile")
+
     await db.commit()
+
+    # Their plans were shaped around calendar events we can no longer see —
+    # reclaim that time.
+    try:
+        from services.schedule_runtime import regenerate_active_schedules
+        await regenerate_active_schedules(user_id=uid, db=db, reason="calendar_disconnected")
+        await db.commit()
+    except Exception:
+        pass
+
     return {"disconnected": True}
+
+
+@router.post("/routine-sync")
+async def set_routine_sync(
+    payload: dict = Body(default={}),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Turn the "put my routine on Google Calendar" mirror on or off."""
+    uid = _uid(current_user)
+    enabled = bool(payload.get("enabled"))
+
+    conn = (await db.execute(
+        select(CalendarConnection).where(
+            (CalendarConnection.user_id == uid)
+            & (CalendarConnection.provider == "google")
+            & (CalendarConnection.is_active.is_(True))
+        )
+    )).scalars().first()
+
+    if enabled:
+        if not getattr(settings, "gcal_write_enabled", False):
+            raise HTTPException(status_code=503, detail="Routine sync is not available yet.")
+        if conn is None:
+            raise HTTPException(status_code=409, detail="Connect Google Calendar first.")
+        if SCOPE_CALENDAR_APP not in str((conn.tokens_decrypted or {}).get("scope") or ""):
+            # The client should re-run consent with include_write=true.
+            raise HTTPException(status_code=409, detail="needs_write_scope")
+
+    user_row = await db.get(User, uid)
+    if user_row is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    prof = dict(user_row.profile or {})
+    prof["gcal_routine_sync"] = enabled
+    user_row.profile = prof
+    flag_modified(user_row, "profile")
+    await db.commit()
+
+    if enabled:
+        try:
+            from services.gcal_mirror import kick_gcal_mirror
+            kick_gcal_mirror(str(uid), delay=0.5)
+        except Exception:
+            pass
+    elif conn is not None:
+        # Opting out removes the calendar — leaving a frozen copy of a routine
+        # that no longer updates would be worse than none at all.
+        try:
+            from services.gcal_mirror import teardown_mirror
+            access = await _fresh_access_token(conn, db)
+            await teardown_mirror(str(uid), conn, access, db)
+            await db.commit()
+        except Exception:
+            pass
+
+    return {"routine_sync_enabled": enabled}
+
+
+@router.post("/mirror")
+async def mirror_now(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Force a reconcile now (support/debug parity with POST /sync)."""
+    from services.gcal_mirror import mirror_user_calendar
+    return await mirror_user_calendar(str(_uid(current_user)), db)
 
 
 @router.post("/proposed/{event_id}")

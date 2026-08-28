@@ -287,6 +287,22 @@ class Settings(BaseSettings):
         default=True,
         description="Google Calendar link feature (calendar.readonly). Set CALENDAR_LINK_ENABLED=false to hide.",
     )
+    calendar_aware_generation_enabled: bool = Field(
+        default=True,
+        description=(
+            "Project the user's real calendar events into schedule generation so "
+            "routine tasks are never placed on top of a meeting. Fails open: any "
+            "error yields an empty busy map and generation behaves as before."
+        ),
+    )
+    gcal_write_enabled: bool = Field(
+        default=False,
+        description=(
+            "Mirror the Max routine into a dedicated app-created Google calendar "
+            "(calendar.app.created scope). Ships dark; set GCAL_WRITE_ENABLED=true "
+            "once verified against a real account."
+        ),
+    )
     # Google Sign-In (identity) client IDs per platform. The web/expo client id
     # is the audience an ID token is minted for; iOS gets its own. Both fall
     # back to google_client_id so a single OAuth client also works.

@@ -1023,6 +1023,14 @@ async def sync_google_calendars():
                 try:
                     async with AsyncSessionLocal() as db:
                         await sync_google_calendar(uid, db)
+                        # Backstop for the routine mirror: converges anything a
+                        # dropped in-request kick missed (process restart, crash).
+                        if getattr(settings, "gcal_write_enabled", False):
+                            try:
+                                from services.gcal_mirror import mirror_user_calendar
+                                await mirror_user_calendar(str(uid), db)
+                            except Exception as e:
+                                logger.warning("gcal mirror failed for %s: %s", uid, e)
                 except Exception as e:
                     logger.warning("google calendar poll failed for %s: %s", uid, e)
 

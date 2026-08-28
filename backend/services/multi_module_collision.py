@@ -540,7 +540,9 @@ def _evict_busy_windows(
     from services.schedule_validator import (
         _WEEKDAY_NAMES,
         _busy_intervals_from_ctx,
+        _calendar_busy_for_date,
         _effective_day_ctx,
+        _merge_intervals,
         _sleep_minutes_normalized,
     )
     from services.schedule_dsl import (
@@ -570,8 +572,16 @@ def _evict_busy_windows(
         return cache[wd]
 
     for di in range(day_count):
-        wd = _WEEKDAY_NAMES[(start_date + _td(days=di)).weekday()]
+        day_date = start_date + _td(days=di)
+        wd = _WEEKDAY_NAMES[day_date.weekday()]
         wake_min, sleep_rel, busy, overnight = _params(wd)
+        # Real calendar events for THIS date get identical treatment to the
+        # user's recurring obligations: tasks are packed into the gaps around
+        # them rather than walked forward, so a morning crowded by meetings
+        # compacts to fit instead of spilling into them.
+        cal_busy = _calendar_busy_for_date(user_ctx, day_date.isoformat())
+        if cal_busy:
+            busy = _merge_intervals(list(busy) + cal_busy)
         if not busy:
             continue
 

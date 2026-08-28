@@ -62,6 +62,13 @@ async def ensure_plan_horizon(user: User, db: AsyncSession) -> dict[str, int]:
     today = local_today_date(ob)
     out = {"native_regens": 0, "course_extensions": 0, "completed_courses": 0}
 
+    # One fetch shared by every course extension below (native regens get their
+    # own inside regenerate_active_schedules).
+    from services.calendar_busy import calendar_busy_by_date as _cal_fetch
+    _horizon_busy = await _cal_fetch(
+        user.id, today, today + timedelta(days=HORIZON_MIN_DAYS + COURSE_CHUNK_DAYS + 7), db
+    )
+
     rows = list((await db.execute(
         select(UserSchedule).where(
             (UserSchedule.user_id == user.id) & (UserSchedule.is_active.is_(True))
@@ -99,6 +106,7 @@ async def ensure_plan_horizon(user: User, db: AsyncSession) -> dict[str, int]:
                 appended = _extend_course_days(
                     sched, course, ob, start=last + timedelta(days=1),
                     n_days=remaining,
+                    calendar_busy_by_date=_horizon_busy,
                 )
                 if appended:
                     flag_modified(sched, "days")
@@ -122,11 +130,21 @@ async def ensure_plan_horizon(user: User, db: AsyncSession) -> dict[str, int]:
             logger.warning("native horizon regen failed (non-fatal): %s", e)
 
     await db.commit()
+
+    # Course-day extensions append days without going through the runtime
+    # engines, so they need their own nudge for the mirror to follow.
+    try:
+        from services.gcal_mirror import kick_gcal_mirror
+        kick_gcal_mirror(str(user.id))
+    except Exception:
+        pass
+
     return out
 
 
 def _extend_course_days(
-    sched: UserSchedule, course: dict | None, ob: dict, *, start: date, n_days: int
+    sched: UserSchedule, course: dict | None, ob: dict, *, start: date, n_days: int,
+    calendar_busy_by_date: dict | None = None,
 ) -> int:
     """Append the next chunk of course session days, same placement logic the
     initial build used (workout window, protected spans, friendly grid)."""
@@ -139,6 +157,7 @@ def _extend_course_days(
     )
     from services.schedule_validator import (
         _busy_intervals_from_ctx,
+        _calendar_busy_for_date,
         _effective_day_ctx,
         _WEEKDAY_NAMES,
     )
@@ -181,7 +200,14 @@ def _extend_course_days(
             eff = _effective_day_ctx(state, wd, global_wake=g_wake, global_sleep=g_sleep)
             day_state = {**state, **{k: v for k, v in eff.items() if v is not None}}
             w = life_windows(day_state)
-            busy = sorted(_busy_intervals_from_ctx(eff))
+            # Weekly obligations + this DATE's real calendar events, so a
+            # course session lands in a genuine gap rather than mid-meeting.
+            busy = sorted(
+                _busy_intervals_from_ctx(eff)
+                + _calendar_busy_for_date(
+                    {"calendar_busy_by_date": calendar_busy_by_date or {}}, d.isoformat()
+                )
+            )
             win_lo, win_hi = resolve_workout_window(day_state)
             cursor = win_lo
             slot = None

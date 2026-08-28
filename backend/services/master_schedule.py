@@ -98,6 +98,17 @@ async def build_master_view(
     if user_row is not None:
         from services.user_context_service import merged_user_state
         user_ctx = merged_user_state(dict(user_row.onboarding or {}), None)
+        # Feed the display merge the user's real calendar too, so the plan the
+        # user LOOKS at is repositioned around meetings added since the last
+        # regeneration — not just the plan that was persisted.
+        try:
+            from services.calendar_busy import calendar_busy_by_date
+            _view_anchor = _parse_iso(today_iso) or date.today()
+            user_ctx["calendar_busy_by_date"] = await calendar_busy_by_date(
+                user_uuid, _view_anchor, _view_anchor + timedelta(days=days + 1), db
+            )
+        except Exception:
+            pass
     by_max = reconcile_schedules(by_max, user_ctx=user_ctx)
 
     # 3) Bucket by date.

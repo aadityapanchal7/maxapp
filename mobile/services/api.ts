@@ -1947,6 +1947,13 @@ class ApiService {
         last_synced_at: string | null;
         synced_through: string | null;
         needs_resync: boolean;
+        // Routine-sync (writing Max's plan INTO Google) is a separate axis from
+        // `connected`: users who linked before it existed hold a read-only grant.
+        write_enabled?: boolean;
+        write_scope_granted?: boolean;
+        needs_write_upgrade?: boolean;
+        routine_sync_enabled?: boolean;
+        max_calendar_id?: string | null;
     }> {
         const response = await this.client.get('google/status');
         return response.data;
@@ -1957,20 +1964,29 @@ class ApiService {
         return response.data;
     }
 
-    async resyncGoogleCalendar(): Promise<{ synced: number }> {
-        const response = await this.client.post('google/sync');
-        return response.data;
-    }
-
-    async getGoogleAuthUrl(includeGmail = false, returnUrl?: string): Promise<{ auth_url: string }> {
+    async getGoogleAuthUrl(
+        includeGmail = false,
+        returnUrl?: string,
+        includeWrite = false,
+    ): Promise<{ auth_url: string }> {
         const response = await this.client.get('google/connect', {
-            params: { include_gmail: includeGmail, ...(returnUrl ? { return_url: returnUrl } : {}) },
+            params: {
+                include_gmail: includeGmail,
+                include_write: includeWrite,
+                ...(returnUrl ? { return_url: returnUrl } : {}),
+            },
         });
         return response.data;
     }
 
     async googleSyncNow(): Promise<{ synced: number }> {
         const response = await this.client.post('google/sync');
+        return response.data;
+    }
+
+    /** Turn the "put my routine on Google Calendar" mirror on or off. */
+    async setGoogleRoutineSync(enabled: boolean): Promise<{ routine_sync_enabled: boolean }> {
+        const response = await this.client.post('google/routine-sync', { enabled });
         return response.data;
     }
 
